@@ -5,9 +5,308 @@
     <link>https://kingjcy.github.io/</link>
     <language>en-us</language>
     <author></author>
-    <rights>(C) 2014</rights>
-    <updated>2014-08-29 09:29:40 &#43;0800 CST</updated>
+    <rights>(C) 2019</rights>
+    <updated>2019-05-10 14:53:02 &#43;0800 CST</updated>
 
+    
+      
+        <item>
+          <title>算法思想系列---- gossip</title>
+          <link>https://kingjcy.github.io/post/algorithm/gossip/</link>
+          <pubDate>Fri, 10 May 2019 14:53:02 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/algorithm/gossip/</guid>
+          <description>&lt;p&gt;Gossip 是基于流行病传播方式的节点或者进程之间信息交换的协议&lt;/p&gt;
+
+&lt;p&gt;过程是由种子节点发起，当一个种子节点有状态需要更新到网络中的其他节点时，它会随机的选择周围几个节点散播消息，收到消息的节点也会重复该过程，直至最终网络中所有的节点都收到了消息。这个过程可能需要一定的时间，由于不能保证某个时刻所有节点都收到消息，但是理论上最终所有节点都会收到消息，因此它是一个最终一致性协议。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Gossip 演示&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;现在，我们通过一个具体的实例来深入体会一下 Gossip 传播的完整过程&lt;/p&gt;
+
+&lt;p&gt;为了表述清楚，我们先做一些前提设定&lt;/p&gt;
+
+&lt;p&gt;1、Gossip 是周期性的散播消息，把周期限定为 1 秒&lt;/p&gt;
+
+&lt;p&gt;2、被感染节点随机选择 k 个邻接节点（fan-out）散播消息，这里把 fan-out 设置为 3，每次最多往 3 个节点散播。&lt;/p&gt;
+
+&lt;p&gt;3、每次散播消息都选择尚未发送过的节点进行散播&lt;/p&gt;
+
+&lt;p&gt;4、收到消息的节点不再往发送节点散播，比如 A -&amp;gt; B，那么 B 进行散播的时候，不再发给 A。&lt;/p&gt;
+
+&lt;p&gt;这里一共有 16 个节点，节点 1 为初始被感染节点，通过 Gossip 过程，最终所有节点都被感染：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/gossip&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Gossip 的特点（优势）&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1）扩展性&lt;/p&gt;
+
+&lt;p&gt;网络可以允许节点的任意增加和减少，新增加的节点的状态最终会与其他节点一致。&lt;/p&gt;
+
+&lt;p&gt;2）容错&lt;/p&gt;
+
+&lt;p&gt;网络中任何节点的宕机和重启都不会影响 Gossip 消息的传播，Gossip 协议具有天然的分布式系统容错特性。&lt;/p&gt;
+
+&lt;p&gt;3）去中心化&lt;/p&gt;
+
+&lt;p&gt;Gossip 协议不要求任何中心节点，所有节点都可以是对等的，任何一个节点无需知道整个网络状况，只要网络是连通的，任意一个节点就可以把消息散播到全网。&lt;/p&gt;
+
+&lt;p&gt;4）一致性收敛&lt;/p&gt;
+
+&lt;p&gt;Gossip 协议中的消息会以一传十、十传百一样的指数级速度在网络中快速传播，因此系统状态的不一致可以在很快的时间内收敛到一致。消息传播速度达到了 logN。&lt;/p&gt;
+
+&lt;p&gt;5）简单&lt;/p&gt;
+
+&lt;p&gt;Gossip 协议的过程极其简单，实现起来几乎没有太多复杂性。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Gossip 的缺陷&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;分布式网络中，没有一种完美的解决方案，Gossip 协议跟其他协议一样，也有一些不可避免的缺陷，主要是两个：&lt;/p&gt;
+
+&lt;p&gt;1）消息的延迟&lt;/p&gt;
+
+&lt;p&gt;由于 Gossip 协议中，节点只会随机向少数几个节点发送消息，消息最终是通过多个轮次的散播而到达全网的，因此使用 Gossip 协议会造成不可避免的消息延迟。不适合用在对实时性要求较高的场景下。&lt;/p&gt;
+
+&lt;p&gt;2）消息冗余&lt;/p&gt;
+
+&lt;p&gt;Gossip 协议规定，节点会定期随机选择周围节点发送消息，而收到消息的节点也会重复该步骤，因此就不可避免的存在消息重复发送给同一节点的情况，造成了消息的冗余，同时也增加了收到消息的节点的处理压力。而且，由于是定期发送，因此，即使收到了消息的节点还会反复收到重复消息，加重了消息的冗余。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Gossip 类型&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Gossip 有两种类型：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Anti-Entropy（反熵）：以固定的概率传播所有的数据
+Rumor-Mongering（谣言传播）：仅传播新到达的数据
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Anti-Entropy 是 SI model，节点只有两种状态，Suspective 和 Infective，叫做 simple epidemics。&lt;/p&gt;
+
+&lt;p&gt;Rumor-Mongering 是 SIR model，节点有三种状态，Suspective，Infective 和 Removed，叫做 complex epidemics。&lt;/p&gt;
+
+&lt;p&gt;其实，Anti-entropy 反熵是一个很奇怪的名词，之所以定义成这样，Jelasity 进行了解释，因为 entropy 是指混乱程度（disorder），而在这种模式下可以消除不同节点中数据的 disorder，因此 Anti-entropy 就是 anti-disorder。换句话说，它可以提高系统中节点之间的 similarity。&lt;/p&gt;
+
+&lt;p&gt;在 SI model 下，一个节点会把所有的数据都跟其他节点共享，以便消除节点之间数据的任何不一致，它可以保证最终、完全的一致。&lt;/p&gt;
+
+&lt;p&gt;由于在 SI model 下消息会不断反复的交换，因此消息数量是非常庞大的，无限制的（unbounded），这对一个系统来说是一个巨大的开销。&lt;/p&gt;
+
+&lt;p&gt;但是在 Rumor Mongering（SIR Model） 模型下，消息可以发送得更频繁，因为消息只包含最新 update，体积更小。而且，一个 Rumor 消息在某个时间点之后会被标记为 removed，并且不再被传播，因此，SIR model 下，系统有一定的概率会不一致。&lt;/p&gt;
+
+&lt;p&gt;而由于，SIR Model 下某个时间点之后消息不再传播，因此消息是有限的，系统开销小。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Gossip 中的通信模式&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;在 Gossip 协议下，网络中两个节点之间有三种通信方式:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Push: 节点 A 将数据 (key,value,version) 及对应的版本号推送给 B 节点，B 节点更新 A 中比自己新的数据
+Pull：A 仅将数据 key, version 推送给 B，B 将本地比 A 新的数据（Key, value, version）推送给 A，A 更新本地
+Push/Pull：与 Pull 类似，只是多了一步，A 再将本地比 B 新的数据推送给 B，B 则更新本地
+如果把两个节点数据同步一次定义为一个周期，则在一个周期内，Push 需通信 1 次，Pull 需 2 次，Push/Pull 则需 3 次。虽然消息数增加了，但从效果上来讲，Push/Pull 最好，理论上一个周期内可以使两个节点完全一致。直观上，Push/Pull 的收敛速度也是最快的。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;redis cluster gossip&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;strong&gt;协议解析&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;cluster gossip协议定义在在ClusterMsg这个结构中，源码如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;typedef struct {
+    char sig[4];        /* Signature &amp;quot;RCmb&amp;quot; (Redis Cluster message bus). */
+    uint32_t totlen;    /* Total length of this message */
+    uint16_t ver;       /* Protocol version, currently set to 1. */
+    uint16_t port;      /* TCP base port number. */
+    uint16_t type;      /* Message type */
+    uint16_t count;     /* Only used for some kind of messages. */
+    uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
+    uint64_t configEpoch;   /* The config epoch if it&#39;s a master, or the last
+                               epoch advertised by its master if it is a
+                               slave. */
+    uint64_t offset;    /* Master replication offset if node is a master or
+                           processed replication offset if node is a slave. */
+    char sender[CLUSTER_NAMELEN]; /* Name of the sender node */
+    unsigned char myslots[CLUSTER_SLOTS/8];
+    char slaveof[CLUSTER_NAMELEN];
+    char myip[NET_IP_STR_LEN];    /* Sender IP, if not all zeroed. */
+    char notused1[34];  /* 34 bytes reserved for future usage. */
+    uint16_t cport;      /* Sender TCP cluster bus port */
+    uint16_t flags;      /* Sender node flags */
+    unsigned char state; /* Cluster state from the POV of the sender */
+    unsigned char mflags[3]; /* Message flags: CLUSTERMSG_FLAG[012]_... */
+    union clusterMsgData data;
+} clusterMsg;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以对此结构将消息分为三部分：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1、sender的基本信息
+
+2、集群视图的基本信息
+
+3、具体的消息，对应clsuterMsgData结构中的数据
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;strong&gt;运转机制&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;通过gossip协议，cluster可以提供集群间状态同步更新、选举自助failover等重要的集群功能。&lt;/p&gt;
+
+&lt;p&gt;1、握手联结&lt;/p&gt;
+
+&lt;p&gt;客户端给节点X发送cluster meet 节点Y的请求后，节点X之后就会尝试主从和节点Y建立连接。此时在节点X中保存节点Y的状态是：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;CLUSTER_NODE_HANDSHAKE：表示节点Y正处于握手状态，只有收到来自节点Y的ping、pong、meet其中一种消息后该状态才会被清除
+
+CLUSTER_NODE_MEET：表示还未给节点Y发送meet消息，一旦发送该状态清除，不管是否成功
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;以下是meet过程：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;（0）节点X通过getRandomHexChars这个函数给节点Y随机生成nodename
+（1）节点X 在clusterCron运转时会从cluster-&amp;gt;nodes列表中获取未建立tcp连接，如未发送过meet，发送CLUSTERMSG_TYPE_MEET，节点Y收到meet消息后：
+（2）查看节点X还未建立握手成功，比较sender发送过来的消息，更新本地关于节点X的信息
+（3）查看节点X在nodes不存在，添加X进nodes，随机给X取nodename。状态设置为CLUSTER_NODE_HANDSHAKE
+（4）进入gossip处理这个gossip消息携带的集群其他节点的信息，给集群其他节点建立握手。
+（5）给节点X发送CLUSTERMSG_TYPE_PONG，节点Y处理结束（注意此时节点Y的clusterReadHandler函数link-&amp;gt;node为NULL）。
+（6）节点X收到pong后，发现和节点Y正处在握手阶段，更新节点Y的地址和nodename，清除CLUSTER_NODE_HANDSHAKE状态。
+（7）节点X在cron()函数中将给未建立连接的节点Y发送ping
+（8）节点Y收到ping后给节点X发送pong
+（9）节点X将保存的节点Y的状态CLUSTER_NODE_HANDSHAKE清除，更新一下nodename和地址，至此握手完成，两个节点都保存相同的nodename和信息。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;看完整个握手过程后，我们尝试思考两个问题：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1、如果发送meet失败后，节点X的状态CLUSTER_NODE_MEET状态又被清除了，cluster会如何处理呢？
+
+这时候节点Y在下一个clusterCron()函数中会直接给节点Y发送ping，但是不会将节点X存入cluster-&amp;gt;nodes，导致节点X认为已经建立连接，然而节点Y并没有承认。在后面节点传播中，如果有其他节点持有节点X的信息并给节点Y发送ping，也会触发节点Y主动再去给节点X发送meet建立连接。
+
+2、如果节点Y已经有存储节点X，但还是收到了节点X的meet请求，如何处理？
+
+nodename相同：
+
+（1）节点Y发送pong给节点X
+（2）如果正处于握手节点，会直接删除节点，这里会导致节点Y丢失了节点X的消息。相当于问题1。
+（3）非握手阶段往下走正常的ping流程
+
+nodename不同：
+
+（1）节点Y重新创建一个随机nodename放入nodes中并设置为握手阶段，此时有两个nodename存在。
+（2）节点Y发送pong给节点X
+（3）节点Y如果已经创建过和节点X的连接，节点Y会在本地更新节点X的nodename，删除第一个nodename存储的node，更新握手状态，此时只剩下第二个正确的nodename。
+（4）节点Y如果没创建过和节点X的链接，会在clustercron(）中再次给节点X发送ping请求，两个nodename会先后各发送一次。
+（5）第一个nodename发送ping后，在收到节点X回复的pong中，更新节点X的nodename
+（6）第二个nodename发送ping后，在收到节点X回复的pong中，发送节点X的nodename已经存在，第二个nodename处于握手状态，这时候直接删除了第二个nodename。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;结论：只有nodename相同并且两个节点都在握手阶段，会导致其中一个节点丢掉另外一个节点。&lt;/p&gt;
+
+&lt;p&gt;2、健康检测及failover&lt;/p&gt;
+
+&lt;p&gt;故障failover表现在一个master分片故障后，slave接管master的过程。&lt;/p&gt;
+
+&lt;p&gt;探测阶段&lt;/p&gt;
+
+&lt;p&gt;集群中的所有分片通过gossip协议传递。探测步骤为：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;（1）在cron中非遍历cluster nodes做ping发送，随机从5个节点中选出最老pong_recv的节点发送ping，再遍历节点中pong_recv &amp;gt; timeout/2的节点发送ping。
+（2）再遍历每个节点从发出ping包后超时没有收到pong包的时间，超时将对应的分片设置为pfail状态，在跟其他节点的gossip包过程中，每个节点会带上被标记为pfail状态的包。
+（3）每个正常分片收到ping包后，统计集群中maste分片将故障节点设置为pfail， 超过一半以上的节点设置为pfail， 则将节点设置为fail状态。如果这个分片属于故障节点的slave节点，则主动广播故障节点为fail状态。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;准备阶段&lt;/p&gt;
+
+&lt;p&gt;在cron函数中，slave节点获取到master节点状态为fail，主动发起一次failover操作，该操作并不是立即执行，而是设计了多个限制：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;（1）过期的超时不执行。如何判断是够过期？ data_age = 当前时间点-上次master失联的时间点-超时时间
+如果data_age &amp;gt; master到slave的ping间隔时间+超时时间*cluster_slave_validity_factor， 则认为过期。cluster_slave_validity_factor是一个配置项，cluster_slave_validity_factor 设置的越小越不容易触发failover。
+（2）计算出一个延迟执行的时间failover_auth_time， failover_auth_time = 当前时间 + 500ms + 0-500ms的随机值 + 当前slave的rank*1s,  rank按已同步的offset计算，offset同步的越延迟，rank值越大，该slave 就越推迟触发failover的时间，以此来避免多个slave同时failover。只有当前时间到failover_auth_time的时间点才会执行failover。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;执行阶段&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;（1）将currentEpoch自增，再赋值给failover_auth_epoch
+（2）向其他master分片发起failover投票，等待投票结果
+（3）其他master分片收到CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST请求后，会判断是否符合以下情况：
+    epoch必须&amp;gt;=所有集群视图的master节点的epoch
+    发起者是slave
+    slave的master已是fail状态
+    在相同epoch内只投票一次
+    在超时时间（cluster_node_timeout）* 2的时间内只投票一次
+（4）其他master回复CLUSTERMSG_TYPE_FAILOVER_AUTH_ACK，slave端收到后做统计
+（5）在cron中判断统计超过一半以上master回复，开始执行failover
+（6）标记自身节点为master
+（7）清理复制链路
+（8）重置集群拓扑结构信息
+（9）向集群内所有节点广播
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;下图以3个节点集群来说明核心的流程：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/gossip&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;人为failover&lt;/p&gt;
+
+&lt;p&gt;人为failover支持三种模式的failover：缺省、force、takeover。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;缺省
+（1）给master 发送CLUSTERMSG_TYPE_MFSTART
+（2）master收到后设置clients_pause_end_time = 当前时间+ 5s*2，clients_paused =1 ,客户端暂停所有请求，新建请求会被加到block client list。
+（3）master在ping包中带上repl_offset的信息
+（4）slave检查master的repl_offset，确认同步已完成
+（5）设置mf_can_start = 1，在cron中开始正常的failover流程，不需要像故障failover设置推迟执行而是立即执行操作, 而且其他master投票时不需要考虑master是否为fail状态。
+d54774ec3fd454baae06fce5a870c633a3474835
+force
+忽略主备同步的状态，设置mf_can_start = 1，标记failover开始。
+takeover
+直接执行故障failover的第6-9步，忽略主备同步，忽略集群其他master的投票。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;3、状态更新及冲突解决&lt;/p&gt;
+
+&lt;p&gt;假如出现两个master的时候gossip协议是如何处理冲突的呢？&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;首先要理解两个重要的变量：
+
+configEpoch： 每个分片有唯一的epoch值，主备epoch应该一致
+
+currentEpoch：集群当前的epoch，=集群中最大分片的epoch
+
+在ping包中会自带sender节点的slots信息和currentEpoch, configEpoch。
+
+master节点收到来自slave节点后的处理流程：
+
+（1）receiver比较sender的角色，
+
+如果sender认为自己是master，但是在receiver被标记为slave，则receiver节点在集群视图中将sender标记为master。
+
+如果sender认为自己是slave，但是在receiver被标记为master, 则在receiver的集群视图中将sender标记为slave, 加入到sender标记的master中，并且删除sender在reciver集群视图中的slots信息。
+
+（2）比较sender自带的slot信息和receiver集群视图中的slots是否冲突，有冲突则进行下一步比较
+
+（3）比较sender的configEpoch 是否 &amp;gt; receiver集群视图中的slots拥有者的configepoch，如是在clusterUpdateSlotsConfigWith函数中重新设置slots拥有者为sender，并且将旧slots拥有者设置为sender的slave，再比较本节点是有脏slot, 有则清除掉。
+
+（4）比较sender自身的slots信息 &amp;lt; receiver集群视图中的slots拥有者的configepoch，发送update信息，通知sender更新，sender节点也会执行clusterUpdateSlotsConfigWith函数。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果两个节点的configEpoch, currentEpoch，角色都是master， 这时候如何处理呢？&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;receiver的currentEpoch自增并且赋值给configEpoch，也就是强制自增来解决冲突。这时候因为configEpoch大，又可以走回上文的流程。
+
+所以可能存在双master同时存在的情况，但是最终会挑选出新的master。
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+        </item>
+      
     
       
         <item>
