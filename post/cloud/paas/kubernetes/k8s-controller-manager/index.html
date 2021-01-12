@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="kube-controller-manager  controller-manager是管理器的控制者。使用是集群管理控制中心。内部对应控制器如下
+他们通过API Server提供的接口实时监控整个集群里的每一个资源对象的当前状态，当发生各种故障导致系统状态发生变化，这些controller会尝试将系统从“现有装态”修正到“期望状态”。
+ replication controller
+ replication controller副本控制 ,副本控制器的核心作用是确保任何使用集群中的一个RC所关联的Pod副本数量保持预设的值。当然他是通过rc机制实现的。
+RC中的Pod模板就像一个模具，模具制作出来的东西一旦离开模具，二者将毫无关系，一旦pod创建，无论模板如何变化都不会影响到已经创建的pod，并且删除一个RC 不会影响它所创建出来的Pod，当然如果想在RC控制下，删除所有的Pod，需要将RC中设置的pod的副本数该为0，这样才会自动删除所有的Pod。
+1. 重新调度 就是上面说的能确保规定数量的pod运行 2. 弹性伸缩 可以通过spec.replicas来改变pod的数量 3. 滚动更新 新建一个rc为一个副本，然后减少原来的副本数量一个，一个增加，一个减少，直到原始的为0   node controller节点管理。
+ 首先我们需要了解kubelet通过apiserver向etcd中存储的节点信息（有节点健康状况，节点资源，节点名称地址，操作系统版本，docker版本，kubelet版本等等），其中一个节点健康状况分为三种True，false，unknown三种状态，也是最直接的节点状态
+然后这个控制器就会重etcd中逐个节点读取这些状态，将来自kubelet状态来改变node controller中nodestatusmap中状态，对于状态不对的node节点加入一个队列，等待确认node是否有问题，有问题就进行信息同步，并且删除节点。
+具体步骤
+ - 如果controller manager在启动时设置了--cluster-cidr，那么为每一个没有设置spec.PodCIDR的节点生成一个CIDR地址，并用该地址设置节点的spec.PodCIDR属性。 - 逐个读取节点信息，此时node controller中有一个nodestatusMap，里面存储了信息，与新发送过来的节点信息做比较，并更新nodestatusMap中的节点信息。Kubelet发送过来的节点信息，有三种情况：未发送、发送但节点信息未变化、发送并且节点信息变化。此时node controller根据发送的节点信息，更新nodestatusMap，如果判断出在某段时间内没有接受到某个节点的信息，则设置节点状态为“未知”。 - 最后，将未就绪状态的节点加入到待删除队列中，待删除后，通过API Server将etcd中该节点的信息删除。如果节点为就绪状态，那么就向etcd中同步该节点信息。   resourcequota controller资源配额
+ 这一个功能十分必要，它确保任何对象任何时候都不会超量占用资源，确保来系统的稳定性。目前k8s支持三个层次的资源配额
+1. 容器级别 可以限制cpu和memory 2. pod级别 对pod内所有容器的可用资源进行限制 3. namespace级别 pod数量，rc数量 service数量，rq数量，secret数量，persistent volume数量  实现机制：准入机制（admission caotrol），admission control当前提供了两种方式的配额约束，分别是limitRanger和resourceQuota。其中limitRanger作用于pod和容器上。ResourceQuota作用于namespace上，用于限定一个namespace里的各类资源的使用总额。
+在etcd中会维护一个资源配额记录，每次用户通过apiserver进行请求时，这个控制器会先进行计算，如果资源不过就会拒绝请求。
+从上图中，我们可以看出，大概有三条路线，resourceQuota controller在这三条路线中都起着重要的作用：
+如果用户在定义pod时同时声明了limitranger，则用户通过API Server请求创建或者修改资源对象，这是admission control会计算当前配额的使用情况，不符合约束的则创建失败。（一、三） 对于定义了resource Quota的namespace，resourceQuota controller会定期统计和生成该namespace下的各类对象资源使用总量，统计结果包括：pod、service、RC、secret和PV等对象的实例个数，以及该namespace下所有的container实例所使用的资源量（CPU，memory），然后会将这些结果写入到etcd中，写入的内容为资源对象名称、配额制、使用值，然后admission control会根据统计结果判断是否超额，以确保相关namespace下的资源配置总量不会超过resource Quota的限定值。（二、三）   namespace controller">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="K8s组件系列（三）---- K8s controller manager 详解 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    K8s组件系列（三）---- K8s controller manager 详解
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年11月24日 
+                </div>
+                <h1 class="post-title">K8s组件系列（三）---- K8s controller manager 详解</h1>
+            </header>
+
+            <div class="post-content">
+                
+
+<blockquote>
+<h3 id="kube-controller-manager">kube-controller-manager</h3>
+</blockquote>
+
+<p>controller-manager是管理器的控制者。使用是集群管理控制中心。内部对应控制器如下</p>
+
+<p><img src="/media/cloud/k8s/controller" alt="" /></p>
+
+<p>他们通过API Server提供的接口实时监控整个集群里的每一个资源对象的当前状态，当发生各种故障导致系统状态发生变化，这些controller会尝试将系统从“现有装态”修正到“期望状态”。</p>
+
+<blockquote>
+<p>replication controller</p>
+</blockquote>
+
+<p>replication controller副本控制 ,副本控制器的核心作用是确保任何使用集群中的一个RC所关联的Pod副本数量保持预设的值。当然他是通过rc机制实现的。</p>
+
+<p>RC中的Pod模板就像一个模具，模具制作出来的东西一旦离开模具，二者将毫无关系，一旦pod创建，无论模板如何变化都不会影响到已经创建的pod，并且删除一个RC 不会影响它所创建出来的Pod，当然如果想在RC控制下，删除所有的Pod，需要将RC中设置的pod的副本数该为0，这样才会自动删除所有的Pod。</p>
+
+<pre><code>1. 重新调度 就是上面说的能确保规定数量的pod运行
+
+2. 弹性伸缩 可以通过spec.replicas来改变pod的数量
+
+3. 滚动更新 新建一个rc为一个副本，然后减少原来的副本数量一个，一个增加，一个减少，直到原始的为0
+</code></pre>
+
+<blockquote>
+<p>node controller节点管理。</p>
+</blockquote>
+
+<p>首先我们需要了解kubelet通过apiserver向etcd中存储的节点信息（有节点健康状况，节点资源，节点名称地址，操作系统版本，docker版本，kubelet版本等等），其中一个节点健康状况分为三种True，false，unknown三种状态，也是最直接的节点状态</p>
+
+<p>然后这个控制器就会重etcd中逐个节点读取这些状态，将来自kubelet状态来改变node controller中nodestatusmap中状态，对于状态不对的node节点加入一个队列，等待确认node是否有问题，有问题就进行信息同步，并且删除节点。</p>
+
+<p><img src="/media/cloud/k8s/controller1" alt="" /></p>
+
+<p>具体步骤</p>
+
+<pre><code> - 如果controller manager在启动时设置了--cluster-cidr，那么为每一个没有设置spec.PodCIDR的节点生成一个CIDR地址，并用该地址设置节点的spec.PodCIDR属性。
+ - 逐个读取节点信息，此时node controller中有一个nodestatusMap，里面存储了信息，与新发送过来的节点信息做比较，并更新nodestatusMap中的节点信息。Kubelet发送过来的节点信息，有三种情况：未发送、发送但节点信息未变化、发送并且节点信息变化。此时node controller根据发送的节点信息，更新nodestatusMap，如果判断出在某段时间内没有接受到某个节点的信息，则设置节点状态为“未知”。
+ - 最后，将未就绪状态的节点加入到待删除队列中，待删除后，通过API Server将etcd中该节点的信息删除。如果节点为就绪状态，那么就向etcd中同步该节点信息。
+</code></pre>
+
+<blockquote>
+<p>resourcequota controller资源配额</p>
+</blockquote>
+
+<p>这一个功能十分必要，它确保任何对象任何时候都不会超量占用资源，确保来系统的稳定性。目前k8s支持三个层次的资源配额</p>
+
+<pre><code>1. 容器级别  可以限制cpu和memory
+
+2. pod级别  对pod内所有容器的可用资源进行限制
+
+3. namespace级别  pod数量，rc数量 service数量，rq数量，secret数量，persistent volume数量
+</code></pre>
+
+<p>实现机制：准入机制（admission caotrol），admission control当前提供了两种方式的配额约束，分别是limitRanger和resourceQuota。其中limitRanger作用于pod和容器上。ResourceQuota作用于namespace上，用于限定一个namespace里的各类资源的使用总额。</p>
+
+<p>在etcd中会维护一个资源配额记录，每次用户通过apiserver进行请求时，这个控制器会先进行计算，如果资源不过就会拒绝请求。</p>
+
+<p><img src="/media/cloud/k8s/controller2" alt="" /></p>
+
+<p>从上图中，我们可以看出，大概有三条路线，resourceQuota controller在这三条路线中都起着重要的作用：</p>
+
+<pre><code>如果用户在定义pod时同时声明了limitranger，则用户通过API Server请求创建或者修改资源对象，这是admission control会计算当前配额的使用情况，不符合约束的则创建失败。（一、三）
+对于定义了resource Quota的namespace，resourceQuota controller会定期统计和生成该namespace下的各类对象资源使用总量，统计结果包括：pod、service、RC、secret和PV等对象的实例个数，以及该namespace下所有的container实例所使用的资源量（CPU，memory），然后会将这些结果写入到etcd中，写入的内容为资源对象名称、配额制、使用值，然后admission control会根据统计结果判断是否超额，以确保相关namespace下的资源配置总量不会超过resource Quota的限定值。（二、三）
+</code></pre>
+
+<blockquote>
+<p>namespace controller</p>
+</blockquote>
+
+<p>namespace controller主要是监控namespace的状态，在其失效的情况下,对其进行处理</p>
+
+<p>用户通过API Server可以创建新的namespace并保存在etcd中，namespace controller定时通过API Server读取这些namespace信息。如果namespace被API标记为优雅删除（通过设置删除周期），则将该namespace的状态设置为“terminating”并保存到etcd中。同时namespace controller删除该namespace下的serviceAccount,RC,pod，secret，PV,listRange，resourceQuota和event等资源对象。</p>
+
+<p>当namespace的状态为“terminating”后，由admission controller的namespaceLifecycle插件来阻止为该namespace创建新的资源。同时在namespace controller删除完该namespace中的所有资源对象后，namespace controller对该namespace 执行finalize操作，删除namespace的spec.finallizers域中的信息。</p>
+
+<p>当然这里有一种特殊情况，当个namespace controller发现namespace设置了删除周期，并且该namespace 的spec.finalizers域值为空，那么namespace controller将通过API Server删除该namespace 的资源。</p>
+
+<blockquote>
+<p>serviceAccount controller和token controller</p>
+</blockquote>
+
+<p>这是两个安全监控，在apiserver启动的时候使用serviceaccount，就会产生一个key和crt，那么在controller mansge启动的时候通过参数指定这个key就会自动创建一个secret，也会创建一个token controller完成对serviceaccount的监控。</p>
+
+<blockquote>
+<p>service controller和endpoint controller</p>
+</blockquote>
+
+<p><img src="/media/cloud/k8s/controller3" alt="" /></p>
+
+<p>上图所示了service和endpoint与pod的关系，endpoints表示一个service对应的所有的pod副本的访问地址，而endpoints controller就是负责生成和维护所有endpoints对象的控制器。</p>
+
+<p>它负责监听service和对应的pod副本的变化，如果检测到service被删除，则删除和该service同名的endpoints对象。如果检测到新的service被创建或者修改，则根据该service的信息获取到相关的pod列表，然后创建或者更新service对应的endpoints对象。如果检测到pod的事件，则更新它对应service的endpoints对象（增加或者删除或者修改对应的endpoint条目）。</p>
+
+<p>我们都知道将service和pod通过label关联之后，我们访问service的clusterIP对应的服务，就能通过kube-proxy将路由转发到对应的后端的endpoint（pod IP +port）上，最终访问到容器中的服务，实现了service的负载均衡功能。</p>
+
+<p>service controller的作用，它其实是属于kubernetes与外部的云平台之间的一个接口控制器。Service controller监听service的变化，如果是一个loadBalancer类型的service，则service controller确保外部的云平台上该service对应的loadbalance实例被相应的创建、删除以及更新路由转发表（根据endpoint的条目）。</p>
+
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-controller-manager/">https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-controller-manager/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/kubernetes/">
+                            <i class="fa fa-tags"></i>
+                            kubernetes
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/controller/">
+                            <i class="fa fa-tags"></i>
+                            controller
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-principle/">K8s系列---- K8s Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-apiserver/">K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-scheduler/">K8s组件系列（二）---- K8s scheduler 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-proxy/">K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-kubelet/">K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/kubernetes/k8s-apiserver/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/kubernetes/k8s-scheduler/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li>
+<ul>
+<li><a href="#kube-controller-manager">kube-controller-manager</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

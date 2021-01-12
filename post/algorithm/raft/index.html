@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Raft 实际上是一个一致性算法的一种实现，和Paxos等价，但是在实现上，简化了一些，并且更加易用。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="算法思想系列---- Raft - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    算法思想系列---- Raft
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年03月12日 
+                </div>
+                <h1 class="post-title">算法思想系列---- Raft</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Raft 实际上是一个一致性算法的一种实现，和Paxos等价，但是在实现上，简化了一些，并且更加易用。</p>
+
+<p>分布式存储系统通常通过维护多个副本来进行容错，提高系统的可用性。要实现此目标，就必须要解决分布式存储系统的最核心问题：维护多个副本的一致性。</p>
+
+<blockquote>
+<p>一致性（consensus）</p>
+</blockquote>
+
+<p>首先需要解释一下什么是一致性（consensus）,它是构建具有容错性（fault-tolerant）的分布式系统的基础。 在一个具有一致性的性质的集群里面，同一时刻所有的结点对存储在其中的某个值都有相同的结果，即对其共享的存储保持一致。集群具有自动恢复的性质，当少数结点失效的时候不影响集群的正常工作，当大多数集群中的结点失效的时候，集群则会停止服务（不会返回一个错误的结果）。</p>
+
+<p>一致性协议就是用来干这事的，用来保证即使在部分(确切地说是小部分)副本宕机的情况下，系统仍然能正常对外提供服务。一致性协议通常基于replicated state machines，即所有结点都从同一个state出发，都经过同样的一些操作序列（log），最后到达同样的state。</p>
+
+<p>对于一致性，一致的程度不同大体可以分为强、弱、最终一致性三类。</p>
+
+<pre><code>（1）强一致性
+
+对于关系型数据库，要求更新过的数据能被后续的访问都能看到，这是强一致性。比如小明更新V0到V1，那么小华读取的时候也应该是V1。
+
+（2）弱一致性
+
+如果能容忍后续的部分或者全部访问不到，则是弱一致性。比如小明更新VO到V1，可以容忍那么小华读取的时候是V0。
+
+（3）最终一致性
+
+如果经过一段时间后要求能访问到更新后的数据，则是最终一致性。比如小明更新VO到V1，可以使得小华在一段时间之后读取的时候是V0。
+</code></pre>
+
+<blockquote>
+<p>RSM复制状态机(replicated state machine)</p>
+</blockquote>
+
+<p>一个分布式的复制状态机系统由多个复制单元组成，每个复制单元均是一个状态机，它的状态保存在一组状态变量中，状态机的变量只能通过外部命令来改变。简单理解的话，可以想象成是一组服务器，每个服务器是一个状态机，服务器的运行状态只能通过一行行的命令来改变。每一个状态机存储一个包含一系列指令的日志，严格按照顺序逐条执行日志中的指令，如果所有的状态机都能按照相同的日志执行指令，那么它们最终将达到相同的状态。因此，在复制状态机模型下，只要保证了操作日志的一致性，我们就能保证该分布式系统状态的一致性。</p>
+
+<p><img src="/media/algorithm/raft" alt="" />
+<img src="/media/algorithm/raft1" alt="" /></p>
+
+<p>在上图中，服务器中的一致性模块(Consensus Modle)接受来自客户端的指令，并写入到自己的日志中，然后通过一致性模块和其他服务器交互，确保每一条日志都能以相同顺序写入到其他服务器的日志中，即便服务器宕机了一段时间。一旦日志命令都被正确的复制，每一台服务器就会顺序的处理命令，并向客户端返回结果。</p>
+
+<p>系统中每个结点有三个组件：</p>
+
+<pre><code>状态机: 当我们说一致性的时候，实际就是在说要保证这个状态机的一致性。状态机会从log里面取出所有的命令，然后执行一遍，得到的结果就是我们对外提供的保证了一致性的数据
+Log: 保存了所有修改记录
+一致性模块: 一致性模块算法就是用来保证写入的log的命令的一致性，这也是raft算法核心内容
+</code></pre>
+
+<p>为了让一致性协议变得简单可理解，Raft协议主要使用了两种策略。</p>
+
+<pre><code>一是将复杂问题进行分解，在Raft协议中，一致性问题被分解为：leader election、log replication、safety三个简单问题；
+二是减少状态空间中的状态数目。下面我们详细看一下Raft协议是怎样设计的。
+</code></pre>
+
+<blockquote>
+<p>基础概念</p>
+</blockquote>
+
+<p>1、状态</p>
+
+<p>Raft协议的每个副本都会处于三种状态之一：Leader、Follower、Candidate。</p>
+
+<pre><code>Leader：所有请求的处理者，Leader副本接受client的更新请求，本地处理后再同步至多个其他副本；
+Follower：请求的被动更新者，从Leader接受更新请求，然后写入本地日志文件
+Candidate：如果Follower副本在一段时间内没有收到Leader副本的心跳，则判断Leader可能已经故障，此时启动选主过程，此时副本会变成Candidate状态，直到选主结束。
+</code></pre>
+
+<p><img src="/media/algorithm/raft2" alt="" /></p>
+
+<p>集群刚启动时，所有节点都是follower，之后在time out信号的驱使下，follower会转变成candidate去拉取选票，获得大多数选票后就会成为leader，这时候如果其他候选人发现了新的leader已经诞生，就会自动转变为follower；而如果另一个time out信号发出时，还没有选举出leader，将会重新开始一次新的选举。可见，time out信号是促使角色转换得关键因素，类似于操作系统中得中断信号。</p>
+
+<p>2、term</p>
+
+<p>在Raft协议中，将时间分成了一些任意长度的时间片，称为term，term使用连续递增的编号的进行识别，如下图所示：</p>
+
+<p><img src="/media/algorithm/raft3" alt="" /></p>
+
+<p>每一个term都从新的选举开始，candidate们会努力争取称为leader。一旦获胜，它就会在剩余的term时间内保持leader状态，在某些情况下(如term3)选票可能被多个candidate瓜分，形不成多数派，因此term可能直至结束都没有leader，下一个term很快就会到来重新发起选举。</p>
+
+<p>term也起到了系统中逻辑时钟的作用，每一个server都存储了当前term编号，在server之间进行交流的时候就会带有该编号，如果一个server的编号小于另一个的，那么它会将自己的编号更新为较大的那一个；如果leader或者candidate发现自己的编号不是最新的了，就会自动转变为follower；如果接收到的请求的term编号小于自己的当前term将会拒绝执行。</p>
+
+<p>其实就是这个server处于什么时间段的状态，然后用于对比，来处理当前的状态。</p>
+
+<p>3、传输协议</p>
+
+<p>server之间的交流是通过RPC进行的。只需要实现两种RPC就能构建一个基本的Raft集群：</p>
+
+<pre><code>RequestVote RPC：它由选举过程中的candidate发起，用于拉取选票
+AppendEntries RPC：它由leader发起，用于复制日志或者发送心跳信号。
+</code></pre>
+
+<p><img src="/media/algorithm/raft4.jpg" alt="" />
+<img src="/media/algorithm/raft5.jpg" alt="" /></p>
+
+<blockquote>
+<p>Leader election</p>
+</blockquote>
+
+<p>Raft通过心跳机制发起leader选举。节点都是从follower状态开始的，如果收到了来自leader或candidate的RPC，那它就保持follower状态，避免争抢成为candidate。Leader会发送空的AppendEntries RPC作为心跳信号来确立自己的地位，如果follower一段时间(election timeout)没有收到心跳，它就会认为leader已经挂了，发起新的一轮选举。</p>
+
+<p>选举发起后</p>
+
+<pre><code>Follower将自己维护的current_term_id加1。
+然后将自己的状态转成Candidate
+它会首先投自己一票，然后发送RequestVoteRPC消息(带上current_term_id) 给 其它所有server
+</code></pre>
+
+<p>这个过程会有三种结果：</p>
+
+<pre><code>自己被选成了主。当收到了majority的投票后，状态切成Leader，并且定期给其它的所有server发心跳消息（不带log的AppendEntriesRPC）以告诉对方自己是current_term_id所标识的term的leader。每个term最多只有一个leader，term id作为logical clock，在每个RPC消息中都会带上，用于检测过期的消息。当一个server收到的RPC消息中的rpc_term_id比本地的current_term_id更大时，就更新current_term_id为rpc_term_id，并且如果当前state为leader或者candidate时，将自己的状态切成follower。如果rpc_term_id比本地的current_term_id更小，则拒绝这个RPC消息。
+别人成为了主。如1所述，当Candidator在等待投票的过程中，收到了大于或者等于本地的current_term_id的声明对方是leader的AppendEntriesRPC时，则将自己的state切成follower，并且更新本地的current_term_id。
+没有选出主。当投票被平均瓜分，没有任何一个candidate收到了majority的vote时，没有leader被选出。这种情况下，每个candidate等待的投票的过程就超时了，接着candidates都会将本地的current_term_id再加1，发起RequestVoteRPC进行新一轮的leader election。
+</code></pre>
+
+<p>投票策略：</p>
+
+<pre><code>每个节点只会给每个term投一票，具体的是否同意和后续的Safety有关。
+
+当投票被瓜分后，所有的candidate同时超时，然后有可能进入新一轮的票数被瓜分，为了避免这个问题，Raft采用一种很简单的方法：每个Candidate的election timeout从150ms-300ms之间随机取，那么第一个超时的Candidate就可以发起新一轮的leader election，带着最大的term_id给其它所有server发送RequestVoteRPC消息，从而自己成为leader，然后给他们发送心跳消息以告诉他们自己是主。
+</code></pre>
+
+<blockquote>
+<p>Log Replication</p>
+</blockquote>
+
+<p>一旦leader被选举成功，就可以对客户端提供服务了。客户端提交每一条命令都会被按顺序记录到leader的日志中，每一条命令都包含term编号和顺序索引的结构体log entry，然后向其他节点并行发送AppendEntries RPC用以复制命令(如果命令丢失会不断重发)，当复制成功也就是大多数节点成功复制后，leader就会提交命令，即执行该命令并且将执行结果返回客户端，raft保证已经提交的命令最终也会被其他节点成功执行。leader会保存有当前已经提交的最高日志编号。顺序性确保了相同日志索引处的命令是相同的，而且之前的命令也是相同的。当发送AppendEntries RPC时，会包含leader上一条刚处理过的命令，接收节点如果发现上一条命令不匹配，就会拒绝执行。</p>
+
+<p>日志冲突</p>
+
+<p>在这个过程中可能会出现一种特殊故障：如果leader崩溃了，它所记录的日志没有完全被复制，会造成日志不一致的情况，follower相比于当前的leader可能会丢失几条日志，也可能会额外多出几条日志，这种情况可能会持续几个term。如下图所示：</p>
+
+<p><img src="/media/algorithm/raft6" alt="" /></p>
+
+<p>在上图中，框内的数字是term编号，a、b丢失了一些命令，c、d多出来了一些命令，e、f既有丢失也有增多，这些情况都有可能发生。比如f可能发生在这样的情况下：f节点在term2时是leader，在此期间写入了几条命令，然后再提交之前崩溃了，在之后的term3种它很快重启并再次成为leader，又写入了几条日志，在提交之前又崩溃了，等他苏醒过来时新的leader来了，就形成了上图情形。</p>
+
+<p>因此，需要有一种机制来让leader和follower对log达成一致，在Raft中，leader通过强制follower复制自己的日志来解决上述日志不一致的情形，那么冲突的日志将会被重写。为了让日志一致，先找到最新的一致的那条日志(如f中索引为3的日志条目)，然后把follower之后的日志全部删除，leader再把自己在那之后的日志一股脑推送给follower，这样就实现了一致。而寻找该条日志，可以通过AppendEntries RPC，该RPC中包含着下一次要执行的命令索引，如果能和follower的当前索引对上，那就执行，否则拒绝，然后leader将会逐次递减索引，直到找到相同的那条日志。</p>
+
+<p>leader会为每个follower维护一个nextIndex，表示leader给各个follower发送的下一条log entry在log中的index，初始化为leader的最后一条log entry的下一个位置。leader给follower发送AppendEntriesRPC消息，带着(term_id, (nextIndex-1))， term_id即(nextIndex-1)这个槽位的log entry的term_id，follower接收到AppendEntriesRPC后，会从自己的log中找是不是存在这样的log entry，如果不存在，就给leader回复拒绝消息，然后leader则将nextIndex减1，再重复，知道AppendEntriesRPC消息被接收。</p>
+
+<p>然而这样也还是会有问题，比如某个follower在leader提交时宕机了，也就是少了几条命令，然后它又经过选举成了新的leader，这样它就会强制其他follower跟自己一样，使得其他节点上刚刚提交的命令被删除，导致客户端提交的一些命令被丢失了，下面一节内容将会解决这个问题。Raft通过为选举过程添加一个限制条件，解决了上面提出的问题，该限制确保leader包含之前term已经提交过的所有命令。Raft通过投票过程确保只有拥有全部已提交日志的candidate能成为leader。由于candidate为了拉选票需要通过RequestVote RPC联系其他节点，而之前提交的命令至少会存在于其中某一个节点上,因此只要candidate的日志至少和其他大部分节点的一样新就可以了, follower如果收到了不如自己新的candidate的RPC,就会将其丢弃.</p>
+
+<p>还可能会出现另外一个问题, 如果命令已经被复制到了大部分节点上,但是还没来的及提交就崩溃了,这样后来的leader应该完成之前term未完成的提交. Raft通过让leader统计当前term内还未提交的命令已经被复制的数量是否半数以上, 然后进行提交.</p>
+
+<p>日志压缩</p>
+
+<p>随着日志大小的增长，会占用更多的内存空间，处理起来也会耗费更多的时间，对系统的可用性造成影响，因此必须想办法压缩日志大小。Snapshotting是最简单的压缩方法，系统的全部状态会写入一个snapshot保存起来，然后丢弃截止到snapshot时间点之前的所有日志。Raft中的snapshot内容如下图所示：</p>
+
+<p><img src="/media/algorithm/raft7.jpg" alt="" /></p>
+
+<p>每一个server都有自己的snapshot，它只保存当前状态，如上图中的当前状态为x=0,y=9，而last included index和last included term代表snapshot之前最新的命令，用于AppendEntries的状态检查。</p>
+
+<p>Snapshot中包含以下内容：</p>
+
+<pre><code>日志元数据，最后一条commited log entry的 (log index, last_included_term)。这两个值在Snapshot之后的第一条log entry的AppendEntriesRPC的consistency check的时候会被用上，之前讲过。一旦这个server做完了snapshot，就可以把这条记录的最后一条log index及其之前的所有的log entry都删掉。
+系统状态机：存储系统当前状态（这是怎么生成的呢？）
+</code></pre>
+
+<p>虽然每一个server都保存有自己的snapshot，但是当follower严重落后于leader时，leader需要把自己的snapshot发送给follower加快同步，此时用到了一个新的RPC：InstallSnapshot RPC。follower收到snapshot时，需要决定如何处理自己的日志，如果收到的snapshot包含有更新的信息，它将丢弃自己已有的日志，按snapshot更新自己的状态，如果snapshot包含的信息更少，那么它会丢弃snapshot中的内容，但是自己之后的内容会保存下来。RPC的定义如下：</p>
+
+<p><img src="/media/algorithm/raft8" alt="" /></p>
+
+<blockquote>
+<p>Safety</p>
+</blockquote>
+
+<p>哪些follower有资格成为leader?</p>
+
+<p>Raft保证被选为新leader的节点拥有所有已提交的log entry，这与ViewStamped Replication不同，后者不需要这个保证，而是通过其他机制从follower拉取自己没有的提交的日志记录
+这个保证是在RequestVoteRPC阶段做的，candidate在发送RequestVoteRPC时，会带上自己的最后一条日志记录的term_id和index，其他节点收到消息时，如果发现自己的日志比RPC请求中携带的更新，拒绝投票。日志比较的原则是，如果本地的最后一条log entry的term id更大，则更新，如果term id一样大，则日志更多的更大(index更大)。</p>
+
+<p>哪些日志记录被认为是commited?</p>
+
+<p>leader正在replicate当前term（即term 2）的日志记录给其它Follower，一旦leader确认了这条log entry被majority写盘了，这条log entry就被认为是committed。如图a，S1作为当前term即term2的leader，log index为2的日志被majority写盘了，这条log entry被认为是commited
+leader正在replicate更早的term的log entry给其它follower。图b的状态是这么出来的。</p>
+
+<p>对协议的一点修正</p>
+
+<p>在实际的协议中，需要进行一些微调，这是因为可能会出现下面这种情况：</p>
+
+<p><img src="/media/algorithm/raft9" alt="" /></p>
+
+<pre><code>在阶段a，term为2，S1是Leader，且S1写入日志（term, index）为(2, 2)，并且日志被同步写入了S2；
+在阶段b，S1离线，触发一次新的选主，此时S5被选为新的Leader，此时系统term为3，且写入了日志（term, index）为（3， 2）;
+S5尚未将日志推送到Followers变离线了，进而触发了一次新的选主，而之前离线的S1经过重新上线后被选中变成Leader，此时系统term为4，此时S1会将自己的日志同步到Followers，按照上图就是将日志（2， 2）同步到了S3，而此时由于该日志已经被同步到了多数节点（S1, S2, S3），因此，此时日志（2，2）可以被commit了（即更新到状态机）；
+在阶段d，S1又很不幸地下线了，系统触发一次选主，而S5有可能被选为新的Leader（这是因为S5可以满足作为主的一切条件：1. term = 3 &gt; 2, 2. 最新的日志index为2，比大多数节点（如S2/S3/S4的日志都新），然后S5会将自己的日志更新到Followers，于是S2、S3中已经被提交的日志（2，2）被截断了，这是致命性的错误，因为一致性协议中不允许出现已经应用到状态机中的日志被截断。
+</code></pre>
+
+<p>为了避免这种致命错误，需要对协议进行一个微调：</p>
+
+<pre><code>只允许主节点提交包含当前term的日志
+</code></pre>
+
+<p>针对上述情况就是：即使日志（2，2）已经被大多数节点（S1、S2、S3）确认了，但是它不能被Commit，因为它是来自之前term(2)的日志，直到S1在当前term（4）产生的日志（4， 3）被大多数Follower确认，S1方可Commit（4，3）这条日志，当然，根据Raft定义，（4，3）之前的所有日志也会被Commit。此时即使S1再下线，重新选主时S5不可能成为Leader，因为它没有包含大多数节点已经拥有的日志（4，3）。</p>
+
+<blockquote>
+<p>集群拓扑变化</p>
+</blockquote>
+
+<p>集群拓扑变化的意思是在运行过程中多副本集群的结构性变化，如增加/减少副本数、节点替换等。</p>
+
+<p>Raft协议定义时也考虑了这种情况，从而避免由于下线老集群上线新集群而引起的系统不可用。Raft也是利用上面的Log Entry和一致性协议来实现该功能。</p>
+
+<p>假设在Raft中，老集群配置用Cold表示，新集群配置用Cnew表示，整个集群拓扑变化的流程如下：</p>
+
+<p>当集群成员配置改变时，leader收到人工发出的重配置命令从Cold切成Cnew；
+Leader副本在本地生成一个新的log entry，其内容是Cold∪Cnew，代表当前时刻新旧拓扑配置共存，写入本地日志，同时将该log entry推送至其他Follower节点
+Follower副本收到log entry后更新本地日志，并且此时就以该配置作为自己了解的全局拓扑结构，
+如果多数Follower确认了Cold U Cnew这条日志的时候，Leader就Commit这条log entry；
+接下来Leader生成一条新的log entry，其内容是全新的配置Cnew，同样将该log entry写入本地日志，同时推送到Follower上；
+Follower收到新的配置日志Cnew后，将其写入日志，并且从此刻起，就以该新的配置作为系统拓扑，并且如果发现自己不在Cnew这个配置中会自动退出
+Leader收到多数Follower的确认消息以后，给客户端发起命令执行成功的消息</p>
+
+<blockquote>
+<p>异常分析</p>
+</blockquote>
+
+<p>如果Leader的Cold U Cnew尚未推送到Follower，Leader就挂了，此时选出的新的Leader并不包含这条日志，此时新的Leader依然使用Cold作为全局拓扑配置
+如果Leader的Cold U Cnew推送到大部分的Follower后就挂了，此时选出的新的Leader可能是Cold也可能是Cnew中的某个Follower；
+如果Leader在推送Cnew配置的过程中挂了，那么和2一样，新选出来的Leader可能是Cold也可能是Cnew中的某一个，那么此时客户端继续执行一次改变配置的命令即可
+如果大多数的Follower确认了Cnew这个消息后，那么接下来即使Leader挂了，新选出来的Leader也肯定是位于Cnew这个配置中的，因为有Raft的协议保证。
+为什么需要弄这样一个两阶段协议，而不能直接从Cold切换至Cnew？</p>
+
+<p>这是因为，如果直接这么简单粗暴的来做的话，可能会产生多主。简单说明下：</p>
+
+<p>假设Cold为拓扑为(S1, S2, S3)，且S1为当前的Leader，如下图：</p>
+
+<p>假如此时变更了系统配置，将集群范围扩大为5个，新增了S4和S5两个服务节点，这个消息被分别推送至S2和S3，但是假如只有S3收到了消息并处理，S2尚未得到该消息</p>
+
+<p>这时在S2的眼里，拓扑依然是<S1, S2, S3>，而在S3的眼里拓扑则变成了<S1, S2, S3, S4, S5>。假如此时由于某种原因触发了一次新的选主，S2和S3分别发起选主的请求：</p>
+
+<p>最终，候选者S2获得了S1和S2自己的赞成票，那么在它眼里，它就变成了Leader，而S3获得了S4、S5和S3自己的赞成票，在它眼里S3也变成了Leader，那么多Leader的问题就产生了。而产生该问题的最根本原因是S2和S3的系统视图不一致。</p>
+
+<h1 id="实战">实战</h1>
+
+<blockquote>
+<p>raft在etcd中的实现</p>
+</blockquote>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/algorithm/raft/">https://kingjcy.github.io/post/algorithm/raft/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags//">
+                            <i class="fa fa-tags"></i>
+                            
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-unsafe/">Go Unsafe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-text/">Go Text</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-plugin/">Go Plugin</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-mine/">Go Mine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-internal/">Go Internal</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-index/">Go Index</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-image/">Go Image</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-html/">Go Html</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-hash/">Go Hash</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-go/">Go Go</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/prometheus/prometheus-operater/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/microservices/go-micro/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#实战">实战</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

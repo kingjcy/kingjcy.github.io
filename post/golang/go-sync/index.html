@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="sync sync包提供了基本的同步基元，如互斥锁。除了Once和WaitGroup类型，大部分都是适用于低水平程序线程，高水平的同步使用channel通信（csp）更好一些。
+Once 的使用
+定义
+type Once struct { // 非暴露字段 } func (o *Once) Do(f func())  使用前先定义 Once 类型变量：
+var once Once  使用的时候向 Once 类型变量传入函数：
+once.Do(func() { init() })  多次调用 once.Do(f) 只会触发一次 f 的执行，即第一次 f 的执行。
+用法实例
+某些操作只需要执行一次（比如一些初始化动作），这时就可使用 Once，如：
+func main() { var once sync.Once onceBody := func() { fmt.Println(&quot;Only once&quot;) } done := make(chan bool) // 创建 10 个 goroutine，但是 onceBody 只会执行 1 次 for i := 0; i &lt; 10; i&#43;&#43; { go func() { once.">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="golang使用系列---- Sync - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    golang使用系列---- Sync
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年02月28日 
+                </div>
+                <h1 class="post-title">golang使用系列---- Sync</h1>
+            </header>
+
+            <div class="post-content">
+                
+
+<h3 id="sync">sync</h3>
+
+<p>sync包提供了基本的同步基元，如互斥锁。除了Once和WaitGroup类型，大部分都是适用于低水平程序线程，高水平的同步使用channel通信（csp）更好一些。</p>
+
+<p>Once 的使用</p>
+
+<p>定义</p>
+
+<pre><code>type Once struct {
+        // 非暴露字段
+}
+
+func (o *Once) Do(f func())
+</code></pre>
+
+<p>使用前先定义 Once 类型变量：</p>
+
+<pre><code>var once Once
+</code></pre>
+
+<p>使用的时候向 Once 类型变量传入函数：</p>
+
+<pre><code>once.Do(func() { init() })
+</code></pre>
+
+<p>多次调用 once.Do(f) 只会触发一次 f 的执行，即第一次 f 的执行。</p>
+
+<p>用法实例</p>
+
+<p>某些操作只需要执行一次（比如一些初始化动作），这时就可使用 Once，如：</p>
+
+<pre><code>func main() {
+    var once sync.Once
+    onceBody := func() {
+        fmt.Println(&quot;Only once&quot;)
+    }
+    done := make(chan bool)
+
+    // 创建 10 个 goroutine，但是 onceBody 只会执行 1 次
+    for i := 0; i &lt; 10; i++ {
+        go func() {
+            once.Do(onceBody)
+            done &lt;- true
+        }()
+    }
+
+    // 等待 10 个 goroutine 结束
+    for i := 0; i &lt; 10; i++ {
+        &lt;-done
+    }
+}
+</code></pre>
+
+<p>其实 Once 的实现非常简单，就是互斥锁+原子变量</p>
+
+<p>WaitGroup 的使用</p>
+
+<pre><code>type WaitGroup struct {
+    // 包含隐藏或非导出字段
+}
+</code></pre>
+
+<p>WaitGroup用于等待一组线程的结束。父线程调用Add方法来设定应等待的线程的数量。每个被等待的线程在结束时应调用Done方法。同时，主线程里可以调用Wait方法阻塞至所有线程结束。</p>
+
+<pre><code>func (*WaitGroup) Add
+func (wg *WaitGroup) Add(delta int)
+</code></pre>
+
+<p>Add方法向内部计数加上delta，delta可以是负数；如果内部计数器变为0，Wait方法阻塞等待的所有线程都会释放，如果计数器小于0，方法panic。注意Add加上正数的调用应在Wait之前，否则Wait可能只会等待很少的线程。一般来说本方法应在创建新的线程或者其他应等待的事件之前调用。</p>
+
+<pre><code>func (*WaitGroup) Done
+func (wg *WaitGroup) Done()
+</code></pre>
+
+<p>Done方法减少WaitGroup计数器的值，应在线程的最后执行。</p>
+
+<pre><code>func (*WaitGroup) Wait
+func (wg *WaitGroup) Wait()
+</code></pre>
+
+<p>Wait方法阻塞直到WaitGroup计数器减为0。</p>
+
+<p>具体可以查考go-context这篇文章</p>
+
+<p>Pool 的使用</p>
+
+<p>定义</p>
+
+<pre><code>type Pool struct {
+        // 当 Get() 找不到一个对象时，会使用 New() 生成一个对象
+        New func() interface{}
+
+        // 剩下的是非暴露字段
+}
+
+// 任意从 pool 中挑选一个对象返回给客户端，如果找不到就使用 p.New 生成
+func (p *pool) Get() interface{}
+
+// 将对象 x 放回到 pool 中
+func (p *pool) Put(x interface{})
+</code></pre>
+
+<p>用法实例</p>
+
+<p>Pool 是一个临时对象保存（Put()）和获取（Get()）的集合，可安全地并发访问。</p>
+
+<p>Pool 会将一些最近分配但还未使用的对象缓存起来供下次使用，以此来缓解 GC 压力。Pool 中的对象会自动在任何时间段中被移除而不会有任何显式的通知机制。</p>
+
+<p>使用 Pool 可以用以管理一些临时对象供多个 package 的客户端使用，客户端对 Pool 的逻辑是无感知的：需要的时候 Get，不需要的时候 Put，而且 Pool 可根据当前负载自动调整对象池的大小。</p>
+
+<p>一个典型的应用是日志，如：</p>
+
+<pre><code>var bufPool = sync.Pool{
+    New: func() interface{} {
+        return new(bytes.Buffer)
+    },
+}
+
+func Log(w io.Writer, key, val string) {
+    // 从对象池中获取 buffer
+    b := bufPool.Get().(*bytes.Buffer)
+    b.Reset()
+    b.WriteString(time.Now().Format(time.RFC3339))
+    b.WriteByte(' ')
+    b.WriteString(key)
+    b.WriteByte('=')
+    b.WriteString(val)
+    w.Write(b.Bytes())
+    // 使用完毕，归还 buffer
+    bufPool.Put(b)
+}
+
+func main() {
+    Log(os.Stdout, &quot;path&quot;, &quot;/search?q=flowers&quot;)
+}
+</code></pre>
+
+<h1 id="锁">锁</h1>
+
+<p>锁在并发安全中有着很重要的作用，我们可以查看单独篇[锁]（）</p>
+
+<p>Cond 的使用</p>
+
+<p>什么是条件变量</p>
+
+<p>条件变量做的事情很简单：让多个 goroutine 等待在某个条件上，如果条件不满足，进入等待状态；如果条件满足，继续运行。</p>
+
+<p>Cond 内部维护着一个 notifyList，当条件不满足的时候，则将对应的 goroutine 添加到列表上然后进入等待状态。当条件满足时，一般会有其他执行者显式使用 Signal() 或者 Broadcast() 去唤醒 notifyList 上 goroutine。</p>
+
+<p>当进行条件的判断时，必须使用互斥锁来保证条件的安全，即在判断的时候条件没有被其他人修改。所以 Cond 一般会与一个符合 Lock 接口的 Mutex 一起使用。</p>
+
+<p>Cond 的使用</p>
+
+<p>定义</p>
+
+<pre><code>type Cond struct {
+    // 读写条件状态需要加锁
+    L Locker
+    // 剩下的是非暴露字段
+}
+
+func NewCond(l Locker) *Cond
+
+// 广播所以等待的 goroutine，条件已经满足
+func (c *Cond) Broadcast()
+
+// 单播其中一个等待的 goroutine，条件已经满足
+func (c *Cond) Signal()
+
+// 如果条件不满足，调用 Wait() 进入等待状态
+func (c *Cond) Wait()
+此处要特别小心 Wait() 的使用。正如前文所说，条件的判断需要使用互斥锁来确保条件读取前后是一致的，即：
+
+c.L.Lock() // 进行条件判断，加锁
+if !condition() { // 如果不满足条件，进入 if 中
+    c.Wait() // Wait() 内部会自动解锁
+}
+
+... 这里可能会对 condition 作出改变 ...
+c.L.Unlock()
+</code></pre>
+
+<p>上述代码其实还有一个很严重的问题，为了说明这个问题，让我们来看看 Wait() 的实现：</p>
+
+<pre><code>func (c *Cond) Wait() {
+    c.checker.check()
+    t := runtime_notifyListAdd(&amp;c.notify) // 加入 notifyList
+    c.L.Unlock() // 解锁
+    runtime_notifyListWait(&amp;c.notify, t) // 进入等待模式
+    c.L.Lock() // 运行到此处说明条件已经满足，开始获取互斥锁，如果锁已经被别人用了，开始等待
+}
+</code></pre>
+
+<p>从上面的例子可以看出，当 Wait() 返回时（即已经获取到了互斥锁），有可能条件已经被其他先获取互斥锁的 goroutine 改变了，所以此时必须再次判断一下条件，即：</p>
+
+<pre><code>c.L.Lock() // 进行条件判断，加锁
+if !condition() { // 如果不满足条件，进入 if 中
+    c.Wait() // Wait() 内部会自动解锁
+}
+
+if !condition() { // 如果不满足条件，进入 if 中
+    c.Wait() // Wait() 内部会自动解锁
+}
+... 这里可能会对 condition 作出改变 ...
+c.L.Unlock()
+如果代码这么写，就太费劲了，上面代码可以简化为：
+
+c.L.Lock() // 进行条件判断，加锁
+for !condition() { // 如果不满足条件，进入 if 中
+    c.Wait() // Wait() 内部会自动解锁
+}
+
+... 这里可能会对 condition 作出改变 ...
+c.L.Unlock()
+</code></pre>
+
+<p>即将 if 替换为 for，从而当从 Wait() 返回时，再次判断条件是否满足。</p>
+
+<p>用法实例</p>
+
+<p>用一个简单的例子来介绍一下 Cond 如何使用，即：</p>
+
+<pre><code>var (
+    wakeup    = false
+    workerNum = 3
+)
+
+func worker(workerID int, c *sync.Cond) {
+    fmt.Printf(&quot;Worker [%d] is RUNNING\n&quot;, workerID)
+    c.L.Lock()
+    for !wakeup {
+        fmt.Printf(&quot;Worker [%d] check conditon\n&quot;, workerID)
+        c.Wait()
+    }
+    fmt.Printf(&quot;Worker [%d] wakeup, DO something\n&quot;, workerID)
+    // 将唤醒标志改为 false
+    // 此时其他已经醒来并抢夺互斥锁的 goroutine 重新判断条件后
+    // 将再次进入 wait 状态
+    wakeup = false 
+    c.L.Unlock()
+}
+
+func main() {
+    cond := sync.NewCond(&amp;sync.Mutex{})
+    for i := 0; i &lt; workerNum; i++ {
+        go worker(i, cond)
+    }
+
+    time.Sleep(2 * time.Second)
+    wakeup = true
+    cond.Broadcast() // 向所有 goroutine 进行广播，条件已经满足，即 wakeup = true
+
+    time.Sleep(2 * time.Second)
+}
+</code></pre>
+
+<p>执行后的输出为：</p>
+
+<pre><code>Worker [0] is RUNNING
+Worker [1] is RUNNING
+Worker [0] check conditon
+Worker [1] check conditon
+Worker [2] is RUNNING
+Worker [2] check conditon
+Worker [0] wakeup, DO something
+Worker [1] check conditon
+Worker [2] check conditon
+</code></pre>
+
+<p>当 worker0 醒来后，又重新把条件变量进行了修改，从而导致 worker1 和 worker2 获取到互斥锁后重新检查到条件不满足，再次进入 wait 状态。</p>
+
+<h3 id="sync-atomic">sync/atomic</h3>
+
+<p>atomic包提供了底层的原子级内存操作，对于同步算法的实现很有用。</p>
+
+<pre><code>//atomic包提供了底层的原子级内存操作
+//类型共有六种：int32, int64, uint32, uint64, uintptr, unsafe.Pinter
+//操作共五种：增减， 比较并交换， 载入， 存储，交换
+</code></pre>
+
+<ul>
+<li>增或减</li>
+</ul>
+
+<p>顾名思义，原子增或减即可实现对被操作值的增大或减少。因此该操作只能操作数值类型。
+　　
+被用于进行增或减的原子操作都是以“Add”为前缀，并后面跟针对具体类型的名称。</p>
+
+<pre><code>//方法源码
+func AddUint32(addr *uint32, delta uint32) (new uint32)
+
+func AddInt64(addr *int64, delta int64) (new int64)
+AddInt64原子性的将val的值添加到*addr并返回新值。
+</code></pre>
+
+<p>增</p>
+
+<pre><code>栗子：（在原来的基础上加n）
+atomic.AddUint32(&amp;addr,n)
+</code></pre>
+
+<p>减</p>
+
+<pre><code>栗子：(在原来的基础上加n（n为负数))
+atomic.AddUint32(*addr,uint32(int32(n)))
+//或
+atomic.AddUint32(&amp;addr,^uint32(-n-1))
+</code></pre>
+
+<p>比较并交换</p>
+
+<p>比较并交换&mdash;-Compare And Swap 简称CAS</p>
+
+<p>他是假设被操作的值未曾被改变（即与旧值相等），并一旦确定这个假设的真实性就立即进行值替换</p>
+
+<p>如果想安全的并发一些类型的值，我们总是应该优先使用CAS</p>
+
+<pre><code>//方法源码
+func CompareAndSwapInt32(addr *int32, old, new int32) (swapped bool)
+</code></pre>
+
+<p>栗子：（如果addr和old相同,就用new代替addr）</p>
+
+<pre><code>ok:=atomic.CompareAndSwapInt32(&amp;addr,old,new)
+</code></pre>
+
+<p>载入</p>
+
+<p>如果一个写操作未完成，有一个读操作就已经发生了，这样读操作使很糟糕的。</p>
+
+<p>为了原子的读取某个值sync/atomic代码包同样为我们提供了一系列的函数。这些函数都以&rdquo;Load&rdquo;为前缀，意为载入。</p>
+
+<pre><code>//方法源码
+func LoadInt32(addr *int32) (val int32)
+</code></pre>
+
+<p>栗子</p>
+
+<pre><code>fun addValue(delta int32){
+    for{
+        v:=atomic.LoadInt32(&amp;addr)
+        if atomic.CompareAndSwapInt32(&amp;v,addr,(delta+v)){
+            break;
+        }
+    }
+}
+</code></pre>
+
+<p>存储
+　　
+与读操作对应的是写入操作，sync/atomic也提供了与原子的值载入函数相对应的原子的值存储函数。这些函数的名称均以“Store”为前缀
+　　</p>
+
+<p>在原子的存储某个值的过程中，任何cpu都不会进行针对进行同一个值的读或写操作。如果我们把所有针对此值的写操作都改为原子操作，那么就不会出现针对此值的读操作读操作因被并发的进行而读到修改了一半的情况。
+　　
+原子操作总会成功，因为他不必关心被操作值的旧值是什么。</p>
+
+<pre><code>//方法源码
+func StoreInt32(addr *int32, val int32)
+</code></pre>
+
+<p>栗子</p>
+
+<pre><code>atomic.StoreInt32(被操作值的指针,新值)
+atomic.StoreInt32(&amp;value,newaddr)
+</code></pre>
+
+<p>交换
+　　
+原子交换操作，这类函数的名称都以“Swap”为前缀。
+　　
+与CAS不同，交换操作直接赋予新值，不管旧值。
+　　
+会返回旧值</p>
+
+<pre><code>//方法源码
+func SwapInt32(addr *int32, new int32) (old int32)
+</code></pre>
+
+<p>栗子</p>
+
+<pre><code>atomic.SwapInt32(被操作值的指针,新值)（返回旧值）
+oldval：=atomic.StoreInt32(&amp;value,newaddr)
+</code></pre>
+
+<h1 id="map">map</h1>
+
+<p>这是一个重点的数据结构，实现十分经典。具体看<a href="posts/golang/go-map/">map</a></p>
+
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-sync/">https://kingjcy.github.io/post/golang/go-sync/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/sync/">
+                            <i class="fa fa-tags"></i>
+                            sync
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-map/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-mutex/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li>
+<ul>
+<li><a href="#sync">sync</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#锁">锁</a>
+<ul>
+<li>
+<ul>
+<li><a href="#sync-atomic">sync/atomic</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#map">map</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

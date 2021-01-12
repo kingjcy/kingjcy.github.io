@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="首先并发中的一些重要概念
+QPS：每秒钟处理的请求数量
+并发度：指在同一个时间点发起的请求数量，比如 12306 统一在下午两点钟放票，100 个人在下午两点钟同时向 12306 发起请求，此时可以认为并发度为 100。
+那么什么才叫高并发呢？
+高并发要根据场景来定义，多高的并发算高并发？对于阿里来说可能几千上万才算高并发，对于普通小公司来说，可能几十上百就算高并发了。
+高并发其实是和响应时间有很大关系的，你能把接口的响应时间做到1ms，你一个线程就能有1000QPS！一个服务怎么也能跑200个线程吧，QPS轻松地达到了20万呐！你看看有几个整天把高并发挂嘴上的能做到20万的QPS？可见响应时间是不那么容易快速响应的。
+前段时间，刚给内部另一个团队提供了一个服务接口，因为依赖底层的分析型数据库的性能，qps也就在二三十，结果线上测试的时候挂了。因为存在batch操作，一次插入5000条数据，响应时间太长了。
+其实高并发的场景多用于web端的请求处理。
+我们就web常见架构，对于百万级的的QPS怎么进行处理
+常见web架构如下
+user--ui---后端---db  Qps如果不是太高，只要简单的使用上面的进行交互就能满足基本需要。但是如果在QPS达到百万级甚至千万级别的，就会在各种交互组件上出现瓶颈。这个时候就是经验的使用和积累，来使用不同的架构来完成这种需求。
+主要
+ 垂直扩展，机器配置升级，这种最原始的方式
+ 水平扩展，这个有很多，实例，进程，线程，协程，数据库。。。
+ 组件优化，这个就需要大量的实践经验，比如减少交互等。
+ 架构完善，这个就需要大量的调优经验，比如使用缓存等。
+  比如我们之前参与的一个web项目的大体实现：
+负载均衡和缓存，可以先按照不同维度，对于请求进行划分，算是多通道，然后肯定是负载均衡，到不同的主机实例，也就是多进程部署，然后进入到了进程中具体处理的时候，使用多线程thread（正常是线程池）并发，也有使用fork出来多进行的进行处理，这边可以在逻辑里进行业务划分，到了这一边就是业务相关逻辑，优化业务，解决哪些很耗时间的操作，for循环什么的，数据库连接次数，最后就是数据库的优化，使用缓存数据库，优化数据库正常先对我们写的sql进行优化，可以看执行计划，然后数据库索引进行优化，然后就是分区，分表，分库的各种切分。当然上面的每个节点都存在高可用的保障。
+其实数据库是很多需求的响应的瓶颈所在，在数据库上花功夫才是重点，一般数据库正常使用情况
+mysql 的合理上限不应该超过500万 oracle。20亿数据。 清单 HBase在50000条数据批量写的性能大概是在2s左右，单个查，5-10ms左右 redis qps 500-2000。 几百G prometheus。 100W。30s 60。200G  今天听朋友说
+京东的架构说了句大并发，大数据下的业务其实还是靠堆机器保证的
+我们现在研究的是如何在堆机器的情况下保证业务的连贯性，容错性，可用性
+java在web并发中使用很多
+java web 高并发
+JVMJEE容器中运行的JVM参数配置参数的正确使用直接关系到整个系统的性能和处理能力，JVM的调优主要是对内存管理方面的调优，优化的方向分为以下4点：
+1.HeapSize 堆的大小，也可以说Java虚拟机使用内存的策略，这点是非常关键的。 2.GarbageCollector 通过配置相关的参数进行Java中的垃圾收集器的4个算法(策略)进行使用。 3.StackSize 栈是JVM的内存指令区,每个线程都有他自己的Stack，Stack的大小限制着线程的数量。 4.DeBug/Log 在JVM中还可以设置对JVM运行时的日志和JVM挂掉后的日志输出，这点非常的关键，根据各类JVM的日志输出才能配置合适的参数。
+JDBC针对MySQL的JDBC的参数在之前的文章中也有介绍过，在单台机器或者集群的环境下合理的使用JDBC中的配置参数对操作数据库也有很大的影响。一些所谓高性能的 Java ORM开源框架也就是打开了很多JDBC中的默认参数： 1.例如：autoReconnect、prepStmtCacheSize、cachePrepStmts、useNewIO、blobSendChunkSize 等， 2.例如集群环境下：roundRobinLoadBalance、failOverReadOnly、autoReconnectForPools、secondsBeforeRetryMaster。
+数据库连接池(DataSource)应用程序与数据库连接频繁的交互会给系统带来瓶颈和大量的开销会影响到系统的性能，JDBC连接池负责分配、管理和释放数据库连接，它允许应用程序重复使用一个现有的数据库连接，而再不是重新建立一个连接，因此应用程序不需要频繁的与数据库开关连接，并且可以释放空闲时间超过最大空闲时间的数据库连接来避免因为没有释放数据库连接而引起的数据库连接遗漏。这项技术能明显提高对数据库操作的性能。
+数据存取数据库服务器的优化和数据的存取，什么类型的数据放在什么地方更好是值得去思考的问题，将来的存储很可能是混用的，Cache，NOSQL，DFS，DataBase 在一个系统中都会有。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="架构系列---- 并发 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    架构系列---- 并发
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年04月09日 
+                </div>
+                <h1 class="post-title">架构系列---- 并发</h1>
+            </header>
+
+            <div class="post-content">
+                <p>首先并发中的一些重要概念</p>
+
+<p>QPS：每秒钟处理的请求数量</p>
+
+<p>并发度：指在同一个时间点发起的请求数量，比如 12306 统一在下午两点钟放票，100 个人在下午两点钟同时向 12306 发起请求，此时可以认为并发度为 100。</p>
+
+<p>那么什么才叫高并发呢？</p>
+
+<p>高并发要根据场景来定义，多高的并发算高并发？对于阿里来说可能几千上万才算高并发，对于普通小公司来说，可能几十上百就算高并发了。</p>
+
+<p>高并发其实是和响应时间有很大关系的，你能把接口的响应时间做到1ms，你一个线程就能有1000QPS！一个服务怎么也能跑200个线程吧，QPS轻松地达到了20万呐！你看看有几个整天把高并发挂嘴上的能做到20万的QPS？可见响应时间是不那么容易快速响应的。</p>
+
+<p>前段时间，刚给内部另一个团队提供了一个服务接口，因为依赖底层的分析型数据库的性能，qps也就在二三十，结果线上测试的时候挂了。因为存在batch操作，一次插入5000条数据，响应时间太长了。</p>
+
+<p>其实高并发的场景多用于web端的请求处理。</p>
+
+<p>我们就web常见架构，对于百万级的的QPS怎么进行处理</p>
+
+<p>常见web架构如下</p>
+
+<pre><code>user--ui---后端---db
+</code></pre>
+
+<p>Qps如果不是太高，只要简单的使用上面的进行交互就能满足基本需要。但是如果在QPS达到百万级甚至千万级别的，就会在各种交互组件上出现瓶颈。这个时候就是经验的使用和积累，来使用不同的架构来完成这种需求。</p>
+
+<p>主要</p>
+
+<ol>
+<li><p>垂直扩展，机器配置升级，这种最原始的方式</p></li>
+
+<li><p>水平扩展，这个有很多，实例，进程，线程，协程，数据库。。。</p></li>
+
+<li><p>组件优化，这个就需要大量的实践经验，比如减少交互等。</p></li>
+
+<li><p>架构完善，这个就需要大量的调优经验，比如使用缓存等。</p></li>
+</ol>
+
+<p>比如我们之前参与的一个web项目的大体实现：</p>
+
+<p>负载均衡和缓存，可以先按照不同维度，对于请求进行划分，算是多通道，然后肯定是负载均衡，到不同的主机实例，也就是多进程部署，然后进入到了进程中具体处理的时候，使用多线程thread（正常是线程池）并发，也有使用fork出来多进行的进行处理，这边可以在逻辑里进行业务划分，到了这一边就是业务相关逻辑，优化业务，解决哪些很耗时间的操作，for循环什么的，数据库连接次数，最后就是数据库的优化，使用缓存数据库，优化数据库正常先对我们写的sql进行优化，可以看执行计划，然后数据库索引进行优化，然后就是分区，分表，分库的各种切分。当然上面的每个节点都存在高可用的保障。</p>
+
+<p>其实数据库是很多需求的响应的瓶颈所在，在数据库上花功夫才是重点，一般数据库正常使用情况</p>
+
+<pre><code>mysql 的合理上限不应该超过500万
+oracle。20亿数据。  清单
+HBase在50000条数据批量写的性能大概是在2s左右，单个查，5-10ms左右
+redis qps 500-2000。     几百G
+prometheus。  100W。30s 60。200G
+</code></pre>
+
+<p>今天听朋友说</p>
+
+<p>京东的架构说了句大并发，大数据下的业务其实还是靠堆机器保证的</p>
+
+<p>我们现在研究的是如何在堆机器的情况下保证业务的连贯性，容错性，可用性</p>
+
+<p>java在web并发中使用很多</p>
+
+<p>java web 高并发</p>
+
+<p>JVMJEE容器中运行的JVM参数配置参数的正确使用直接关系到整个系统的性能和处理能力，JVM的调优主要是对内存管理方面的调优，优化的方向分为以下4点：</p>
+
+<p>1.HeapSize             堆的大小，也可以说Java虚拟机使用内存的策略，这点是非常关键的。
+2.GarbageCollector  通过配置相关的参数进行Java中的垃圾收集器的4个算法(策略)进行使用。
+3.StackSize             栈是JVM的内存指令区,每个线程都有他自己的Stack，Stack的大小限制着线程的数量。
+4.DeBug/Log           在JVM中还可以设置对JVM运行时的日志和JVM挂掉后的日志输出，这点非常的关键，根据各类JVM的日志输出才能配置合适的参数。</p>
+
+<p>JDBC针对MySQL的JDBC的参数在之前的文章中也有介绍过，在单台机器或者集群的环境下合理的使用JDBC中的配置参数对操作数据库也有很大的影响。一些所谓高性能的 Java ORM开源框架也就是打开了很多JDBC中的默认参数：
+1.例如：autoReconnect、prepStmtCacheSize、cachePrepStmts、useNewIO、blobSendChunkSize 等，
+2.例如集群环境下：roundRobinLoadBalance、failOverReadOnly、autoReconnectForPools、secondsBeforeRetryMaster。</p>
+
+<p>数据库连接池(DataSource)应用程序与数据库连接频繁的交互会给系统带来瓶颈和大量的开销会影响到系统的性能，JDBC连接池负责分配、管理和释放数据库连接，它允许应用程序重复使用一个现有的数据库连接，而再不是重新建立一个连接，因此应用程序不需要频繁的与数据库开关连接，并且可以释放空闲时间超过最大空闲时间的数据库连接来避免因为没有释放数据库连接而引起的数据库连接遗漏。这项技术能明显提高对数据库操作的性能。</p>
+
+<p>数据存取数据库服务器的优化和数据的存取，什么类型的数据放在什么地方更好是值得去思考的问题，将来的存储很可能是混用的，Cache，NOSQL，DFS，DataBase 在一个系统中都会有。</p>
+
+<p>缓存在宏观上看缓存一般分为2种：本地缓存和分布式缓存
+1.本地缓存，对于Java的本地缓存而言就是讲数据放入静态(static)的数据结合中，然后需要用的时候就从静态数据结合中拿出来,对于高并发的环境建议使用 ConcurrentHashMap或者CopyOnWriteArrayList作为本地缓存。缓存的使用更具体点说就是对系统内存的使用，使用多少内存的资源需要有一个适当比例，如果超过适当的使用存储访问，将会适得其反，导致整个系统的运行效率低下。
+2. 分布式缓存，一般用于分布式的环境，将每台机器上的缓存进行集中化的存储，并且不仅仅用于缓存的使用范畴，还可以作为分布式系统数据同步/传输的一种手段，一般被使用最多的就是Memcached和Redis。数据存储在不同的介质上读/写得到的效率是不同的，在系统中如何善用缓存，让你的数据更靠近cpu，</p>
+
+<p>并发/多线程在高并发环境下建议开发者使用JDK中自带的并发包(java.util.concurrent)，在JDK1.5以后使用java.util.concurrent下的工具类可以简化多线程开发，在java.util.concurrent的工具中主要分为以下几个主要部分：
+1.线程池，线程池的接口(Executor、ExecutorService)与实现类(ThreadPoolExecutor、 ScheduledThreadPoolExecutor），利用jdk自带的线程池框架可以管理任务的排队和安排，并允许受控制的关闭。因为运行一个线程需要消耗系统CPU资源，而创建、结束一个线程也对系统CPU资源有开销，使用线程池不仅仅可以有效的管理多线程的使用，还是可以提高线程的运行效率。
+2.本地队列，提供了高效的、可伸缩的、线程安全的非阻塞 FIFO 队列。java.util.concurrent 中的五个实现都支持扩展的 BlockingQueue 接口，该接口定义了 put 和 take 的阻塞版本：LinkedBlockingQueue、ArrayBlockingQueue、SynchronousQueue、PriorityBlockingQueue 和 DelayQueue。这些不同的类覆盖了生产者-使用者、消息传递、并行任务执行和相关并发设计的大多数常见使用的上下文。</p>
+
+<p>有几个常用的措施<br />
+ 1、对常用功能建立缓存模块<br />
+ 2、网页尽量静态化</p>
+
+<h1 id="高并发需要注意的事情">高并发需要注意的事情</h1>
+
+<ol>
+<li><p>高并发下一定要减少锁的使用，这边也是channel在go中的重要作用之一。</p></li>
+
+<li><p>好的习惯是，稍大的类型存到map都存储指针而不是值。</p></li>
+
+<li><p>定义数据结构的时候，减少后面使用的转换</p></li>
+
+<li><p>defer是性能杀手，我的原则是能不用尽量避开。</p></li>
+
+<li><p>能不在循环内部做的，就不要在循环内存处理</p></li>
+
+<li><p>减少内存的频繁分配，减少使用全局锁的可能</p></li>
+</ol>
+
+<p>并发演进：多进程&ndash;多线程&ndash;go并发编程模型（协程）</p>
+
+<p>多进程并发</p>
+
+<p>基本概念</p>
+
+<p>进程</p>
+
+<p>状态</p>
+
+<p>Linux进程状态：R (TASK_RUNNING)，可执行状态。</p>
+
+<p>只有在该状态的进程才可能在CPU上运行。而同一时刻可能有多个进程处于可执行状态，这些进程的task_struct结构（进程控制块）被放入对应CPU的可执行队列中（一个进程最多只能出现在一个CPU的可执行队列中）。进程调度器的任务就是从各个CPU的可执行队列中分别选择一个进程在该CPU上运行。</p>
+
+<p>很多操作系统教科书将正在CPU上执行的进程定义为RUNNING状态、而将可执行但是尚未被调度执行的进程定义为READY状态，这两种状态在linux下统一为 TASK_RUNNING状态。</p>
+
+<p>Linux进程状态：S (TASK_INTERRUPTIBLE)，可中断的睡眠状态。</p>
+
+<p>处于这个状态的进程因为等待某某事件的发生（比如等待socket连接、等待信号量），而被挂起。这些进程的task_struct结构被放入对应事件的等待队列中。当这些事件发生时（由外部中断触发、或由其他进程触发），对应的等待队列中的一个或多个进程将被唤醒。</p>
+
+<p>通过ps命令我们会看到，一般情况下，进程列表中的绝大多数进程都处于TASK_INTERRUPTIBLE状态（除非机器的负载很高）。毕竟CPU就这么一两个，进程动辄几十上百个，如果不是绝大多数进程都在睡眠，CPU又怎么响应得过来。</p>
+
+<p>Linux进程状态：D (TASK_UNINTERRUPTIBLE)，不可中断的睡眠状态。</p>
+
+<p>与TASK_INTERRUPTIBLE状态类似，进程处于睡眠状态，但是此刻进程是不可中断的。不可中断，指的并不是CPU不响应外部硬件的中断，而是指进程不响应异步信号。
+绝大多数情况下，进程处在睡眠状态时，总是应该能够响应异步信号的。否则你将惊奇的发现，kill -9竟然杀不死一个正在睡眠的进程了！于是我们也很好理解，为什么ps命令看到的进程几乎不会出现TASK_UNINTERRUPTIBLE状态，而总是TASK_INTERRUPTIBLE状态。</p>
+
+<p>而TASK_UNINTERRUPTIBLE状态存在的意义就在于，内核的某些处理流程是不能被打断的。如果响应异步信号，程序的执行流程中就会被插入一段用于处理异步信号的流程（这个插入的流程可能只存在于内核态，也可能延伸到用户态），于是原有的流程就被中断了。（参见《linux内核异步中断浅析》）
+在进程对某些硬件进行操作时（比如进程调用read系统调用对某个设备文件进行读操作，而read系统调用最终执行到对应设备驱动的代码，并与对应的物理设备进行交互），可能需要使用TASK_UNINTERRUPTIBLE状态对进程进行保护，以避免进程与设备交互的过程被打断，造成设备陷入不可控的状态。这种情况下的TASK_UNINTERRUPTIBLE状态总是非常短暂的，通过ps命令基本上不可能捕捉到。</p>
+
+<p>linux系统中也存在容易捕捉的TASK_UNINTERRUPTIBLE状态。执行vfork系统调用后，父进程将进入TASK_UNINTERRUPTIBLE状态，直到子进程调用exit或exec（参见《神奇的vfork》）。
+通过下面的代码就能得到处于TASK_UNINTERRUPTIBLE状态的进程：</p>
+
+<p>#include   void main() {  if (!vfork()) sleep(100);  }</p>
+
+<p>编译运行，然后ps一下：</p>
+
+<p>kouu@kouu-one:~/test$ ps -ax | grep a.out  4371 pts/0    D+     0:00 ./a.out  4372 pts/0    S+     0:00 ./a.out  4374 pts/1    S+     0:00 grep a.out</p>
+
+<p>然后我们可以试验一下TASK_UNINTERRUPTIBLE状态的威力。不管kill还是kill -9，这个TASK_UNINTERRUPTIBLE状态的父进程依然屹立不倒。</p>
+
+<p>上面一篇文章中我们介绍了Linux进程的R、S、D三种状态，这里接着上面的文章介绍另外三个状态。</p>
+
+<p>Linux进程状态：T (TASK_STOPPED or TASK_TRACED)，暂停状态或跟踪状态。</p>
+
+<p>向进程发送一个SIGSTOP信号，它就会因响应该信号而进入TASK_STOPPED状态（除非该进程本身处于TASK_UNINTERRUPTIBLE状态而不响应信号）。（SIGSTOP与SIGKILL信号一样，是非常强制的。不允许用户进程通过signal系列的系统调用重新设置对应的信号处理函数。）
+向进程发送一个SIGCONT信号，可以让其从TASK_STOPPED状态恢复到TASK_RUNNING状态。</p>
+
+<p>当进程正在被跟踪时，它处于TASK_TRACED这个特殊的状态。“正在被跟踪”指的是进程暂停下来，等待跟踪它的进程对它进行操作。比如在gdb中对被跟踪的进程下一个断点，进程在断点处停下来的时候就处于TASK_TRACED状态。而在其他时候，被跟踪的进程还是处于前面提到的那些状态。</p>
+
+<p>对于进程本身来说，TASK_STOPPED和TASK_TRACED状态很类似，都是表示进程暂停下来。
+而TASK_TRACED状态相当于在TASK_STOPPED之上多了一层保护，处于TASK_TRACED状态的进程不能响应SIGCONT信号而被唤醒。只能等到调试进程通过ptrace系统调用执行PTRACE_CONT、PTRACE_DETACH等操作（通过ptrace系统调用的参数指定操作），或调试进程退出，被调试的进程才能恢复TASK_RUNNING状态。</p>
+
+<p>Linux进程状态：Z (TASK_DEAD - EXIT_ZOMBIE)，退出状态，进程成为僵尸进程。</p>
+
+<p>进程在退出的过程中，处于TASK_DEAD状态。</p>
+
+<p>在这个退出过程中，进程占有的所有资源将被回收，除了task_struct结构（以及少数资源）以外。于是进程就只剩下task_struct这么个空壳，故称为僵尸。
+之所以保留task_struct，是因为task_struct里面保存了进程的退出码、以及一些统计信息。而其父进程很可能会关心这些信息。比如在shell中，$?变量就保存了最后一个退出的前台进程的退出码，而这个退出码往往被作为if语句的判断条件。
+当然，内核也可以将这些信息保存在别的地方，而将task_struct结构释放掉，以节省一些空间。但是使用task_struct结构更为方便，因为在内核中已经建立了从pid到task_struct查找关系，还有进程间的父子关系。释放掉task_struct，则需要建立一些新的数据结构，以便让父进程找到它的子进程的退出信息。</p>
+
+<p>父进程可以通过wait系列的系统调用（如wait4、waitid）来等待某个或某些子进程的退出，并获取它的退出信息。然后wait系列的系统调用会顺便将子进程的尸体（task_struct）也释放掉。
+子进程在退出的过程中，内核会给其父进程发送一个信号，通知父进程来“收尸”。这个信号默认是SIGCHLD，但是在通过clone系统调用创建子进程时，可以设置这个信号。</p>
+
+<p>通过下面的代码能够制造一个EXIT_ZOMBIE状态的进程：</p>
+
+<p>#include   void main() {  if (fork())  while(1) sleep(100);  }</p>
+
+<p>编译运行，然后ps一下：</p>
+
+<p>kouu@kouu-one:~/test$ ps -ax | grep a.out  10410 pts/0    S+     0:00 ./a.out  10411 pts/0    Z+     0:00 [a.out]   10413 pts/1    S+     0:00 grep a.out</p>
+
+<p>只要父进程不退出，这个僵尸状态的子进程就一直存在。那么如果父进程退出了呢，谁又来给子进程“收尸”？
+当进程退出的时候，会将它的所有子进程都托管给别的进程（使之成为别的进程的子进程）。托管给谁呢？可能是退出进程所在进程组的下一个进程（如果存在的话），或者是1号进程。所以每个进程、每时每刻都有父进程存在。除非它是1号进程。</p>
+
+<p>1号进程，pid为1的进程，又称init进程。
+linux系统启动后，第一个被创建的用户态进程就是init进程。它有两项使命：
+1、执行系统初始化脚本，创建一系列的进程（它们都是init进程的子孙）；
+2、在一个死循环中等待其子进程的退出事件，并调用waitid系统调用来完成“收尸”工作；
+init进程不会被暂停、也不会被杀死（这是由内核来保证的）。它在等待子进程退出的过程中处于TASK_INTERRUPTIBLE状态，“收尸”过程中则处于TASK_RUNNING状态。</p>
+
+<p>Linux进程状态：X (TASK_DEAD - EXIT_DEAD)，退出状态，进程即将被销毁。</p>
+
+<p>而进程在退出过程中也可能不会保留它的task_struct。比如这个进程是多线程程序中被detach过的进程（进程？线程？参见《linux线程浅析》）。或者父进程通过设置SIGCHLD信号的handler为SIG_IGN，显式的忽略了SIGCHLD信号。（这是posix的规定，尽管子进程的退出信号可以被设置为SIGCHLD以外的其他信号。）
+此时，进程将被置于EXIT_DEAD退出状态，这意味着接下来的代码立即就会将该进程彻底释放。所以EXIT_DEAD状态是非常短暂的，几乎不可能通过ps命令捕捉到。</p>
+
+<p>进程的初始状态</p>
+
+<p>进程是通过fork系列的系统调用（fork、clone、vfork）来创建的，内核（或内核模块）也可以通过kernel_thread函数创建内核进程。这些创建子进程的函数本质上都完成了相同的功能——将调用进程复制一份，得到子进程。（可以通过选项参数来决定各种资源是共享、还是私有。）
+那么既然调用进程处于TASK_RUNNING状态（否则，它若不是正在运行，又怎么进行调用？），则子进程默认也处于TASK_RUNNING状态。
+另外，在系统调用调用clone和内核函数kernel_thread也接受CLONE_STOPPED选项，从而将子进程的初始状态置为 TASK_STOPPED。</p>
+
+<p>进程状态变迁</p>
+
+<p>进程自创建以后，状态可能发生一系列的变化，直到进程退出。而尽管进程状态有好几种，但是进程状态的变迁却只有两个方向——从TASK_RUNNING状态变为非TASK_RUNNING状态、或者从非TASK_RUNNING状态变为TASK_RUNNING状态。
+也就是说，如果给一个TASK_INTERRUPTIBLE状态的进程发送SIGKILL信号，这个进程将先被唤醒（进入TASK_RUNNING状态），然后再响应SIGKILL信号而退出（变为TASK_DEAD状态）。并不会从TASK_INTERRUPTIBLE状态直接退出。</p>
+
+<p>进程从非TASK_RUNNING状态变为TASK_RUNNING状态，是由别的进程（也可能是中断处理程序）执行唤醒操作来实现的。执行唤醒的进程设置被唤醒进程的状态为TASK_RUNNING，然后将其task_struct结构加入到某个CPU的可执行队列中。于是被唤醒的进程将有机会被调度执行。</p>
+
+<p>而进程从TASK_RUNNING状态变为非TASK_RUNNING状态，则有两种途径：
+1、响应信号而进入TASK_STOPED状态、或TASK_DEAD状态；
+2、执行系统调用主动进入TASK_INTERRUPTIBLE状态（如nanosleep系统调用）、或TASK_DEAD状态（如exit系统调用）；或由于执行系统调用需要的资源得不到满足，而进入TASK_INTERRUPTIBLE状态或TASK_UNINTERRUPTIBLE状态（如select系统调用）。
+显然，这两种情况都只能发生在进程正在CPU上执行的情况下。</p>
+
+<p>空间</p>
+
+<p>内核空间&mdash;专门给内核用的，内核可以和硬件进行交互
+用户空间&mdash;专门给用户进程用的，用户进程不可以和硬件进行交互，内核对用户空间进行分配</p>
+
+<p>两个空间合成了机器的虚拟内存，根据机器的位数不同，分别使用0-2的32/64次方来表示虚拟内存的地址，内核和用户的地址是以TASK_SIZE来分界的，TASK_SIZE根据不同的系统数值也不同，</p>
+
+<p>系统调用</p>
+
+<p>多线程并发</p>
+
+<p>goroutine并发</p>
+
+<p>拒绝策略介绍</p>
+
+<p>线程池的拒绝策略，是指当任务添加到线程池中被拒绝，而采取的处理措施。
+当任务添加到线程池中之所以被拒绝，可能是由于：第一，线程池异常关闭。第二，任务数量超过线程池的最大限制。</p>
+
+<p>线程池共包括4种拒绝策略，它们分别是：AbortPolicy, CallerRunsPolicy, DiscardOldestPolicy和DiscardPolicy。</p>
+
+<pre><code>AbortPolicy         -- 当任务添加到线程池中被拒绝时，它将抛出 RejectedExecutionException 异常。
+CallerRunsPolicy    -- 当任务添加到线程池中被拒绝时，会在线程池当前正在运行的Thread线程池中处理被拒绝的任务。
+DiscardOldestPolicy -- 当任务添加到线程池中被拒绝时，线程池会放弃等待队列中最旧的未处理任务，然后将被拒绝的任务添加到等待队列中。
+DiscardPolicy       -- 当任务添加到线程池中被拒绝时，线程池将丢弃被拒绝的任务。
+</code></pre>
+
+<p>线程池默认的处理策略是AbortPolicy！</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/architecture/concurrence/">https://kingjcy.github.io/post/architecture/concurrence/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/concurrence/">
+                            <i class="fa fa-tags"></i>
+                            Concurrence
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/architecture/concurrencesafe/">架构系列---- 并发安全</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年04月09日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/industries/nanjing/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/concurrencesafe/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#高并发需要注意的事情">高并发需要注意的事情</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

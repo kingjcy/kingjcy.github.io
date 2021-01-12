@@ -1,0 +1,3204 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="kubernetes是一种容器管理系统，可以支持容器自身的不足
+
+1、解决了容器安全问题：密钥与配置管理
+2、容器管理：部署，升级回滚，扩缩容，自愈等。
+3、网络问题：服务发现和负载均衡
+">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="K8s系列---- K8s Tutorial - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    K8s系列---- K8s Tutorial
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年04月04日 
+                </div>
+                <h1 class="post-title">K8s系列---- K8s Tutorial</h1>
+            </header>
+
+            <div class="post-content">
+                <p>kubernetes是一种容器管理系统，可以支持容器自身的不足</p>
+
+<pre><code>1、解决了容器安全问题：密钥与配置管理
+2、容器管理：部署，升级回滚，扩缩容，自愈等。
+3、网络问题：服务发现和负载均衡
+</code></pre>
+
+<h1 id="组件和概念">组件和概念</h1>
+
+<p>Kubernetes主要由以下几个核心组件组成：</p>
+
+<blockquote>
+<p>master</p>
+</blockquote>
+
+<pre><code>apiserver提供了资源操作的唯一入口，并提供认证、授权、访问控制、API注册和发现等机制；可以说是k8s的内部交互的网关总线。
+controller manager负责维护集群的状态，比如故障检测、自动扩展、滚动更新等；是控制器的管理者，负责很多的控制器。
+scheduler负责资源的调度，按照（预选优选）调度策略将Pod调度到相应的机器上；
+</code></pre>
+
+<blockquote>
+<p>node</p>
+</blockquote>
+
+<pre><code>kubelet负责维护容器的生命周期，同时也负责Volume（CVI）和网络（CNI）的管理；主要干活的对象，负责和docker进行交互，创建容器，维护容器。
+kube-proxy负责为Service提供cluster内部的服务发现和负载均衡；提供了一种网络模式。
+docker engine docker引擎，负责docker的创建和管理。
+</code></pre>
+
+<blockquote>
+<p>网络</p>
+</blockquote>
+
+<pre><code>fannel实现pod网络的互通
+</code></pre>
+
+<blockquote>
+<p>数据库</p>
+</blockquote>
+
+<pre><code>etcd保存了整个集群的状态；实现持久化数据的k-vdb
+</code></pre>
+
+<blockquote>
+<p>重要概念</p>
+</blockquote>
+
+<p>namespaces:命名空间，主要是实现资源的隔离，Namespace是对一组资源和对象的抽象集合，比如可以用来将系统内部的对象划分为不同的项目组或用户组。比如我们将namespace命名为系统名，一个系统一个namespace。</p>
+
+<p>pod: 一种应用的实例，例如一个web站点，包含前端，后端，数据库这三个容器，放在一个pod中对外就是一个web服务。</p>
+
+<p>service：pod的路由代理的抽象，集群内通过service提供的固定地址进行交互，而service来做服务发现和负载均衡，来和变化的pod进行交互。</p>
+
+<p>ingress：类似于nginx的转发功能，暴露出service的地址来对外暴露服务。</p>
+
+<p>上面是最基本要了解的资源概念，还有很多<a href="/posts/cloud/container/kubernetes/k8s-principle/">核心概念</a>。</p>
+
+<h1 id="安装包">安装包</h1>
+
+<blockquote>
+<p>源码编译二进制文件</p>
+</blockquote>
+
+<p>1、You have a working [Go environment].</p>
+
+<pre><code>$ go get -d k8s.io/kubernetes
+$ cd $GOPATH/src/k8s.io/kubernetes
+$ make
+</code></pre>
+
+<p>2、You have a working [Docker environment].</p>
+
+<pre><code>$ git clone https://github.com/kubernetes/kubernetes
+$ cd kubernetes
+$ make quick-release
+</code></pre>
+
+<blockquote>
+<p>直接下载</p>
+</blockquote>
+
+<p>官方提供了直接下载的路径<a href="https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.8.md">https://github.com/kubernetes/kubernetes/blob/master/CHANGELOG-1.8.md</a></p>
+
+<blockquote>
+<p>rpm</p>
+</blockquote>
+
+<p>打rpm包，直接工程下载工程</p>
+
+<p><a href="https://github.com/kubernetes/release">https://github.com/kubernetes/release</a></p>
+
+<p>将上面编译好的文件可执行文件复制到这个项目的rpm目录下</p>
+
+<p>修改这个目录下的spec文件，比如版本信息，使用二进制文件为本地文件，也就是上面穿过来的，而不是去网上下载</p>
+
+<p>再下载一些基础镜像</p>
+
+<p>最后直接执行当前目录下的./docker-build.sh就可以自己启动镜像编译成对应的rpm文件</p>
+
+<p>对应执行的<a href="/posts/cloud/container/kubernetes/k8s-rpm-build/">基本过程</a></p>
+
+<blockquote>
+<p>yum源</p>
+</blockquote>
+
+<p>最后提供一个k8s的yum源</p>
+
+<pre><code>[virt7-testing]
+name=virt7-testing
+baseurl=http://cbs.centos.org/repos/virt7-testing/x86_64/os/
+gpgcheck=0
+</code></pre>
+
+<blockquote>
+<p>总结</p>
+</blockquote>
+
+<p>可见，能上网直接yum源，不能上网，就是直接下载二进制文件</p>
+
+<h1 id="安装部署">安装部署</h1>
+
+<h2 id="单例">单例</h2>
+
+<p>就是在一台机器上部署一个k8s集群，可以下载后一个个组件启动，我们这边推荐k8s官方推出的minikube工具来部署。</p>
+
+<blockquote>
+<h3 id="minikube">minikube</h3>
+</blockquote>
+
+<p>Kubernetes 集群的搭建是有一定难度的，尤其是对于初学者来说，好多概念和原理不懂，即使有现成的教程也会出现很多不可预知的问题，很容易打击学习的积极性，就此弃坑。好在 Kubernetes 社区提供了可以在本地开发和体验的极简集群安装 MiniKube，对于入门学习来说很方便。</p>
+
+<p>MiniKube其实就是把k8s的几个组件的镜像下载下来，然后使用docker进行启动，当然设置了启动参数 ，在一台机器上启动了所有的组件然后就是一个单节点的k8s集群，所以说minikube就是一个部署工具，和k8s集群本身没有关系，将k8s集群运行在docker中，不想我们直接运行在物理机上，但是在国内由于网络访问原因（懂的），即使有梯子也很折腾，所以需要修改源为阿里的后MiniKube 安装。使用阿里修改后的 MiniKube 就可以从阿里云的镜像地址来获取所需 Docker 镜像和配置，其它的并没有差异。</p>
+
+<p>minikube本身就提供了可执行的二进制文件，可以直接下载，用命令行启动，就能自动的将k8s部署好</p>
+
+<p>1、安装包</p>
+
+<p>我们以macos为例</p>
+
+<p>macOS 安装 Minikube 最简单的方法是使用 Homebrew：</p>
+
+<pre><code>brew install minikube
+</code></pre>
+
+<p>你也可以通过下载单节点二进制文件进行安装：</p>
+
+<pre><code>curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-amd64 \
+&amp;&amp; chmod +x minikube
+</code></pre>
+
+<p>这是一个简单的将 Minikube 可执行文件添加至 path 的方法：</p>
+
+<pre><code>sudo mv minikube /usr/local/bin
+</code></pre>
+
+<p>2、清理本地状态</p>
+
+<p>如果您之前安装过 Minikube，并运行了：</p>
+
+<pre><code>minikube start
+</code></pre>
+
+<p>并且 minikube start 返回了一个错误：</p>
+
+<pre><code>machine does not exist
+</code></pre>
+
+<p>那么，你需要清理 minikube 的本地状态：</p>
+
+<pre><code>minikube delete
+</code></pre>
+
+<p>3、使用minikube安装k8s</p>
+
+<pre><code>minikube start --image-mirror-country='cn' --image-repository='registry.cn-hangzhou.aliyuncs.com/google_containers' --cache-images=true --vm-driver=virtualbox --kubernetes-version=1.14.10
+</code></pre>
+
+<p>我们可以手动下载对应的k8s镜像，需要如下</p>
+
+<pre><code>[root@localhost ~]# docker images | grep gcr.io
+k8s.gcr.io/kube-proxy                              v1.13.4             fadcc5d2b066        5 weeks ago         80.3 MB
+k8s.gcr.io/kube-apiserver                          v1.13.4             fc3801f0fc54        5 weeks ago         181 MB
+k8s.gcr.io/kube-scheduler                          v1.13.4             dd862b749309        5 weeks ago         79.6 MB
+k8s.gcr.io/kube-controller-manager                 v1.13.4             40a817357014        5 weeks ago         146 MB
+k8s.gcr.io/coredns                                 1.2.6               f59dcacceff4        5 months ago        40 MB
+k8s.gcr.io/etcd                                    3.2.24              3cab8e1b9802        6 months ago        220 MB
+k8s.gcr.io/kube-addon-manager                      v8.6                9c16409588eb        13 months ago       78.4 MB
+k8s.gcr.io/pause                                   3.1                 da86e6ba6ca1        15 months ago       742 kB
+gcr.io/k8s-minikube/storage-provisioner            v1.8.1              4689081edb10        17 months ago       80.8 MB
+</code></pre>
+
+<p>只用在有网络的情况下，这个体验还算好，不用理解启动参数，部署组件的相关问题，实战还是不如启动一个集群</p>
+
+<p>启动后</p>
+
+<pre><code>[root@localhost ~]# ps -ef | grep kube
+root      18681  28313  0 15:46 ?        00:00:00 /usr/local/bin/kubectl get --namespace=kube-system serviceaccount default -o go-template={{with index .secrets 0}}{{.name}}{{end}}
+root      19440      1 20 Mar21 ?        4-04:38:21 /usr/bin/kubelet --cluster-domain=cluster.local --client-ca-file=/var/lib/minikube/certs/ca.crt --fail-swap-on=false --pod-manifest-path=/etc/kubernetes/manifests --cluster-dns=10.96.0.10 --allow-privileged=true --authorization-mode=Webhook --cgroup-driver=systemd --container-runtime=docker --kubeconfig=/etc/kubernetes/kubelet.conf --bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --hostname-override=minikube
+root      23927 185823  0 15:47 pts/5    00:00:00 grep --color=auto kube
+root      28313  28292  0 Mar21 ?        00:00:30 /bin/bash /opt/kube-addons.sh
+root      28517  28497  4 Mar21 ?        22:02:26 etcd --advertise-client-urls=https://10.49.8.178:2379 --cert-file=/var/lib/minikube/certs/etcd/server.crt --client-cert-auth=true --data-dir=/data/minikube --initial-advertise-peer-urls=https://10.49.8.178:2380 --initial-cluster=minikube=https://10.49.8.178:2380 --key-file=/var/lib/minikube/certs/etcd/server.key --listen-client-urls=https://127.0.0.1:2379,https://10.49.8.178:2379 --listen-peer-urls=https://10.49.8.178:2380 --name=minikube --peer-cert-file=/var/lib/minikube/certs/etcd/peer.crt --peer-client-cert-auth=true --peer-key-file=/var/lib/minikube/certs/etcd/peer.key --peer-trusted-ca-file=/var/lib/minikube/certs/etcd/ca.crt --snapshot-count=10000 --trusted-ca-file=/var/lib/minikube/certs/etcd/ca.crt
+root      28795  28775 12 Mar21 ?        2-13:36:54 kube-apiserver --authorization-mode=Node,RBAC --enable-admission-plugins=Initializers,NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,DefaultTolerationSeconds,NodeRestriction,MutatingAdmissionWebhook,ValidatingAdmissionWebhook,ResourceQuota --advertise-address=10.49.8.178 --allow-privileged=true --client-ca-file=/var/lib/minikube/certs/ca.crt --enable-bootstrap-token-auth=true --etcd-cafile=/var/lib/minikube/certs/etcd/ca.crt --etcd-certfile=/var/lib/minikube/certs/apiserver-etcd-client.crt --etcd-keyfile=/var/lib/minikube/certs/apiserver-etcd-client.key --etcd-servers=https://127.0.0.1:2379 --insecure-port=0 --kubelet-client-certificate=/var/lib/minikube/certs/apiserver-kubelet-client.crt --kubelet-client-key=/var/lib/minikube/certs/apiserver-kubelet-client.key --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname --proxy-client-cert-file=/var/lib/minikube/certs/front-proxy-client.crt --proxy-client-key-file=/var/lib/minikube/certs/front-proxy-client.key --requestheader-allowed-names=front-proxy-client --requestheader-client-ca-file=/var/lib/minikube/certs/front-proxy-ca.crt --requestheader-extra-headers-prefix=X-Remote-Extra- --requestheader-group-headers=X-Remote-Group --requestheader-username-headers=X-Remote-User --secure-port=8443 --service-account-key-file=/var/lib/minikube/certs/sa.pub --service-cluster-ip-range=10.96.0.0/12 --tls-cert-file=/var/lib/minikube/certs/apiserver.crt --tls-private-key-file=/var/lib/minikube/certs/apiserver.key
+root      29274  29221  9 Mar21 ?        1-20:45:37 kube-controller-manager --address=127.0.0.1 --authentication-kubeconfig=/etc/kubernetes/controller-manager.conf --authorization-kubeconfig=/etc/kubernetes/controller-manager.conf --client-ca-file=/var/lib/minikube/certs/ca.crt --cluster-signing-cert-file=/var/lib/minikube/certs/ca.crt --cluster-signing-key-file=/var/lib/minikube/certs/ca.key --controllers=*,bootstrapsigner,tokencleaner --kubeconfig=/etc/kubernetes/controller-manager.conf --leader-elect=true --requestheader-client-ca-file=/var/lib/minikube/certs/front-proxy-ca.crt --root-ca-file=/var/lib/minikube/certs/ca.crt --service-account-private-key-file=/var/lib/minikube/certs/sa.key --use-service-account-credentials=true
+root      29729  29701  2 Mar21 ?        10:43:05 kube-scheduler --address=127.0.0.1 --kubeconfig=/etc/kubernetes/scheduler.conf --leader-elect=true
+root      29869  29839  1 Mar21 ?        04:48:13 /usr/local/bin/kube-proxy --config=/var/lib/kube-proxy/config.conf --hostname-override=minikube
+</code></pre>
+
+<p>这个只能在自己的机器上做学习开发研究使用，企业还是需要集群的。</p>
+
+<h2 id="集群">集群</h2>
+
+<p>就是多台机器上部署真正的cluster，在 1.4版本之前都是手动部署，在1.4之后提供了部署工具kubeadm，kubeadm帮忙大大优化了k8s的部署，所以目前有两种部署方式，当然kubeadm是对手动部署的封装，目前大部分还是使用手动部署k8s，熟悉启动参数意义，当然大家都在做部署工具，后面使用kubeadm是一种趋势。</p>
+
+<p>首先不管什么部署，一些机器上的基础工作都是一样需要做</p>
+
+<p>1、关闭防火墙</p>
+
+<pre><code>systemctl stop firewalld
+</code></pre>
+
+<p>设置开启不启动</p>
+
+<pre><code>systemctl disable firewalld
+</code></pre>
+
+<p>关闭SELINUX</p>
+
+<pre><code>setenforce 0
+</code></pre>
+
+<p>永久关闭</p>
+
+<pre><code>SELINUX sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config
+</code></pre>
+
+<p>2、安装iptables</p>
+
+<pre><code>yum install iptables -y
+yum install iptables-services -y
+</code></pre>
+
+<p>清空iptables规则</p>
+
+<pre><code>iptables -F
+iptables -X
+iptables -Z
+iptables -F -t nat
+service iptables save
+</code></pre>
+
+<p>3、ntpdate 时间同步</p>
+
+<pre><code>ntpdate time1.aliyun.com
+</code></pre>
+
+<h3 id="kubeadm">kubeadm</h3>
+
+<p>kubeadm是Kubernetes 1.4开始新增的特性，用于快速搭建Kubernetes集群环境，两个命令就能把一个k8s集群搭建起来。</p>
+
+<p>kubeadm一共提供了5个子命令：</p>
+
+<pre><code>kubeadm init
+kubeadm join
+kubeadm token
+kubeadm reset
+kubeadm version
+</code></pre>
+
+<p>kubeadm init主要工作：</p>
+
+<p>创建集群安全相关的的key、certs和conf文件。
+创建kube-apiserver、kube-controller-manager、kube-scheduler、etcd(如果没有配置external etcd)这些static pod的json格式的manifest文件，kubelet负责启动这些master组件。
+通过addons方式启动kube-discovery deployment、kube-proxy daemonSet、kube-dns deployment。</p>
+
+<p>kubeadm join主要负责创建kubelet.conf，使kubelet能与API Server建立连接：</p>
+
+<p>访问kube-discovery服务获取cluster info（包含cluster ca证书、API Server endpoint列表和token。
+利用定的token，检验cluster info的签名。
+检验成功后，再与API Server建立连接，请求API Server为该node创建证书。
+根据获取到的证书创建kubelet.conf。</p>
+
+<p>随着Kubernetes 1.13 的发布，现在Kubeadm正式成为GA。之前都是测试版本，并不能用于生产。</p>
+
+<h3 id="手动部署">手动部署</h3>
+
+<blockquote>
+<h4 id="shell一键部署">shell一键部署</h4>
+</blockquote>
+
+<p>上面kubeadm是一种部署方式的趋势，在现在很多情况下还不够成熟，都在探索，在这个过度期间大部分都会使用shell脚本进行一键部署。</p>
+
+<p>这一块就比较偏运维，需要写大量的运维脚本，使用一些成熟的运维工具，比如puppet，cobbler，absible，supervisor等,都是<a href="/posts/linux/tool/ops-tool/">服务器自动化部署及运维常见工具</a>。</p>
+
+<blockquote>
+<h4 id="二进制部署">二进制部署</h4>
+</blockquote>
+
+<p>就是我们最常用的手动部署方式，也是需要多次练习了解的。</p>
+
+<blockquote>
+<p>权限设置</p>
+</blockquote>
+
+<p>1、设置ca证书和秘钥</p>
+
+<p>安装<a href="/posts/linux/server/ssl/">ssl</a>：</p>
+
+<pre><code>  wget https://pkg.cfssl.org/R1.2/cfssl_linux-amd64
+  wget https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64
+  wget https://pkg.cfssl.org/R1.2/cfssl-certinfo_linux-amd64
+
+  sudo cp cfssl_linux-amd64 /usr/local/bin/cfssl 
+  sudo cp cfssljson_linux-amd64 /usr/local/bin/cfssljson
+  sudo cp cfssl-certinfo_linux-amd64 /usr/local/bin/cfssl-certinfo
+
+  cd /usr/local/bin/ 
+
+  chmod +x cfssl
+  chmod +x cfssljson
+  chmod +x cfssl-certinfo
+</code></pre>
+
+<p>初始化</p>
+
+<pre><code>mkdir ~/cfssl
+cd ~/cfssl
+cfssl print-defaults config &gt; ca-config.json
+cfssl print-defaults csr &gt; ca-csr.json
+</code></pre>
+
+<p>创建ca中心</p>
+
+<pre><code>cat &gt; ca-config.json &lt;&lt;EOF
+{
+  &quot;signing&quot;: {
+    &quot;default&quot;: {
+      &quot;expiry&quot;: &quot;87600h&quot;
+    },
+    &quot;profiles&quot;: {
+      &quot;kubernetes&quot;: {
+        &quot;usages&quot;: [
+            &quot;signing&quot;,
+            &quot;key encipherment&quot;,
+            &quot;server auth&quot;,
+            &quot;client auth&quot;
+        ],
+        &quot;expiry&quot;: &quot;87600h&quot;
+      }
+    }
+  }
+}
+EOF
+</code></pre>
+
+<p>ca-config.json：可以定义多个 profiles，分别指定不同的过期时间、使用场景等参数；后续在签名证书时使用某个 profile；</p>
+
+<p>signing：表示该证书可用于签名其它证书；生成的 ca.pem 证书中 CA=TRUE；</p>
+
+<p>server auth：表示client可以用该 CA 对server提供的证书进行验证；</p>
+
+<p>client auth：表示server可以用该CA对client提供的证书进行验证；</p>
+
+<p>创建 CA 证书签名请求文件</p>
+
+<p>创建 ca-csr.json 文件，内容如下：</p>
+
+<pre><code>{
+  &quot;CN&quot;: &quot;kubernetes&quot;,
+  &quot;key&quot;: {
+    &quot;algo&quot;: &quot;rsa&quot;,
+    &quot;size&quot;: 2048
+  },
+  &quot;names&quot;: [
+    {
+      &quot;C&quot;: &quot;CN&quot;,
+      &quot;ST&quot;: &quot;BeiJing&quot;,
+      &quot;L&quot;: &quot;BeiJing&quot;,
+      &quot;O&quot;: &quot;k8s&quot;,
+      &quot;OU&quot;: &quot;System&quot;
+    }
+  ]
+}
+</code></pre>
+
+<p>&ldquo;CN&rdquo;：Common Name，kube-apiserver 从证书中提取该字段作为请求的用户名 (User Name)；浏览器使用该字段验证网站是否合法；</p>
+
+<p>&ldquo;O&rdquo;：Organization，kube-apiserver 从证书中提取该字段作为请求用户所属的组 (Group)；</p>
+
+<pre><code>$ cfssl gencert -initca ca-csr.json | cfssljson -bare ca
+</code></pre>
+
+<p>生产对应的ca证书，如下：</p>
+
+<pre><code>[root@promesdevapp18 ssl]# vi ca-config.json
+[root@promesdevapp18 ssl]# vi ca-csr.json
+[root@promesdevapp18 ssl]# cfssl gencert -initca ca-csr.json | cfssljson -bare ca
+2019/04/11 11:06:53 [INFO] generating a new CA key and certificate from CSR
+2019/04/11 11:06:53 [INFO] generate received request
+2019/04/11 11:06:53 [INFO] received CSR
+2019/04/11 11:06:53 [INFO] generating key: rsa-2048
+2019/04/11 11:06:54 [INFO] encoded CSR
+2019/04/11 11:06:54 [INFO] signed certificate with serial number 551260756352944283434991089528819033235135295505
+[root@promesdevapp18 ssl]# ll
+total 18828
+-rw-r--r-- 1 root root      292 Apr 11 11:06 ca-config.json
+-rw-r--r-- 1 root root     1001 Apr 11 11:06 ca.csr
+-rw-r--r-- 1 root root      208 Apr 11 11:06 ca-csr.json
+-rw------- 1 root root     1679 Apr 11 11:06 ca-key.pem
+-rw-r--r-- 1 root root     1359 Apr 11 11:06 ca.pem
+-rwxrwxrwx 1 root root  6595195 Apr 11 11:02 cfssl-certinfo_linux-amd64
+-rwxrwxrwx 1 root root  2277873 Apr 11 11:02 cfssljson_linux-amd64
+-rwxrwxrwx 1 root root 10376657 Apr 11 11:02 cfssl_linux-amd64
+</code></pre>
+
+<p>生成运行CA所必需的文件ca-key.pem（私钥）和ca.pem（证书），还会生成ca.csr（证书签名请求），用于交叉签名或重新签名。</p>
+
+<p>请保持ca-key.pem文件的安全。此密钥允许在CA中创建任何类型的证书。*.csr 文件在整个过程中不会使用</p>
+
+<p>这边所有ca相关证书就是根证书，用于签发下面的每个组件的证书，在这个集群中，他就是权威机构，最高权限，默认签发的证书是一年，需要注意修改。</p>
+
+<p>2、创建 kubernetes 证书</p>
+
+<p>创建 kubernetes 证书签名请求文件 kubernetes-csr.json：</p>
+
+<pre><code>{
+    &quot;CN&quot;: &quot;kubernetes&quot;,
+    &quot;hosts&quot;: [
+      &quot;127.0.0.1&quot;,
+      &quot;192.168.56.107&quot;,
+      &quot;192.168.56.106&quot;,
+      &quot;192.168.56.105&quot;,
+      &quot;10.254.0.1&quot;,
+      &quot;kubernetes&quot;,
+      &quot;kubernetes.default&quot;,
+      &quot;kubernetes.default.svc&quot;,
+      &quot;kubernetes.default.svc.cluster&quot;,
+      &quot;kubernetes.default.svc.cluster.local&quot;
+    ],
+    &quot;key&quot;: {
+        &quot;algo&quot;: &quot;rsa&quot;,
+        &quot;size&quot;: 2048
+    },
+    &quot;names&quot;: [
+        {
+            &quot;C&quot;: &quot;CN&quot;,
+            &quot;ST&quot;: &quot;BeiJing&quot;,
+            &quot;L&quot;: &quot;BeiJing&quot;,
+            &quot;O&quot;: &quot;k8s&quot;,
+            &quot;OU&quot;: &quot;System&quot;
+        }
+    ]
+}
+</code></pre>
+
+<p>如果 hosts 字段不为空则需要指定授权使用该证书的 IP 或域名列表，由于该证书后续被 etcd 集群和 kubernetes master 集群使用，所以上面分别指定了 etcd 集群、kubernetes master 集群的主机 IP 和 kubernetes 服务的服务 IP（一般是 kube-apiserver 指定的 service-cluster-ip-range 网段的第一个IP，如 10.254.0.1）。</p>
+
+<p>这是最小化安装的kubernetes集群，包括一个私有镜像仓库，三个节点的kubernetes集群，以上物理节点的IP也可以更换为主机名。</p>
+
+<pre><code>cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes -hostname=&quot;127.0.0.1,192.168.56.107,192.168.56.106,192.168.56.105,10.254.0.1,kubernetes,kubernetes.default,kubernetes.default.svc,kubernetes.default.svc.cluster,kubernetes.default.svc.cluster.local&quot; kubernetes-csr.json | cfssljson -bare kubernetes
+</code></pre>
+
+<p>或者</p>
+
+<pre><code>echo '{&quot;CN&quot;:&quot;kubernetes&quot;,&quot;hosts&quot;:[&quot;&quot;],&quot;key&quot;:{&quot;algo&quot;:&quot;rsa&quot;,&quot;size&quot;:2048}}' | cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes -hostname=&quot;127.0.0.1,172.20.0.112,172.20.0.113,172.20.0.114,172.20.0.115,kubernetes,kubernetes.default&quot; - | cfssljson -bare kubernetes
+</code></pre>
+
+<p>生成kubernetes的对应三个文件</p>
+
+<pre><code>[root@promesdevapp18 ssl]# vi kubernetes-csr.json
+[root@promesdevapp18 ssl]# cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes -hostname=&quot;127.0.0.1,10.47.210.31,10.47.210.30,10.47.210.94,10.254.0.1,kubernetes,kubernetes.default,kubernetes.default.svc,kubernetes.default.svc.cluster,kubernetes.default.svc.cluster.local&quot; kubernetes-csr.json | cfssljson -bare kubernetes
+2019/04/11 11:45:17 [INFO] generate received request
+2019/04/11 11:45:17 [INFO] received CSR
+2019/04/11 11:45:17 [INFO] generating key: rsa-2048
+2019/04/11 11:45:17 [INFO] encoded CSR
+2019/04/11 11:45:17 [INFO] signed certificate with serial number 4144021668890124555398076217136881830789156682
+[root@promesdevapp18 ssl]#
+[root@promesdevapp18 ssl]#
+[root@promesdevapp18 ssl]# ll
+total 18844
+-rw-r--r-- 1 root root      292 Apr 11 11:43 ca-config.json
+-rw-r--r-- 1 root root     1001 Apr 11 11:44 ca.csr
+-rw-r--r-- 1 root root      209 Apr 11 11:44 ca-csr.json
+-rw------- 1 root root     1679 Apr 11 11:44 ca-key.pem
+-rw-r--r-- 1 root root     1359 Apr 11 11:44 ca.pem
+-rwxrwxrwx 1 root root  6595195 Apr 11 11:02 cfssl-certinfo_linux-amd64
+-rwxrwxrwx 1 root root  2277873 Apr 11 11:02 cfssljson_linux-amd64
+-rwxrwxrwx 1 root root 10376657 Apr 11 11:02 cfssl_linux-amd64
+-rw-r--r-- 1 root root     1261 Apr 11 11:45 kubernetes.csr
+-rw-r--r-- 1 root root      556 Apr 11 11:45 kubernetes-csr.json
+-rw------- 1 root root     1675 Apr 11 11:45 kubernetes-key.pem
+-rw-r--r-- 1 root root     1627 Apr 11 11:45 kubernetes.pem
+</code></pre>
+
+<p>3、创建 admin 证书</p>
+
+<p>创建 admin 证书签名请求文件 admin-csr.json：</p>
+
+<pre><code>{
+  &quot;CN&quot;: &quot;admin&quot;,
+  &quot;hosts&quot;: [],
+  &quot;key&quot;: {
+    &quot;algo&quot;: &quot;rsa&quot;,
+    &quot;size&quot;: 2048
+  },
+  &quot;names&quot;: [
+    {
+      &quot;C&quot;: &quot;CN&quot;,
+      &quot;ST&quot;: &quot;BeiJing&quot;,
+      &quot;L&quot;: &quot;BeiJing&quot;,
+      &quot;O&quot;: &quot;system:masters&quot;,
+      &quot;OU&quot;: &quot;System&quot;
+    }
+  ]
+}
+</code></pre>
+
+<p>后续 kube-apiserver 使用 RBAC 对客户端(如 kubelet、kube-proxy、Pod)请求进行授权；</p>
+
+<p>kube-apiserver 预定义了一些 RBAC 使用的 RoleBindings，如 cluster-admin 将 Group system:masters 与 Role cluster-admin 绑定，该 Role 授予了调用kube-apiserver 的所有 API的权限；</p>
+
+<p>O 指定该证书的 Group 为 system:masters，kubelet 使用该证书访问 kube-apiserver 时 ，由于证书被 CA 签名，所以认证通过，同时由于证书用户组为经过预授权的 system:masters，所以被授予访问所有 API 的权限；</p>
+
+<p>注意：这个admin 证书，是将来生成管理员用的kube config 配置文件用的，现在我们一般建议使用RBAC 来对kubernetes 进行角色权限控制， kubernetes 将证书中的CN 字段 作为User， O 字段作为 Group（具体参考 Kubernetes中的用户与身份认证授权中 X509 Client Certs 一段）。</p>
+
+<p>在搭建完 kubernetes 集群后，我们可以通过命令: kubectl get clusterrolebinding cluster-admin -o yaml ,查看到 clusterrolebinding cluster-admin 的 subjects 的 kind 是 Group，name 是 system:masters。 roleRef 对象是 ClusterRole cluster-admin。 意思是凡是 system:masters Group 的 user 或者 serviceAccount 都拥有 cluster-admin 的角色。 因此我们在使用 kubectl 命令时候，才拥有整个集群的管理权限。可以使用 kubectl get clusterrolebinding cluster-admin -o yaml 来查看。</p>
+
+<p>生成 admin 证书和私钥：</p>
+
+<pre><code>$ cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes admin-csr.json | cfssljson -bare admin
+</code></pre>
+
+<p>4、创建 kube-proxy 证书</p>
+
+<p>创建 kube-proxy 证书签名请求文件 kube-proxy-csr.json：</p>
+
+<pre><code>{
+  &quot;CN&quot;: &quot;system:kube-proxy&quot;,
+  &quot;hosts&quot;: [],
+  &quot;key&quot;: {
+    &quot;algo&quot;: &quot;rsa&quot;,
+    &quot;size&quot;: 2048
+  },
+  &quot;names&quot;: [
+    {
+      &quot;C&quot;: &quot;CN&quot;,
+      &quot;ST&quot;: &quot;BeiJing&quot;,
+      &quot;L&quot;: &quot;BeiJing&quot;,
+      &quot;O&quot;: &quot;k8s&quot;,
+      &quot;OU&quot;: &quot;System&quot;
+    }
+  ]
+}
+</code></pre>
+
+<p>CN 指定该证书的 User 为 system:kube-proxy；</p>
+
+<p>kube-apiserver 预定义的 RoleBinding cluster-admin 将User system:kube-proxy 与 Role system:node-proxier 绑定，该 Role 授予了调用 kube-apiserver Proxy 相关 API 的权限；</p>
+
+<p>生成 kube-proxy 客户端证书和私钥</p>
+
+<pre><code>$ cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=kubernetes  kube-proxy-csr.json | cfssljson -bare kube-proxy
+$ ls kube-proxy*
+</code></pre>
+
+<p>5、校验证书</p>
+
+<p>1.openssl</p>
+
+<pre><code>$ openssl x509  -noout -text -in  kubernetes.pem
+
+
+
+确认 Issuer 字段的内容和 ca-csr.json 一致；
+确认 Subject 字段的内容和 kubernetes-csr.json 一致；
+确认 X509v3 Subject Alternative Name 字段的内容和 kubernetes-csr.json 一致；
+确认 X509v3 Key Usage、Extended Key Usage 字段的内容和 ca-config.json 中 kubernetes profile 一致；
+</code></pre>
+
+<p>2.cfssl-certinfo</p>
+
+<p>使用 cfssl-certinfo 命令</p>
+
+<pre><code>$ cfssl-certinfo -cert kubernetes.pem
+</code></pre>
+
+<p>6、分发证书</p>
+
+<p>将生成的证书和秘钥文件（后缀名为.pem）拷贝到所有机器的 /etc/kubernetes/ssl 目录下备用</p>
+
+<p>7、创建kubectl kubeconfig</p>
+
+<p>先在master上安装kubectl</p>
+
+<p>创建 kubectl kubeconfig 文件</p>
+
+<pre><code>export MASTER_IP=192.168.56.107
+export KUBE_APISERVER=&quot;https://${MASTER_IP}:6443&quot;
+</code></pre>
+
+<p>设置集群参数</p>
+
+<pre><code>kubectl config set-cluster kubernetes \
+  --certificate-authority=/home/ssl/ca.pem \
+  --embed-certs=true \
+  --server=${KUBE_APISERVER}
+</code></pre>
+
+<p>设置客户端认证参数</p>
+
+<pre><code>kubectl config set-credentials admin \
+  --client-certificate=/home/ssl/admin.pem \
+  --embed-certs=true \
+  --client-key=/home/ssl/admin-key.pem
+</code></pre>
+
+<p>设置上下文参数</p>
+
+<pre><code>kubectl config set-context kubernetes \
+  --cluster=kubernetes \
+  --user=admin
+</code></pre>
+
+<p>设置默认上下文</p>
+
+<pre><code>kubectl config use-context kubernetes
+</code></pre>
+
+<p>admin.pem 证书 OU 字段值为 system:masters，kube-apiserver 预定义的 RoleBinding cluster-admin 将 Group system:masters 与 Role cluster-admin 绑定，该 Role 授予了调用kube-apiserver 相关 API 的权限；</p>
+
+<p>生成的 kubeconfig 被保存到 ~/.kube/config 文件；</p>
+
+<p>注意：~/.kube/config文件拥有对该集群的最高权限，请妥善保管。</p>
+
+<p>8、TLS Bootstrapping使用kubeapiserver给kubelet生成证书</p>
+
+<p>kubelet、kube-proxy 等 Node 机器上的进程与 Master 机器的 kube-apiserver 进程通信时需要认证和授权；</p>
+
+<p>kubernetes 1.4 开始支持由 kube-apiserver 为客户端生成 TLS 证书的 TLS Bootstrapping 功能，这样就不需要为每个客户端生成证书了；该功能当前仅支持为 kubelet 生成证书；</p>
+
+<p>以下操作只需要在master节点上执行，生成的*.kubeconfig文件可以直接拷贝到node节点的/etc/kubernetes目录下。</p>
+
+<p>创建 TLS Bootstrapping Token</p>
+
+<pre><code>export BOOTSTRAP_TOKEN=$(head -c 16 /dev/urandom | od -An -t x | tr -d ' ')
+cat &gt; token.csv &lt;&lt;EOF
+${BOOTSTRAP_TOKEN},kubelet-bootstrap,10001,&quot;system:kubelet-bootstrap&quot;
+EOF
+</code></pre>
+
+<p>BOOTSTRAP_TOKEN 将被写入到 kube-apiserver 使用的 token.csv 文件和 kubelet 使用的 bootstrap.kubeconfig 文件，如果后续重新生成了 BOOTSTRAP_TOKEN，则需要：</p>
+
+<p>1.更新 token.csv 文件，分发到所有机器 (master 和 node）的 /etc/kubernetes/ 目录下，分发到node节点上非必需；
+2.重新生成 bootstrap.kubeconfig 文件，分发到所有 node 机器的 /etc/kubernetes/ 目录下；
+3.重启 kube-apiserver 和 kubelet 进程；
+4.重新 approve kubelet 的 csr 请求；
+5.cp token.csv /etc/kubernetes/</p>
+
+<p>9、创建 kubelet bootstrapping kubeconfig 文件</p>
+
+<p>cd /etc/kubernetes</p>
+
+<pre><code>export MASTER_IP=192.168.56.107
+export KUBE_APISERVER=&quot;https://${MASTER_IP}:6443&quot;
+</code></pre>
+
+<p>设置集群参数</p>
+
+<pre><code>kubectl config set-cluster kubernetes \
+  --certificate-authority=/home/ssl/ca.pem \
+  --embed-certs=true \
+  --server=${KUBE_APISERVER} \
+  --kubeconfig=bootstrap.kubeconfig
+</code></pre>
+
+<p>设置客户端认证参数</p>
+
+<pre><code>kubectl config set-credentials kubelet-bootstrap \
+  --token=${BOOTSTRAP_TOKEN} \
+  --kubeconfig=bootstrap.kubeconfig
+</code></pre>
+
+<p>设置上下文参数</p>
+
+<pre><code>kubectl config set-context default \
+  --cluster=kubernetes \
+  --user=kubelet-bootstrap \
+  --kubeconfig=bootstrap.kubeconfig
+</code></pre>
+
+<p>设置默认上下文</p>
+
+<pre><code>kubectl config use-context default --kubeconfig=bootstrap.kubeconfig
+</code></pre>
+
+<p>&ndash;embed-certs 为 true 时表示将 certificate-authority 证书写入到生成的 bootstrap.kubeconfig 文件中；</p>
+
+<p>设置客户端认证参数时没有指定秘钥和证书，后续由 kube-apiserver 自动生成；</p>
+
+<p>10、创建 kube-proxy kubeconfig 文件</p>
+
+<pre><code>cd /etc/kubernetes
+export KUBE_APISERVER=&quot;https://192.168.56.107:6443&quot;
+</code></pre>
+
+<p>设置集群参数</p>
+
+<pre><code>kubectl config set-cluster kubernetes \
+  --certificate-authority=/home/ssl/ca.pem \
+  --embed-certs=true \
+  --server=${KUBE_APISERVER} \
+  --kubeconfig=kube-proxy.kubeconfig
+</code></pre>
+
+<p>设置客户端认证参数</p>
+
+<pre><code>kubectl config set-credentials kube-proxy \
+  --client-certificate=/home/ssl/kube-proxy.pem \
+  --client-key=/home/ssl/kube-proxy-key.pem \
+  --embed-certs=true \
+  --kubeconfig=kube-proxy.kubeconfig
+</code></pre>
+
+<p>设置上下文参数</p>
+
+<pre><code>kubectl config set-context default \
+  --cluster=kubernetes \
+  --user=kube-proxy \
+  --kubeconfig=kube-proxy.kubeconfig
+</code></pre>
+
+<p>设置默认上下文</p>
+
+<pre><code>kubectl config use-context default --kubeconfig=kube-proxy.kubeconfig
+</code></pre>
+
+<p>设置集群参数和客户端认证参数时 &ndash;embed-certs 都为 true，这会将 certificate-authority、client-certificate 和 client-key 指向的证书文件内容写入到生成的 kube-proxy.kubeconfig 文件中；</p>
+
+<p>kube-proxy.pem 证书中 CN 为 system:kube-proxy，kube-apiserver 预定义的 RoleBinding cluster-admin 将User system:kube-proxy 与 Role system:node-proxier 绑定，该 Role 授予了调用 kube-apiserver Proxy 相关 API 的权限；</p>
+
+<p>分发：</p>
+
+<p>将两个 kubeconfig 文件分发到所有 Node 机器的 /etc/kubernetes/ 目录</p>
+
+<p>cp bootstrap.kubeconfig kube-proxy.kubeconfig /etc/kubernetes/</p>
+
+<blockquote>
+<p>安装etcd&mdash;&ndash;带tls的</p>
+</blockquote>
+
+<p>本次安装用到的变量设置</p>
+
+<pre><code>$ export NODE_NAME=opt6 # 当前部署的机器名称(随便定义，只要能区分不同机器即可)
+$ export NODE_IP=192.168.56.107 # 当前部署的机器 IP
+$ export NODE_IPS=&quot;192.168.56.107 192.168.56.106 192.168.56.105&quot; # etcd 集群所有机器 IP
+$ # etcd 集群间通信的IP和端口
+$ export ETCD_NODES=opt6=https://192.168.56.105:2380,opt7=https://192.168.56.106:2380,opt8=https://192.168.56.107:2380
+$ # 导入用到的其它全局变量：ETCD_ENDPOINTS、FLANNEL_ETCD_PREFIX、CLUSTER_CIDR
+$ source /root/local/bin/environment.sh
+</code></pre>
+
+<p>1.设置etcd二进制文件</p>
+
+<p>Etcd是Kubernetes集群中的一个十分重要的组件，用于保存集群所有的网络配置和对象的状态信息。</p>
+
+<p>整个kubernetes系统中一共有两个服务需要用到etcd用来协同和存储配置，分别是：</p>
+
+<pre><code>网络插件flannel、对于其它网络插件也需要用到etcd存储网络的配置信息
+kubernetes本身，包括各种对象的状态和元信息配置
+</code></pre>
+
+<p>目前使用etcd版本3.1.6</p>
+
+<pre><code>wget https://github.com/coreos/etcd/releases/download/v3.1.5/etcd-v3.1.5-linux-amd64.tar.gz
+</code></pre>
+
+<p>解压设置环境变量</p>
+
+<pre><code>tar -xvf etcd-v3.1.5-linux-amd64.tar.gz
+echo 'export PATH=/home/etcd/etcd-v3.1.6-linux-amd64:$PATH' &gt;&gt; /etc/profile
+source /etc/profile
+</code></pre>
+
+<p>或者把二进制文件移到系统路径下，比如/usr/local/src</p>
+
+<p>2.创建 etcd的TLS 秘钥和证书</p>
+
+<p>编辑etcd-csr.json</p>
+
+<pre><code>cat &gt; etcd-csr.json &lt;&lt;EOF
+{
+  &quot;CN&quot;: &quot;etcd&quot;,
+  &quot;hosts&quot;: [
+    &quot;127.0.0.1&quot;,
+    &quot;192.168.56.107&quot;----设置本地ip,也就是上面的${NODE_IP}
+  ],
+  &quot;key&quot;: {
+    &quot;algo&quot;: &quot;rsa&quot;,
+    &quot;size&quot;: 2048
+  },
+  &quot;names&quot;: [
+    {
+      &quot;C&quot;: &quot;CN&quot;,
+      &quot;ST&quot;: &quot;BeiJing&quot;,
+      &quot;L&quot;: &quot;BeiJing&quot;,
+      &quot;O&quot;: &quot;k8s&quot;,
+      &quot;OU&quot;: &quot;System&quot;
+    }
+  ]
+}
+EOF
+</code></pre>
+
+<p>生成 etcd 证书和私钥：</p>
+
+<pre><code>cfssl gencert -ca=/home/ssl/ca.pem \
+  -ca-key=/home/ssl/ca-key.pem \
+  -config=/home/ssl/ca-config.json \
+  -profile=kubernetes etcd-csr.json | cfssljson -bare etcd
+</code></pre>
+
+<p>这边可以使用kubernete的证书，因为证书包含了etcd节点</p>
+
+<p>因为包含主机的ip每台机器的证书都要单独生成，不能拷贝</p>
+
+<p>3.创建 etcd 的 systemd unit 文件</p>
+
+<p>在/usr/lib/systemd/system/目录下创建文件etcd.service</p>
+
+<p>opt8</p>
+
+<pre><code>cat &gt; etcd.service &lt;&lt;EOF
+[Unit]
+Description=Etcd Server
+After=network.target
+After=network-online.target
+Wants=network-online.target
+Documentation=https://github.com/coreos
+
+[Service]
+Type=notify
+WorkingDirectory=/var/lib/etcd/
+ExecStart=/home/etcd/etcd-v3.1.6-linux-amd64/etcd \\
+  --name=opt8 \\
+  --cert-file=/home/ssl/etcd.pem \\
+  --key-file=/home/ssl/etcd-key.pem \\
+  --peer-cert-file=/home/ssl/etcd.pem \\
+  --peer-key-file=/home/ssl/etcd-key.pem \\
+  --trusted-ca-file=/home/ssl/ca.pem \\
+  --peer-trusted-ca-file=/home/ssl/ca.pem \\
+  --initial-advertise-peer-urls=https://192.168.56.107:2380 \\
+  --listen-peer-urls=https://192.168.56.107:2380 \\
+  --listen-client-urls=https://192.168.56.107:2379,http://127.0.0.1:2379 \\
+  --advertise-client-urls=https://192.168.56.107:2379 \\
+  --initial-cluster-token=etcd-cluster-0 \\
+  --initial-cluster=opt8=https://192.168.56.107:2380,opt7=https://192.168.56.106:2380,opt6=https://192.168.56.105:2380 \\
+  --initial-cluster-state=new \\
+  --data-dir=/var/lib/etcd
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+</code></pre>
+
+<p>opt7</p>
+
+<pre><code>cat &gt; etcd.service &lt;&lt;EOF
+[Unit]
+Description=Etcd Server
+After=network.target
+After=network-online.target
+Wants=network-online.target
+Documentation=https://github.com/coreos
+
+[Service]
+Type=notify
+WorkingDirectory=/var/lib/etcd/
+ExecStart=/home/etcd/etcd-v3.1.6-linux-amd64/etcd \\
+  --name=opt7 \\
+  --cert-file=/home/ssl/etcd.pem \\
+  --key-file=/home/ssl/etcd-key.pem \\
+  --peer-cert-file=/home/ssl/etcd.pem \\
+  --peer-key-file=/home/ssl/etcd-key.pem \\
+  --trusted-ca-file=/home/ssl/ca.pem \\
+  --peer-trusted-ca-file=/home/ssl/ca.pem \\
+  --initial-advertise-peer-urls=https://192.168.56.106:2380 \\
+  --listen-peer-urls=https://192.168.56.106:2380 \\
+  --listen-client-urls=https://192.168.56.106:2379,http://127.0.0.1:2379 \\
+  --advertise-client-urls=https://192.168.56.106:2379 \\
+  --initial-cluster-token=etcd-cluster-0 \\
+  --initial-cluster=opt8=https://192.168.56.107:2380,opt7=https://192.168.56.106:2380,opt6=https://192.168.56.105:2380 \\
+  --initial-cluster-state=new \\
+  --data-dir=/var/lib/etcd
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+</code></pre>
+
+<p>opt6</p>
+
+<pre><code>cat &gt; etcd.service &lt;&lt;EOF
+[Unit]
+Description=Etcd Server
+After=network.target
+After=network-online.target
+Wants=network-online.target
+Documentation=https://github.com/coreos
+
+[Service]
+Type=notify
+WorkingDirectory=/var/lib/etcd/
+ExecStart=/home/etcd/etcd-v3.1.6-linux-amd64/etcd \\
+  --name=opt6 \\
+  --cert-file=/home/ssl/etcd.pem \\
+  --key-file=/home/ssl/etcd-key.pem \\
+  --peer-cert-file=/home/ssl/etcd.pem \\
+  --peer-key-file=/home/ssl/etcd-key.pem \\
+  --trusted-ca-file=/home/ssl/ca.pem \\
+  --peer-trusted-ca-file=/home/ssl/ca.pem \\
+  --initial-advertise-peer-urls=https://192.168.56.105:2380 \\
+  --listen-peer-urls=https://192.168.56.105:2380 \\
+  --listen-client-urls=https://192.168.56.105:2379,http://127.0.0.1:2379 \\
+  --advertise-client-urls=https://192.168.56.105:2379 \\
+  --initial-cluster-token=etcd-cluster-0 \\
+  --initial-cluster=opt8=https://192.168.56.107:2380,opt7=https://192.168.56.106:2380,opt6=https://192.168.56.105:2380 \\
+  --initial-cluster-state=new \\
+  --data-dir=/var/lib/etcd
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+</code></pre>
+
+<p>启动参数在service中不用加“”，否则启动失败。</p>
+
+<p>也可以使用命令行启动</p>
+
+<p>opt8</p>
+
+<pre><code>etcd -name niub1 -debug \
+    -initial-advertise-peer-urls http://192.168.56.107:2380 \
+    -listen-peer-urls http://192.168.56.107:2380 \
+    -listen-client-urls http://192.168.56.107:2379,http://127.0.0.1:2379 \
+    -advertise-client-urls http://192.168.56.107:2379 \
+    -initial-cluster-token etcd-cluster-1 \
+    -initial-cluster niub1=http://192.168.56.107:2380,niub2=http://192.168.56.106:2380,niub3=http://192.168.56.105:2380 \
+    -initial-cluster-state new  &gt;&gt; ./etcd.log 2&gt;&amp;1 &amp;
+</code></pre>
+
+<p>opt7</p>
+
+<pre><code>etcd -name niub2 -debug \
+    -initial-advertise-peer-urls http://192.168.56.106:2380 \
+    -listen-peer-urls http://192.168.56.106:2380 \
+    -listen-client-urls http://192.168.56.106:2379,http://127.0.0.1:2379 \
+    -advertise-client-urls http://192.168.56.106:2379 \
+    -initial-cluster-token etcd-cluster-1 \
+    -initial-cluster niub1=http://192.168.56.107:2380,niub2=http://192.168.56.106:2380,niub3=http://192.168.56.105:2380 \
+    -initial-cluster-state new  &gt;&gt; ./etcd.log 2&gt;&amp;1 &amp;
+</code></pre>
+
+<p>opt6</p>
+
+<pre><code>etcd -name niub3 -debug \
+    -initial-advertise-peer-urls http://192.168.56.105:2380 \
+    -listen-peer-urls http://192.168.56.105:2380 \
+    -listen-client-urls http://192.168.56.105:2379,http://127.0.0.1:2379 \
+    -advertise-client-urls http://192.168.56.105:2379 \
+    -initial-cluster-token etcd-cluster-1 \
+    -initial-cluster niub1=http://192.168.56.107:2380,niub2=http://192.168.56.106:2380,niub3=http://192.168.56.105:2380 \
+    -initial-cluster-state new  &gt;&gt; ./etcd.log 2&gt;&amp;1 &amp;
+</code></pre>
+
+<p>4.加载service，启动</p>
+
+<pre><code>systemctl daemon-reload
+systemctl enable etcd
+systemctl start etcd
+</code></pre>
+
+<p>5.测试集群&mdash;这个是带ca的</p>
+
+<pre><code>etcdctl \
+  --ca-file=/home/ssl/ca.pem \
+  --cert-file=/home/ssl/kubernetes.pem \
+  --key-file=/home/ssl/kubernetes-key.pem \
+  cluster-health
+</code></pre>
+
+<p>查看集群中k8s的数据</p>
+
+<p>Kubenretes1.6中使用etcd V3版本的API，使用etcdctl直接ls的话只能看到/kube-centos一个路径。需要在命令前加上ETCDCTL_API=3这个环境变量才能看到kuberentes在etcd中保存的数据。</p>
+
+<pre><code>ETCDCTL_API=3 etcdctl get /registry/namespaces/default -w=json|python -m json.tool
+</code></pre>
+
+<p>-w指定输出格式</p>
+
+<p>使用&ndash;prefix可以看到所有的子目录，如查看集群中的namespace：</p>
+
+<pre><code>ETCDCTL_API=3 etcdctl get /registry/namespaces --prefix -w=json|python -m json.tool
+</code></pre>
+
+<p>key的值是经过base64编码，需要解码后才能看到实际值，如：</p>
+
+<pre><code>[root@opt8 ssl]# echo L3JlZ2lzdHJ5L25hbWVzcGFjZXMva3ViZS1zeXN0ZW0=|base64 -d
+/registry/namespaces/kube-system[root@opt8 ssl]#
+</code></pre>
+
+<p>etcd中kubernetes的元数据</p>
+
+<pre><code>#!/bin/bash
+# Get kubernetes keys from etcd
+export ETCDCTL_API=3
+keys=`etcdctl get /registry --prefix -w json|python -m json.tool|grep key|cut -d &quot;:&quot; -f2|tr -d '&quot;'|tr -d &quot;,&quot;`
+for x in $keys;do
+  echo $x|base64 -d|sort
+done
+</code></pre>
+
+<p>我们可以看到所有的Kuberentes的所有元数据都保存在/registry目录下，下一层就是API对象类型（复数形式），再下一层是namespace，最后一层是对象的名字。</p>
+
+<blockquote>
+<p>master安装</p>
+</blockquote>
+
+<p>部署机器</p>
+
+<pre><code>10.47.210.30
+</code></pre>
+
+<p>部署组件</p>
+
+<pre><code>kube-apiserver
+kube-controller-manager
+kube-scheduler
+</code></pre>
+
+<p>1、配置和启动 kube-apiserver</p>
+
+<p>创建 kube-apiserver 使用的客户端 token 文件</p>
+
+<p>kubelet 首次启动时向 kube-apiserver 发送 TLS Bootstrapping 请求，kube-apiserver 验证 kubelet 请求中的 token 是否与它配置的 token.csv 一致，如果一致则自动为 kubelet生成证书和秘钥。</p>
+
+<p>目录</p>
+
+<pre><code>/etc/systemd/system
+
+
+cat  &gt; kube-apiserver.service &lt;&lt;EOF
+[Unit]
+Description=Kubernetes API Server
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/kube-apiserver \
+  --admission-control=NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota \
+  --advertise-address=10.47.210.30 \
+  --insecure-bind-address=10.47.210.30 \
+  --authorization-mode=RBAC \
+  --runtime-config=rbac.authorization.k8s.io/v1alpha1 \
+  --kubelet-https=true \
+  --enable-bootstrap-token-auth \
+  --service-cluster-ip-range=10.254.0.0/16 \
+  --service-node-port-range=8400-9000 \
+  --etcd-cafile=/root/ssl/ca.pem \
+  --etcd-certfile=/root/ssl/etcd.pem \
+  --etcd-keyfile=/root/ssl/etcd-key.pem \
+  --etcd-servers=https://10.47.210.30:2379,https://10.47.210.31:2379,https://10.47.210.94:2379 \
+  --enable-swagger-ui=true \
+  --allow-privileged=true \
+  --apiserver-count=3 \
+  --audit-log-maxage=30 \
+  --audit-log-maxbackup=3 \
+  --audit-log-maxsize=100 \
+  --audit-log-path=/var/lib/audit.log \
+  --event-ttl=1h \
+  --v=0 \
+  --logtostderr=true \
+  --bind-address=10.47.210.30 \
+  --token-auth-file=/etc/kubernetes/token.csv \
+  --tls-cert-file=/root/ssl/kubernetes.pem \
+  --tls-private-key-file=/root/ssl/kubernetes-key.pem \
+  --client-ca-file=/root/ssl/ca.pem \
+  --service-account-key-file=/root/ssl/ca-key.pem
+Restart=on-failure
+RestartSec=5
+Type=notify
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+</code></pre>
+
+<p>参数解析</p>
+
+<p>&ndash;v=2 #debug级别是0</p>
+
+<p>&ndash;logtostderr=false \ #不输出到</p>
+
+<p>&ndash;allow-privileged=true \   # docker run &ndash;privileged</p>
+
+<p>&ndash;etcd-servers=“”       #etcd的集群地址</p>
+
+<p>&ndash;insecure-bind-address。      #非安全端口监听的ip</p>
+
+<p>&ndash;advertise-address=192.168.14.132 \ #告诉别人在我是谁</p>
+
+<p>&ndash;bind-address=0.0.0.0 \ # 安全端口监听的ip</p>
+
+<p>kube-apiserver 1.6 版本开始使用 etcd v3 API 和存储格式；</p>
+
+<p>&ndash;authorization-mode=RBAC 指定在安全端口使用 RBAC 授权模式，拒绝未通过授权的请求；</p>
+
+<p>kube-scheduler、kube-controller-manager 一般和 kube-apiserver 部署在同一台机器上，它们使用非安全端口和 kube-apiserver通信;</p>
+
+<p>kubelet、kube-proxy、kubectl 部署在其它 Node 节点上，如果通过安全端口访问 kube-apiserver，则必须先通过 TLS 证书认证，再通过 RBAC 授权；</p>
+
+<p>kube-proxy、kubectl 通过在使用的证书里指定相关的 User、Group 来达到通过 RBAC 授权的目的；</p>
+
+<p>如果使用了 kubelet TLS Boostrap 机制，则不能再指定 &ndash;kubelet-certificate-authority、&ndash;kubelet-client-certificate 和 &ndash;kubelet-client-key 选项，否则后续 kube-apiserver 校验 kubelet 证书时出现 ”x509: certificate signed by unknown authority“ 错误；</p>
+
+<p>&ndash;admission-control 值必须包含 ServiceAccount，否则部署集群插件时会失败；</p>
+
+<p>&ndash;bind-address 不能为 127.0.0.1；</p>
+
+<p>&ndash;service-cluster-ip-range 指定 Service Cluster IP 地址段，该地址段不能路由可达；</p>
+
+<p>&ndash;service-node-port-range=${NODE_PORT_RANGE} 指定 NodePort 的端口范围；</p>
+
+<p>缺省情况下 kubernetes 对象保存在 etcd /registry 路径下，可以通过 &ndash;etcd-prefix 参数进行调整；</p>
+
+<p>&ndash;experimental-bootstrap-token-auth Bootstrap Token Authentication在1.9版本已经变成了正式feature，参数名称改为&ndash;enable-bootstrap-token-auth</p>
+
+<p>如果中途修改过&ndash;service-cluster-ip-range地址，则必须将default命名空间的kubernetes的service给删除，使用命令：kubectl delete service kubernetes，然后系统会自动用新的ip重建这个service，不然apiserver的log有报错the cluster IP x.x.x.x for service kubernetes/default is not within the service CIDR x.x.x.x/16; please recreate</p>
+
+<p>runtime-config配置为rbac.authorization.k8s.io/v1beta1，表示运行时的apiVersion；</p>
+
+<p>如果需要开通http的无认证的接口，则可以增加以下两个参数：&ndash;insecure-port=8080</p>
+
+<p>&ndash;insecure-bind-address=127.0.0.1。注意，生产上不要绑定到非127.0.0.1的地址上</p>
+
+<p>Kubernetes 1.9</p>
+
+<p>对于Kubernetes1.9集群，需要注意配置KUBE_API_ARGS环境变量中的&ndash;authorization-mode=Node,RBAC，增加对Node授权的模式，否则将无法注册node。
+&ndash;experimental-bootstrap-token-auth Bootstrap Token Authentication在kubernetes 1.9版本已经废弃，参数名称改为&ndash;enable-bootstrap-token-auth</p>
+
+<p>启动</p>
+
+<pre><code>systemctl daemon-reload
+systemctl enable kube-apiserver
+systemctl start kube-apiserver
+systemctl status kube-apiserver
+</code></pre>
+
+<p>2、创建 kube-controller-manager 的 systemd unit 文件</p>
+
+<pre><code>cat &gt; kube-controller-manager.service &lt;&lt;EOF
+[Unit]
+Description=Kubernetes Controller Manager
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+
+[Service]
+ExecStart=/usr/bin/kube-controller-manager \
+  --address=127.0.0.1 \
+  --master=http://10.47.210.30:8080 \
+  --allocate-node-cidrs=true \
+  --service-cluster-ip-range=10.254.0.0/16 \
+  --cluster-cidr=172.30.0.0/16 \
+  --cluster-name=kubernetes \
+  --leader-elect=true \
+  --v=2 \
+  --cluster-signing-cert-file=/root/ssl/ca.pem \
+  --cluster-signing-key-file=/root/ssl/ca-key.pem  \
+  --service-account-private-key-file=/root/ssl/ca-key.pem \
+  --root-ca-file=/root/ssl/ca.pem
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+</code></pre>
+
+<p>参数解析</p>
+
+<p>&ndash;address值必须是127.0.0.1，因为当前的kube-apiserver期望scheduler和controller-manager在同一台机器上</p>
+
+<p>&ndash;master=http://{MASTER_IP}:8080：使用非安全 8080 端口与 kube-apiserver 通信；</p>
+
+<p>&ndash;cluster-cidr 指定 Cluster 中 Pod 的 CIDR 范围，该网段在各 Node 间必须路由可达(flanneld保证)；</p>
+
+<p>&ndash;service-cluster-ip-range 参数指定 Cluster 中 Service 的CIDR范围，该网络在各 Node 间必须路由不可达，必须和 kube-apiserver 中的参数一致；</p>
+
+<p>&ndash;cluster-signing-* 指定的证书和私钥文件用来签名为 TLS BootStrap 创建的证书和私钥；</p>
+
+<p>&ndash;root-ca-file 用来对 kube-apiserver 证书进行校验，指定该参数后，才会在Pod 容器的 ServiceAccount 中放置该 CA 证书文件；</p>
+
+<p>&ndash;leader-elect=true 部署多台机器组成的 master 集群时选举产生一处于工作状态的 kube-controller-manager 进程；</p>
+
+<p>启动 kube-controller-manager</p>
+
+<pre><code>systemctl daemon-reload
+systemctl enable kube-controller-manager
+systemctl start kube-controller-manager
+systemctl status kube-controller-manager
+</code></pre>
+
+<p>我们启动每个组件后可以通过执行命令kubectl get componentstatuses，来查看各个组件的状态;</p>
+
+<pre><code>$ kubectl get componentstatuses
+NAME                 STATUS      MESSAGE                                                                                        ERROR
+scheduler            Unhealthy   Get http://127.0.0.1:10251/healthz: dial tcp 127.0.0.1:10251: getsockopt: connection refused
+controller-manager   Healthy     ok
+etcd-2               Healthy     {&quot;health&quot;: &quot;true&quot;}
+etcd-0               Healthy     {&quot;health&quot;: &quot;true&quot;}
+etcd-1               Healthy     {&quot;health&quot;: &quot;true&quot;}
+</code></pre>
+
+<p>3、创建 kube-scheduler 的 systemd unit 文件</p>
+
+<pre><code>cat &gt; kube-scheduler.service &lt;&lt;EOF
+[Unit]
+Description=Kubernetes Scheduler
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+
+[Service]
+ExecStart=/usr/bin/kube-scheduler \
+  --address=127.0.0.1 \
+  --master=http://10.47.210.30:8080 \
+  --leader-elect=true \
+  --v=2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+</code></pre>
+
+<p>参数解析</p>
+
+<p>&ndash;address 值必须为 127.0.0.1，因为当前 kube-apiserver 期望 scheduler 和 controller-manager 在同一台机器；</p>
+
+<p>&ndash;master=http://{MASTER_IP}:8080：使用非安全 8080 端口与 kube-apiserver 通信；</p>
+
+<p>&ndash;leader-elect=true 部署多台机器组成的 master 集群时选举产生一处于工作状态的 kube-controller-manager 进程；</p>
+
+<p>启动</p>
+
+<pre><code>systemctl daemon-reload
+systemctl enable kube-scheduler
+systemctl start kube-scheduler
+systemctl status kube-scheduler
+</code></pre>
+
+<p>验证 master 节点功能</p>
+
+<pre><code>$ kubectl get componentstatuses
+NAME                 STATUS    MESSAGE              ERROR
+controller-manager   Healthy   ok
+scheduler            Healthy   ok
+etcd-0               Healthy   {&quot;health&quot;: &quot;true&quot;}
+etcd-1               Healthy   {&quot;health&quot;: &quot;true&quot;}
+etcd-2               Healthy   {&quot;health&quot;: &quot;true&quot;}
+</code></pre>
+
+<blockquote>
+<p>node部署</p>
+</blockquote>
+
+<p>部署机器</p>
+
+<pre><code>10.47.210.30
+10.47.210.31
+10.47.210.94
+</code></pre>
+
+<p>部署组件</p>
+
+<pre><code>flannel
+docker
+kubelet
+kube-proxy
+</code></pre>
+
+<p>1、flannel</p>
+
+<p>1.安装二进制文件</p>
+
+<p>Flannel是作为一个二进制文件的方式部署在每个node上，主要实现两个功能：</p>
+
+<pre><code>1.为每个node分配subnet，容器将自动从该子网中获取IP地址
+
+2.当有node加入到网络中时，为每个node增加路由配置
+</code></pre>
+
+<p>目前使用版本默认安装的是0.7.1版本的flannel。</p>
+
+<pre><code>wget  https://github.com/coreos/flannel/releases/download/v0.7.1/flannel-v0.7.1-linux-amd64.tar.gz
+</code></pre>
+
+<p>我没有下载下来，直接github下载</p>
+
+<p>解压设置环境变量</p>
+
+<pre><code>tar -zxvf flannel-v0.7.1-linux-amd64.tar.gz
+echo 'export PATH=/home/flannel:$PATH' &gt;&gt; /etc/profile
+source /etc/profile
+</code></pre>
+
+<p>或者把二进制文件移到系统路径下，比如/usr/local/src</p>
+
+<p>2.创建ca证书</p>
+
+<pre><code>cat &gt; flanneld-csr.json &lt;&lt;EOF
+{
+  &quot;CN&quot;: &quot;flanneld&quot;,
+  &quot;hosts&quot;: [],
+  &quot;key&quot;: {
+    &quot;algo&quot;: &quot;rsa&quot;,
+    &quot;size&quot;: 2048
+  },
+  &quot;names&quot;: [
+    {
+      &quot;C&quot;: &quot;CN&quot;,
+      &quot;ST&quot;: &quot;BeiJing&quot;,
+      &quot;L&quot;: &quot;BeiJing&quot;,
+      &quot;O&quot;: &quot;k8s&quot;,
+      &quot;OU&quot;: &quot;System&quot;
+    }
+  ]
+}
+EOF
+</code></pre>
+
+<p>生成 flanneld 证书和私钥：</p>
+
+<pre><code>$ cfssl gencert -ca=/home/ssl/ca.pem \
+  -ca-key=/home/ssl/ca-key.pem \
+  -config=/home/ssl/ca-config.json \
+  -profile=kubernetes flanneld-csr.json | cfssljson -bare flanneld
+</code></pre>
+
+<p>拷贝到所有主机</p>
+
+<p>向 etcd 写入集群 Pod 网段信息</p>
+
+<pre><code>etcdctl \
+  --endpoints=https://10.47.210.30:2379,https://10.47.210.31:2379,https://10.47.210.94:2379 \
+  --ca-file=/root/ssl/ca.pem \
+  --cert-file=/root/ssl/flanneld.pem \
+  --key-file=/root/ssl/flanneld-key.pem \
+  set /kubernetes/network/config '{&quot;Network&quot;:&quot;'172.30.0.0/16'&quot;, &quot;SubnetLen&quot;: 24, &quot;Backend&quot;: {&quot;Type&quot;: &quot;vxlan&quot;}}'
+</code></pre>
+
+<p>写入的 Pod 网段(${CLUSTER_CIDR}，172.30.0.0/16) 必须与 kube-controller-manager 的 &ndash;cluster-cidr 选项值一致；</p>
+
+<p>也可以这样写</p>
+
+<pre><code>etcdctl --endpoints=https://192.168.56.107:2379,https://192.168.56.106:2379,https://192.168.56.105:2379 \
+  --ca-file=/home/ssl/ca.pem \
+  --cert-file=/home/ssl/kubernetes.pem \
+  --key-file=/home/ssl/kubernetes-key.pem \
+  mkdir /kubernetes/network
+etcdctl --endpoints=https://192.168.56.107:2379,https://192.168.56.106:2379,https://192.168.56.105:2379 \
+  --ca-file=/home/ssl/ca.pem \
+  --cert-file=/home/ssl/kubernetes.pem \
+  --key-file=/home/ssl/kubernetes-key.pem \
+  mk /kubernetes/network/config '{&quot;Network&quot;:&quot;172.30.0.0/16&quot;,&quot;SubnetLen&quot;:24,&quot;Backend&quot;:{&quot;Type&quot;:&quot;vxlan&quot;}}'
+</code></pre>
+
+<p>如果你要使用host-gw模式，可以直接将vxlan改成host-gw即可</p>
+
+<p>创建 flanneld 的 systemd unit 文件</p>
+
+<p>目录</p>
+
+<pre><code>/usr/lib/systemd/system
+
+
+
+cat &gt; flanneld.service &lt;&lt; EOF
+[Unit]
+Description=Flanneld overlay address etcd agent
+After=network.target
+After=network-online.target
+Wants=network-online.target
+After=etcd.service
+Before=docker.service
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/flanneld \\
+  -etcd-cafile=/root/ssl/ca.pem \\
+  -etcd-certfile=/root/ssl/flanneld.pem \\
+  -etcd-keyfile=/root/ssl/flanneld-key.pem \\
+  -etcd-endpoints=https://10.47.210.30:2379,https://10.47.210.31:2379,https://10.47.210.94:2379 \
+  -etcd-prefix=/kubernetes/network \\
+  -iface=eth0
+ExecStartPost=/root/flannel/mk-docker-opts.sh -k DOCKER_NETWORK_OPTIONS -d /run/flannel/docker
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=docker.service
+EOF
+</code></pre>
+
+<p>在参数最后有空格也会导致启动失败</p>
+
+<p>etcd集群启动了双向tls认证，所以需要为flanneld指定与etcd集群通信的ca和密钥</p>
+
+<p>mk-docker-opts.sh脚本将分配给flanneld的pod子网网段信息写入到/run/flannel/docker文件中，后续docker启动时使用这个文件中参数值设置为docker0的网桥</p>
+
+<p>-iface 选项指定flanneld和其他node通信的接口，如果机器有内外网，则最好指定为内网接口</p>
+
+<p>4.加载service，启动</p>
+
+<pre><code>systemctl daemon-reload
+systemctl enable flanneld
+systemctl start flanneld
+systemctl status flanneld
+</code></pre>
+
+<p>检查 flanneld 服务</p>
+
+<pre><code>$ journalctl  -u flanneld |grep 'Lease acquired'
+$ ifconfig flannel.1
+</code></pre>
+
+<p>查看集群 Pod 网段(/16)</p>
+
+<pre><code>$ /root/local/bin/etcdctl \
+  --endpoints=${ETCD_ENDPOINTS} \
+  --ca-file=/etc/kubernetes/ssl/ca.pem \
+  --cert-file=/etc/flanneld/ssl/flanneld.pem \
+  --key-file=/etc/flanneld/ssl/flanneld-key.pem \
+  get ${FLANNEL_ETCD_PREFIX}/config
+{ &quot;Network&quot;: &quot;172.30.0.0/16&quot;, &quot;SubnetLen&quot;: 24, &quot;Backend&quot;: { &quot;Type&quot;: &quot;vxlan&quot; } }
+</code></pre>
+
+<p>查看已分配的 Pod 子网段列表(/24)</p>
+
+<pre><code>$ /root/local/bin/etcdctl \
+  --endpoints=${ETCD_ENDPOINTS} \
+  --ca-file=/etc/kubernetes/ssl/ca.pem \
+  --cert-file=/etc/flanneld/ssl/flanneld.pem \
+  --key-file=/etc/flanneld/ssl/flanneld-key.pem \
+  ls ${FLANNEL_ETCD_PREFIX}/subnets
+/kubernetes/network/subnets/172.30.19.0-24
+</code></pre>
+
+<p>查看某一 Pod 网段对应的 flanneld 进程监听的 IP 和网络参数</p>
+
+<pre><code>$ /root/local/bin/etcdctl \
+  --endpoints=${ETCD_ENDPOINTS} \
+  --ca-file=/etc/kubernetes/ssl/ca.pem \
+  --cert-file=/etc/flanneld/ssl/flanneld.pem \
+  --key-file=/etc/flanneld/ssl/flanneld-key.pem \
+  get ${FLANNEL_ETCD_PREFIX}/subnets/172.30.19.0-24
+{&quot;PublicIP&quot;:&quot;10.64.3.7&quot;,&quot;BackendType&quot;:&quot;vxlan&quot;,&quot;BackendData&quot;:{&quot;VtepMAC&quot;:&quot;d6:51:2e:80:5c:69&quot;}}
+</code></pre>
+
+<p>确保各节点间 Pod 网段能互联互通</p>
+
+<p>在各节点上部署完 Flannel 后，查看已分配的 Pod 子网段列表(/24)</p>
+
+<pre><code>etcdctl \
+  --endpoints=https://192.168.56.107:2379,https://192.168.56.106:2379,https://192.168.56.105:2379 \
+  --ca-file=/home/ssl/ca.pem \
+  --cert-file=/home/ssl/kubernetes.pem \
+  --key-file=/home/ssl/kubernetes-key.pem \
+  ls /kubernetes/network/subnets
+/kubernetes/network/subnets/172.30.19.0-24
+/kubernetes/network/subnets/172.30.20.0-24
+/kubernetes/network/subnets/172.30.21.0-24
+</code></pre>
+
+<p>当前三个节点分配的 Pod 网段分别是：172.30.19.0-24、172.30.20.0-24、172.30.21.0-24。</p>
+
+<p>在各节点上分配 ping 这三个网段的网关地址，确保能通：</p>
+
+<pre><code>$ ping 172.30.19.1
+$ ping 172.30.20.2
+$ ping 172.30.21.3
+$
+</code></pre>
+
+<p>我们知道Kubernetes集群内部存在三类IP，分别是：</p>
+
+<p>Node IP：宿主机的IP地址
+Pod IP：使用网络插件创建的IP（如flannel），使跨主机的Pod可以互通
+Cluster IP：虚拟IP，通过iptables规则访问服务ca</p>
+
+<p>2、calico</p>
+
+<p>Calico 创建和管理一个扁平的三层网络(不需要overlay)，每个容器会分配一个可路由的ip。由于通信时不需要解包和封包，网络性能损耗小，易于排查，且易于水平扩展。</p>
+
+<p>3、docker</p>
+
+<p>安装和配置 docker</p>
+
+<p>下载最新的 docker 二进制文件</p>
+
+<pre><code>$ wget https://get.docker.com/builds/Linux/x86_64/docker-17.04.0-ce.tgz
+$ tar -xvf docker-17.04.0-ce.tgz
+$ cp docker/docker* /root/local/bin
+$ cp docker/completion/bash/docker /etc/bash_completion.d/
+</code></pre>
+
+<p>创建 docker 的 systemd unit 文件</p>
+
+<pre><code>cat &gt; docker.service &lt;&lt; EOF
+[Unit]
+Description=Docker Application Container Engine
+Documentation=http://docs.docker.io
+
+[Service]
+Environment=&quot;PATH=/root/local/bin:/bin:/sbin:/usr/bin:/usr/sbin&quot;
+EnvironmentFile=-/run/flannel/docker
+ExecStart=/usr/bin/dockerd --log-level=error $DOCKER_NETWORK_OPTIONS
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+Delegate=yes
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+EOF
+</code></pre>
+
+<p>dockerd 运行时会调用其它 docker 命令，如 docker-proxy，所以需要将 docker 命令所在的目录加到 PATH 环境变量中；</p>
+
+<p>flanneld 启动时将网络配置写入到 /run/flannel/docker 文件中的变量 DOCKER_NETWORK_OPTIONS，dockerd 命令行上指定该变量值来设置 docker0 网桥参数；</p>
+
+<p>如果指定了多个 EnvironmentFile 选项，则必须将 /run/flannel/docker 放在最后(确保 docker0 使用 flanneld 生成的 bip 参数)；</p>
+
+<p>不能关闭默认开启的 &ndash;iptables 和 &ndash;ip-masq 选项；</p>
+
+<p>如果内核版本比较新，建议使用 overlay 存储驱动；</p>
+
+<p>docker 从 1.13 版本开始，可能将 iptables FORWARD chain的默认策略设置为DROP，从而导致 ping 其它 Node 上的 Pod IP 失败，遇到这种情况时，需要手动设置策略为 ACCEPT：</p>
+
+<pre><code>$ sudo iptables -P FORWARD ACCEPT
+$
+</code></pre>
+
+<p>并且把以下命令写入/etc/rc.local文件中，防止节点重启iptables FORWARD chain的默认策略又还原为DROP</p>
+
+<pre><code>sleep 60 &amp;&amp; /sbin/iptables -P FORWARD ACCEPT
+</code></pre>
+
+<p>为了加快 pull image 的速度，可以使用国内的仓库镜像服务器，同时增加下载的并发数。(如果 dockerd 已经运行，则需要重启 dockerd 生效。)</p>
+
+<pre><code>  $ cat /etc/docker/daemon.json
+  {
+    &quot;registry-mirrors&quot;: [&quot;https://docker.mirrors.ustc.edu.cn&quot;, &quot;hub-mirror.c.163.com&quot;],
+    &quot;max-concurrent-downloads&quot;: 10
+  }
+</code></pre>
+
+<p>启动</p>
+
+<pre><code>systemctl daemon-reload
+systemctl stop firewalld
+systemctl disable firewalld
+iptables -F &amp;&amp; sudo iptables -X &amp;&amp; sudo iptables -F -t nat &amp;&amp; sudo iptables -X -t nat
+systemctl enable docker
+systemctl start docker
+</code></pre>
+
+<p>如果指定了多个 EnvironmentFile 选项，则必须将 /run/flannel/docker 放在最后(确保 docker0 使用 flanneld 生成的 bip 参数)；</p>
+
+<p>4、kubelet</p>
+
+<p>kubelet 启动时向 kube-apiserver 发送 TLS bootstrapping 请求，需要先将 bootstrap token 文件中的 kubelet-bootstrap 用户赋予 system:node-bootstrapper 角色，然后 kubelet 才有权限创建认证请求(certificatesigningrequests)：</p>
+
+<pre><code>$ kubectl create clusterrolebinding kubelet-bootstrap --clusterrole=system:node-bootstrapper --user=kubelet-bootstrap
+$
+</code></pre>
+
+<p>&ndash;user=kubelet-bootstrap 是文件 /etc/kubernetes/token.csv 中指定的用户名，同时也写入了文件 /etc/kubernetes/bootstrap.kubeconfig；</p>
+
+<p>下载最新的 kubelet 和 kube-proxy 二进制文件</p>
+
+<pre><code>$ wget https://dl.k8s.io/v1.6.2/kubernetes-server-linux-amd64.tar.gz
+$ tar -xzvf kubernetes-server-linux-amd64.tar.gz
+$ cd kubernetes
+$ tar -xzvf  kubernetes-src.tar.gz
+$ sudo cp -r ./server/bin/{kube-proxy,kubelet} /root/local/bin/
+</code></pre>
+
+<p>创建 kubelet 的 systemd unit 文件</p>
+
+<pre><code>$ sudo mkdir /var/lib/kubelet # 必须先创建工作目录
+
+
+cat &gt; kubelet.service &lt;&lt;EOF
+[Unit]
+Description=Kubernetes Kubelet
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+After=docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/var/lib/kubelet
+ExecStart=/usr/bin/kubelet \\
+  --address=10.47.210.30 \\
+  --hostname-override=10.47.210.30 \\
+  --pod-infra-container-image=registry.access.redhat.com/rhel7/pod-infrastructure:latest \\
+  --bootstrap-kubeconfig=/etc/kubernetes/bootstrap.kubeconfig \\
+  --kubeconfig=/etc/kubernetes/kubelet.kubeconfig \\
+  --cert-dir=/root/ssl \\
+  --cluster-dns=10.254.0.2 \\
+  --cluster-domain=cluster.local. \\
+  --hairpin-mode promiscuous-bridge \\
+  --allow-privileged=true \\
+  --serialize-image-pulls=false \\
+  --logtostderr=true \\
+  --runtime-cgroups=/systemd/system.slice \\
+  --kubelet-cgroups=/systemd/system.slice \\
+  --v=2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+ExecStartPost=/sbin/iptables -A INPUT -s 10.0.0.0/8 -p tcp --dport 4194 -j ACCEPT
+ExecStartPost=/sbin/iptables -A INPUT -s 172.16.0.0/12 -p tcp --dport 4194 -j ACCEPT
+ExecStartPost=/sbin/iptables -A INPUT -s 192.168.0.0/16 -p tcp --dport 4194 -j ACCEPT
+ExecStartPost=/sbin/iptables -A INPUT -p tcp --dport 4194 -j DROP
+</code></pre>
+
+<p>参数解析</p>
+
+<p>&ndash;address 不能设置为 127.0.0.1，否则后续 Pods 访问 kubelet 的 API 接口时会失败，因为 Pods 访问的 127.0.0.1 指向自己而不是 kubelet；</p>
+
+<p>如果设置了 &ndash;hostname-override 选项，则 kube-proxy 也需要设置该选项，否则会出现找不到 Node 的情况；</p>
+
+<p>&ndash;experimental-bootstrap-kubeconfig 指向 bootstrap kubeconfig 文件，kubelet 使用该文件中的用户名和 token 向 kube-apiserver 发送 TLS Bootstrapping 请求；</p>
+
+<p>管理员通过了 CSR 请求后，kubelet 自动在 &ndash;cert-dir 目录创建证书和私钥文件(kubelet-client.crt 和 kubelet-client.key)，然后写入 &ndash;kubeconfig 文件；</p>
+
+<p>建议在 &ndash;kubeconfig 配置文件中指定 kube-apiserver 地址，如果未指定 &ndash;api-servers 选项，则必须指定 &ndash;require-kubeconfig 选项后才从配置文件中读取 kube-apiserver 的地址，否则 kubelet 启动后将找不到 kube-apiserver (日志中提示未找到 API Server），kubectl get nodes 不会返回对应的 Node 信息;1.14不再支持require-kubeconfig选项</p>
+
+<p>&ndash;cluster-dns 指定 kubedns 的 Service IP(可以先分配，后续创建 kubedns 服务时指定该 IP)，&ndash;cluster-domain 指定域名后缀，这两个参数同时指定后才会生效；</p>
+
+<p>对于kuberentes1.8集群中的kubelet配置，取消了KUBELET_API_SERVER的配置，而改用kubeconfig文件来定义master地址，所以请注释掉&ndash;api-servers=<a href="http://172.20.0.113:8080配置。">http://172.20.0.113:8080配置。</a></p>
+
+<p>如果使用systemd方式启动，则需要额外增加两个参数&ndash;runtime-cgroups=/systemd/system.slice &ndash;kubelet-cgroups=/systemd/system.slice，1.14不加也可以</p>
+
+<p>&ndash;experimental-bootstrap-kubeconfig 在1.9版本已经变成了&ndash;bootstrap-kubeconfig</p>
+
+<p>&rdquo;&ndash;cgroup-driver 配置成 systemd，不要使用cgroup，否则在 CentOS 系统中 kubelet 将启动失败（保持docker和kubelet中的cgroup driver配置一致即可，不一定非使用systemd）。</p>
+
+<p>&ndash;cluster-domain 指定 pod 启动时 /etc/resolve.conf 文件中的 search domain ，起初我们将其配置成了 cluster.local.，这样在解析 service 的 DNS 名称时是正常的，可是在解析 headless service 中的 FQDN pod name 的时候却错误，因此我们将其修改为 cluster.local，去掉嘴后面的 ”点号“ 就可以解决该问题，关于 kubernetes 中的域名/服务名称解析请参见我的另一篇文章。</p>
+
+<p>&ndash;kubeconfig=/etc/kubernetes/kubelet.kubeconfig中指定的kubelet.kubeconfig文件在第一次启动kubelet之前并不存在，请看下文，当通过CSR请求后会自动生成kubelet.kubeconfig文件，如果你的节点上已经生成了~/.kube/config文件，你可以将该文件拷贝到该路径下，并重命名为kubelet.kubeconfig，所有node节点可以共用同一个kubelet.kubeconfig文件，这样新添加的节点就不需要再创建CSR请求就能自动添加到kubernetes集群中。同样，在任意能够访问到kubernetes集群的主机上使用kubectl &ndash;kubeconfig命令操作集群时，只要使用~/.kube/config文件就可以通过权限认证，因为这里面已经有认证信息并认为你是admin用户，对集群拥有所有权限。</p>
+
+<p>KUBELET_POD_INFRA_CONTAINER 是基础镜像容器，这里我用的是私有镜像仓库地址，大家部署的时候需要修改为自己的镜像。我上传了一个到时速云上，可以直接 docker pull index.tenxcloud.com/jimmy/pod-infrastructure 下载。pod-infrastructure镜像是Redhat制作的，大小接近80M，下载比较耗时，其实该镜像并不运行什么具体进程，可以使用Google的pause镜像gcr.io/google_containers/pause-amd64:3.0，这个镜像只有300多K，或者通过DockerHub下载jimmysong/pause-amd64:3.0。</p>
+
+<p>kubelet cAdvisor 默认在所有接口监听 4194 端口的请求，对于有外网的机器来说不安全，ExecStartPost 选项指定的 iptables 规则只允许内网机器访问 4194 端口；</p>
+
+<p>不支持</p>
+
+<p>启动错误</p>
+
+<p>1.遇到kubelet报错，该服务每没隔几秒重启一下，然后自动停止。日志提示信息中有一行：container_manager_linux.go:205] Running with swap on is not supported, please disable swap! This will be a fatal error by default starting in K8s v1.6!。尝试关闭swap再试，虽然日志中没有该提示信息了，</p>
+
+<p>一、不重启电脑，禁用启用swap，立刻生效</p>
+
+<p>1、禁用命令</p>
+
+<pre><code>sudo swapoff -a
+</code></pre>
+
+<p>2、启用命令</p>
+
+<pre><code>sudo swapon -a
+</code></pre>
+
+<p>3、查看交换分区的状态</p>
+
+<pre><code>sudo free -m
+</code></pre>
+
+<p>二、重新启动电脑，永久禁用Swap</p>
+
+<p>1、把根目录文件系统设为可读写</p>
+
+<pre><code>sudo mount -n -o remount,rw /
+</code></pre>
+
+<p>2、用vi修改/etc/fstab文件，在swap分区这行前加 # 禁用掉，保存退出</p>
+
+<pre><code>vi /etc/fstab
+
+i      #进入insert 插入模式
+
+:wq   #保存退出
+</code></pre>
+
+<p>3、重新启动电脑，使用free -m查看分区状态</p>
+
+<pre><code>reboot
+
+sudo free -m
+</code></pre>
+
+<p>相对于kubernetes1.6集群必须进行的配置有：</p>
+
+<p>对于kuberentes1.8集群，必须关闭swap，否则kubelet启动将失败。</p>
+
+<p>修改/etc/fstab将，swap系统注释掉。</p>
+
+<p>2.failed to run Kubelet: failed to create kubelet: misconfiguration: kubelet cgroup driver: &ldquo;cgroupfs&rdquo;</p>
+
+<p>修改docker的cgroup驱动</p>
+
+<pre><code>vim /lib/systemd/system/docker.service
+# 将 --exec-opt native.cgroupdriver=systemd  修改为：
+#  --exec-opt native.cgroupdriver=cgroupfs
+# systemctl daemon-reload 
+# systemctl restart docker.service
+# kubelet显示正常
+</code></pre>
+
+<p>3.重启了docker后还要重启kubelet，这时又遇到问题，kubelet启动失败。报错：</p>
+
+<pre><code>Mar 31 16:44:41 sz-pg-oam-docker-test-002.tendcloud.com kubelet[81047]: error: failed to run Kubelet: failed to create kubelet: misconfiguration: kubelet cgroup driver: &quot;cgroupfs&quot; is different from docker cgroup driver: &quot;systemd&quot;
+这是kubelet与docker的cgroup driver不一致导致的，kubelet启动的时候有个—cgroup-driver参数可以指定为&quot;cgroupfs&quot;或者“systemd”。
+
+--cgroup-driver string                                    Driver that the kubelet uses to manipulate cgroups on the host.  Possible values: 'cgroupfs', 'systemd' (default &quot;cgroupfs&quot;)
+配置docker的service配置文件/usr/lib/systemd/system/docker.service，设置ExecStart中的--exec-opt native.cgroupdriver=systemd。
+</code></pre>
+
+<p>启动</p>
+
+<pre><code>systemctl daemon-reload
+systemctl enable kubelet
+systemctl start kubelet
+systemctl status kubelet
+</code></pre>
+
+<p>通过 kubelet 的 TLS 证书请求</p>
+
+<p>kubelet 首次启动时向 kube-apiserver 发送证书签名请求，必须通过后 kubernetes 系统才会将该 Node 加入到集群。</p>
+
+<p>查看未授权的 CSR 请求：</p>
+
+<pre><code>$ kubectl get csr
+NAME        AGE       REQUESTOR           CONDITION
+csr-2b308   4m        kubelet-bootstrap   Pending
+$ kubectl get nodes
+No resources found.
+</code></pre>
+
+<p>通过 CSR 请求：</p>
+
+<pre><code>$ kubectl certificate approve csr-2b308
+certificatesigningrequest &quot;csr-2b308&quot; approved
+
+
+
+$ kubectl get nodes
+NAME        STATUS    AGE       VERSION
+10.64.3.7   Ready     49m       v1.6.2
+</code></pre>
+
+<p>自动生成了 kubelet kubeconfig 文件和公私钥：</p>
+
+<pre><code>$ ls -l /etc/kubernetes/kubelet.kubeconfig
+-rw------- 1 root root 2284 Apr  7 02:07 /etc/kubernetes/kubelet.kubeconfig
+$ ls -l /etc/kubernetes/ssl/kubelet*
+-rw-r--r-- 1 root root 1046 Apr  7 02:07 /etc/kubernetes/ssl/kubelet-client.crt
+-rw------- 1 root root  227 Apr  7 02:04 /etc/kubernetes/ssl/kubelet-client.key
+-rw-r--r-- 1 root root 1103 Apr  7 02:07 /etc/kubernetes/ssl/kubelet.crt
+-rw------- 1 root root 1675 Apr  7 02:07 /etc/kubernetes/ssl/kubelet.key
+</code></pre>
+
+<p>2、kube-proxy</p>
+
+<p>创建 kube-proxy 的 systemd unit 文件</p>
+
+<pre><code>$ sudo mkdir -p /var/lib/kube-proxy # 必须先创建工作目录
+
+
+
+
+cat &gt; kube-proxy.service &lt;&lt;EOF
+[Unit]
+Description=Kubernetes Kube-Proxy Server
+Documentation=https://github.com/GoogleCloudPlatform/kubernetes
+After=network.target
+
+[Service]
+WorkingDirectory=/var/lib/kube-proxy
+ExecStart=/usr/bin/kube-proxy \
+  --bind-address=10.47.210.30 \
+  --hostname-override=10.47.210.30 \
+  --cluster-cidr=172.30.0.0/16 \
+  --kubeconfig=/etc/kubernetes/kube-proxy.kubeconfig \
+  --logtostderr=true \
+  --v=2
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+</code></pre>
+
+<p>参数解析</p>
+
+<p>&ndash;hostname-override 参数值必须与 kubelet 的值一致，否则 kube-proxy 启动后会找不到该 Node，从而不会创建任何 iptables 规则；</p>
+
+<p>&ndash;cluster-cidr 必须与 kube-controller-manager 的 &ndash;cluster-cidr 选项值一致；</p>
+
+<p>kube-proxy 根据 &ndash;cluster-cidr 判断集群内部和外部流量，指定 &ndash;cluster-cidr 或 &ndash;masquerade-all 选项后 kube-proxy 才会对访问 Service IP 的请求做 SNAT；</p>
+
+<p>&ndash;kubeconfig 指定的配置文件嵌入了 kube-apiserver 的地址、用户名、证书、秘钥等请求和认证信息；</p>
+
+<p>预定义的 RoleBinding cluster-admin 将User system:kube-proxy 与 Role system:node-proxier 绑定，该 Role 授予了调用 kube-apiserver Proxy 相关 API 的权限；</p>
+
+<p>启动</p>
+
+<pre><code>systemctl daemon-reload
+systemctl enable kube-proxy
+systemctl start kube-proxy
+systemctl status kube-proxy
+</code></pre>
+
+<p>到这边集群就已经手动部署完成了，可以直接使用了。</p>
+
+<blockquote>
+<p>harbor</p>
+</blockquote>
+
+<p>私有镜像仓库是我们自己使用k8s集群必须要使用的，可以使用原生的registry，目前最活跃的就是harbor，是国人写的，各种比较友好，最好使用1.7.5版本之后的</p>
+
+<p>harbor是直接使用docker-compose单机编排的</p>
+
+<p>所以安装docker和docker-compose</p>
+
+<pre><code>#下载离线安装软件
+wget http://harbor.orientsoft.cn/harbor-v1.3.0-rc4/harbor-offline-installer-v1.3.0-rc4.tgz
+#解压文件
+tar -zxf harbor-offline-installer-v1.3.0-rc4.tgz
+#解压后的文件夹是harbor
+</code></pre>
+
+<p>修改配置文件：域名，端口，密码，存放路径</p>
+
+<p>然后直接使用harbor目录中的install.sh就可以安装启动了，然后就可以根据域名+port来访问，当然我们正常使用的情况下都是会在harbor前加一层nginx转发，这个nginx需要注意转发大小的设置</p>
+
+<h1 id="参数">参数</h1>
+
+<p>由于参数比较多，可以直接参考K8s权威指南第二张第一节的部署中有很详细的解释，这边就不多写了，需要查阅。</p>
+
+<h1 id="应用">应用</h1>
+
+<h2 id="k8s运行的服务">k8s运行的服务</h2>
+
+<pre><code>无状态：deployment
+　　- 认为所有pod都是一样的，不具备与其他实例有不同的关系。
+　　- 没有顺序的要求。
+　　- 不用考虑再哪个Node运行。
+　　- 随意扩容缩容。
+
+有状态：SatefulSet
+　　- 集群节点之间的关系。
+　　- 数据不完全一致。
+　　- 实例之间不对等的关系。
+　　- 依靠外部存储的应用。
+　　- 通过dns维持身份
+</code></pre>
+
+<p>还可以细分，在K8S运行的服务，从简单到复杂可以分成三类：无状态服务、普通有状态服务和有状态集群服务。</p>
+
+<p><img src="/media/cloud/k8s/server" alt="" /></p>
+
+<blockquote>
+<p>无状态服务</p>
+</blockquote>
+
+<p>无状态服务，K8S使用RC（或更新的Replica Set）来保证一个服务的实例数量，如果说某个Pod实例由于某种原因Crash了，RC会立刻用这个Pod的模版新启一个Pod来替代它，由于是无状态的服务，新启的Pod与原来健康状态下的Pod一模一样。在Pod被重建后它的IP地址可能发生变化，为了对外提供一个稳定的访问接口，K8S引入了Service的概念。一个Service后面可以挂多个Pod，实现服务的高可用。</p>
+
+<blockquote>
+<p>普通有状态服务</p>
+</blockquote>
+
+<p>普通有状态服务，和无状态服务相比，它多了状态保存的需求。Kubernetes提供了以Volume和Persistent Volume为基础的存储系统，可以实现服务的状态保存。</p>
+
+<blockquote>
+<p>有状态集群服务</p>
+</blockquote>
+
+<p>有状态集群服务，与普通有状态服务相比，它多了集群管理的需求。K8S为此开发了一套以Pet Set为核心的全新特性，方便了有状态集群服务在K8S上的部署和管理。具体来说是通过Init Container来做集群的初始化工作，用 Headless Service 来维持集群成员的稳定关系，用动态存储供给来方便集群扩容，最后用Pet Set来综合管理整个集群。</p>
+
+<p>要运行有状态集群服务要解决的问题有两个,一个是状态保存，另一个是集群管理。</p>
+
+<p>1、状态保存</p>
+
+<p>Kubernetes 有一套以Volume插件为基础的存储系统，通过这套存储系统可以实现应用和服务的状态保存。</p>
+
+<p>K8S的存储系统从基础到高级又大致分为三个层次：普通Volume，Persistent Volume 和动态存储供应。</p>
+
+<blockquote>
+<p>普通Volume</p>
+</blockquote>
+
+<p>最简单的普通Volume是单节点Volume。它和Docker的存储卷类似，使用的是Pod所在K8S节点的本地目录。</p>
+
+<p>第二种类型是跨节点存储卷，这种存储卷不和某个具体的K8S节点绑定，而是独立于K8S节点存在的，整个存储集群和K8S集群是两个集群，相互独立。</p>
+
+<p>跨节点的存储卷在Kubernetes上用的比较多，如果已有的存储不能满足要求，还可以开发自己的Volume插件，只需要实现Volume.go 里定义的接口。如果你是一个存储厂商，想要自己的存储支持Kubernetes 上运行的容器，就可以去开发一个自己的Volume插件。</p>
+
+<blockquote>
+<p>Persistent Volume</p>
+</blockquote>
+
+<p>普通Volume和使用它的Pod之间是一种静态绑定关系，在定义Pod的文件里，同时定义了它使用的Volume。Volume 是Pod的附属品，我们无法单独创建一个Volume，因为它不是一个独立的K8S资源对象。</p>
+
+<p>而Persistent Volume 简称PV是一个K8S资源对象，所以我们可以单独创建一个PV。它不和Pod直接发生关系，而是通过Persistent Volume Claim，简称PVC来实现动态绑定。Pod定义里指定的是PVC，然后PVC会根据Pod的要求去自动绑定合适的PV给Pod使用。</p>
+
+<p>PV的访问模式有三种：</p>
+
+<p>第一种，ReadWriteOnce：是最基本的方式，可读可写，但只支持被单个Pod挂载。</p>
+
+<p>第二种，ReadOnlyMany：可以以只读的方式被多个Pod挂载。</p>
+
+<p>第三种，ReadWriteMany：这种存储可以以读写的方式被多个Pod共享。不是每一种存储都支持这三种方式，像共享方式，目前支持的还比较少，比较常用的是NFS。在PVC绑定PV时通常根据两个条件来绑定，一个是存储的大小，另一个就是访问模式。</p>
+
+<p>刚才提到说PV与普通Volume的区别是动态绑定，我们来看一下这个过程是怎样的。</p>
+
+<p><img src="/media/cloud/k8s/server1" alt="" /></p>
+
+<p>这是PV的生命周期，首先是Provision，即创建PV，这里创建PV有两种方式，静态和动态。所谓静态，是管理员手动创建一堆PV，组成一个PV池，供PVC来绑定。动态方式是通过一个叫 Storage Class的对象由存储系统根据PVC的要求自动创建。</p>
+
+<p>一个PV创建完后状态会变成Available，等待被PVC绑定。</p>
+
+<p>一旦被PVC邦定，PV的状态会变成Bound，就可以被定义了相应PVC的Pod使用。</p>
+
+<p>Pod使用完后会释放PV，PV的状态变成Released。</p>
+
+<p>变成Released的PV会根据定义的回收策略做相应的回收工作。有三种回收策略，Retain、Delete 和 Recycle。Retain就是保留现场，K8S什么也不做，等待用户手动去处理PV里的数据，处理完后，再手动删除PV。Delete 策略，K8S会自动删除该PV及里面的数据。Recycle方式，K8S会将PV里的数据删除，然后把PV的状态变成Available，又可以被新的PVC绑定使用。</p>
+
+<p>在实际使用场景里，PV的创建和使用通常不是同一个人。这里有一个典型的应用场景：管理员创建一个PV池，开发人员创建Pod和PVC，PVC里定义了Pod所需存储的大小和访问模式，然后PVC会到PV池里自动匹配最合适的PV给Pod使用。</p>
+
+<p>前面在介绍PV的生命周期时，提到PV的供给有两种方式，静态和动态。其中动态方式是通过StorageClass来完成的，这是一种新的存储供应方式。</p>
+
+<p>使用StorageClass有什么好处呢？除了由存储系统动态创建，节省了管理员的时间，还有一个好处是可以封装不同类型的存储供PVC选用。在StorageClass出现以前，PVC绑定一个PV只能根据两个条件，一个是存储的大小，另一个是访问模式。在StorageClass出现后，等于增加了一个绑定维度。</p>
+
+<p>比如这里就有两个StorageClass，它们都是用谷歌的存储系统，但是一个使用的是普通磁盘，我们把这个StorageClass命名为slow。另一个使用的是SSD，我们把它命名为fast。</p>
+
+<p>在PVC里除了常规的大小、访问模式的要求外，还通过annotation指定了Storage Class的名字为fast，这样这个PVC就会绑定一个SSD，而不会绑定一个普通的磁盘。</p>
+
+<p>到这里Kubernetes的整个存储系统就都介绍完了。总结一下，两种存储卷：普通Volume 和Persistent Volume。普通Volume在定义Pod的时候直接定义，Persistent Volume通过Persistent Volume Claim来动态绑定。PV可以手动创建,也可以通过StorageClass来动态创建。</p>
+
+<blockquote>
+<p>动态存储供应</p>
+</blockquote>
+
+<p>下面重介绍Kubernetes与有状态集群服务相关的两个新特性：Init Container 和 Pet Set  。</p>
+
+<p>1、Init Container</p>
+
+<p>做初始化工作的容器。可以有一个或多个，如果有多个，这些 Init Container 按照定义的顺序依次执行，只有所有的Init Container 执行完后，主容器才启动。由于一个Pod里的存储卷是共享的，所以 Init Container 里产生的数据可以被主容器使用到。</p>
+
+<p>Init Container可以在多种 K8S 资源里被使用到如 Deployment、Daemon Set, Pet Set, Job等，但归根结底都是在Pod启动时，在主容器启动前执行，做初始化工作。</p>
+
+<p>第一种场景是等待其它模块Ready，比如我们有一个应用里面有两个容器化的服务，一个是Web Server，另一个是数据库。其中Web Server需要访问数据库。但是当我们启动这个应用的时候，并不能保证数据库服务先启动起来，所以可能出现在一段时间内Web Server有数据库连接错误。为了解决这个问题，我们可以在运行Web Server服务的Pod里使用一个Init Container，去检查数据库是否准备好，直到数据库可以连接，Init Container才结束退出，然后Web Server容器被启动，发起正式的数据库连接请求。</p>
+
+<p>第二种场景是做初始化配置，比如集群里检测所有已经存在的成员节点，为主容器准备好集群的配置信息，这样主容器起来后就能用这个配置信息加入集群。</p>
+
+<p>还有其它使用场景，如将pod注册到一个中央数据库、下载应用依赖等。</p>
+
+<p>这个例子创建一个Pod，这个Pod里跑的是一个nginx容器，Pod里有一个叫workdir的存储卷，访问nginx容器服务的时候，就会显示这个存储卷里的index.html 文件。</p>
+
+<p>而这个index.html 文件是如何获得的呢？是由一个Init Container从网络上下载的。这个Init Container 使用一个busybox镜像，起来后，执行一条wget命令，获取index.html文件，然后结束退出。</p>
+
+<p>由于Init Container和nginx容器共享一个存储卷（这里这个存储卷的名字叫workdir），所以在Init container里下载的index.html文件可以在nginx容器里被访问到。</p>
+
+<p>可以看到 Init Container 是在 annotation里定义的。Annotation 是K8S新特性的实验场，通常一个新的Feature出来一般会先在Annotation 里指定，等成熟稳定了，再给它一个正式的属性名或资源对象名。</p>
+
+<p>2、Pet Set</p>
+
+<p>Pet代表有状态服务，Set是集合的意思</p>
+
+<p><img src="/media/cloud/k8s/server2" alt="" /></p>
+
+<p>具体来说，一个Pet有三个特征。</p>
+
+<p>一是有稳定的存储，这是通过我们前面介绍的PV/PVC 来实现的。</p>
+
+<p>二是稳定的网络身份，这是通过一种叫 Headless Service 的特殊Service来实现的。要理解Headless Service是如何工作的，需要先了解Service是如何工作。我们提到过Service可以为多个Pod实例提供一个稳定的对外访问接口。这个稳定的接口是如何实现的的呢，是通过Cluster IP来实现的，Cluster IP是一个虚拟IP，不是真正的IP，所以稳定。K8S会在每个节点上创建一系列的IPTables规则，实现从Cluster IP到实际Pod IP的转发。同时还会监控这些Pod的IP地址变化，如果变了，会更新IP Tables规则，使转发路径保持正确。所以即使Pod IP有变化，外部照样能通过Service的ClusterIP访问到后面的Pod。</p>
+
+<p>普通Service的Cluster IP 是对外的，用于外部访问多个Pod实例。而Headless Service的作用是对内的，用于为一个集群内部的每个成员提供一个唯一的DNS名字，这样集群成员之间就能相互通信了。所以Headless Service没有Cluster IP，这是它和普通Service的区别。</p>
+
+<p>Headless Service为每个集群成员创建的DNS名字是什么样的呢？右下角是一个例子，第一个部分是每个Pet自己的名字，后面foo是Headless Service的名字，default是PetSet所在命名空间的名字，cluser.local是K8S集群的域名。对于同一个Pet Set里的每个Pet，除了Pet自己的名字，后面几部分都是一样的。所以要有一个稳定且唯一的DNS名字，就要求每个Pet的名字是稳定且唯一的。</p>
+
+<p>三是序号命名规则。Pet是一种特殊的Pod，那么Pet能不能用Pod的命名规则呢？答案是不能，因为Pod的名字是不稳定的。Pod的命名规则是，如果一个Pod是由一个RC创建的，那么Pod的名字是RC的名字加上一个随机字符串。为什么要加一个随机字符串，是因为RC里指定的是Pod的模版，为了实现高可用，通常会从这个模版里创建多个一模一样的Pod实例，如果没有这个随机字符串，同一个RC创建的Pod之间就会由名字冲突。</p>
+
+<p>如果说某个Pod由于某种原因死掉了，RC会新建一个来代替它，但是这个新建里的Pod名字里的随机字符串与原来死掉的Pod是不一样的。所以Pod的名字跟它的IP一样是不稳定的。</p>
+
+<p>为了解决名字不稳定的问题，K8S对Pet的名字不再使用随机字符串，而是为每个Pet分配一个唯一不变的序号，比如 Pet Set 的名字叫 mysql，那么第一个启起来的Pet就叫 mysql-0，第二个叫 mysql-1，如此下去。</p>
+
+<p>当一个Pet down 掉后，新创建的Pet 会被赋予跟原来Pet一样的名字。由于Pet名字不变所以DNS名字也跟以前一样，同时通过名字还能匹配到原来Pet用到的存储，实现状态保存。</p>
+
+<p>这些是Pet Set 相关的一些操作：</p>
+
+<pre><code>Peer discovery，这和我们上面的Headless Service有密切关系。通过Pet Set的 Headless Service，可以查到该Service下所有的Pet 的 DNS 名字。这样就能发现一个Pet Set 里所有的Pet。当一个新的Pet起来后，就可以通过Peer Discovery来找到集群里已经存在的所有节点的DNS名字，然后用它们来加入集群。
+更新Replicas的数目、实现扩容和缩容。
+更新Pet Set里Pet的镜像版本，实现升级。
+删除 Pet Set。删除一个Pet Set 会先把这个Pet Set的Replicas数目缩减为0，等到所有的Pet都被删除了，再删除 Pet Set本身。注意Pet用到的存储不会被自动删除。这样用户可以把数据拷贝走了，再手动删除。
+</code></pre>
+
+<h2 id="kubectl">kubectl</h2>
+
+<p>我们可以通过三种方式来访问apiserver提供的接口</p>
+
+<ol>
+<li><p>REST API
+比如访问nodes，我们可以访问/api/v1/proxy/nodes/{names}</p></li>
+
+<li><p>各种语言的client lib</p></li>
+
+<li><p>命令行kubectl</p></li>
+</ol>
+
+<p>我们最直接的就是使用kubectl来看各种应用的情况</p>
+
+<p>kubectl的原理是将输入的转化为REST API来调用，将返回结果输出。只是对REST API的一种封装，可以说是apiserver的一个客户端</p>
+
+<p><img src="/media/cloud/k8s/kubectl.jpg" alt="" /></p>
+
+<p>用法：</p>
+
+<pre><code>kubectl [command] [options]
+</code></pre>
+
+<p>主要命令详解</p>
+
+<blockquote>
+<p>kubectl annotate</p>
+</blockquote>
+
+<p>更新某个资源的注解</p>
+
+<p>支持的资源包括但不限于（大小写不限）：pods (po)、services (svc)、 replicationcontrollers (rc)、nodes (no)、events (ev)、componentstatuses (cs)、 limitranges (limits)、persistentvolumes (pv)、persistentvolumeclaims (pvc)、 resourcequotas (quota)和secrets。</p>
+
+<p>示例</p>
+
+<pre><code># 更新pod “foo”，设置其注解description的值为my frontend。
+# 如果同一个注解被赋值了多次，只保存最后一次设置的值。
+$ kubectl annotate pods foo description='my frontend'
+
+# 更新“pod.json”文件中type和name字段指定的pod的注解。
+$ kubectl annotate -f pod.json description='my frontend'
+
+# 更新pod “foo”，设置其注解description的值为my frontend running nginx，已有的值将被覆盖。
+$ kubectl annotate --overwrite pods foo description='my frontend running nginx'
+
+# 更新同一namespace下所有的pod。
+$ kubectl annotate pods --all description='my frontend running nginx'
+
+# 仅当pod “foo”当前版本为1时，更新其注解
+$ kubectl annotate pods foo description='my frontend running nginx' --resource-version=1
+
+# 更新pod “foo”，删除其注解description。
+# 不需要--override选项。
+$ kubectl annotate pods foo description-
+</code></pre>
+
+<blockquote>
+<p>kubectl api-versions</p>
+</blockquote>
+
+<p>以“组/版本”的格式输出服务端支持的API版本。</p>
+
+<blockquote>
+<p>kubectl apply</p>
+</blockquote>
+
+<p>通过文件名或控制台输入，对资源进行配置。</p>
+
+<p>示例</p>
+
+<pre><code># 将pod.json中的配置应用到pod,当然yaml也可以
+$ kubectl apply -f ./pod.json
+
+# 将控制台输入的JSON配置应用到Pod
+$ cat pod.json | kubectl apply -f -
+</code></pre>
+
+<blockquote>
+<p>kubectl attach</p>
+</blockquote>
+
+<p>连接到一个正在运行的容器。</p>
+
+<p>示例</p>
+
+<pre><code># 获取正在运行中的pod 123456-7890的输出，默认连接到第一个容器
+$ kubectl attach 123456-7890
+
+# 获取pod 123456-7890中ruby-container的输出
+$ kubectl attach 123456-7890 -c ruby-container date
+
+# 切换到终端模式，将控制台输入发送到pod 123456-7890的ruby-container的“bash”命令，并将其输出到控制台/
+# 错误控制台的信息发送回客户端。
+$ kubectl attach 123456-7890 -c ruby-container -i -t
+</code></pre>
+
+<blockquote>
+<p>kubectl cluster-info</p>
+</blockquote>
+
+<p>显示集群信息。</p>
+
+<blockquote>
+<p>kubectl config</p>
+</blockquote>
+
+<p>修改kubeconfig配置文件。</p>
+
+<blockquote>
+<p>kubectl create</p>
+</blockquote>
+
+<p>通过文件名或控制台输入，创建资源。</p>
+
+<p>接受JSON和YAML格式的描述文件。</p>
+
+<pre><code>kubectl create -f FILENAME
+kubectl create -f rc-nginx.yaml
+</code></pre>
+
+<blockquote>
+<p>kubectl delete</p>
+</blockquote>
+
+<p>通过文件名、控制台输入、资源名或者label selector删除资源。</p>
+
+<pre><code>kubectl delete -f rc-nginx.yaml
+kubectl delete po rc-nginx-btv4j
+kubectl delete po -lapp=nginx-2
+</code></pre>
+
+<blockquote>
+<p>kubectl describe</p>
+</blockquote>
+
+<p>输出指定的一个/多个资源的详细信息。</p>
+
+<p>支持的资源包括但不限于（大小写不限）：pods (po)、services (svc)、 replicationcontrollers (rc)、nodes (no)、events (ev)、componentstatuses (cs)、 limitranges (limits)、persistentvolumes (pv)、persistentvolumeclaims (pvc)、 resourcequotas (quota)和secrets。</p>
+
+<p>示例</p>
+
+<pre><code># 描述一个node
+$ kubectl describe nodes kubernetes-minion-emt8.c.myproject.internal
+
+# 描述一个pod
+$ kubectl describe pods/nginx
+
+# 描述pod.json中的资源类型和名称指定的pod
+$ kubectl describe -f pod.json
+
+# 描述所有的pod
+$ kubectl describe pods
+
+# 描述所有包含label name=myLabel的pod
+$ kubectl describe po -l name=myLabel
+
+# 描述所有被replication controller “frontend”管理的pod（rc创建的pod都以rc的名字作为前缀）
+$ kubectl describe pods frontend
+</code></pre>
+
+<p>node详解</p>
+
+<pre><code>[root@xgpccsit02m010243129129 ~]# kubectl get nodes
+NAME                                  STATUS   ROLES         AGE    VERSION
+xgpccsit02m010243129129.sncloud.com   Ready    master.node   515d   v1.14.8-sn.3
+xgpccsit02m010243129130.sncloud.com   Ready    master.node   515d   v1.14.8-sn.3
+xgpccsit02m010243129131.sncloud.com   Ready    master.node   515d   v1.14.8-sn.3
+xgpccsit02n010243129139.sncloud.com   Ready    node          305d   v1.14.8-sn.3
+xgpccsit02n010243129140.sncloud.com   Ready    node          509d   v1.14.8-sn.3
+xgpccsit02n010243129142.sncloud.com   Ready    node          504d   v1.14.8-sn.3
+xgpccsit02n010243129144.sncloud.com   Ready    node          261d   v1.14.8-sn.3
+xgpccsit02n010243129156.sncloud.com   Ready    node          212d   v1.14.8-sn.3
+xgpccsit02n010243129158.sncloud.com   Ready    node          369d   v1.14.8-sn.3
+xgpccsit02n010243129163.sncloud.com   Ready    node          74d    v1.14.8-sn.3
+xgpccsit02n010243129164.sncloud.com   Ready    node          86d    v1.14.8-sn.3
+xgpccsit02n010243129167.sncloud.com   Ready    node          40d    v1.14.8-sn.3
+xgpccsit02n010243129170.sncloud.com   Ready    node          32d    v1.14.8-sn.3
+xgpccsit02n010243133002.sncloud.com   Ready    node          152d   v1.14.8-sn.3
+[root@xgpccsit02m010243129129 ~]# kubectl describe node xgpccsit02n010243133002.sncloud.com
+Name:               xgpccsit02n010243133002.sncloud.com
+Roles:              node
+Labels:             APP=true
+                    WEB=true
+                    beta.kubernetes.io/arch=amd64
+                    beta.kubernetes.io/os=linux
+                    dragonflyTest=true
+                    kubernetes.io/arch=amd64
+                    kubernetes.io/hostname=xgpccsit02n010243133002.sncloud.com
+                    kubernetes.io/os=linux
+                    netType=B2C
+                    node-network-driver=ovs
+                    node-role.kubernetes.io/node=
+Annotations:        csi.volume.kubernetes.io/nodeid: {&quot;ossplugin.csi.sncloud.com&quot;:&quot;10.243.133.2&quot;}
+                    node.alpha.kubernetes.io/ttl: 0
+                    sncloud.com/cpu-policy: none
+                    sncloud.com/diskIOPSCapacity: 1000000
+                    sncloud.com/gpu.usage: null
+                    sncloud.com/gpu.used: 0
+                    sncloud.com/networkBandwidthCapacity: 2000000000
+CreationTimestamp:  Wed, 11 Dec 2019 17:20:26 +0800
+Taints:             &lt;none&gt;
+Unschedulable:      false
+Conditions:
+  Type                     Status  LastHeartbeatTime                 LastTransitionTime                Reason                       Message
+  ----                     ------  -----------------                 ------------------                ------                       -------
+  ServiceReady             False   Tue, 12 May 2020 10:16:14 +0800   Tue, 12 May 2020 10:16:14 +0800   NodeServiceReadyChange       [cni status:unknown,]
+  FrequentLxcfsRestart     False   Tue, 12 May 2020 10:16:30 +0800   Wed, 06 May 2020 18:26:52 +0800   NoFrequentLxcfsRestart       lxcfs is functioning properly
+  FrequentKubeletRestart   False   Tue, 12 May 2020 10:16:30 +0800   Wed, 06 May 2020 18:26:52 +0800   NoFrequentKubeletRestart     kubelet is functioning properly
+  FrequentDockerRestart    False   Tue, 12 May 2020 10:16:30 +0800   Wed, 06 May 2020 18:26:52 +0800   NoFrequentDockerRestart      docker is functioning properly
+  OrphanedPodFileExist     False   Fri, 27 Mar 2020 01:53:49 +0800   Tue, 24 Mar 2020 12:10:13 +0800   NoOrphanedPodFileExist       OrphanedPod is not exist
+  MemoryPressure           False   Tue, 12 May 2020 10:17:09 +0800   Wed, 08 Apr 2020 18:03:40 +0800   KubeletHasSufficientMemory   kubelet has sufficient memory available
+  DiskPressure             False   Tue, 12 May 2020 10:17:09 +0800   Wed, 08 Apr 2020 18:03:40 +0800   KubeletHasNoDiskPressure     kubelet has no disk pressure
+  PIDPressure              False   Tue, 12 May 2020 10:17:09 +0800   Wed, 08 Apr 2020 18:03:40 +0800   KubeletHasSufficientPID      kubelet has sufficient PID available
+  Ready                    True    Tue, 12 May 2020 10:17:09 +0800   Thu, 07 May 2020 09:57:01 +0800   KubeletReady                 kubelet is posting ready status
+Addresses:
+  InternalIP:  10.243.133.2
+  Hostname:    xgpccsit02n010243133002.sncloud.com
+Capacity:
+ cpu:                24
+ ephemeral-storage:  51877124Ki
+ hugepages-1Gi:      0
+ hugepages-2Mi:      0
+ memory:             263852704Ki
+ pods:               110
+Allocatable:
+ cpu:                22
+ ephemeral-storage:  47809957400
+ hugepages-1Gi:      0
+ hugepages-2Mi:      0
+ memory:             261653152Ki
+ pods:               110
+System Info:
+ Machine ID:                 6328e225a9fe47d1bac0d3a6004c0ada
+ System UUID:                6328e225a9fe47d1bac0d3a6004c0ada
+ Boot ID:                    7b9342ff-16ae-4bcd-8631-dc367652de52
+ Kernel Version:             4.18.0-80.11.1.el7.centos.sn11.x86_64
+ OS Image:                   CentOS Linux 7 (Core)
+ Operating System:           linux
+ Architecture:               amd64
+ Container Runtime Version:  docker://18.9.9
+ Kubelet Version:            v1.14.8-sn.3
+ Kube-Proxy Version:         v1.14.8-sn.3
+Non-terminated Pods:         (10 in total)
+  Namespace                  Name                           CPU Requests  CPU Limits  Memory Requests  Memory Limits  AGE
+  ---------                  ----                           ------------  ----------  ---------------  -------------  ---
+  kube-system                cadvisor-proxy-5t9jk           100m (0%)     500m (2%)   100Mi (0%)       250Mi (0%)     18d
+  kube-system                csi-ossplugin-gpvz8            0 (0%)        0 (0%)      0 (0%)           0 (0%)         4d23h
+  kube-system                dfclient-cgzdm                 1 (4%)        2 (9%)      2Gi (0%)         3Gi (1%)       12d
+  kube-system                filebeat-8ckl9                 3750m (17%)   4 (18%)     2273Mi (0%)      2660Mi (1%)    19d
+  kube-system                machine-worker-nx2gc           100m (0%)     100m (0%)   100Mi (0%)       100Mi (0%)     126d
+  kube-system                node-exporter-m8jc8            100m (0%)     200m (0%)   128Mi (0%)       256Mi (0%)     3d16h
+  kube-system                node-problem-detector-qcwln    25m (0%)      200m (0%)   100Mi (0%)       100Mi (0%)     5d15h
+  kube-system                preheat-worker-2sn7g           200m (0%)     500m (2%)   128Mi (0%)       512Mi (0%)     46d
+  kube-system                voyage-agent-qb9rd             1100m (5%)    1100m (5%)  1124Mi (0%)      1124Mi (0%)    4d1h
+  kube-system                voyage-openvswitch-ccdg8       1 (4%)        4 (18%)     1Gi (0%)         4Gi (1%)       113d
+Allocated resources:
+  (Total limits may be over 100 percent, i.e., overcommitted.)
+  Resource           Requests     Limits
+  --------           --------     ------
+  cpu                7375m (33%)  12600m (57%)
+  memory             7025Mi (2%)  12170Mi (4%)
+  ephemeral-storage  0 (0%)       0 (0%)
+Events:              &lt;none&gt;
+
+
+解析
+
+1、node的基本信息：名称，标签，创建时间
+2、node当前运行的状态，node启动后会做一些自检工作，比如磁盘满了，如果满了就标注OutOfDisk=True，否则就继续检查内存是够不足，最后一切正常，就Ready=True，可以在上面查看，这种情况代表node处于健康状态，可以在上创建pod了。
+3、node主机名和主机地址
+4、node上的资源总量，比如cpu，内存，最大可调度pod的数量
+5、node可分配的资源
+6、本机系统信息：UUID，版本等
+7、当前正在运行的pod的概要信息
+8、已分配的资源使用情况
+9、node相关的事件event
+</code></pre>
+
+<blockquote>
+<p>kubectl replace</p>
+</blockquote>
+
+<p>更新替换</p>
+
+<pre><code>kubectl replace -f rc-nginx.yaml
+</code></pre>
+
+<blockquote>
+<p>kubectl patch</p>
+</blockquote>
+
+<p>如果一个容器已经在运行，这时需要对一些容器属性进行修改，又不想删除容器，或不方便通过replace的方式进行更新。kubernetes还提供了一种在容器运行时，直接对容器进行修改的方式，就是patch命令.</p>
+
+<pre><code>kubectl patch pod rc-nginx-2-kpiqt -p '{&quot;metadata&quot;:{&quot;labels&quot;:{&quot;app&quot;:&quot;nginx-3&quot;}}}'
+</code></pre>
+
+<blockquote>
+<p>kubectl edit</p>
+</blockquote>
+
+<p>编辑服务端的资源。</p>
+
+<p>示例</p>
+
+<pre><code>  # 编辑名为“docker-registry”的service
+  $ kubectl edit svc/docker-registry
+
+  # 使用一个不同的编辑器
+  $ KUBE_EDITOR=&quot;nano&quot; kubectl edit svc/docker-registry
+
+  # 编辑名为“docker-registry”的service，使用JSON格式、v1 API版本
+  $ kubectl edit svc/docker-registry --output-version=v1 -o json
+</code></pre>
+
+<blockquote>
+<p>kubectl exec</p>
+</blockquote>
+
+<p>在容器内部执行命令。</p>
+
+<p>示例</p>
+
+<pre><code># 默认在pod 123456-7890的第一个容器中运行“date”并获取输出
+$ kubectl exec 123456-7890 date
+
+# 在pod 123456-7890的容器ruby-container中运行“date”并获取输出
+$ kubectl exec 123456-7890 -c ruby-container date
+
+# 切换到终端模式，将控制台输入发送到pod 123456-7890的ruby-container的“bash”命令，并将其输出到控制台/
+# 错误控制台的信息发送回客户端。
+$ kubectl exec 123456-7890 -c ruby-container -i -t -- bash -il
+
+kubectl exec filebeat-27 -c container -n namespaces sh
+</code></pre>
+
+<blockquote>
+<p>kubectl logs</p>
+</blockquote>
+
+<p>输出pod中一个容器的日志。</p>
+
+<p>示例</p>
+
+<pre><code># 返回仅包含一个容器的pod nginx的日志快照
+$ kubectl logs nginx
+
+# 返回pod ruby中已经停止的容器web-1的日志快照
+$ kubectl logs -p -c ruby web-1
+
+# 持续输出pod ruby中的容器web-1的日志
+$ kubectl logs -f -c ruby web-1
+
+# 仅输出pod nginx中最近的20条日志
+$ kubectl logs --tail=20 nginx
+
+# 输出pod nginx中最近一小时内产生的所有日志
+$ kubectl logs --since=1h nginx
+</code></pre>
+
+<blockquote>
+<p>kubectl version</p>
+</blockquote>
+
+<p>输出服务端和客户端的版本信息。</p>
+
+<blockquote>
+<p>kubectl get</p>
+</blockquote>
+
+<p>获取信息</p>
+
+<pre><code>kubectl get po
+</code></pre>
+
+<blockquote>
+<p>kubectl rolling-update</p>
+</blockquote>
+
+<p>滚动更新.</p>
+
+<pre><code>kubectl rolling-update rc-nginx-2 -f rc-nginx.yaml，
+</code></pre>
+
+<p>这个还提供如果在升级过程中，发现有问题还可以中途停止update，并回滚到前面版本</p>
+
+<pre><code>kubectl rolling-update rc-nginx-2 —rollback
+</code></pre>
+
+<blockquote>
+<p>kubectl scale</p>
+</blockquote>
+
+<p>扩容缩容</p>
+
+<pre><code>kubectl scale rc rc-nginx-3 —replicas=4
+</code></pre>
+
+<blockquote>
+<p>kubectl cp</p>
+</blockquote>
+
+<p>将文件直接拷进容器内</p>
+
+<pre><code>kubectl cp 文件 pod：路径
+kubectl cp ./test.war logtestjbossforone-7b89dd5c9-297pf:/opt/wildfly/standalone/deployments
+</code></pre>
+
+<blockquote>
+<p>kubectl help</p>
+</blockquote>
+
+<p>help 帮助命令，可以查找所有的命令，在我们不会用的适合，要学会使用这个命令。</p>
+
+<h2 id="yaml文件详解">yaml文件详解</h2>
+
+<p>其实最后都是转化为api对象，所以符合k8s设计的顶级api对象，所以直接看<a href="/posts/cloud/container/kubernetes/k8s-api/">顶级api对象的组成</a>。</p>
+
+<blockquote>
+<p>rc实例详解</p>
+</blockquote>
+
+<pre><code>apiVersion: v1 #指定api版本，此值必须在kubectl apiversion中
+kind: ReplicationController #指定创建资源的角色/类型
+metadata: #资源的元数据/属性
+  name: test-rc #资源的名字，在同一个namespace中必须唯一
+  labels: #设定资源的标签，详情请见http://blog.csdn.net/liyingke112/article/details/77482384
+  k8s-app: apache
+    software: apache
+    project: test
+    app: test-rc
+    version: v1
+  annotations:            #自定义注解列表
+    - name: String        #自定义注解名字
+spec:
+  replicas: 2 #副本数量2
+  selector: #RC通过spec.selector来筛选要控制的Pod
+    software: apache
+    project: test
+    app: test-rc
+    version: v1
+    name: test-rc
+  template: #这里Pod的定义
+    metadata:
+      labels: #Pod的label，可以看到这个label与spec.selector相同
+        software: apache
+        project: test
+        app: test-rc
+        version: v1
+        name: test-rc
+    spec:#specification of the resource content 指定该资源的内容
+      restartPolicy: Always #表明该容器一直运行，默认k8s的策略，在此容器退出后，会立即创建一个相同的容器
+      nodeSelector:     #节点选择，先给主机打标签kubectl label nodes kube-node1 zone=node1
+        zone: node1
+      containers:
+      - name: web04-pod #容器的名字
+        image: web:apache #容器使用的镜像地址
+        imagePullPolicy: Never #三个选择Always、Never、IfNotPresent，每次启动时检查和更新（从registery）images的策略，
+                               # Always，每次都检查,重远程拉去
+                               # Never，每次都不检查（不管本地是否有）
+                               # IfNotPresent，如果本地有就不检查，如果没有就拉取
+        command: ['sh'] #启动容器的运行命令，将覆盖容器中的Entrypoint,对应Dockefile中的ENTRYPOINT
+        args: [&quot;$(str)&quot;] #启动容器的命令参数，对应Dockerfile中CMD参数
+        env: #指定容器中的环境变量
+        - name: str #变量的名字
+          value: &quot;/etc/run.sh&quot; #变量的值
+        resources: #资源管理，请求请见http://blog.csdn.net/liyingke112/article/details/77452630
+          requests: #容器运行时，最低资源需求，也就是说最少需要多少资源容器才能正常运行
+            cpu: 0.1 #CPU资源（核数），两种方式，浮点数或者是整数+m，0.1=100m，最少值为0.001核（1m）
+            memory: 32Mi #内存使用量
+          limits: #资源限制
+            cpu: 0.5
+            memory: 32Mi
+        ports:
+        - containerPort: 80 #容器开发对外的端口
+          name: httpd  #名称
+          protocol: TCP
+        livenessProbe: #pod内容器健康检查的设置，详情请见http://blog.csdn.net/liyingke112/article/details/77531584
+          httpGet: #通过httpget检查健康，返回200-399之间，则认为容器正常
+            path: / #URI地址
+            port: 80
+            #host: 127.0.0.1 #主机地址
+            scheme: HTTP
+          initialDelaySeconds: 180 #表明第一次检测在容器启动后多长时间后开始
+          timeoutSeconds: 5 #检测的超时时间
+          periodSeconds: 15  #检查间隔时间
+          #也可以用这种方法
+          #exec: 执行命令的方法进行监测，如果其退出码不为0，则认为容器正常
+          #  command:
+          #    - cat
+          #    - /tmp/health
+          #也可以用这种方法
+          #tcpSocket: //通过tcpSocket检查健康
+          #  port: number
+        lifecycle: #生命周期管理
+          postStart: #容器运行之前运行的任务
+            exec:
+              command:
+                - 'sh'
+                - 'yum upgrade -y'
+          preStop:#容器关闭之前运行的任务
+            exec:
+              command: ['service httpd stop']
+        volumeMounts:  #详情请见http://blog.csdn.net/liyingke112/article/details/76577520
+        - name: volume #挂载设备的名字，与volumes[*].name 需要对应
+          mountPath: /data #挂载到容器的某个路径下
+          readOnly: True
+  volumes: #定义一组挂载设备
+  - name: volume #定义一个挂载设备的名字
+    #meptyDir: {}
+    hostPath:
+      path: /opt #挂载设备类型为hostPath，路径为宿主机下的/opt,这里设备类型支持很多种
+</code></pre>
+
+<h2 id="磁盘挂载">磁盘挂载</h2>
+
+<blockquote>
+<p>emptyDir</p>
+</blockquote>
+
+<p>emptyDir类型的Volume在Pod分配到Node上时被创建，Kubernetes会在Node上自动分配一个目录，因此无需指定宿主机Node上对应的目录文件。 这个目录的初始内容为空，当Pod从Node上移除时，emptyDir中的数据会被永久删除。</p>
+
+<p>注：容器的crashing事件并不会导致emptyDir中的数据被删除。</p>
+
+<p>最佳实践</p>
+
+<p>根据官方给出的最佳使用实践的建议，emptyDir可以在以下几种场景下使用：</p>
+
+<pre><code>临时空间，例如基于磁盘的合并排序
+
+设置检查点以从崩溃事件中恢复未执行完毕的长计算
+
+保存内容管理器容器从Web服务器容器提供数据时所获取的文件
+
+默认情况下，emptyDir可以使用任何类型的由node节点提供的后端存储。如果你有特殊的场景，需要使用tmpfs作为emptyDir的可用存储资源也是可以的，只需要在创建emptyDir卷时增加一个emptyDir.medium字段的定义，并赋值为&quot;Memory&quot;即可。
+
+注：在使用tmpfs文件系统作为emptyDir的存储后端时，如果遇到node节点重启，则emptyDir中的数据也会全部丢失。同时，你编写的任何文件也都将计入Container的内存使用限制。
+</code></pre>
+
+<p>emptyDir volume 实验</p>
+
+<p>我们在测试k8s环境中创建一个emptyDir volume的使用示例。</p>
+
+<pre><code>apiVersion: v1
+
+kind: Pod
+
+metadata:
+
+  name: test-pod
+
+spec:
+
+  containers:
+
+  - image: busybox
+
+    name: test-emptydir
+
+    command: [ &quot;sleep&quot;, &quot;3600&quot; ]
+
+    volumeMounts:
+
+    - mountPath: /data
+
+      name: data-volume
+
+  volumes:
+
+  - name: data-volume
+
+    emptyDir: {}
+</code></pre>
+
+<p>查看下创建出来的pod，这里只截取了与volume有关的部分，其他无关内容直接省略：</p>
+
+<pre><code># kubectl describe pod test-pod
+
+Name:         test-pod
+
+Namespace:    default
+
+Node:         kube-node2/172.16.10.102
+
+......
+
+    Environment:    &lt;none&gt;
+
+    Mounts:
+
+      /data from data-volume (rw)
+
+......
+
+Volumes:
+
+  data-volume:
+
+    Type:    EmptyDir (a temporary directory that shares a pod's lifetime)
+
+    Medium:
+
+......
+</code></pre>
+
+<blockquote>
+<p>hostPath</p>
+</blockquote>
+
+<p>hostPath类型则是映射node文件系统中的文件或者目录到pod里。在使用hostPath类型的存储卷时，也可以设置type字段，支持的类型有文件、目录、File、Socket、CharDevice和BlockDevice。</p>
+
+<p>使用场景：</p>
+
+<pre><code>当运行的容器需要访问Docker内部结构时，如使用hostPath映射/var/lib/docker到容器；
+
+当在容器中运行cAdvisor时，可以使用hostPath映射/dev/cgroups到容器中；
+</code></pre>
+
+<p>注意事项：</p>
+
+<p>配置相同的pod（如通过podTemplate创建），可能在不同的Node上表现不同，因为不同节点上映射的文件内容不同</p>
+
+<p>当Kubernetes增加了资源敏感的调度程序，hostPath使用的资源不会被计算在内</p>
+
+<p>宿主机下创建的目录只有root有写权限。你需要让你的程序运行在privileged container上，或者修改宿主机上的文件权限。</p>
+
+<p>hostPath volume 实验</p>
+
+<p>下面我们在测试k8s环境中创建一个hostPath volume使用示例。</p>
+
+<pre><code>apiVersion: v1
+
+kind: Pod
+
+metadata:
+
+  name: test-pod2
+
+spec:
+
+  containers:
+
+  - image: busybox
+
+    name: test-hostpath
+
+    command: [ &quot;sleep&quot;, &quot;3600&quot; ]
+
+    volumeMounts:
+
+    - mountPath: /test-data
+
+      name: test-volume
+
+  volumes:
+
+  - name: test-volume
+
+    hostPath:
+
+      # directory location on host
+
+      path: /data
+
+      # this field is optional
+
+      type: Directory
+</code></pre>
+
+<p>查看下pod创建结果，观察volumes部分：</p>
+
+<pre><code># kubectl describe pod test-pod2
+
+Name:         test-pod2
+
+Namespace:    default
+
+Node:         kube-node2/172.16.10.102
+
+......
+
+    Mounts:
+
+      /test-data from test-volume (rw)
+
+......
+
+Volumes:
+
+  test-volume:
+
+    Type:          HostPath (bare host directory volume)
+
+    Path:          /data
+
+    HostPathType:  Directory
+
+......
+</code></pre>
+
+<p>我们登录到容器中，进入挂载的/test-data目录中，创建个测试文件。</p>
+
+<pre><code># kubectl exec  -it test-pod2 -c test-hostpath /bin/sh
+
+/ # echo 'testtesttest' &gt; /test-data/test.log
+
+/ # exit
+</code></pre>
+
+<p>我们在运行该pod的node节点上，可以看到如下的文件和内容。</p>
+
+<pre><code>[root@kube-node2 test-data]# cat /test-data/test.log
+
+testtesttest
+</code></pre>
+
+<p>现在，我们把该pod删除掉，再看看node节点上的hostPath使用的目录与数据会有什么变化。</p>
+
+<pre><code>[root@kube-node1 ~]# kubectl delete pod test-pod2
+
+pod &quot;test-pod2&quot; deleted
+</code></pre>
+
+<p>到运行原pod的node节点上查看如下。</p>
+
+<pre><code>[root@kube-node2 test-data]# ls -l
+
+total 4
+
+-rw-r--r-- 1 root root 13 Nov 14 00:25 test.log
+
+[root@kube-node2 test-data]# cat /test-data/test.log
+
+testtesttest
+</code></pre>
+
+<p>在使用hostPath volume卷时，即便pod已经被删除了，volume卷中的数据还在！</p>
+
+<blockquote>
+<p>emptyDir和hostPath在功能上的异同分析</p>
+</blockquote>
+
+<p>二者都是node节点的本地存储卷方式；</p>
+
+<p>emptyDir可以选择把数据存到tmpfs类型的本地文件系统中去，hostPath并不支持这一点；</p>
+
+<p>hostPath除了支持挂载目录外，还支持File、Socket、CharDevice和BlockDevice，既支持把已有的文件和目录挂载到容器中，也提供了“如果文件或目录不存在，就创建一个”的功能；</p>
+
+<p>emptyDir是临时存储空间，完全不提供持久化支持；</p>
+
+<p>hostPath的卷数据是持久化在node节点的文件系统中的，即便pod已经被删除了，volume卷中的数据还会留存在node节点上；</p>
+
+<blockquote>
+<p>local volume的概念</p>
+</blockquote>
+
+<p>这是一个很新的存储类型，建议在k8s v1.10+以上的版本中使用。该local volume类型目前还只是beta版。</p>
+
+<p>Local volume 允许用户通过标准PVC接口以简单且可移植的方式访问node节点的本地存储。 PV的定义中需要包含描述节点亲和性的信息，k8s系统则使用该信息将容器调度到正确的node节点。</p>
+
+<p>配置要求</p>
+
+<p>使用local-volume插件时，要求使用到了存储设备名或路径都相对固定，不会随着系统重启或增加、减少磁盘而发生变化。</p>
+
+<p>静态provisioner配置程序仅支持发现和管理挂载点（对于Filesystem模式存储卷）或符号链接（对于块设备模式存储卷）。 对于基于本地目录的存储卷，必须将它们通过bind-mounted的方式绑定到发现目录中。</p>
+
+<p>StorageClass与延迟绑定</p>
+
+<p>官方推荐在使用local volumes时，创建一个StorageClass并把volumeBindingMode字段设置为“WaitForFirstConsumer”。虽然local volumes还不支持动态的provisioning管理功能，但我们仍然可以创建一个StorageClass并使用延迟卷绑定的功能，将volume binding延迟至pod scheduling阶段执行。</p>
+
+<p>这样可以确保PersistentVolumeClaim绑定策略将Pod可能具有的任何其他node节点约束也进行评估，例如节点资源要求、节点选择器、Pod亲和性和Pod反亲和性。</p>
+
+<pre><code>kind: StorageClass
+
+apiVersion: storage.k8s.io/v1
+
+metadata:
+
+  name: local-storage
+
+provisioner: kubernetes.io/no-provisioner
+
+volumeBindingMode: WaitForFirstConsumer
+</code></pre>
+
+<p>外部static provisioner</p>
+
+<p>配置local volume后，可以使用一个外部的静态配置器来帮助简化本地存储的管理。 Provisioner 配置程序将通过为每个卷创建和清理PersistentVolumes来管理发现目录下的卷。</p>
+
+<p>Local storage provisioner要求管理员在每个节点上预配置好local volumes，并指明该local volume是属于以下哪种类型：</p>
+
+<p>Filesystem volumeMode (default) PVs - 需要挂载到发现目录下面。</p>
+
+<p>Block volumeMode PVs - 需要在发现目录下创建一个指向节点上的块设备的符号链接。</p>
+
+<p>一个local volume，可以是挂载到node本地的磁盘、磁盘分区或目录。</p>
+
+<p>Local volumes虽然可以支持创建静态PersistentVolume，但到目前为止仍不支持动态的PV资源管理。</p>
+
+<p>这意味着，你需要自己手动去处理部分PV管理的工作，但考虑到至少省去了在创建pod时手写PV YAML配置文件的工作，这个功能还是很值得的。</p>
+
+<p>创建基于Local volumes的PV的示例</p>
+
+<pre><code>apiVersion: v1
+
+kind: PersistentVolume
+
+metadata:
+
+  name: example-pv
+
+spec:
+
+  capacity:
+
+    storage: 100Gi
+
+  volumeMode: Filesystem
+
+  accessModes:
+
+  - ReadWriteOnce
+
+  persistentVolumeReclaimPolicy: Delete
+
+  storageClassName: local-storage
+
+  local:
+
+    path: /mnt/disks/ssd1
+
+  nodeAffinity:
+
+    required:
+
+      nodeSelectorTerms:
+
+      - matchExpressions:
+
+        - key: kubernetes.io/hostname
+
+          operator: In
+
+          values:
+
+          - example-node
+</code></pre>
+
+<p>nodeAffinity字段是必须配置的，k8s依赖于这个标签为你定义的Pods在正确的nodes节点上找到需要使用的local volumes。</p>
+
+<p>使用volumeMode字段时，需要启用BlockVolume 这一Alpha feature特性。</p>
+
+<p>volumeMode字段的默认值是Filesystem，但也支持配置为Block，这样就会把node节点的local volume作为容器的一个裸块设备挂载使用。</p>
+
+<p>数据安全风险</p>
+
+<p>local volume仍受node节点可用性方面的限制，因此并不适用于所有应用程序。 如果node节点变得不健康，则local volume也将变得不可访问，使用这个local volume的Pod也将无法运行。 使用local voluems的应用程序必须能够容忍这种降低的可用性以及潜在的数据丢失，是否会真得导致这个后果将取决于node节点底层磁盘存储与数据保护的具体实现了</p>
+
+<h2 id="存储">存储</h2>
+
+<p>[分布式存储]()</p>
+
+<h2 id="迁移">迁移</h2>
+
+<p>迁移现有应用步骤说明：</p>
+
+<pre><code>将原有应用拆解为服务
+容器化、制作镜像
+准备应用配置文件
+准备kubernetes YAML文件
+编写bootstarp脚本
+创建ConfigMaps
+</code></pre>
+
+<h2 id="实例">实例</h2>
+
+<p>1、[实战]()</p>
+
+<h2 id="管理">管理</h2>
+
+<p>1、陈列式</p>
+
+<p>就是我们正常使用的命令行，在查，创建，删除的时候，比较好操作，但是修改就比较麻烦，使用声明式的文件方式比较好操作</p>
+
+<p>2、声明式</p>
+
+<p>就是我们使用的yaml或者json格式，修改文件就简单了。</p>
+
+<p>在线修改</p>
+
+<pre><code>kubectl edit
+</code></pre>
+
+<p>离线修改</p>
+
+<p>3、GUI</p>
+
+<p>就是我们dashboard，目前1.16后的dashboard还不能正常的运行。</p>
+
+<h2 id="问题处理">问题处理</h2>
+
+<p>1、创建Nginx Pod过程中报如下错误：</p>
+
+<pre><code>#kubectlcreate -f nginx-pod.yaml
+
+Error from server: error when creating &quot;nginx-pod.yaml&quot;: Pod &quot;nginx&quot; is forbidden: no API token found for service account default/default, retry after the token is automatically created and added to the service account
+</code></pre>
+
+<p>解决方法：</p>
+
+<p>修改/etc/kubernetes/apiserver文件中KUBE_ADMISSION_CONTROL参数。</p>
+
+<p>修改前：</p>
+
+<pre><code>KUBE_ADMISSION_CONTROL=&quot;--admission_control=NamespaceLifecycle,NamespaceExists,LimitRanger,SecurityContextDeny,ServiceAccount,ResourceQuota&quot;
+</code></pre>
+
+<p>去掉“ServiceAccount”选项。</p>
+
+<p>2、创建Pod过程中，显示异常，通过查看日志/var/log/messages，有以下报错信息：</p>
+
+<pre><code>Nov 26 21:52:06 localhost kube-apiserver: E1126 21:52:06.697708    1963 server.go:454] Unable to generate self signed cert: open /var/run/kubernetes/apiserver.crt: permission denied
+Nov 26 21:52:06 localhost kube-apiserver: E1126 21:52:06.697818    1963 server.go:464] Unable to listen for secure (open /var/run/kubernetes/apiserver.crt: no such file or directory); will try again.
+</code></pre>
+
+<p>解决方法有两种：</p>
+
+<p>第一种方法：</p>
+
+<pre><code># vim /usr/lib/systemd/system/kube-apiserver.service
+
+[Service]
+PermissionsStartOnly=true
+ExecStartPre=-/usr/bin/mkdir /var/run/kubernetes
+ExecStartPre=/usr/bin/chown -R kube:kube /var/run/kubernetes/
+
+# systemctl daemon-reload
+# systemctl restart kube-apiserver
+</code></pre>
+
+<p>第二种方法：</p>
+
+<pre><code># vim /etc/kubernetes/apiserver
+
+KUBE_API_ARGS=&quot;--secure-port=0&quot;
+</code></pre>
+
+<p>在KUBE_API_ARGS加上&ndash;secure-port=0参数。</p>
+
+<p>原因如下：</p>
+
+<pre><code>--secure-port=6443: The port on which to serve HTTPS with authentication and authorization. If 0, don't serve HTTPS at all.
+</code></pre>
+
+<h1 id="k8s原理">k8s原理</h1>
+
+<p><a href="/posts/cloud/container/kubernetes/k8s-principle/">k8s原理详解</a></p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-tutorial/">https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-tutorial/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags//">
+                            <i class="fa fa-tags"></i>
+                            
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-unsafe/">Go Unsafe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-text/">Go Text</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-plugin/">Go Plugin</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-mine/">Go Mine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-internal/">Go Internal</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-index/">Go Index</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-image/">Go Image</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-html/">Go Html</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-hash/">Go Hash</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-go/">Go Go</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/programe/promes-deploy/deploy/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/distributed/distributed-lock/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#组件和概念">组件和概念</a></li>
+<li><a href="#安装包">安装包</a></li>
+<li><a href="#安装部署">安装部署</a>
+<ul>
+<li><a href="#单例">单例</a>
+<ul>
+<li><a href="#minikube">minikube</a></li>
+</ul></li>
+<li><a href="#集群">集群</a>
+<ul>
+<li><a href="#kubeadm">kubeadm</a></li>
+<li><a href="#手动部署">手动部署</a>
+<ul>
+<li><a href="#shell一键部署">shell一键部署</a></li>
+<li><a href="#二进制部署">二进制部署</a></li>
+</ul></li>
+</ul></li>
+</ul></li>
+<li><a href="#参数">参数</a></li>
+<li><a href="#应用">应用</a>
+<ul>
+<li><a href="#k8s运行的服务">k8s运行的服务</a></li>
+<li><a href="#kubectl">kubectl</a></li>
+<li><a href="#yaml文件详解">yaml文件详解</a></li>
+<li><a href="#磁盘挂载">磁盘挂载</a></li>
+<li><a href="#存储">存储</a></li>
+<li><a href="#迁移">迁移</a></li>
+<li><a href="#实例">实例</a></li>
+<li><a href="#管理">管理</a></li>
+<li><a href="#问题处理">问题处理</a></li>
+</ul></li>
+<li><a href="#k8s原理">k8s原理</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

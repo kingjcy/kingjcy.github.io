@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="泛型其实就是指通用的类型，可以包括所有的类型。泛型编程也就是写出适合所有类型的函数，所以在我们正常的逻辑编程中不会太用到，但是我们写基础库的时候必须要用到，因为需要通用。
+
+想要实现通用，就需要用到模版，所以说所谓泛型编程就是类型参数化，参数化首先需要声明一个模板。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="c&#43;&#43;编程系列-----泛型 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    c&#43;&#43;编程系列-----泛型
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2015年11月07日 
+                </div>
+                <h1 class="post-title">c&#43;&#43;编程系列-----泛型</h1>
+            </header>
+
+            <div class="post-content">
+                <p>泛型其实就是指通用的类型，可以包括所有的类型。泛型编程也就是写出适合所有类型的函数，所以在我们正常的逻辑编程中不会太用到，但是我们写基础库的时候必须要用到，因为需要通用。</p>
+
+<p>想要实现通用，就需要用到模版，所以说所谓泛型编程就是类型参数化，参数化首先需要声明一个模板。</p>
+
+<p>我们先以一个实例开始</p>
+
+<p>1.首先我们需要声明一个模板</p>
+
+<pre><code>template &lt;class T&gt;
+template &lt;typename T&gt;
+</code></pre>
+
+<p>在声明参数类别上，两者完全一致，根据个人喜好选择即可，在使用嵌套类型上只能使用typename</p>
+
+<pre><code> //告诉编译器下面紧跟着的代码里如果出现了T类型时,不要编译报错,T是一个通用的类型
+template &lt;class T&gt;
+void swap(T &amp;a, T &amp;b) {
+    T temp;
+    temp = a;
+    a = b;
+    b = temp;
+}
+
+//下面是错误的,T不识别,注意泛型的声明之后,是紧跟着的,此处的已经不能用了
+/*
+void swap2(T &amp;a, T &amp;b) {
+    T temp;
+    temp = a;
+    a = b;
+    b = temp;
+}
+*/
+
+
+int main(){
+
+    int a = 10, b = 20;
+    char c = 'c';
+    //调用的时候,会发生自动类型推导
+    swap(a, b); //正确
+
+
+    //编译错误,因为编译器在自动类型推导时,需要一个swap(int a,char c);
+    //但是却没有发现这个函数声明或者定义,因此,编译失败
+    swap(a,c);
+}
+</code></pre>
+
+<p>当编译器在调用模板函数时，会进行自动类型推导，你应该让编译器能正确的推导出类型，否则将会编译不通过。</p>
+
+<p>当然我们在调用时，可以为泛型显式的指定类型如下:</p>
+
+<pre><code>int main(){
+
+    int a = 10, b = 20;
+    char c = 'c';
+    //显式的指定泛型为int类型
+    swap&lt;int&gt;(a, b);
+
+    swap&lt;int&gt;(a,c);//编译错误
+}
+</code></pre>
+
+<p>小结一下: 我们在调用泛型函数时，在编译时，必须要让编译器知道，这个泛型到底是什么类型。</p>
+
+<p>不管是编译器自己可以推导出，还是程序员调用时显式指定，必须要让编译器正确的知道，因为函数在调用时，编译器需要为这个类型分配内存空间。</p>
+
+<p>我们来看下面一个例子</p>
+
+<pre><code>void func() {
+}
+
+void func() {
+}
+</code></pre>
+
+<p>当我同时定义了两个一样的函数时，此时编译器是编译不通过的，因为在函数调用时，编译无法区分用户到底应该调用哪一个函数。</p>
+
+<p>加上泛型会如何呢?</p>
+
+<pre><code>void func() {
+    std::cout &lt;&lt; &quot;非泛型函数&quot; &lt;&lt; std::endl;
+}
+template &lt;typename T&gt;
+void func() {
+    std::cout &lt;&lt; &quot;泛型函数&quot; &lt;&lt; std::endl;
+}
+</code></pre>
+
+<p>结果可以编译通过，根据之前未加泛型时无法编译通过的原因，我们可以肯定，加上了泛型，使编译器可以区分两个函数是两个不同的函数，在调用时，有区分的依据可以让用户区分两个函数。</p>
+
+<p>如何区分泛型调用呢</p>
+
+<p>我们来看看调用</p>
+
+<p>func(); //调用的是非泛型</p>
+
+<p>//需要任意指定一个泛型类型参数
+func<int>()//调用的是泛型函数
+有人就要问了,因为两个函数名字相同,我需要加上泛型参数区分,那么如果名字不同是不是就可以了呢?我们来看看</p>
+
+<p>template <typename T>
+void func() {
+    std::cout &lt;&lt; &ldquo;泛型函数&rdquo; &lt;&lt; std::endl;
+}</p>
+
+<p>int main(){</p>
+
+<pre><code>func();//编译失败,类型不匹配
+func&lt;int&gt;(); //成功
+</code></pre>
+
+<p>}</p>
+
+<p>我们看到我们似乎必须要显式的加上泛型参数似乎才能调用成功,但是对于我们开篇的例子并没有显式的指定也可以调用成功啊,是这样的吗?</p>
+
+<p>我们在看一个例子</p>
+
+<pre><code>template &lt;typename T&gt;
+void func(int x,int y) {
+    std::cout &lt;&lt; &quot;泛型函数&quot; &lt;&lt; std::endl;
+}
+
+int main(){
+    int a = 10 , b = 10;
+    func(a,b);//编译失败,类型不匹配
+    func&lt;int&gt;(a,b); //成功
+}
+</code></pre>
+
+<p>结论:我们在调用泛型函数时,必须要让编译器知道我们的泛型是什么类型,因为在编译时,我们需要为其分配内存空间,当函数在传递参数时,函数可以隐式的推导出泛型的类型,我们不需要指定,但是当无法隐式推导出时我们必须要指定其泛型的参数类型,虽然函数参数没有使用泛型类型,但是函数实现却可能使用,因此编译器要保证一切可能的发生情况.</p>
+
+<p>建议:我们在使用泛型函数的时候,最好都显式指定泛型类型</p>
+
+<p>函数参数的隐式类型转换</p>
+
+<pre><code>int plus1(int a, int b) {
+    return a + b;
+}
+int plus2(int &amp;a, int &amp;b) {
+    return a + b;
+}
+
+
+void test(){
+    int a = 10;
+    char b = 'c'
+    //发生了隐式类型转换
+    int sum = plus1(a,b); //正确,结果是109
+    int sum2 = plus2(a , b);// 错误,引用不会发生类型转换
+}
+</code></pre>
+
+<p>从上面的案例我们可以知道C++的所谓的隐式类型转换,实际上是利用了下面的原理</p>
+
+<pre><code>char c = 'c';
+int a = c ;  //可以直接转换
+
+int b = 500;
+char = b; //截取低8位
+</code></pre>
+
+<p>因此函数参数的隐式转换实质上与赋值操作类似,而引用却不能进行转换.</p>
+
+<p>泛型函数可以发生隐式转换吗</p>
+
+<pre><code>template &lt;class T&gt;
+int plus(T a, T b) {
+    std::cout &lt;&lt; &quot;泛型函数调用&quot; &lt;&lt; std::endl;
+    return a + b;
+}
+
+void test(){
+    int a = 10;
+    char b = 'b'
+    plus(a,b)//编译无法通过
+    plus&lt;int&gt;(a ,b)//正确
+}
+</code></pre>
+
+<p>结论:对于隐式调用的函数,由于其首先进行类型推断,因此不会发生隐式转化,当我们显式指定其泛型类型时,其可以发生隐式转换.其实当我们显式的指定了泛型之后,就可以按着普通函数的语法进行判断了.</p>
+
+<p>函数重载遇上泛型函数</p>
+
+<pre><code>template &lt;class T&gt;
+int plus(T a, T b) {
+    std::cout &lt;&lt; &quot;泛型函数调用&quot; &lt;&lt; std::endl;
+    return a + b;
+}
+
+int plus(int a, int b) {
+    std::cout &lt;&lt; &quot;普通函数调用&quot; &lt;&lt; std::endl;
+    return a + b;
+}
+
+void test(){
+    int a = 10 , b = 20;
+    char c = `c`;
+
+    plus(a,b); //普通函数调用
+
+    plus&lt;int&gt;(a,b)//泛型函数调用(建议)
+
+     plus&lt;&gt;(a,b)//泛型函数调用,不必指明任何函数类型,但是明确告诉编译器我要泛型函数调用
+}
+</code></pre>
+
+<p>结论:当泛型函数遇上函数重载时,如果我们没有显式的指明泛型调用,则调用的是普通函数,如果我们显式的指明了泛型调用,则调用的是泛型函数.我们可以这样理解,编译器总是选择最合适的函数调用,没有指明泛型的类型,编译还要做隐式推导,显然这个是不明智的,既然已经有了一个合适的函数可用,为什么要多此一举呢,但是当我们指定了泛型之后,其实就是明确的告诉编译器,我要调用的是泛型函数,这时编译器就没有其他的选择了,只能调用泛型函数,这里我们可以看出,显式的指定泛型类型,也有明确告诉编译器我要调用的泛型函数的意思.</p>
+
+<p>如果函数模板可以产生更好的匹配优先选择函数模板</p>
+
+<p>泛型的基本思想</p>
+
+<p>泛型编程（Generic Programming）是一种语言机制，通过它可以实现一个标准的容器库。
+像类一样，泛型也是一种抽象数据类型，但是泛型不属于面向对象，它是面向对象的补充和发展。
+在面向对象编程中，当算法与数据类型有关时，面向对象在对算法的抽象描述方面存在一些缺陷。</p>
+
+<p>比如对栈的描述</p>
+
+<pre><code>class stack
+{
+
+   push(参数类型)  //入栈算法
+
+   pop(参数类型)   //出栈算法
+
+}
+</code></pre>
+
+<p>如果把上面的伪代码看作算法描述，没问题，因为算法与参数类型无关。但是如果把它写成可编译的源代码，
+就必须指明是什么类型，否则是无法通过编译的。使用重载来解决这个问题，即对N种不同的参数类型写N个
+push和pop算法，这样是很麻烦的，代码也无法通用。</p>
+
+<p>若对上面的描述进行改造如下：</p>
+
+<p>首先指定一种通用类型T，不具体指明是哪一种类型。</p>
+
+<pre><code>class stack&lt;参数模板 T&gt;
+{
+
+   push(T)  //入栈算法
+
+   pop(T)   //出栈算法
+
+}
+</code></pre>
+
+<p>这里的参数模板T相当于一个占位符，当我们实例化类stack时，T会被具体的数据类型替换掉。</p>
+
+<p>若定义对象S为statc类型，在实例化S时若我们将T指定int型则：</p>
+
+<p>这时候类S就成为：</p>
+
+<pre><code>class S
+{
+    push(int)  //入栈算法
+    pop(int)   //出栈算法
+}
+</code></pre>
+
+<p>这时我可以称class stack&lt;参数模板 T&gt;是类的类，通过它可以生成具体参数类型不同的类。</p>
+
+<p>泛型在C++中的应用</p>
+
+<p>泛型在C++中的主要实现为模板函数和模板类。</p>
+
+<p>通常使用普通的函数实现一个与数据类型有关的算法是很繁琐的，比如两个数的加法，要考虑很多类型</p>
+
+<pre><code>int add(int a,int b) { return a+b; }
+float add(float a,float b) { return  a+b; }
+。。。。
+</code></pre>
+
+<p>虽然在C++中可以通过函数重载来解决这个问题，但是反复写相同算法的函数是比较辛苦的，更重要的是函数重载是静态编译，运行时占用过多内存。</p>
+
+<p>在此我们可以用C++的模板函数来表达通用型的函数，如下：
+    template<typename T> // 模板声明
+    T add(T a,T b) { return a+b; }  // 注意形参和返回值的类型</p>
+
+<p>这时C++编译器会根据add函数的参数类型来生成一个与之对应的带具体参数类型的函数并调用。</p>
+
+<p>例如</p>
+
+<pre><code>#include &lt;iostream&gt;
+using namespace std;
+template &lt;typename T&gt;
+T add(T a,T b)  //注意形参和返回类型
+{  
+ return a+b;
+}
+void main()
+{
+    int num1, num2, sum;
+    cin&gt;&gt;num1&gt;&gt;num2;
+    sum=add(num1,num2); //用int匹配模版参数T，若sum,num1,num2类型不一致则无法匹配。
+    cout&lt;&lt;sum;
+}
+</code></pre>
+
+<p>函数模板的性质</p>
+
+<pre><code>1) 函数模板并不是真正的函数，它只是C++编译生成具体函数的一个模子。
+2) 函数模板本身并不生成函数，实际生成的函数是替换函数模板的那个函数，比如上例中的add(sum1,sum2)，
+    这种替换是编译期就绑定的。
+3) 函数模板不是只编译一份满足多重需要，而是为每一种替换它的函数编译一份。
+4) 函数模板不允许自动类型转换。
+5) 函数模板不可以设置默认模板实参。比如template &lt;typename T=0&gt;不可以。
+</code></pre>
+
+<p>C++模版函数的语法
+    template  <typename 模版参数列表…>
+    函数返回类型 函数名（形参列表…）</p>
+
+<p>上面两行可以合并成一行。</p>
+
+<p>例如</p>
+
+<p>下面的几种写法是等效的并且class 和typename是可以互换的。</p>
+
+<pre><code>template  &lt;typename T1, typename T2&gt;
+T1 fun(T1, T2, int )
+{  //…..}
+template  &lt;typename T1,T2&gt;  T1 fun(T1, T2, int )
+{  //…..}
+template  &lt;class T1, class T2&gt;
+ T1 fun(T1, T2, int )
+{  //…..}
+template  &lt;class T1,T2&gt;  T1 fun(T1, T2, int )
+{  //…..}
+</code></pre>
+
+<p>C++模版类的语法</p>
+
+<pre><code>template  &lt;class 模版参数列表…&gt;
+class 类名
+{ //类体}
+成员的实现…
+</code></pre>
+
+<p>例如</p>
+
+<pre><code>//类声明部分，有两个模板参数T1，T2
+template  &lt;class T1, class T2 &gt;  
+class A {
+   private:
+   int a;
+  T1 b;  //成员变量也可以用模板参数
+  public: 
+  int fun1(T1 x, int y );
+ T2 fun2(T1 x, T2 y);
+}
+//类实现部分
+template  &lt;class T1, class T2 &gt;
+int A&lt;T1&gt;:: fun1(T1 x, int y ){//实现…… }
+ template  &lt;class T1, class T2 &gt;
+T2 A&lt;T1,T2&gt;:: fun2(T1 x, T2 y) {//实现…… }
+ //使用类A
+ int main( ) {
+ //定义对象a,并用int替换T1, float替换T2
+   A&lt;int, float&gt;  a;
+   //实例化a,调用a的属性和方法……
+}
+</code></pre>
+
+<p>由上例可以看出, 类模板参数T1,T2对类的成员变量和成员函数均有效。
+在C++编程中，当你要实现的一个类的某些成员函数和成员变量的算法
+数据类型有关，可以考虑用类模板。C++版的数据结构算法大都用类模板实现。</p>
+
+<p>类模板的性质</p>
+
+<pre><code>1) 类模板不是真正的类，它只是C++编译器生成具体类的一个模子。
+2) 类模板可以设置默认模板实参。
+</code></pre>
+
+<p>C++ STL简介</p>
+
+<p>　　STL（Standard Template Library，标准模板库)是C++对泛型编程思想的实现，最早是惠普实验室开发的。
+在被引入C++之前该技术就已经存在了很长的一段时间。后来STL成为ANSI/ISO C++标准的一部分。各个
+C++厂商也有各自相应的模板库，这些库效率可能很高，但可移植性不一定好。
+　　
+STL广义上分为三类：algorithm（算法）、container（容器）和iterator（迭代器），几乎所有的代码都采
+用了模板类和模板函数的方式，这相比于传统的由函数和类组成的库来说提供了更好的代码重用机会。</p>
+
+<p>　　在C++标准中，STL被组织为下面的13个头文件：<algorithm>、<deque>、<functional>、<iterator>、<vector>、
+<list>、<map>、<memory>、<numeric>、<queue>、<set>、<stack> 和<utility>。</p>
+
+<p>泛型是C++中比较难掌握的技术，在我的实际工作中，只是偶尔才会用到</p>
+
+<p>但是懂得泛型很重要，因为很多重要的库都大量运用了泛型技术，对泛型有比较深入的了解，可以更好地使用这些库。比如有的库的类模板是有默认参数的，这实际上给了你自定义扩展的空间。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/linux/c&#43;&#43;/template/">https://kingjcy.github.io/post/linux/c&#43;&#43;/template/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/c&#43;&#43;/">
+                            <i class="fa fa-tags"></i>
+                            c&#43;&#43;
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/template/">
+                            <i class="fa fa-tags"></i>
+                            template
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-template/">golang使用系列---- Go Template</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月12日)</span></li><li id="li-rels"><a href="/post/linux/c&#43;&#43;/stl/">c&#43;&#43;编程系统---- Stl</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2015年11月07日)</span></li><li id="li-rels"><a href="/post/linux/c&#43;&#43;/library/">Library</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2015年06月11日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/tool/vi-vim/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/linux/c&#43;&#43;/stl/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

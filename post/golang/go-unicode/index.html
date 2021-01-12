@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Unicode只是定义了一个字符和一个编码的映射，但是呢，对应的存储却没有制定。 比如一个编码0x0041代表大写字母A，那么可能有一种存储至少有4个字节，那可能0x00000041来存储代表A。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Go Unicode - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Go Unicode
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年03月12日 
+                </div>
+                <h1 class="post-title">Go Unicode</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Unicode只是定义了一个字符和一个编码的映射，但是呢，对应的存储却没有制定。 比如一个编码0x0041代表大写字母A，那么可能有一种存储至少有4个字节，那可能0x00000041来存储代表A。</p>
+
+<p>这个就是unicode的具体实现。unicode的具体实现有很多种，UTF-8和UTF-16就是其中两种。</p>
+
+<p>UTF-8表示最少用一个字节就能表示一个字符的编码实现。它采取的方式是对不同的语言使用不同的方法，将unicode编码按照这个方法进行转换。 我们只要记住最后的结果是英文占一个字节，中文占三个字节。这种编码实现方式也是现在应用最为广泛的方式了。</p>
+
+<p>UTF-16表示最少用两个字节能表示一个字符的编码实现。同样是对unicode编码进行转换，它的结果是英文占用两个字节，中文占用两个或者四个字节。 实际上，UTF-16就是最严格实现了unicode4.0。但由于英文是最通用的语言，所以推广程度没有UTF-8那么普及。</p>
+
+<p>string rune byte 的关系</p>
+
+<p>在Go当中 string底层是用byte数组存的，并且是不可以改变的。</p>
+
+<p>例如 s:=&ldquo;Go编程&rdquo; fmt.Println(len(s)) 输出结果应该是8因为中文字符是用3个字节存的。</p>
+
+<p>len(string(rune(&lsquo;编&rsquo;)))的结果是3</p>
+
+<p>如果想要获得我们想要的情况的话，需要先转换为rune切片再使用内置的len函数</p>
+
+<p>fmt.Println(len([]rune(s)))</p>
+
+<p>结果就是4了。</p>
+
+<p>所以用string存储unicode的话，如果有中文，按下标是访问不到的，因为你只能得到一个byte。 要想访问中文的话，还是要用rune切片，这样就能按下表访问。</p>
+
+<p>所以最直观的区别就是</p>
+
+<pre><code>rune 能操作 任何字符
+byte 不支持中文的操作
+</code></pre>
+
+<p>大部分都是使用byte，但是但我们处理其他语言的时候，尤其是中文的时候，使用了rune的时候，操作函数就要使用到以下的这些库，当然英文也能使用rune，但是比较少。</p>
+
+<p>go对unicode的支持包含三个包:</p>
+
+<pre><code>unicode
+unicode/utf8
+unicode/utf16
+</code></pre>
+
+<p>unicode包包含基本的字符判断函数。utf8包主要负责rune和byte之间的转换。utf16包负责rune和uint16数组之间的转换。</p>
+
+<p>常用</p>
+
+<p>包 unicode 包含了一些针对测试字符的非常有用的函数（其中 ch 代表字符）：</p>
+
+<pre><code>判断是否为字母： unicode.IsLetter(ch)
+判断是否为数字： unicode.IsDigit(ch)
+判断是否为空白符号： unicode.IsSpace(ch)
+</code></pre>
+
+<p>这些函数返回一个布尔值。包 utf8 拥有更多与 rune 相关的函数。</p>
+
+<p>判断字符 r 是否在 rangtab 范围内。</p>
+
+<pre><code>// 可用的 RangeTable 参见 go/src/unicode/tables.go。  通过 一系列变量的字典对象可获得。
+func Is(rangeTab *RangeTable, r rune) bool
+//判断 是否字符r是否在 可变参数*RangeTable范围内
+func In(r rune, ranges ...*RangeTable) bool
+</code></pre>
+
+<p>程序示例：</p>
+
+<pre><code>// 示例：判断汉字
+func main() {
+    for _, r := range &quot;Hello 世界！&quot; {
+        // 判断字符是否为汉字
+        if unicode.Is(unicode.Scripts[&quot;Han&quot;], r) {  //或者In都是可以的
+            fmt.Printf(&quot;%c&quot;, r) // 世界
+        }
+    }
+}
+
+
+func IsLower(r rune) bool   //判断字符r是否为小写格式
+// 判断字符 r 是否为 Unicode 规定的 Title 字符
+// 大部分字符的 Title 格式就是其大写格式
+// 只有少数字符的 Title 格式是特殊字符
+// 这里判断的就是特殊字符
+func IsTitle(r rune) bool
+func IsUpper(r rune) bool   //判断字符r是否是大写格式
+
+// To 将字符 r 转换为指定的格式
+// _case 取值：UpperCase、LowerCase、TitleCase
+func To(_case int, r rune) rune
+func ToLower(r rune) rune
+func ToTitle(r rune) rune
+func ToUpper(r rune) rune
+</code></pre>
+
+<p>程序示例：</p>
+
+<pre><code>// 示例：判断大小写
+func main() {
+    for _, r := range &quot;Hello ＡＢＣ！&quot; {
+        // 判断字符是否为大写
+        if unicode.IsUpper(r) {
+            fmt.Printf(&quot;%c&quot;, r) // HＡＢＣ
+        }
+    }
+    for _, r := range &quot;Hello ａｂｃ！&quot; {
+        // 判断字符是否为小写
+        if unicode.IsLower(r) {
+            fmt.Printf(&quot;%c&quot;, r) // elloａｂｃ
+        }
+    }
+    for _, r := range &quot;Hello ᾏᾟᾯ！&quot; {
+        // 判断字符是否为标题
+        if unicode.IsTitle(r) {
+            fmt.Printf(&quot;%c&quot;, r) // ᾏᾟᾯ
+        }
+    }
+}
+</code></pre>
+
+<p>示例：输出 Unicode 规定的标题字符</p>
+
+<pre><code>func main() {
+    for _, cr := range unicode.Lt.R16 {
+        for i := cr.Lo; i &lt;= cr.Hi; i += cr.Stride {
+            fmt.Printf(&quot;%c&quot;, i)
+        }
+    } // ǅǈǋǲᾈᾉᾊᾋᾌᾍᾎᾏᾘᾙᾚᾛᾜᾝᾞᾟᾨᾩᾪᾫᾬᾭᾮᾯᾼῌῼ
+}
+</code></pre>
+
+<p>示例：转换大小写</p>
+
+<pre><code>func main() {
+    s := &quot;Hello 世界！&quot;
+
+    for _, r := range s {
+        fmt.Printf(&quot;%c&quot;, unicode.ToUpper(r))
+    } // HELLO 世界！
+    for _, r := range s {
+        fmt.Printf(&quot;%c&quot;, unicode.ToLower(r))
+    } // hello 世界！
+    for _, r := range s {
+        fmt.Printf(&quot;%c&quot;, unicode.ToTitle(r))
+    } // HELLO 世界！
+
+    for _, r := range s {
+        fmt.Printf(&quot;%c&quot;, unicode.To(unicode.UpperCase, r))
+    } // HELLO 世界！
+    for _, r := range s {
+        fmt.Printf(&quot;%c&quot;, unicode.To(unicode.LowerCase, r))
+    } // hello 世界！
+    for _, r := range s {
+        fmt.Printf(&quot;%c&quot;, unicode.To(unicode.TitleCase, r))
+    } // HELLO 世界！
+}
+</code></pre>
+
+<p>IsDigit 判断 r 是否为一个十进制的数字字符</p>
+
+<pre><code>func IsDigit(r rune) bool
+</code></pre>
+
+<p>IsNumber 判断 r 是否为一个数字字符 (类别 N)</p>
+
+<pre><code>func IsNumber(r rune) bool
+</code></pre>
+
+<p>IsLetter 判断 r 是否为一个字母字符 (类别 L)</p>
+
+<pre><code>// 汉字也是一个字母字符
+func IsLetter(r rune) bool
+</code></pre>
+
+<p>IsSpace 判断 r 是否为一个空白字符</p>
+
+<pre><code>// 在 Latin-1 字符集中，空白字符为：\t, \n, \v, \f, \r,
+// 空格, U+0085 (NEL), U+00A0 (NBSP)
+// 其它空白字符的定义有“类别 Z”和“Pattern_White_Space 属性”
+func IsSpace(r rune) bool
+</code></pre>
+
+<p>IsControl 判断 r 是否为一个控制字符</p>
+
+<pre><code>// Unicode 类别 C 包含更多字符，比如代理字符
+// 使用 Is(C, r) 来测试它们
+func IsControl(r rune) bool
+</code></pre>
+
+<p>IsGraphic 判断字符 r 是否为一个“图形字符”</p>
+
+<pre><code>// “图形字符”包括字母、标记、数字、标点、符号、空格
+// 他们分别对应于 L、M、N、P、S、Zs 类别
+// 这些类别是 RangeTable 类型，存储了相应类别的字符范围
+func IsGraphic(r rune) bool
+</code></pre>
+
+<p>IsPrint 判断字符 r 是否为 Go 所定义的“可打印字符”</p>
+
+<pre><code>// “可打印字符”包括字母、标记、数字、标点、符号和 ASCII 空格
+// 他们分别对应于 L, M, N, P, S 类别和 ASCII 空格
+// “可打印字符”和“图形字符”基本是相同的，不同之处在于
+// “可打印字符”只包含 Zs 类别中的 ASCII 空格（U+0020）
+func IsPrint(r rune) bool
+</code></pre>
+
+<p>IsPunct 判断 r 是否为一个标点字符 (类别 P)</p>
+
+<pre><code>func IsPunct(r rune) bool
+</code></pre>
+
+<p>IsSymbol 判断 r 是否为一个符号字符</p>
+
+<pre><code>func IsSymbol(r rune) bool
+</code></pre>
+
+<p>IsMark 判断 r 是否为一个 mark 字符 (类别 M)</p>
+
+<pre><code>func IsMark(r rune) bool
+</code></pre>
+
+<p>IsOneOf 判断 r 是否在 set 范围内</p>
+
+<pre><code>func IsOneOf(set []*RangeTable, r rune) bool
+</code></pre>
+
+<p>示例：判断汉字和标点</p>
+
+<pre><code>func main() {
+    // 将 set 设置为“汉字、标点符号”
+    set := []*unicode.RangeTable{unicode.Han, unicode.P}  //指针切片
+    for _, r := range &quot;Hello 世界！&quot; {
+        if unicode.IsOneOf(set, r) {
+            fmt.Printf(&quot;%c&quot;, r)
+        }
+    } // 世界！
+}
+</code></pre>
+
+<p>示例：输出所有 mark 字符</p>
+
+<pre><code>func main() {
+    for _, cr := range unicode.M.R16 {
+        Lo, Hi, Stride := rune(cr.Lo), rune(cr.Hi), rune(cr.Stride)
+        for i := Lo; i &gt;= Lo &amp;&amp; i &lt;= Hi; i += Stride {
+            if unicode.IsMark(i) {
+                fmt.Printf(&quot;%c&quot;, i)
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>SimpleFold 在 Unicode 字符表中从字符 r 开始环绕查找（到尾部后再从头开始）下一个与 r 大小写相匹配的字符（一个字符的大写、小写、标题三者视为大小写相匹配），这个函数遵循 Unicode 定义的大小写环绕匹配表。</p>
+
+<p>例如：</p>
+
+<pre><code>// SimpleFold('A') = 'a'
+// SimpleFold('a') = 'A'
+//
+// SimpleFold('K') = 'k'
+// SimpleFold('k') = 'K' (开尔文符号)
+// SimpleFold('K') = 'K'
+//
+// SimpleFold('1') = '1'
+func SimpleFold(r rune) rune
+</code></pre>
+
+<p>程序示例：</p>
+
+<pre><code>func main() {
+    s := &quot;ΦφϕkKK&quot;
+    // 看看 s 里面是什么
+    for _, c := range s {
+        fmt.Printf(&quot;%x  &quot;, c)
+    }
+    fmt.Println()
+    // 大写，小写，标题 | 当前字符 -&gt; 下一个匹配字符
+    for _, v := range s {
+        fmt.Printf(&quot;%c, %c, %c | %c -&gt; %c\n&quot;,
+            unicode.ToUpper(v),
+            unicode.ToLower(v),
+            unicode.ToTitle(v),
+            v,
+            unicode.SimpleFold(v),
+        )
+    }
+}
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>// 3a6  3c6  3d5  6b  4b  212a
+// Φ, φ, Φ | Φ -&gt; φ
+// Φ, φ, Φ | φ -&gt; ϕ
+// Φ, ϕ, Φ | ϕ -&gt; Φ
+// K, k, K | k -&gt; K
+// K, k, K | K -&gt; k
+// K, k, K | K -&gt; K
+</code></pre>
+
+<p>ToUpper 将 r 转换为大写格式</p>
+
+<pre><code>// 优先使用指定的映射表 special
+// 可用的 SpecialCase 参见 go/src/unicode/casetables.go。
+func (special SpecialCase) ToUpper(r rune) rune
+</code></pre>
+
+<p>ToLower 将 r 转换为小写格式</p>
+
+<pre><code>// 优先使用指定的映射表 special
+func (special SpecialCase) ToLower(r rune) rune
+</code></pre>
+
+<p>ToTitle 将 r 转换为 Title 格式</p>
+
+<pre><code>// 优先使用指定的映射表 special
+func (special SpecialCase) ToTitle(r rune) rune
+</code></pre>
+
+<p>SpecialCase 表示特定语言的大小写映射，比如土耳其语。</p>
+
+<pre><code>// SpecialCase 的方法可以自定义标准映射（通过重写）。
+type SpecialCase []CaseRange
+</code></pre>
+
+<p>CaseRange 表示一个简单的 Unicode 码点范围，用于大小写转换。</p>
+
+<pre><code>// 在 Lo 和 Hi 范围内的码点，如果要转换成大写，只需要加上 d[0] 即可
+// 如果要转换为小写，只需要加上 d[1] 即可，如果要转换为 Title 格式，
+// 只需要加上 d[2] 即可。
+type CaseRange struct {
+    Lo    uint32
+    Hi    uint32
+    Delta d // [3]rune
+}
+
+// CaseRanges 中 Delta 数组的索引。
+const (
+    UpperCase = iota
+    LowerCase
+    TitleCase
+    MaxCase
+)
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-unicode/">https://kingjcy.github.io/post/golang/go-unicode/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/unicode/">
+                            <i class="fa fa-tags"></i>
+                            unicode
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-concurrence/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/middleware/network/application-netprotocol/rest/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

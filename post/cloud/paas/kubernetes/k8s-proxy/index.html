@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="kube-proxy  先看发展
+ mode
+ kube-proxy当前实现了两种proxyMode：userspace和iptables。其中userspace mode是v1.0及之前版本的默认模式，从v1.1版本中开始增加了iptables mode，在v1.2版本中正式替代userspace模式成为默认模式。但是目前比较流行的就是ipvs的模式，当时阿里使用的还是iptables。
+1、userspace
+userspace 模式下service的请求会先从用户空间进入内核iptables，然后再回到用户空间，由kube-proxy完成后端Endpoints的选择和代理工作，这样流量从用户空间进出内核带来的性能损耗是不可接受的。这也是k8s v1.0及之前版本中对kube-proxy质疑最大的一点，因此社区就开始研究iptables mode。
+2、iptables
+iptables mode因为使用iptable NAT来完成转发，也存在不可忽视的性能损耗。另外，如果集群中存在上万的Service/Endpoint，那么Node上的iptables rules将会非常庞大，性能还会再打折扣。 这也导致，目前大部分企业用k8s上生产时，都不会直接用kube-proxy作为服务代理，而是通过自己开发或者通过Ingress Controller来集成HAProxy, Nginx来代替kube-proxy。
+ 核心功能
+ kube-proxy负责为Service提供cluster内部的服务发现和负载均衡；service只是一个概念，而真正将service的作用落实的这是背后的kube-proxy服务进程。
+其核心功能就是将到某个service的访问请求转发到后端的多个pod实例上。对每一个TCP类型的kubernetes service，kube-proxy都会在本地node上建立一个socketserver来负责接收请求，然后均匀发送到后端的某个pod的端口上，这个过程默认采用round robin负载均衡算法。另外，kubernetes也提供通过修改service的service.spec.sessionAffinity参数的值来实现会话保持特性的定向发送，如果设置的值为“clientIP”，那么则将来来自同一个clientIP的请求都转发到同一个后端的pod上。其实就是一个反向代理，类似于nginx，为每个service启动一个socket，指定虚拟ip和端口，然后连接来了进行轮训，目前也只是支持round robin算法，还提供session保持机制，就是sesssion没有过期的情况下，下次还是访问同一个后端pod。
+service的clusterIP和nodePort等概念是kube-proxy服务通过Iptables的NAT转换实现的，kube-proxy在运行过程中动态创建于service相关的Iptable规则，这些规则实现了clusterIP以及nodePort的请求流量重定向到kube-proxy进程上对应的服务的代理端口的功能。由于Iptable机制针对的是本地的kube-proxy端口，所有每一个node上都要运行kube-proxy组件，这样一来，在kubernetes集群内部，我们可以在任意node上发起对service的访问。由此看来，由于kube-proxy的作用，在service的调用过程中客户端无序关心后端有几个pod，中间过程的通信，负载均衡以及故障恢复都是透明。
+ 实现细节
+ kube-proxy通过查询和监听API Server中service与endpoint的变换，为每一个service都建立一个“服务代理对象“：kube-proxy程序内部的一种数据结构
+kube-proxy内部也创建了一个负载均衡器—loadBalancer, loadBalancer上保存了service到对应的后端endpoint列表的动态路由转发表，而具体的路由选择则取决于round robin算法和service的session会话保持。
+针对发生变化的service列表，kube-proxy会逐个处理，下面是具体的处理流程：
+- 如果service没有设置集群IP，这不做任何处理，否则，获取该service的所有端口定义列表 - 逐个读取服务端口定义列表中的端口信息，根据端口名称、service名称和namespace判断本地是否已经存在对应的服务代理对象，如果不存在则创建，如果存在并且service端口被修改过，则先删除Iptables中和该service端口相关的规则，关闭服务代理对象，然后走新建流程并为该service创建相关的Iptables规则 - 更新负载均衡组件中对应service的转发地址列表，对于新建的service，确定转发时的会话保持策略 - 对于已删除的service则进行清理   实例
+ 1、创建一个service
+apiVersion: v1 kind: Service metadata: labels: name: mysql role: service name: mysql-service spec: ports: - port: 3306 targetPort: 3306 nodePort: 30964 type: NodePort selector: mysql-service: &quot;true&quot;  mysql-service对应的nodePort暴露出来的端口为30964，对应的cluster IP(10.">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="K8s组件系列（五）---- K8s proxy 详解 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    K8s组件系列（五）---- K8s proxy 详解
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年11月24日 
+                </div>
+                <h1 class="post-title">K8s组件系列（五）---- K8s proxy 详解</h1>
+            </header>
+
+            <div class="post-content">
+                
+
+<blockquote>
+<h3 id="kube-proxy">kube-proxy</h3>
+</blockquote>
+
+<p>先看发展</p>
+
+<blockquote>
+<p>mode</p>
+</blockquote>
+
+<p>kube-proxy当前实现了两种proxyMode：userspace和iptables。其中userspace mode是v1.0及之前版本的默认模式，从v1.1版本中开始增加了iptables mode，在v1.2版本中正式替代userspace模式成为默认模式。但是目前比较流行的就是ipvs的模式，当时阿里使用的还是iptables。</p>
+
+<p>1、userspace</p>
+
+<p><img src="/media/cloud/k8s/proxy2" alt="" /></p>
+
+<p>userspace 模式下service的请求会先从用户空间进入内核iptables，然后再回到用户空间，由kube-proxy完成后端Endpoints的选择和代理工作，这样流量从用户空间进出内核带来的性能损耗是不可接受的。这也是k8s v1.0及之前版本中对kube-proxy质疑最大的一点，因此社区就开始研究iptables mode。</p>
+
+<p>2、iptables</p>
+
+<p><img src="/media/cloud/k8s/proxy3" alt="" /></p>
+
+<p>iptables mode因为使用iptable NAT来完成转发，也存在不可忽视的性能损耗。另外，如果集群中存在上万的Service/Endpoint，那么Node上的iptables rules将会非常庞大，性能还会再打折扣。
+这也导致，目前大部分企业用k8s上生产时，都不会直接用kube-proxy作为服务代理，而是通过自己开发或者通过Ingress Controller来集成HAProxy, Nginx来代替kube-proxy。</p>
+
+<blockquote>
+<p>核心功能</p>
+</blockquote>
+
+<p>kube-proxy负责为Service提供cluster内部的服务发现和负载均衡；service只是一个概念，而真正将service的作用落实的这是背后的kube-proxy服务进程。</p>
+
+<p>其核心功能就是将到某个service的访问请求转发到后端的多个pod实例上。对每一个TCP类型的kubernetes service，kube-proxy都会在本地node上建立一个socketserver来负责接收请求，然后均匀发送到后端的某个pod的端口上，这个过程默认采用round robin负载均衡算法。另外，kubernetes也提供通过修改service的service.spec.sessionAffinity参数的值来实现会话保持特性的定向发送，如果设置的值为“clientIP”，那么则将来来自同一个clientIP的请求都转发到同一个后端的pod上。其实就是一个反向代理，类似于nginx，为每个service启动一个socket，指定虚拟ip和端口，然后连接来了进行轮训，目前也只是支持round robin算法，还提供session保持机制，就是sesssion没有过期的情况下，下次还是访问同一个后端pod。</p>
+
+<p>service的clusterIP和nodePort等概念是kube-proxy服务通过Iptables的NAT转换实现的，kube-proxy在运行过程中动态创建于service相关的Iptable规则，这些规则实现了clusterIP以及nodePort的请求流量重定向到kube-proxy进程上对应的服务的代理端口的功能。由于Iptable机制针对的是本地的kube-proxy端口，所有每一个node上都要运行kube-proxy组件，这样一来，在kubernetes集群内部，我们可以在任意node上发起对service的访问。由此看来，由于kube-proxy的作用，在service的调用过程中客户端无序关心后端有几个pod，中间过程的通信，负载均衡以及故障恢复都是透明。</p>
+
+<p><img src="/media/cloud/k8s/proxy" alt="" /></p>
+
+<blockquote>
+<p>实现细节</p>
+</blockquote>
+
+<p>kube-proxy通过查询和监听API Server中service与endpoint的变换，为每一个service都建立一个“服务代理对象“：kube-proxy程序内部的一种数据结构</p>
+
+<p>kube-proxy内部也创建了一个负载均衡器—loadBalancer, loadBalancer上保存了service到对应的后端endpoint列表的动态路由转发表，而具体的路由选择则取决于round robin算法和service的session会话保持。</p>
+
+<p>针对发生变化的service列表，kube-proxy会逐个处理，下面是具体的处理流程：</p>
+
+<pre><code>- 如果service没有设置集群IP，这不做任何处理，否则，获取该service的所有端口定义列表
+- 逐个读取服务端口定义列表中的端口信息，根据端口名称、service名称和namespace判断本地是否已经存在对应的服务代理对象，如果不存在则创建，如果存在并且service端口被修改过，则先删除Iptables中和该service端口相关的规则，关闭服务代理对象，然后走新建流程并为该service创建相关的Iptables规则
+- 更新负载均衡组件中对应service的转发地址列表，对于新建的service，确定转发时的会话保持策略
+- 对于已删除的service则进行清理
+</code></pre>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>1、创建一个service</p>
+
+<pre><code>apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    name: mysql
+    role: service
+  name: mysql-service
+spec:
+  ports:
+    - port: 3306
+      targetPort: 3306
+      nodePort: 30964
+  type: NodePort
+  selector:
+    mysql-service: &quot;true&quot;
+</code></pre>
+
+<p>mysql-service对应的nodePort暴露出来的端口为30964，对应的cluster IP(10.254.162.44)的端口为3306，进一步对应于后端的pod的端口为3306。这里的暴露出来的30964也就是为mysql-service服务创建的代理对象在本地的端口，在ndoe上访问该端口，则会将路由转发到service上。</p>
+
+<p>mysql-service后端代理了两个pod，ip分别是192.168.125.129和192.168.125.131。</p>
+
+<p>2、iptables</p>
+
+<pre><code>[root@localhost ~]# iptables -S -t nat
+</code></pre>
+
+<p><img src="/media/cloud/k8s/proxy1" alt="" /></p>
+
+<p>首先如果是通过node的30964端口访问，则会进入到以下链：</p>
+
+<pre><code>-A KUBE-NODEPORTS -p tcp -m comment --comment &quot;default/mysql-service:&quot; -m tcp --dport 30964 -j KUBE-MARK-MASQ
+-A KUBE-NODEPORTS -p tcp -m comment --comment &quot;default/mysql-service:&quot; -m tcp --dport 30964 -j KUBE-SVC-67RL4FN6JRUPOJYM
+</code></pre>
+
+<p>然后进一步跳转到KUBE-SVC-67RL4FN6JRUPOJYM的链</p>
+
+<pre><code>-A KUBE-SVC-67RL4FN6JRUPOJYM -m comment --comment &quot;default/mysql-service:&quot; -m statistic --mode random --probability 0.50000000000 -j KUBE-SEP-ID6YWIT3F6WNZ47P
+-A KUBE-SVC-67RL4FN6JRUPOJYM -m comment --comment &quot;default/mysql-service:&quot; -j KUBE-SEP-IN2YML2VIFH5RO2T
+</code></pre>
+
+<p>这里利用了iptables的&ndash;probability的特性，使连接有50%的概率进入到KUBE-SEP-ID6YWIT3F6WNZ47P链，50%的概率进入到KUBE-SEP-IN2YML2VIFH5RO2T链。</p>
+
+<p>KUBE-SEP-ID6YWIT3F6WNZ47P的链的具体作用就是将请求通过DNAT发送到192.168.125.129的3306端口。</p>
+
+<pre><code>-A KUBE-SEP-ID6YWIT3F6WNZ47P -s 192.168.125.129/32 -m comment --comment &quot;default/mysql-service:&quot; -j KUBE-MARK-MASQ
+-A KUBE-SEP-ID6YWIT3F6WNZ47P -p tcp -m comment --comment &quot;default/mysql-service:&quot; -m tcp -j DNAT --to-destination 192.168.125.129:3306
+</code></pre>
+
+<p>同理KUBE-SEP-IN2YML2VIFH5RO2T的作用是通过DNAT发送到192.168.125.131的3306端口。</p>
+
+<pre><code>-A KUBE-SEP-IN2YML2VIFH5RO2T -s 192.168.125.131/32 -m comment --comment &quot;default/mysql-service:&quot; -j KUBE-MARK-MASQ
+-A KUBE-SEP-IN2YML2VIFH5RO2T -p tcp -m comment --comment &quot;default/mysql-service:&quot; -m tcp -j DNAT --to-destination 192.168.125.131:3306
+</code></pre>
+
+<p> 
+总的来说就是：在创建service时，如果不指定nodePort则为其创建代理对象时代理对象再本地监听一个随机的空闲端口，如果设置了nodePort则以nodePort为本地代理对象的端口。客户端在访问本地代理对象的端口后此时会根据iptables转发规则，将请求转发到service的clusterIP+port上，然后根据负载均衡策略指定的转发规则，将请求再次转发到后端的endpoint的target Port上，最终访问到具体pod中容器的应用服务，然后将响应返回。</p>
+
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-proxy/">https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-proxy/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/kubernetes/">
+                            <i class="fa fa-tags"></i>
+                            kubernetes
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/proxy/">
+                            <i class="fa fa-tags"></i>
+                            proxy
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/linux/server/iptables/">Iptables</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月29日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-principle/">K8s系列---- K8s Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-apiserver/">K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-controller-manager/">K8s组件系列（三）---- K8s controller manager 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-scheduler/">K8s组件系列（二）---- K8s scheduler 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-kubelet/">K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/middleware/network/proxy/nginx/">网络代理系列---- Nginx</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2015年03月15日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/kubernetes/k8s-scheduler/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/kubernetes/k8s-kubelet/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li>
+<ul>
+<li><a href="#kube-proxy">kube-proxy</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

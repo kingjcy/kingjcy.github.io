@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Collect on kingjcy blog</title>
+    <link>https://kingjcy.github.io/tags/collect/</link>
+    <description>Recent content in Collect on kingjcy blog</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>zh-CN</language>
+    <copyright>Copyright (c) 2020. All rights reserved.</copyright>
+    <lastBuildDate>Sun, 08 Jul 2018 19:45:30 +0800</lastBuildDate>
+    
+	<atom:link href="https://kingjcy.github.io/tags/collect/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+    <item>
+      <title>日志采集系列---- Filebeat</title>
+      <link>https://kingjcy.github.io/post/log/collect/filebeat/filebeat/</link>
+      <pubDate>Sun, 08 Jul 2018 19:45:30 +0800</pubDate>
+      
+      <guid>https://kingjcy.github.io/post/log/collect/filebeat/filebeat/</guid>
+      <description>日志采集系统四大模块：
+数据采集模块：负责从各节点上实时采集数据，建议选用Flume-NG来实现。
+数据接入模块：由于采集数据的速度和数据处理的速度不一定同步，因此添加一个消息中间件来作为缓冲，建议选用Kafka来实现。
+流式计算模块：对采集到的数据进行实时分析，建议选用Storm来实现。
+数据输出模块：对分析后的结果持久化,可以使用HDFS、MySQL等。
+日志对开发和维护的重要性不言而喻。分布式应用中的日志分布在多台机器上，所以我们需要将日志采集到一个地方来集中管理。目前比较常见的日志方案是ElK，主要包括三大组件：Elasticsearch, Logstash和Kibana。这里主要说一下使用logstash收集Docker容器里应用的日志。
+容器中应用的日志，其生命周期和容器相同。主要要两个去向：标准输出stdout到主机/var/lib/docker/containers//-json.log文件中，是应用在容器中的id；写日志到磁盘文件。
+主要有以下两种收集方法：1.对于第一种写在容器里面的日志，其路径中的***是id，应用每次在容器里跑起来其id是不同的，这样不容易确定日志的路径。我们需要将应用的日志输出到固定目录并通过 -V 命令挂载出来到主机磁盘（转化成第二种日志去向），这样我们就可以通过Logstash采集宿主机固定目录的日志。2.另外一种方式我看阿里云也在采用，运行一个日志收集容器。借助docker的Volume功能。在host机器上开辟一个固定目录D；产生日志的容器将日志文件所在目录mount到D目录下的子目录中；收集日志的容器再把目录D mount到自己容器内。
+基础使用
+ filebeat基本配置使用？可以采集当前目录下的的所有文件吗？包括子目录？输出如果想加一些前缀怎么配置？
+必须需要配置input和output， 在input中需要配置采集的路径，采集路径可以使用正则表达式，来采集当前目录下所有的文件，包括子目录下，比如/k8s_log/*/.log* 在output中主要配置输出组件，这边可以设计输出的格式，比如 codec.format: ignoreNotFound: true string: &amp;lsquo;V1%{[split]}%{[ldc]}%{[split]}%{[hostgroup]}%{[split]}%{[appid]}%{[split]}%{[ip]}%{[split]}%{[path]}%{[split]}%{[lid]}%{[split]}%{[host.name]}%{[split]}%{[host.ip]}%{[split]}%{[@timestamp]}%{[split]}%{[message]}&amp;rsquo;
+ filebeat过滤和合并的怎么使用？过滤是使用白名单还是白名单，还是都支持？怎么支持？合并正常用于什么场景？
+过滤和合并都是使用正则表达式配置在配置文件中的这些配置项
+include_lines exclude_lines multiline.pattern multiline.negate: true multiline.match: after
+过滤是支持黑白名单的，配置项不一样
+合并一般用于不同的开头的日志行，比如java出错堆栈，合并成一行日志
+ filebeat是否能动态加载配置文件？如果能，怎么加载？那reload后能够重新加载output？
+可以动态加载，可以在配置文件中配置reload的时间，filebeat本身自动加载，但是这个加载不能更新output
+ filebeat本身日志是否支持备份切换？如果能，具体默认是什么情况？
+支持，默认一个文件10M，保留8个文件
+ filebeat的性能情况
+我们这边目前是需要20000line／s 消耗的资源很小，主要消耗cpu
+ filebaet支持句柄保持和checkpoint吗？
+支持
+  代码原理
+ filebeat源码流程
+filebaet创建了一个beater实例启动 1.启动了一个Crawler，用于1.启动静态的 input (写在主配置里的)2.启动 reloader，动态的 input 由 reloader 管理。3.启动Registrar 2.每个input又启动了Harvester，Harvester就是负责采集日志 3.Harvester 连接 pipeline 时，调用 outlet factory 创建一个 outleter，Outleter 封装了 pipeline 的 producer，调用 outleter OnEvent 方法发送数据到 pipeline 4.</description>
+    </item>
+    
+    <item>
+      <title>日志采集系列---- Filebeat原理</title>
+      <link>https://kingjcy.github.io/post/log/collect/filebeat/filebeat-principle/</link>
+      <pubDate>Sun, 08 Jul 2018 19:45:30 +0800</pubDate>
+      
+      <guid>https://kingjcy.github.io/post/log/collect/filebeat/filebeat-principle/</guid>
+      <description>&lt;p&gt;Filebeat 是使用 Golang 实现的轻量型日志采集器，也是 Elasticsearch stack 里面的一员。本质上是一个 agent，可以安装在各个节点上，根据配置读取对应位置的日志，并上报到相应的地方去。&lt;/p&gt;
+
+&lt;p&gt;filebeat源码归属于beats项目，而beats项目的设计初衷是为了采集各类的数据，所以beats抽象出了一个libbeat库，基于libbeat我们可以快速的开发实现一个采集的工具，除了filebeat，还有像metricbeat、packetbeat等官方的项目也是在beats工程中。libbeat已经实现了内存缓存队列memqueue、几种output日志发送客户端，数据的过滤处理processor,配置解析、日志打印、事件处理和发送等通用功能，而filebeat只需要实现日志文件的读取等和日志相关的逻辑即可。&lt;/p&gt;</description>
+    </item>
+    
+  </channel>
+</rss>

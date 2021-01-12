@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Kubelet on kingjcy blog</title>
+    <link>https://kingjcy.github.io/tags/kubelet/</link>
+    <description>Recent content in Kubelet on kingjcy blog</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>zh-CN</language>
+    <copyright>Copyright (c) 2020. All rights reserved.</copyright>
+    <lastBuildDate>Thu, 24 Nov 2016 20:22:22 +0800</lastBuildDate>
+    
+	<atom:link href="https://kingjcy.github.io/tags/kubelet/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+    <item>
+      <title>K8s组件系列（四）---- K8s kubelet 详解</title>
+      <link>https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-kubelet/</link>
+      <pubDate>Thu, 24 Nov 2016 20:22:22 +0800</pubDate>
+      
+      <guid>https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-kubelet/</guid>
+      <description>kubelet  该进程用于处理master节点下发到本节点的任务，管理Pod以及Pod中的容器。每个kubelet进程会在API Server上注册节点信息，定期向master节点汇报节点资源的使用情况，并通过cAdvisor监控容器和节点的资源。
+ 节点管理
+ 节点通过设置kubelet的启动参数“&amp;ndash;register-node”来决定是否向API Server注册自己。如果该参数为true，那么kubelet将试着通过API Server注册自己。在自注册时，kubelet启动时还包括以下参数：
+--api-servers：API Server的位置 --kubeconfing：kubeconfig文件，用于访问API Server的安全配置文件 --cloud-provider：云服务商地址，仅用于共有云环境  如果没有选择自注册模式，用户需要手动去配置node的资源信息，同时告知ndoe上的kubelet API Server的位置。Kubelet在启动时通过API Server注册节点信息，并定时向API Server发送节点新消息，API Server在接受到这些消息之后，将这些信息写入etcd中。通过kubelet的启动参数“&amp;ndash;node-status-update-frequency”设置kubelet每个多长时间向API Server报告节点状态，默认为10s
+ pod管理
+ kubelet通过以下几种方式获取自身node上所要运行的pod清单：
+1、文件：kubelet启动参数“&amp;ndash;config”指定的配置文件目录下的文件（默认为“/etc/Kubernetes/manifests”）通过&amp;ndash;file-check-frequency设置检查该文件的时间间隔，默认为20s
+2、HTTP端点：通过“&amp;ndash;manifest-url”参数设置。通过“&amp;ndash;http-check-frequency”设置检查该HTTP端点数据的时间间隔，默认为20s。
+3、API Server：kubelet通过API server监听etcd目录，同步pod列表
+注意：这里static pod，不是被API Server创建的，而是被kubelet创建，之前文章中提到了静态的pod是在kubelet的配置文件中编写，并且总在kubelet所在node上运行。 Kubelet监听etcd，所有针对pod的操作将会被kubelet监听到。如果是新的绑定到本节点的pod，则按照pod清单的要求创建pod，如果是删除pod，则kubelet通过docker client去删除pod中的容器，并删除该pod。 具体的针对创建和修改pod任务，流程为：
+- 为该pod创建一个目录 - 从API Server读取该pod清单 - 为该pod挂载外部volume - 下载pod用到的secret - 检查已经运行在节点中的pod,如果该pod没有容器或者Pause容器没有启动，则先停止pod里的所有容器的进程。如果pod中有需要删除的容器，则删除这些容器 - 为pod中的每个容器做如下操作 1、为容器计算一个hash值，然后用容器的名字去查询docker容器的hash值。若查找到容器，且两者得到hash不同，则停止docker中的容器的进程，并且停止与之关联pause容器的进程；若两个相同，则不做任何处理 2、如果容器被停止了，且容器没有指定restartPolicy(重启策略)，则不做任何处理 3、调用docker client 下载容器镜像，调用docker client 运行容器   容器的健康检查
+ Pod通过两类探针来检查容器的健康状态。一个是livenessProbe探针，用于判断容器是否健康，告诉kubelet一个容器什么时候处于不健康状态，如果livenessProbe探针探测到容器不健康，则kubelet将删除该容器，并根据容器的重启策略做相应的处理；如果一个容器不包含livenessProbe探针，那么kubelet认为livenessProbe探针的返回值永远为“success”。另一个探针为ReadinessProbe，用于判断容器是否启动完成，且准备接受请求。如果ReadinessProbe探针检测到失败，则pod的状态将被修改，endpoint controller将从service的endpoints中删除包含该容器所在pod的IP地址的endpoint条目。
+ cadvisor资源监控
+ cadcisor是为容器监控而生的监控工具，目前集成在kubelet中，以4194端口进行暴露。</description>
+    </item>
+    
+  </channel>
+</rss>

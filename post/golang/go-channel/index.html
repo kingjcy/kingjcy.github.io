@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="不是通过共享内存来通信，而是通过通信来共享内存。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="golang使用系列---- channel - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    golang使用系列---- channel
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年05月24日 
+                </div>
+                <h1 class="post-title">golang使用系列---- channel</h1>
+            </header>
+
+            <div class="post-content">
+                <p>不是通过共享内存来通信，而是通过通信来共享内存。</p>
+
+<h1 id="基本概念">基本概念</h1>
+
+<blockquote>
+<p>类型chan</p>
+</blockquote>
+
+<p>声明</p>
+
+<pre><code>var ch chan int
+var m map[ string] chan bool
+ch := make(chan int)
+c := make(chan int, 1024)--带缓冲的channel，后面的参数是缓冲大小
+c := make([]chan int, 1024)--这个是是数组
+</code></pre>
+
+<p>单向channel</p>
+
+<pre><code>var ch1 chan int // ch1是一个正常的 channel，不是单向的
+var ch2 chan&lt;- float64// ch2是单向channel，只用于写float64数据
+var ch3 &lt;-chan int // ch3 是单向channel，只用于读取int数据
+
+ch4 := make( chan int)
+ch5 := &lt;-chan int(ch4) // ch5就是一个单向的读取channel
+ch6 := chan&lt;- int(ch4) // ch6 是一个单向的写入channel
+
+关闭close（）----x, ok := &lt;-ch，可以通过ok来判断channel是否关闭，一个非空的通道也是可以关闭的，但是通道中剩下的值仍然可以被接收到。
+</code></pre>
+
+<p>读写</p>
+
+<pre><code>写 ch &lt;- 1           向channel写入数据通常会导致程序阻塞，直到有其他goroutine从这个channel中读取数据
+读 value := &lt;-ch    如果channel之前没有写入数据，那么从channel中读取数据也会导致程序阻塞，直到channel中被写入数据为止——这两点可以用于数据同步。
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+)
+
+func producer(chnl chan int) {
+    for i := 0; i &lt; 10; i++ {
+        chnl &lt;- i
+    }
+    close(chnl)
+}
+
+func main() {
+    ch := make(chan int)
+    go producer(ch)
+    for {
+        v, ok := &lt;-ch
+        if ok == false {
+            break
+        }
+        fmt.Println(&quot;Received &quot;, v, ok)
+    }
+}
+</code></pre>
+
+<h1 id="实现原理">实现原理</h1>
+
+<blockquote>
+<p>架构</p>
+</blockquote>
+
+<p><img src="/media/golang/go/hchan.png" alt="" /></p>
+
+<p>源码位于/runtime/chan.go中(目前版本：1.11)。结构体为hchan。</p>
+
+<pre><code>type hchan struct {
+    qcount   uint           // total data in the queue
+    dataqsiz uint           // size of the circular queue
+    buf      unsafe.Pointer // points to an array of dataqsiz elements
+    elemsize uint16
+    closed   uint32
+    elemtype *_type // element type
+    sendx    uint   // send index
+    recvx    uint   // receive index
+    recvq    waitq  // list of recv waiters
+    sendq    waitq  // list of send waiters
+
+    // lock protects all fields in hchan, as well as several
+    // fields in sudogs blocked on this channel.
+    //
+    // Do not change another G's status while holding this lock
+    // (in particular, do not ready a G), as this can deadlock
+    // with stack shrinking.
+    lock mutex
+}
+</code></pre>
+
+<blockquote>
+<p>数据结构</p>
+</blockquote>
+
+<ul>
+<li>环形队列</li>
+</ul>
+
+<p>chan内部实现了一个环形队列作为其缓冲区，队列的长度是创建chan时指定的。</p>
+
+<p>下图展示了一个可缓存6个元素的channel示意图：</p>
+
+<p><img src="/media/golang/channel/channel.jpg" alt="" /></p>
+
+<pre><code>dataqsiz指示了队列长度为6，即可缓存6个元素；
+buf指向队列的内存，队列中还剩余两个元素；
+qcount表示队列中还有两个元素；
+sendx指示后续写入的数据存储的位置，取值[0, 6)；
+recvx指示从该位置读取数据, 取值[0, 6)；
+</code></pre>
+
+<ul>
+<li>等待队列</li>
+</ul>
+
+<p>recvq和sendq分别是接收(&lt;-channel)或者发送(channel &lt;- xxx)的goroutine抽象出来的结构体(sudog)的队列。是个双向链表</p>
+
+<p>从channel读数据，如果channel缓冲区为空或者没有缓冲区，当前goroutine会被阻塞。</p>
+
+<p>向channel写数据，如果channel缓冲区已满或者没有缓冲区，当前goroutine会被阻塞。</p>
+
+<p>被阻塞的goroutine将会挂在channel的等待队列中：</p>
+
+<pre><code>因读阻塞的goroutine会被向channel写入数据的goroutine唤醒；
+因写阻塞的goroutine会被从channel读数据的goroutine唤醒；
+</code></pre>
+
+<p>下图展示了一个没有缓冲区的channel，有几个goroutine阻塞等待读数据：</p>
+
+<p><img src="/media/golang/channel/channel1.jpg" alt="" /></p>
+
+<p>注意，一般情况下recvq和sendq至少有一个为空。只有一个例外，那就是同一个goroutine使用select语句向channel一边写数据，一边读数据。</p>
+
+<ul>
+<li>类型信息</li>
+</ul>
+
+<p>一个channel只能传递一种类型的值，类型信息存储在hchan数据结构中。</p>
+
+<pre><code>elemtype代表类型，用于数据传递过程中的赋值；
+elemsize代表类型大小，用于在buf中定位元素位置。
+</code></pre>
+
+<ul>
+<li>锁</li>
+</ul>
+
+<p>一个channel同时仅允许被一个goroutine读写，为简单起见，本章后续部分说明读写过程时不再涉及加锁和解锁。</p>
+
+<p>下面我们来详细介绍hchan中各部分是如何使用的。</p>
+
+<blockquote>
+<p>先从创建开始</p>
+</blockquote>
+
+<p>我们首先创建一个channel。</p>
+
+<pre><code>ch := make(chan int, 3)
+</code></pre>
+
+<p>创建channel实际上就是在内存中实例化了一个hchan的结构体，并返回一个ch指针，我们使用过程中channel在函数之间的传递都是用的这个指针，这就是为什么函数传递中无需使用channel的指针，而直接用channel就行了，因为channel本身就是一个指针。</p>
+
+<blockquote>
+<p>向channel写数据</p>
+</blockquote>
+
+<p>向一个channel中写数据简单过程如下：</p>
+
+<ul>
+<li>如果等待接收队列recvq不为空，说明缓冲区中没有数据或者没有缓冲区，此时直接从recvq取出G,并把数据写入，最后把该G唤醒，结束发送过程；</li>
+<li>如果缓冲区中有空余位置，将数据写入缓冲区，结束发送过程；</li>
+<li>如果缓冲区中没有空余位置，将待发送数据写入G，将当前G加入sendq，进入睡眠，等待被读goroutine唤醒；</li>
+</ul>
+
+<p>简单流程图如下：</p>
+
+<p><img src="/media/golang/channel/channel2.jpg" alt="" /></p>
+
+<p>数据写入buf</p>
+
+<p>第一，加锁
+第二，把数据从goroutine中copy到“队列”中(或者从队列中copy到goroutine中）。
+第三，释放锁</p>
+
+<p><img src="/media/golang/go/hchan_gif2.png" alt="" /></p>
+
+<blockquote>
+<p>从channel读数据</p>
+</blockquote>
+
+<p>从一个channel读数据简单过程如下：</p>
+
+<ul>
+<li>如果等待发送队列sendq不为空，且没有缓冲区，直接从sendq中取出G，把G中数据读出，最后把G唤醒，结束读取过程；</li>
+<li>如果等待发送队列sendq不为空，此时说明缓冲区已满，从缓冲区中首部读出数据，把G中数据写入缓冲区尾部，把G唤醒，结束读取过程；</li>
+<li>如果缓冲区中有数据，则从缓冲区取出数据，结束读取过程；</li>
+<li>将当前goroutine加入recvq，进入睡眠，等待被写goroutine唤醒；</li>
+</ul>
+
+<p>简单流程图如下：</p>
+
+<p><img src="/media/golang/channel/channel3.jpg" alt="" /></p>
+
+<p>数据读取buf</p>
+
+<p>第一，加锁
+第二，把数据从goroutine中copy到“队列”中(或者从队列中copy到goroutine中）。
+第三，释放锁</p>
+
+<p><img src="/media/golang/go/hchan_gif6.png" alt="" /></p>
+
+<p>至于为什么channel会使用循环链表作为缓存结构，我个人认为是在缓存列表在动态的send和recv过程中，定位当前send或者recvx的位置、选择send的和recvx的位置比较方便吧，只要顺着链表顺序一直旋转操作就好。</p>
+
+<blockquote>
+<p>关闭channel</p>
+</blockquote>
+
+<p>关闭channel时会把recvq中的G全部唤醒，本该写入G的数据位置为nil。把sendq中的G全部唤醒，但这些G会panic。</p>
+
+<p>除此之外，panic出现的常见场景还有：</p>
+
+<ul>
+<li>关闭值为nil的channel</li>
+<li>关闭已经被关闭的channel</li>
+<li>向已经关闭的channel写数据</li>
+</ul>
+
+<h1 id="实用场景">实用场景</h1>
+
+<blockquote>
+<p>在prometheus中的使用</p>
+</blockquote>
+
+<pre><code>// Describe simply sends the two Descs in the struct to the channel.
+func (e *exporter) Describe(ch chan&lt;- *prometheus.Desc) {
+    metricCh := make(chan prometheus.Metric)
+    doneCh := make(chan struct{})
+    go func() {
+        for m := range metricCh {
+            ch &lt;- m.Desc()
+        }
+        close(doneCh)
+    }()
+
+    e.Collect(metricCh)
+    close(metricCh)
+    &lt;-doneCh
+}
+</code></pre>
+
+<p>range取数据阻塞，等待数据传入channel</p>
+
+<p>donech防止程序结束，类似于锁的作用</p>
+
+<blockquote>
+<p>阻塞</p>
+</blockquote>
+
+<p>发送与接收默认是阻塞的。这是什么意思？当把数据发送到信道时，程序控制会在发送数据的语句处发生阻塞，直到有其它 Go 协程从信道读取到数据，才会解除阻塞。与此类似，当读取信道的数据时，如果没有其它的协程把数据写入到这个信道，那么读取过程就会一直阻塞着。</p>
+
+<p>信道的这种特性能够帮助 Go 协程之间进行高效的通信，不需要用到其他编程语言常见的显式锁或条件变量。</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+)
+
+func hello(done chan bool) {
+    fmt.Println(&quot;Hello world goroutine&quot;)
+    done &lt;- true
+}
+func main() {
+    done := make(chan bool)
+    go hello(done)
+    &lt;-done
+    fmt.Println(&quot;main function&quot;)
+}
+</code></pre>
+
+<p>在上述程序里，我们在第 12 行创建了一个 bool 类型的信道 done，并把 done 作为参数传递给了 hello 协程。在第 14 行，我们通过信道 done 接收数据。这一行代码发生了阻塞，除非有协程向 done 写入数据，否则程序不会跳到下一行代码。于是，这就不需要用以前的 time.Sleep 来阻止 Go 主协程退出了。</p>
+
+<blockquote>
+<p>死锁</p>
+</blockquote>
+
+<p>使用信道需要考虑的一个重点是死锁。当 Go 协程给一个信道发送数据时，照理说会有其他 Go 协程来接收数据。如果没有的话，程序就会在运行时触发 panic，形成死锁。</p>
+
+<p>同理，当有 Go 协程等着从一个信道接收数据时，我们期望其他的 Go 协程会向该信道写入数据，要不然程序就会触发 panic。</p>
+
+<pre><code>package main
+
+func main() {
+    var ch = make(chan int)
+    ch &lt;- 1
+    println(&lt;-ch)
+}
+
+
+运行打印结果为：
+
+fatal error: all goroutines are asleep - deadlock!
+
+goroutine 1 [chan send]:
+main.main()
+    /tmp/sandbox117018544/main.go:5 +0x60
+</code></pre>
+
+<p>死锁了，为什么会这样呢，因为ch是一个无缓冲的channel,在执行到ch &lt;- 1就阻塞了当前goroutine（也就是main函数所在的goroutine）,后面打印语句根本没机会执行</p>
+
+<p>稍加修改即能正常运行</p>
+
+<pre><code>package main
+
+func main() {
+    var ch = make(chan int)
+    go func() {
+        ch &lt;- 1
+        println(&quot;sender&quot;)
+    }()
+    println(&lt;-ch)
+}
+</code></pre>
+
+<p>因为此时ch既有发送也有接收而且不在同一个goroutine里面，此时它们不会相互阻塞.</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+)
+
+func main() {
+    ch := make(chan string, 2)
+    ch &lt;- &quot;naveen&quot;
+    ch &lt;- &quot;paul&quot;
+    ch &lt;- &quot;steve&quot;
+    fmt.Println(&lt;-ch)
+    fmt.Println(&lt;-ch)
+}
+</code></pre>
+
+<p>上面的程序，我们想向容量为2的channel中写入３个字符串。程序执行到１１行时候将会被阻塞，因为此时channel缓冲区已经满了。如果没有其他goroutine从中读取数据，程序将会死锁。报错如下：</p>
+
+<pre><code>fatal error: all goroutines are asleep - deadlock!
+
+goroutine 1 [chan send]:
+main.main()
+    /tmp/sandbox274756028/main.go:11 +0x100
+</code></pre>
+
+<p>第二种情况就是相互读，相互等待的死锁</p>
+
+<p>通道1中调用了通道2，通道2中调用通道1</p>
+
+<pre><code>func main() {
+    c1,c2:=make(chan int),make(chan int)
+    go func() {
+        for  {
+            select{
+                case &lt;-c1:
+                    c2&lt;-10
+            }
+        }
+    }()
+    for  {
+        select{
+        case &lt;-c2:
+            c1&lt;-10
+        }
+    }
+}
+</code></pre>
+
+<p>大体正常就是这两种情况，但是死锁的出现的情况很多，但都不外乎是争抢资源和数据通信引起。</p>
+
+<blockquote>
+<p>select的使用</p>
+</blockquote>
+
+<p>在执行select语句的时候，运行时系统会自上而下地判断每个case中的发送或接收操作是否可以被立即执行(立即执行：意思是当前Goroutine不会因此操作而被阻塞)</p>
+
+<p>在 select 中使用发送操作并且有 default可以确保发送不被阻塞！如果没有 case，select 就会一直阻塞。</p>
+
+<p>为了便于理解，我们首先给出一个代码片段：</p>
+
+<pre><code>// https://talks.golang.org/2012/concurrency.slide#32
+select {
+case v1 := &lt;-c1:
+    fmt.Printf(&quot;received %v from c1\n&quot;, v1)
+case v2 := &lt;-c2:
+    fmt.Printf(&quot;received %v from c2\n&quot;, v1)
+case c3 &lt;- 23:
+    fmt.Printf(&quot;sent %v to c3\n&quot;, 23)
+default:
+    fmt.Printf(&quot;no one was ready to communicate\n&quot;)
+}
+</code></pre>
+
+<p>上面这段代码中，select 语句有四个 case 子语句，前两个是 receive 操作，第三个是 send 操作，最后一个是默认操作。代码执行到 select 时，case 语句会按照源代码的顺序被评估，且只评估一次，评估的结果会出现下面这几种情况：</p>
+
+<p>除 default 外，如果只有一个 case 语句评估通过，那么就执行这个case里的语句；</p>
+
+<p>除 default 外，如果有多个 case 语句评估通过，那么通过伪随机的方式随机选一个；</p>
+
+<p>如果 default 外的 case 语句都没有通过评估，那么执行 default 里的语句；</p>
+
+<p>如果没有 default，那么 代码块会被阻塞，指导有一个 case 通过评估；否则一直阻塞</p>
+
+<p>1、 GO select用法详解</p>
+
+<p>golang 的 select 就是监听 IO 操作，当 IO 操作发生时，触发相应的动作。</p>
+
+<p>在执行select语句的时候，运行时系统会<strong>自上而下</strong>地判断每个case中的发送或接收操作是否可以被立即执行(立即执行：意思是当前Goroutine不会因此操作而被阻塞)</p>
+
+<p><em>select的用法与switch非常类似，由select开始一个新的选择块，每个选择条件由case语句来描述。与switch语句可以选择任何可使用相等比较的条件相比，select有比较多的限制，其中最大的一条限制就是每个case语句里必须是一个IO操作，确切的说，应该是一个面向channel的IO操作。</em></p>
+
+<p>下面这段话来自官方文档：</p>
+
+<pre><code>A &quot;select&quot; statement chooses which of a set of possible send or receive operations will proceed. It looks similar to a &quot;switch&quot; statement but with the cases all referring to communication operations.
+</code></pre>
+
+<p>语法格式如下：</p>
+
+<pre><code>select {
+
+case SendStmt:
+
+  //statements
+
+case RecvStmt:
+
+  //statements
+
+default:
+
+  //statements
+
+}
+</code></pre>
+
+<p>其中，</p>
+
+<pre><code>SendStmt : channelVariable &lt;- value
+
+RecvStmt : variable &lt;-channelVariable
+</code></pre>
+
+<p>A case with a RecvStmt may assign the result of a RecvExpr to one or two variables, which may be declared using a short variable declaration(IdentifierList := value). The RecvExpr must be a (possibly parenthesized) receive operation(&lt;-channelVariable). There can be at most one default case and it may appear anywhere in the list of cases.</p>
+
+<p>示例：</p>
+
+<pre><code>ch1 := make(chan int, 1)
+ch2 := make(chan int, 1)
+ch1 &lt;- 1
+select {
+case e1 := &lt;-ch1:
+    //如果ch1通道成功读取数据，则执行该case处理语句
+    fmt.Printf(&quot;1th case is selected. e1=%v&quot;, e1)
+case e2 := &lt;-ch2:
+    //如果ch2通道成功读取数据，则执行该case处理语句
+    fmt.Printf(&quot;2th case is selected. e2=%v&quot;, e2)
+default:
+    //如果上面case都没有成功，则进入default处理流程
+    fmt.Println(&quot;default!.&quot;)
+}----超时机制也是用select来实现的
+</code></pre>
+
+<p>Execution of a &ldquo;select&rdquo; statement proceeds in several steps:</p>
+
+<pre><code>1、For all the cases in the statement, the channel operands of receive operations and the channel and right-hand-side expressions of send statements are evaluated exactly once, in source order, upon entering the &quot;select&quot; statement.(所有channel表达式都会被求值、所有被发送的表达式都会被求值。求值顺序：自上而下、从左到右)
+
+2、If one or more of the communications can proceed, a single one that can proceed is chosen via a uniform pseudo-random selection. Otherwise, if there is a default case, that case is chosen. If there is no default case, the &quot;select&quot; statement blocks until at least one of the communications can proceed.（如果有一个或多个IO操作可以完成，则Go运行时系统会随机的选择一个执行，否则的话，如果有default分支，则执行default分支语句，如果连default都没有，则select语句会一直阻塞，直到至少有一个IO操作可以进行）
+
+3、Unless the selected case is the default case, the respective communication operation is executed.
+
+4、If the selected case is a RecvStmt with a short variable declaration or an assignment, the left-hand side expressions are evaluated and the received value (or values) are assigned.
+
+5、The statement list of the selected case is executed.
+</code></pre>
+
+<p>示例1：select语句会一直等待，直到某个case里的IO操作可以进行</p>
+
+<pre><code>//main.go
+
+
+package main
+import &quot;fmt&quot;
+import &quot;time&quot;
+func f1(ch chan int) {
+    time.Sleep(time.Second * 5)
+    ch &lt;- 1
+}
+func f2(ch chan int) {
+    time.Sleep(time.Second * 10)
+    ch &lt;- 1
+}
+func main() {
+    var ch1 = make(chan int)
+    var ch2 = make(chan int)
+    go f1(ch1)
+    go f2(ch2)
+    select {
+    case &lt;-ch1:
+        fmt.Println(&quot;The first case is selected.&quot;)
+    case &lt;-ch2:
+        fmt.Println(&quot;The second case is selected.&quot;)
+    }
+}
+编译运行：
+
+C:/go/bin/go.exe run test14.go [E:/project/go/proj/src/test]
+
+The first case is selected.
+
+成功: 进程退出代码 0.
+</code></pre>
+
+<p>示例2：所有跟在case关键字右边的发送语句或接收语句中的通道表达式和元素表达式都会先被求值。无论它们所在的case是否有可能被选择都会这样。</p>
+
+<p>求值顺序：自上而下、从左到右</p>
+
+<p>此示例使用空值channel进行验证。</p>
+
+<pre><code>//main.go
+
+package main
+import (
+    &quot;fmt&quot;
+)
+//定义几个变量，其中chs和numbers分别代表通道列表和整数列表
+var ch1 chan int
+var ch2 chan int
+var chs = []chan int{ch1, ch2}
+var numbers = []int{1, 2, 3, 4, 5}
+func main() {
+    select {
+    case getChan(0) &lt;- getNumber(2):
+        fmt.Println(&quot;1th case is selected.&quot;)
+    case getChan(1) &lt;- getNumber(3):
+        fmt.Println(&quot;2th case is selected.&quot;)
+    default:
+        fmt.Println(&quot;default!.&quot;)
+    }
+}
+func getNumber(i int) int {
+    fmt.Printf(&quot;numbers[%d]\n&quot;, i)
+    return numbers[i]
+}
+func getChan(i int) chan int {
+    fmt.Printf(&quot;chs[%d]\n&quot;, i)
+    return chs[i]
+}
+编译运行：
+C:/go/bin/go.exe run test4.go [E:/project/go/proj/src/test]
+
+chs[0]
+
+numbers[2]
+
+chs[1]
+
+numbers[3]
+
+default!.
+
+成功: 进程退出代码 0.
+</code></pre>
+
+<p>上面的案例，之所以输出default!.是因为chs[0]和chs[1]都是空值channel，和空值channel通信永远都不会成功。</p>
+
+<p>此示例使用非空值channel进行验证。</p>
+
+<pre><code>//main.go
+
+package main
+import (
+    &quot;fmt&quot;
+)
+//定义几个变量，其中chs和numbers分别代表通道列表和整数列表
+var ch1 chan int = make(chan int, 1)  //声明并初始化channel变量
+var ch2 chan int = make(chan int, 1)  //声明并初始化channel变量
+var chs = []chan int{ch1, ch2}
+var numbers = []int{1, 2, 3, 4, 5}
+func main() {
+    select {
+    case getChan(0) &lt;- getNumber(2):
+        fmt.Println(&quot;1th case is selected.&quot;)
+    case getChan(1) &lt;- getNumber(3):
+        fmt.Println(&quot;2th case is selected.&quot;)
+    default:
+        fmt.Println(&quot;default!.&quot;)
+    }
+}
+func getNumber(i int) int {
+    fmt.Printf(&quot;numbers[%d]\n&quot;, i)
+    return numbers[i]
+}
+func getChan(i int) chan int {
+    fmt.Printf(&quot;chs[%d]\n&quot;, i)
+    return chs[i]
+}
+编译运行：
+C:/go/bin/go.exe run test4.go [E:/project/go/proj/src/test]
+
+chs[0]
+
+numbers[2]
+
+chs[1]
+
+numbers[3]
+
+1th case is selected.
+
+成功: 进程退出代码 0.
+</code></pre>
+
+<p>此示例，使用非空值channel进行IO操作，所以可以成功，没有走default分支。</p>
+
+<p>示例4：如果有多个case同时可以运行，go会随机选择一个case执行</p>
+
+<pre><code>//main.go
+package main
+import (
+    &quot;fmt&quot;
+)
+func main() {
+    chanCap := 5
+    ch := make(chan int, chanCap) //创建channel，容量为5
+    for i := 0; i &lt; chanCap; i++ { //通过for循环，向channel里填满数据
+        select { //通过select随机的向channel里追加数据
+        case ch &lt;- 1:
+        case ch &lt;- 2:
+        case ch &lt;- 3:
+        }
+    }
+    for i := 0; i &lt; chanCap; i++ {
+        fmt.Printf(&quot;%v\n&quot;, &lt;-ch)
+    }
+}
+编译运行：
+C:/go/bin/go.exe run test5.go [E:/project/go/proj/src/test]
+
+
+
+成功: 进程退出代码 0.
+</code></pre>
+
+<p>注意：上面的案例每次运行结果都不一样。</p>
+
+<p>示例5：使用break终止select语句的执行</p>
+
+<pre><code>package main
+import &quot;fmt&quot;
+func main() {
+    var ch = make(chan int, 1)
+    ch &lt;- 1
+    select {
+    case &lt;-ch:
+        fmt.Println(&quot;This case is selected.&quot;)
+        break //The following statement in this case will not execute.
+        fmt.Println(&quot;After break statement&quot;)
+    default:
+        fmt.Println(&quot;This is the default case.&quot;)
+    }
+    fmt.Println(&quot;After select statement.&quot;)
+}
+
+编译运行：
+
+C:/go/bin/go.exe run test15.go [E:/project/go/proj/src/test]
+
+This case is selected.
+
+After select statement.
+
+成功: 进程退出代码 0.
+</code></pre>
+
+<blockquote>
+<p>关于带缓冲的channel</p>
+</blockquote>
+
+<p>带缓冲的channel是我们经常作为队列使用的，不带缓冲的一般都是作为信号使用，是阻塞的，带缓冲的在满了之前是非阻塞的，满了也是阻塞性的</p>
+
+<p>创建一个带缓冲区的channel需要一个额外的参数容量来表明缓冲区大小：</p>
+
+<pre><code>ch := make(chan type, capacity)
+</code></pre>
+
+<p>上面代码中的 capacity　需要大于０，如果等于０的话则是之前学习的无缓冲区channel。</p>
+
+<p>例子</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+)
+
+
+func main() {
+    ch := make(chan string, 2)
+    ch &lt;- &quot;naveen&quot;
+    ch &lt;- &quot;paul&quot;
+    fmt.Println(&lt;- ch)
+    fmt.Println(&lt;- ch)
+}
+</code></pre>
+
+<p>上面的例子中，我们创建了一个容量为2的channel，所以在写入２个字符串之前的写操作不会被阻塞。然后分别在12、13行读取，程序输出如下：</p>
+
+<p>我们再来看一个例子，我们在并发执行的goroutine中进行写操作，然后在main goroutine中读取，这个例子帮助我们更好的理解缓冲区channel。</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;time&quot;
+)
+
+func write(ch chan int) {
+    for i := 0; i &lt; 5; i++ {
+        ch &lt;- i
+        fmt.Println(&quot;successfully wrote&quot;, i, &quot;to ch&quot;)
+    }
+    close(ch)
+}
+func main() {
+    ch := make(chan int, 2)
+    go write(ch)
+    time.Sleep(2 * time.Second)
+    for v := range ch {
+        fmt.Println(&quot;read value&quot;, v,&quot;from ch&quot;)
+        time.Sleep(2 * time.Second)
+
+    }
+}
+</code></pre>
+
+<p>上面的代码，我们创建了一个容量是2的缓冲区channel，并把它作为参数传递给write函数，接下来sleep2秒钟。同时write函数并发的执行，在函数中使用for循环向ch写入0-4。由于容量是2，所以可以立即向channel中写入0和１，然后阻塞等待至少一个值被读取。所以程序会立即输出下面２行：</p>
+
+<pre><code>successfully wrote 0 to ch
+successfully wrote 1 to ch
+</code></pre>
+
+<p>当main函数中sleep２秒后，进入for range循环中开始读取数据，然后继续sleep２秒钟。所以程序接下来会输出:</p>
+
+<pre><code>read value 0 from ch
+successfully wrote 2 to ch
+</code></pre>
+
+<p>如此循环直到channel被关闭为止，程序最终输出结果如下：</p>
+
+<pre><code>successfully wrote 0 to ch
+successfully wrote 1 to ch
+read value 0 from ch
+successfully wrote 2 to ch
+read value 1 from ch
+successfully wrote 3 to ch
+read value 2 from ch
+successfully wrote 4 to ch
+read value 3 from ch
+read value 4 from ch
+</code></pre>
+
+<blockquote>
+<p>长度和容量</p>
+</blockquote>
+
+<p>容量是指一个有缓冲区的channel能够最多同时存储多少数据，这个值在使用make关键字用在创建channel时。而长度则是指当前channel中已经存放了多少个数据。我们看下面的代码：</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+)
+
+func main() {
+    ch := make(chan string, 3)
+    ch &lt;- &quot;naveen&quot;
+    ch &lt;- &quot;paul&quot;
+    fmt.Println(&quot;capacity is&quot;, cap(ch))
+    fmt.Println(&quot;length is&quot;, len(ch))
+    fmt.Println(&quot;read value&quot;, &lt;-ch)
+    fmt.Println(&quot;new length is&quot;, len(ch))
+}
+</code></pre>
+
+<p>上面的代码中我们创建了一个容量为3的channel，然后向里面写入2个字符串，因此现在channel的长度是２。接下来从channel中读取１个字符串，所以现在长度是１。程序输出如下：</p>
+
+<pre><code>capacity is 3
+length is 2
+read value naveen
+new length is 1
+</code></pre>
+
+<blockquote>
+<p>有状态的channel</p>
+</blockquote>
+
+<p>我们正常在使用channel的时候，希望一个全局使用一个channel来分配到对应的goroutine中去，这个时候就需要使用到有状态的channel</p>
+
+<p>正常有状态的channel都是使用map的k来标识，通常使用如下</p>
+
+<pre><code>package main
+
+import &quot;fmt&quot;
+
+func main() {
+    things := make(map[string](chan int))
+
+    things[&quot;stuff&quot;] = make(chan int, 2)
+    things[&quot;stuff&quot;] &lt;- 2
+    mything := &lt;-things[&quot;stuff&quot;]
+    fmt.Printf(&quot;my thing: %d&quot;, mything)
+}
+</code></pre>
+
+<blockquote>
+<p>使用v,ok := &lt;-ch + select操作判断channel是否关闭</p>
+</blockquote>
+
+<p>ok的结果和含义：</p>
+
+<pre><code>- `true`：读到通道数据，不确定是否关闭，可能channel还有保存的数据，但channel已关闭。
+- `false`：通道关闭，无数据读到。
+</code></pre>
+
+<blockquote>
+<p>吞吐极限10,000,000(1千万)</p>
+
+<p>异步接受返回结果</p>
+</blockquote>
+
+<p>针对来一个请求，启动一个groutine来处理，需要拿到返回结果的或者错误结果的</p>
+
+<p>你需要预先创建一个用于处理返回值的公共管道. 然后定义一个一直在读取该管道的函数, 该函数需要预先以单独的goroutine形式启动.</p>
+
+<p>最后当执行到并发任务时, 每个并发任务得到结果后, 都会将结果通过管道传递到之前预先启动的goroutine中.</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-channel/">https://kingjcy.github.io/post/golang/go-channel/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/goroutine/">
+                            <i class="fa fa-tags"></i>
+                            goroutine
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/channel/">
+                            <i class="fa fa-tags"></i>
+                            channel
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-goroutinechannel/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/standard/devlop/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#实现原理">实现原理</a></li>
+<li><a href="#实用场景">实用场景</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

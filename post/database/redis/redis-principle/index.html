@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="redis项目的源码一直是备受赞扬的，其规模小而功能强大以及一些巧妙的技巧，都注定了它是一个值得学习的项目，今天起，我开始阅读redis源码，redis是用c写成的，对于我来说还是比较适合的。但是对于一百多个文件，怎么下手比较好，上网参考了别人的源码解析，最终决定按以下模块顺序阅读：">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Redis Principle - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Redis Principle
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年07月18日 
+                </div>
+                <h1 class="post-title">Redis Principle</h1>
+            </header>
+
+            <div class="post-content">
+                <p>redis项目的源码一直是备受赞扬的，其规模小而功能强大以及一些巧妙的技巧，都注定了它是一个值得学习的项目，今天起，我开始阅读redis源码，redis是用c写成的，对于我来说还是比较适合的。但是对于一百多个文件，怎么下手比较好，上网参考了别人的源码解析，最终决定按以下模块顺序阅读：</p>
+
+<p>struct:（结构体）</p>
+
+<ol>
+<li>adlist.c 用于对list的定义，它是个双向链表结构</li>
+<li>dict.c 主要对于内存中的hash进行管理</li>
+<li>sds.c 用于对字符串的定义</li>
+<li>sparkline.c 一个拥有sample列表的序列</li>
+<li>t_hash.c hash在Server/Client中的应答操作。主要通过redisObject进行类型转换。</li>
+<li>t_list.c list在Server/Client中的应答操作。主要通过redisObject进行类型转换。</li>
+<li>t_set.c  set在Server/Client中的应答操作。主要通过redisObject进行类型转换。</li>
+<li>t_string.c string在Server/Client中的应答操作。主要通过redisObject进行类型转换。</li>
+<li>t_zset.c zset在Server/Client中的应答操作。主要通过redisObject进行类型转换。</li>
+<li>ziplist.c  ziplist是一个类似于list的存储对象。它的原理类似于zipmap。</li>
+<li>zipmap.c  zipmap是一个类似于hash的存储对象。</li>
+</ol>
+
+<p>data:（数据操作）</p>
+
+<ol>
+<li>aof.c 全称为append only file，作用就是记录每次的写操作,在遇到断电等问题时可以用它来恢复数据库状态。</li>
+<li>config.c 用于将配置文件redis.conf文件中的配置读取出来的属性通过程序放到server对象中。</li>
+<li>db.c对于Redis内存数据库的相关操作。</li>
+<li>multi.c用于事务处理操作。</li>
+<li>rdb.c  对于Redis本地数据库的相关操作，默认文件是dump.rdb（通过配置文件获得），包括的操作包括保存，移除，查询等等。</li>
+<li>replication.c 用于主从数据库的复制操作的实现。</li>
+</ol>
+
+<p>tool:（工具）</p>
+
+<ol>
+<li>bitops.c 位操作相关类</li>
+<li>debug.c 用于调试时使用</li>
+<li>endianconv.c 高低位转换，不同系统，高低位顺序不同</li>
+<li>help.h  辅助于命令的提示信息</li>
+<li>lzf_c.c 压缩算法系列</li>
+<li>lzf_d.c  压缩算法系列</li>
+<li>rand.c 用于产生随机数</li>
+<li>release.c 用于发步时使用</li>
+<li>sha1.c sha加密算法的实现</li>
+<li>util.c  通用工具方法</li>
+<li>crc64.c 循环冗余校验</li>
+</ol>
+
+<p>event:（事件）</p>
+
+<ol>
+<li>ae.c 用于Redis的事件处理，包括句柄事件和超时事件。</li>
+<li>ae_epoll.c 实现了epoll系统调用的接口</li>
+<li>ae_evport.c 实现了evport系统调用的接口</li>
+<li>ae_kqueue.c 实现了kqueuex系统调用的接口</li>
+<li>ae_select.c 实现了select系统调用的接口</li>
+</ol>
+
+<p>baseinfo:（基本信息）</p>
+
+<ol>
+<li>asciilogo,c redis的logo显示</li>
+<li>version.h定有Redis的版本号</li>
+</ol>
+
+<p>compatible:（兼容）</p>
+
+<ol>
+<li>fmacros.h 兼容Mac系统下的问题</li>
+<li>solarisfixes.h 兼容solary下的问题</li>
+</ol>
+
+<p>main:（主程序）</p>
+
+<ol>
+<li>redis.c redis服务端程序</li>
+<li>redis_cli.c redis客户端程序</li>
+</ol>
+
+<p>net:（网络）</p>
+
+<ol>
+<li>anet.c 作为Server/Client通信的基础封装</li>
+<li>networking.c 网络协议传输方法定义相关的都放在这个文件里面了。</li>
+</ol>
+
+<p>wrapper:（封装类）</p>
+
+<ol>
+<li>bio.c background I/O的意思，开启后台线程用的</li>
+<li>hyperloglog.c 一种日志类型的</li>
+<li>intset.c  整数范围内的使用set，并包含相关set操作。</li>
+<li>latency.c 延迟类</li>
+<li>migrate.c 命令迁移类，包括命令的还原迁移等</li>
+<li>notify.c 通知类</li>
+<li>object.c  用于创建和释放redisObject对象</li>
+<li>pqsort.c  排序算法类</li>
+<li>pubsub.c 用于订阅模式的实现，有点类似于Client广播发送的方式。</li>
+<li>rio.c redis定义的一个I/O类</li>
+<li>slowlog.c 一种日志类型的，与hyperloglog.c类似</li>
+<li>sort.c 排序算法类，与pqsort.c使用的场景不同</li>
+<li>syncio.c 用于同步Socket和文件I/O操作。</li>
+<li>zmalloc.c 关于Redis的内存分配的封装实现</li>
+</ol>
+
+<p>others:（存放了一些我暂时还不是很清楚的类,所以没有解释了）</p>
+
+<ol>
+<li>scripting.c</li>
+<li>sentinel.c</li>
+<li>setproctitle.c</li>
+<li>valgrind.sh</li>
+<li>redisassert.h</li>
+</ol>
+
+<p>test:（测试）</p>
+
+<ol>
+<li>memtest.c 内存检测</li>
+<li>redis_benchmark.c 用于redis性能测试的实现。</li>
+<li>redis_check_aof.c 用于更新日志检查的实现。</li>
+<li>redis_check_dump.c 用于本地数据库检查的实现。</li>
+<li>testhelp.c 一个C风格的小型测试框架。</li>
+</ol>
+
+<p>这些都是参考网上人家的阅读经验来的，去阅读吧！后续的源码解析直接放在我的github上[<a href="https://github.com/kingjcy">https://github.com/kingjcy</a>]</p>
+
+<p>先看无关逻辑的结构体实现</p>
+
+<ol>
+<li><p>链表adlist.c adlist.h</p></li>
+
+<li><p>哈希dict.c dict.h</p></li>
+
+<li><p>字符串sds.c sds.h</p>
+
+<p>先定义字符串sds 其实就是char * 然后通过结构体sdshdr来完成对字符串的各种操作，其实就是string类型的c实现模式，其中的结构体成员就是对应的string的属性。其中用到goto清理内存，以及动态分配内存，指针的各种使用方法对应的c基础库函数的使用都值得学习。</p></li>
+</ol>
+
+<p>实现</p>
+
+<p>Redis数据结构定义</p>
+
+<p>1、哈希表</p>
+
+<p>哈希表的结构定义在 dict.h/dictht ：</p>
+
+<pre><code>typedef struct dictht {
+    dictEntry **table;             // 哈希表数组
+    unsigned long size;            // 哈希表数组的大小
+    unsigned long sizemask;        // 用于映射位置的掩码，值永远等于(size-1)
+    unsigned long used;            // 哈希表已有节点的数量
+} dictht;
+table 是一个数组，数组的每个元素都是一个指向 dict.h/dictEntry 结构的指针；
+
+size 记录哈希表的大小，即 table 数组的大小，且一定是2的幂；
+
+used 记录哈希表中已有结点的数量；
+
+sizemask 用于对哈希过的键进行映射，索引到 table 的下标中，且值永远等于 size-1。具体映射方法很简单，就是对 哈希值 和 sizemask 进行位与操作，由于 size 一定是2的幂，所以 sizemask=size-1，自然它的二进制表示的每一个位(bit)都是1，等同于上文提到的取模；
+</code></pre>
+
+<p>如图所示，为一个长度为8的空哈希表</p>
+
+<p><img src="/media/database/redis/hash.png" alt="" /></p>
+
+<p>2、哈希表节点</p>
+
+<p>哈希表节点用 dict.h/dictEntry 结构表示，每个 dictEntry 结构存储着一个键值对，且存有一个 next 指针来保持链表结构：</p>
+
+<pre><code>typedef struct dictEntry {
+    void *key;                  // 键
+    union {                     // 值
+        void *val;
+        uint64_t u64;
+        int64_t s64;
+        double d;
+    } v;
+    struct dictEntry *next;     // 指向下一个哈希表节点，形成单向链表
+} dictEntry;
+
+key 是键值对中的键；
+
+v 是键值对中的值，它是一个联合类型，方便存储各种结构；
+
+next 是链表指针，指向下一个哈希表节点，他将多个哈希值相同的键值对串联在一起，用于解决键冲突；
+</code></pre>
+
+<p>如图所示，两个dictEntry 的 key 分别是 k0 和 k1，通过某种哈希算法计算出来的哈希值和 sizemask 进行位与运算后都等于 3，所以都被放在了 table 数组的 3号槽中，并且用 next 指针串联起来。</p>
+
+<p><img src="/media/database/redis/hash2.png" alt="" /></p>
+
+<p>3、字典</p>
+
+<p>Redis中字典结构由 dict.h/dict 表示：</p>
+
+<pre><code>typedef struct dict {
+    dictType *type;                        // 和类型相关的处理函数
+    void *privdata;                        // 上述类型函数对应的可选参数
+    dictht ht[2];                          // 两张哈希表，ht[0]为原生哈希表，ht[1]为 rehash 哈希表
+    long rehashidx;                        // 当等于-1时表示没有在 rehash，否则表示 rehash 的下标
+    int iterators;                         // 迭代器数量(暂且不谈)
+} dict;
+     
+type 是一个指向 dict.h/dictType 结构的指针，保存了一系列用于操作特定类型键值对的函数；
+
+privdata 保存了需要传给上述特定函数的可选参数；
+
+ht 是两个哈希表，一般情况下，只使用ht[0]，只有当哈希表的键值对数量超过负载(元素过多)时，才会将键值对迁移到ht[1]，这一步迁移被称为 rehash (重哈希)，rehash 会在下文进行详细介绍；
+
+rehashidx 由于哈希表键值对有可能很多很多，所以 rehash 不是瞬间完成的，需要按部就班，那么 rehashidx 就记录了当前 rehash 的进度，当 rehash 完毕后，将 rehashidx 置为-1；
+</code></pre>
+
+<p>4、类型处理函数</p>
+
+<p>类型处理函数全部定义在 dict.h/dictType 中：</p>
+
+<pre><code>typedef struct dictType {
+    unsigned int (*hashFunction)(const void *key);                                         // 计算哈希值的函数
+    void *(*keyDup)(void *privdata, const void *key);                                      // 复制键的函数
+    void *(*valDup)(void *privdata, const void *obj);                                      // 复制值的函数
+    int (*keyCompare)(void *privdata, const void *key1, const void *key2);                 // 比较键的函数
+    void (*keyDestructor)(void *privdata, void *key);                                      // 销毁键的函数
+    void (*valDestructor)(void *privdata, void *obj);                                      // 销毁值的函数
+} dictType;
+</code></pre>
+
+<p>以上的函数和特定类型相关，主要是为了实现多态，看到这个如果懵逼也没关系，下面会一一对其进行介绍。</p>
+
+<p>三、哈希函数
+     
+类型处理函数中的第一个函数 hashFunction 就是计算某个键的哈希值的函数，对于不同类型的 key，哈希值的计算是不同的，所以在字典进行创建的时候，需要指定哈希函数。</p>
+
+<p>哈希函数可以简单的理解为就是小学课本上那个函数，即y = f(x)，这里的 f(x)就是哈希函数，x是键，y就是哈希值。好的哈希函数应该具备以下两个特质：
+     
+1、可逆性；
+2、雪崩效应：输入值(x)的1位(bit)的变化，能够造成输出值(y)1/2的位(bit)的变化；
+       
+可逆性很容易理解，来看两个图。图(a)中已知哈希值 y 时，键 x 可能有两种情况，所以显然是不可逆的；而图(b)中已知哈希值 y 时，键 x 一定是唯一确定的，所以它是可逆的。从图中看出，函数可逆的好处是：减少冲突。由于 x 和 y 一一对应，所以在没有取模之前，至少是没有冲突的，这样就从本原上减少了冲突。</p>
+
+<p>雪崩效应是为了让哈希值更加符合随机分布的原则，哈希表中的键分布的越随机，利用率越高，效率也越高。</p>
+
+<p>Redis源码中提供了一些哈希函数的实现：</p>
+
+<p>1、整数哈希</p>
+
+<pre><code>unsigned int dictIntHashFunction(unsigned int key)
+{
+    key += ~(key &lt;&lt; 15);
+    key ^=  (key &gt;&gt; 10);
+    key +=  (key &lt;&lt; 3);
+    key ^=  (key &gt;&gt; 6);
+    key += ~(key &lt;&lt; 11);
+    key ^=  (key &gt;&gt; 16);
+    return key;
+}
+</code></pre>
+
+<p>2、字符串哈希</p>
+
+<pre><code>unsigned int dictGenCaseHashFunction(const unsigned char *buf, int len) {
+    unsigned int hash = (unsigned int)dict_hash_function_seed;
+    while (len--)
+        hash = ((hash &lt;&lt; 5) + hash) + (tolower(*buf++)); /* hash * 33 + c */
+    return hash;
+}
+</code></pre>
+
+<p>这些哈希函数是前人经过一系列的实验，科学计算总结得出来的，我们只需要知道有这么些函数就行了。当字典被用作数据库的底层实现， 或者哈希键的底层实现时， Redis 使用 MurmurHash2 算法来计算键的哈希值。MurmurHash 算法最初由 Austin Appleby 于 2008 年发明， 这种算法的优点在于， 即使输入的键是有规律的， 算法仍能给出一个很好的随机分布性， 并且算法的计算速度也非常快。</p>
+
+<p> 
+四、哈希算法</p>
+
+<p>1、索引 </p>
+
+<p>当要将一个新的键值对添加到字典里面或者通过键查找值的时候都需要执行哈希算法，主要是获得一个需要插入或者查找的dictEntry 所在下标的索引，具体算法如下：</p>
+
+<p>1、通过宏 dictHashKey 计算得到该键对应的哈希值</p>
+
+<pre><code>#define dictHashKey(d, key) (d)-&gt;type-&gt;hashFunction(key)
+</code></pre>
+
+<p>2、将哈希值和哈希表的 sizemask 属性做位与，得到索引值 index，其中 ht[x] 可以是 ht[0] 或者 ht[1]</p>
+
+<pre><code>index = dictHashKey(d, key) &amp; d-&gt;ht[x].sizemask;
+</code></pre>
+
+<p>2、冲突解决</p>
+
+<p>哈希的冲突一定发生在键值对插入时，插入的  API 是 dict.c/dictAddRaw：</p>
+
+<pre><code>dictEntry *dictAddRaw(dict *d, void *key)
+{
+    int index;
+    dictEntry *entry;
+    dictht *ht;
+    if (dictIsRehashing(d)) _dictRehashStep(d);               // 1、执行rehash
+    if ((index = _dictKeyIndex(d, key)) == -1)                // 2、索引定位
+        return NULL;
+    ht = dictIsRehashing(d) ? &amp;d-&gt;ht[1] : &amp;d-&gt;ht[0];          // 3、根据是否 rehash ，选择哈希表
+    entry = zmalloc(sizeof(*entry));                          // 4、分配内存空间，执行插入
+    entry-&gt;next = ht-&gt;table[index];
+    ht-&gt;table[index] = entry;
+    ht-&gt;used++;
+    dictSetKey(d, entry, key);                                // 5、设置键
+    return entry;
+}
+</code></pre>
+
+<p>       
+1、判断当前的字典是否在进行 rehash，如果是，则执行一步 rehash，否则忽略。判断 rehash 的依据就是 rehashidx 是否为 -1；
+       
+2、通过 _dictKeyIndex 找到一个索引，如果返回-1表明字典中已经存在相同的 key，具体参见接下来要讲的 索引定位；
+       
+3、根据是否在 rehash 选择对应的哈希表；
+       
+4、分配哈希表节点 dictEntry 的内存空间，执行插入，插入操作始终在链表头插入，这样可以保证每次的插入操作的时间复杂度一定是 O(1) 的，插入完毕，used属性自增；
+       
+5、dictSetKey 是个宏，调用字典处理函数中的 keyDup 函数进行键的复制；</p>
+
+<p> 
+3、索引定位</p>
+
+<p>插入时还需要进行索引定位，以确定节点要插入到哈希表的哪个位置，实现在静态函数 dict.c/_dictKeyIndex 中：</p>
+
+<pre><code>static int _dictKeyIndex(dict *d, const void *key)
+{
+    unsigned int h, idx, table;
+    dictEntry *he;
+
+    if (_dictExpandIfNeeded(d) == DICT_ERR)                            // 1、rehash 判断
+        return -1;
+    h = dictHashKey(d, key);                                           // 2、哈希函数计算哈希值
+    for (table = 0; table &lt;= 1; table++) {
+        idx = h &amp; d-&gt;ht[table].sizemask;                               // 3、哈希算法计算索引值
+        he = d-&gt;ht[table].table[idx];
+        while(he) {
+            if (key==he-&gt;key || dictCompareKeys(d, key, he-&gt;key))      // 4、查找键是否已经存在
+                return -1;
+            he = he-&gt;next;
+        }
+        if (!dictIsRehashing(d)) break;                                // 5、rehash 判断
+    }
+    return idx;
+}
+       1、判断当前哈希表是否需要进行扩展，具体参见接下来要讲的 rehash；
+       2、利用给定的哈希函数计算键的哈希值；
+       3、通过位与计算索引，即插入到哈希表的哪个槽位中；
+
+       4、查找当前槽位中的链表里是否已经存在该键，如果存在直接返回 -1；这里的 dictCompareKeys 也是一个宏，用到了keyCompare 这个比较键的函数；
+       5、这个判断比较关键，如果当前没有在做 rehash，那么 ht[1] 必然是一个空表，所以不能遍历 ht[1]，需要及时跳出循环；
+</code></pre>
+
+<p>五、rehash
+     
+千呼万唤始出来，提到了这么多次的 rehash 终于要开讲了。其实没有想象中的那么复杂，随着字典操作的不断执行，哈希表保存的键值对会不断增多（或者减少），为了让哈希表的负载因子维持在一个合理的范围之内，当哈希表保存的键值对数量太多或者太少时，需要对哈希表大小进行扩展或者收缩。</p>
+
+<p>1、负载因子</p>
+
+<p>这里提到了一个负载因子，其实就是当前已使用结点数量除上哈希表的大小，即：</p>
+
+<p>load_factor = ht[0].used / ht[0].size
+     
+2、哈希表扩展</p>
+
+<p>       1、当哈希表的负载因子大于5时，为 ht[1] 分配空间，大小为第一个大于等于 ht[0].used * 2 的 2 的幂；</p>
+
+<p>       2、将保存在 ht[0] 上的键值对 rehash 到 ht[1] 上，rehash 就是重新计算哈希值和索引，并且重新插入到 ht[1] 中，插入一个删除一个；</p>
+
+<p>       3、当 ht[0] 包含的所有键值对全部 rehash 到 ht[1] 上后，释放 ht[0] 的控件， 将 ht[1] 设置为 ht[0]，并且在 ht[1] 上新创件一个空的哈希表，为下一次 rehash 做准备；</p>
+
+<p>       Redis 中 实现哈希表扩展调用的是 dict.c/_dictExpandIfNeeded 函数：</p>
+
+<pre><code>static int _dictExpandIfNeeded(dict *d)
+{
+    if (dictIsRehashing(d)) return DICT_OK;
+    if (d-&gt;ht[0].size == 0) return dictExpand(d, DICT_HT_INITIAL_SIZE);          // 大小为0需要设置初始哈希表大小为4
+    if (d-&gt;ht[0].used &gt;= d-&gt;ht[0].size &amp;&amp;
+        (dict_can_resize ||
+         d-&gt;ht[0].used/d-&gt;ht[0].size &gt; dict_force_resize_ratio))                 // 负载因子超过5，执行 dictExpand
+    {
+        return dictExpand(d, d-&gt;ht[0].used*2);
+    }
+    return DICT_OK;
+}
+</code></pre>
+
+<p>3、哈希表收缩</p>
+
+<p>       哈希表的收缩，同样是为 ht[1] 分配空间， 大小等于 max( ht[0].used, DICT_HT_INITIAL_SIZE )，然后和扩展做同样的处理即可。</p>
+
+<p>六、渐进式rehash
+       
+扩展或者收缩哈希表的时候，需要将 ht[0] 里面所有的键值对 rehash 到 ht[1] 里，当键值对数量非常多的时候，这个操作如果在一帧内完成，大量的计算很可能导致服务器宕机，所以不能一次性完成，需要渐进式的完成。
+       
+渐进式 rehash 的详细步骤如下：
+       
+1、为 ht[1] 分配指定空间，让字典同时持有 ht[0] 和 ht[1] 两个哈希表；
+       
+2、将 rehashidx 设置为0，表示正式开始 rehash，前两步是在 dict.c/dictExpand 中实现的：</p>
+
+<pre><code>int dictExpand(dict *d, unsigned long size)
+{
+    dictht n;
+    unsigned long realsize = _dictNextPower(size);                      // 找到比size大的最小的2的幂
+    if (dictIsRehashing(d) || d-&gt;ht[0].used &gt; size)
+        return DICT_ERR;
+    if (realsize == d-&gt;ht[0].size) return DICT_ERR;
+
+    n.size = realsize;                                                 // 给ht[1]分配 realsize 的空间
+    n.sizemask = realsize-1;
+    n.table = zcalloc(realsize*sizeof(dictEntry*));
+    n.used = 0;
+    if (d-&gt;ht[0].table == NULL) {                                      // 处于初始化阶段
+        d-&gt;ht[0] = n;
+        return DICT_OK;
+    }
+    d-&gt;ht[1] = n;
+    d-&gt;rehashidx = 0;                                                  // rehashidx 设置为0，开始渐进式 rehash
+    return DICT_OK;
+}
+ 
+</code></pre>
+
+<p>       
+3、在进行 rehash 期间，每次对字典执行 增、删、改、查操作时，程序除了执行指定的操作外，还会将 哈希表 ht[0].table中下标为 rehashidx 位置上的所有的键值对 全部迁移到 ht[1].table 上，完成后 rehashidx 自增。这一步就是 rehash 的关键一步。为了防止 ht[0] 是个稀疏表 （遍历很久遇到的都是NULL），从而导致函数阻塞时间太长，这里引入了一个 “最大空格访问数”，也即代码中的 enmty_visits，初始值为 n*10。当遇到NULL的数量超过这个初始值直接返回。</p>
+
+<p>       
+这一步实现在 dict.c/dictRehash 中：</p>
+
+<pre><code>int dictRehash(dict *d, int n) {
+    int empty_visits = n*10;
+    if (!dictIsRehashing(d)) return 0;
+
+    while(n-- &amp;&amp; d-&gt;ht[0].used != 0) {
+        dictEntry *de, *nextde;
+
+        assert(d-&gt;ht[0].size &gt; (unsigned long)d-&gt;rehashidx);
+        while(d-&gt;ht[0].table[d-&gt;rehashidx] == NULL) {
+            d-&gt;rehashidx++;
+            if (--empty_visits == 0) return 1;                                      // 设置一个空访问数量 为 n*10
+        }
+        de = d-&gt;ht[0].table[d-&gt;rehashidx];                                          // dictEntry的迁移
+        while(de) {
+            unsigned int h;
+            nextde = de-&gt;next;
+            h = dictHashKey(d, de-&gt;key) &amp; d-&gt;ht[1].sizemask;
+            de-&gt;next = d-&gt;ht[1].table[h];
+            d-&gt;ht[1].table[h] = de;
+            d-&gt;ht[0].used--;
+            d-&gt;ht[1].used++;
+            de = nextde;
+        }
+        d-&gt;ht[0].table[d-&gt;rehashidx] = NULL;
+        d-&gt;rehashidx++;                                                            // 完成一次 rehash
+    }
+
+    if (d-&gt;ht[0].used == 0) {                                                      // 迁移完毕，rehashdix 置为 -1
+        zfree(d-&gt;ht[0].table);
+        d-&gt;ht[0] = d-&gt;ht[1];
+        _dictReset(&amp;d-&gt;ht[1]);
+        d-&gt;rehashidx = -1;
+        return 0;
+    }
+    return 1;
+}
+</code></pre>
+
+<p>     
+4、最后，当 ht[0].used 变为0时，代表所有的键值对都已经从 ht[0] 迁移到 ht[1] 了，释放 ht[0].table， 并且将 ht[0] 设置为 ht[1]，rehashidx 标记为 -1 代表 rehash 结束。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/database/redis/redis-principle/">https://kingjcy.github.io/post/database/redis/redis-principle/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags//">
+                            <i class="fa fa-tags"></i>
+                            
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-unsafe/">Go Unsafe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-text/">Go Text</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-plugin/">Go Plugin</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-mine/">Go Mine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-internal/">Go Internal</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-index/">Go Index</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-image/">Go Image</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-html/">Go Html</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-hash/">Go Hash</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-go/">Go Go</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/linux/tool/install-application/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/linux/centos/centos-kernel-update/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

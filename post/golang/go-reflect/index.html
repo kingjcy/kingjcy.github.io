@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="反射规则
+
+在计算机科学领域，反射是指一类应用，它们能够自描述和自控制。也就是说，这类应用通过采用某种机制来实现对自己行为的描述（self-representation）和监测（examination），并能根据自身行为的状态和结果，调整或修改应用所描述行为的状态和相关的语义。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Go Reflect - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Go Reflect
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年07月22日 
+                </div>
+                <h1 class="post-title">Go Reflect</h1>
+            </header>
+
+            <div class="post-content">
+                <p>反射规则</p>
+
+<p>在计算机科学领域，反射是指一类应用，它们能够自描述和自控制。也就是说，这类应用通过采用某种机制来实现对自己行为的描述（self-representation）和监测（examination），并能根据自身行为的状态和结果，调整或修改应用所描述行为的状态和相关的语义。</p>
+
+<p>Go语言实现了反射，所谓反射就是动态运行时的状态，为什么用反射？</p>
+
+<pre><code>为了降低多写代码造成的bug率，做更好的归约和抽象。
+为了灵活、好用、方便，做动态解析、调用和处理。
+为了代码好看、易读、提高开发效率，补足与动态语言之间的一些差别
+</code></pre>
+
+<h2 id="reflect">reflect</h2>
+
+<p>reflect库的godoc在<a href="http://golang.org/pkg/reflect/">http://golang.org/pkg/reflect/</a></p>
+
+<p>先直接看一个实例</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;reflect&quot;
+)
+
+type MyStruct struct {
+    name string
+}
+
+func (this *MyStruct) GetName(str string) string {
+    this.name = str
+    return this.name
+}
+
+func main() {
+
+    // 备注: reflect.Indirect -&gt; 如果是指针则返回 Elem()
+    // 首先，reflect包有两个数据类型我们必须知道，一个是Type，一个是Value。
+    // Type就是定义的类型的一个数据类型，Value是值的类型
+
+    // 对象
+    s := &quot;this is string&quot;
+
+    // 获取对象类型 (string)
+    fmt.Println(reflect.TypeOf(s))
+
+    // 获取对象值 (this is string)
+    fmt.Println(reflect.ValueOf(s))
+
+    // 对象
+    var x float64 = 3.4
+
+    // 获取对象值 (&lt;float64 Value&gt;)
+    fmt.Println(reflect.ValueOf(x))
+
+    // 对象
+    a := &amp;MyStruct{name: &quot;nljb&quot;}
+
+    // 返回对象的方法的数量 (1)
+    fmt.Println(reflect.TypeOf(a).NumMethod())
+
+    // 遍历对象中的方法
+    for m := 0; m &lt; reflect.TypeOf(a).NumMethod(); m++ {
+        method := reflect.TypeOf(a).Method(m)
+        fmt.Println(method.Type)         // func(*main.MyStruct) string
+        fmt.Println(method.Name)         // GetName
+        fmt.Println(method.Type.NumIn()) // 参数个数
+        fmt.Println(method.Type.In(1))   // 参数类型
+    }
+
+    // 获取对象值 (&lt;*main.MyStruct Value&gt;)
+    fmt.Println(reflect.ValueOf(a))
+
+    // 获取对象名称
+    fmt.Println(reflect.Indirect(reflect.ValueOf(a)).Type().Name())
+
+    // 参数
+    i := &quot;Hello&quot;
+    v := make([]reflect.Value, 0)
+    v = append(v, reflect.ValueOf(i))
+
+    // 通过对象值中的方法名称调用方法 ([nljb]) (返回数组因为Go支持多值返回)
+    fmt.Println(reflect.ValueOf(a).MethodByName(&quot;GetName&quot;).Call(v))
+
+    // 通过对值中的子对象名称获取值 (nljb)
+    fmt.Println(reflect.Indirect(reflect.ValueOf(a)).FieldByName(&quot;name&quot;))
+
+    // 是否可以改变这个值 (false)
+    fmt.Println(reflect.Indirect(reflect.ValueOf(a)).FieldByName(&quot;name&quot;).CanSet())
+
+    // 是否可以改变这个值 (true)
+    fmt.Println(reflect.Indirect(reflect.ValueOf(&amp;(a.name))).CanSet())
+
+    // 不可改变 (false)
+    fmt.Println(reflect.Indirect(reflect.ValueOf(s)).CanSet())
+
+    // 可以改变
+    // reflect.Indirect(reflect.ValueOf(&amp;s)).SetString(&quot;jbnl&quot;)
+    fmt.Println(reflect.Indirect(reflect.ValueOf(&amp;s)).CanSet())
+
+}
+</code></pre>
+
+<p>运行结果</p>
+
+<pre><code>chunyindeMacBook-Pro:test chunyinjiang$ go run reflect.go
+string
+this is string
+3.4
+1
+func(*main.MyStruct, string) string
+GetName
+2
+string
+&amp;{nljb}
+MyStruct
+[Hello]
+Hello
+false
+true
+false
+true
+</code></pre>
+
+<p>reflect包有两个数据类型我们必须知道，一个是Type，一个是Value。</p>
+
+<p>Type就是定义的类型的一个数据类型，Value是值的类型</p>
+
+<h3 id="常规使用">常规使用</h3>
+
+<p>反射仅是一种用来检测存储在接口变量内部(值value,实例类型concret type)pair对的一种机制。
+在reflect反射包中有两种类型让我们可以访问接口变量内容</p>
+
+<pre><code>reflect.ValueOf()
+// ValueOf returns a new Value initialized to the concrete value
+// stored in the interface i.  ValueOf(nil) returns the zero Value.
+func ValueOf(i interface{}) Value {...}
+reflect.TypeOf()
+// TypeOf returns the reflection Type that represents the dynamic type of i.
+// If i is a nil interface value, TypeOf returns nil.
+func TypeOf(i interface{}) Type {...}
+</code></pre>
+
+<p>案例：</p>
+
+<pre><code>package main
+
+import (
+    &quot;reflect&quot;
+    &quot;fmt&quot;
+)
+
+type ControllerInterface interface {
+    Init(action string, method string)
+}
+
+type Controller struct {
+    Action string
+    Method string
+    Tag string `json:&quot;tag&quot;`
+}
+
+func (c *Controller) Init(action string, method string){
+    c.Action = action
+    c.Method = method
+}
+
+func main(){
+    //初始化
+    runController := &amp;Controller{
+        Action:&quot;Run1&quot;,
+        Method:&quot;GET&quot;,
+    }
+
+    //Controller实现了ControllerInterface方法,因此它就实现了ControllerInterface接口
+    var i ControllerInterface
+    i = runController
+
+    // 得到实际的值,通过v我们获取存储在里面的值,还可以去改变值
+    v := reflect.ValueOf(i)
+    fmt.Println(&quot;value:&quot;,v)
+
+    // 得到类型的元数据,通过t我们能获取类型定义里面的所有元素
+    t := reflect.TypeOf(i)
+    fmt.Println(&quot;type:&quot;,t)
+
+    // 转化为reflect对象之后我们就可以进行一些操作了,也就是将reflect对象转化成相应的值
+    ......
+
+}
+v 是i接口为指向main包下struct Controller的指针(runController)目前的所存储值
+t 是i接口为指向main包下struct Controller的指针类型。
+
+打印结果：
+value: &amp;{Run1 GET}
+type: *main.Controller
+</code></pre>
+
+<h3 id="其他使用">其他使用</h3>
+
+<ol>
+<li><p>reflect.Indirect -&gt; 如果是指针则返回 Elem()</p></li>
+
+<li><p>接口</p></li>
+</ol>
+
+<p>接口i所指向的对象的值操作</p>
+
+<pre><code>// Elem返回值v包含的接口 
+controllerValue := v.Elem() 
+fmt.Println(&quot;controllerType(reflect.Value):&quot;,controllerType)
+//获取存储在第一个字段里面的值
+fmt.Println(&quot;Action:&quot;, controllerValue.Field(0).String())
+
+
+返回
+controllerType(reflect.Value): {Run1 GET }
+Action: Run1
+
+
+// Elem返回类型的元素类型。
+controllerType := t.Elem()  
+tag := controllerType.Field(2).Tag //Field(第几个字段,index从0开始)
+fmt.Println(&quot;Tag:&quot;, tag)
+
+返回
+Tag: json:”tag”
+</code></pre>
+
+<p>还可以取指针的元素</p>
+
+<p>Go语言程序中对指针获取反射对象时，可以通过 reflect.Elem() 方法获取这个指针指向的元素类型。这个获取过程被称为取元素，等效于对指针类型变量做了一个*操作，代码如下：</p>
+
+<pre><code>package main
+import (
+    &quot;fmt&quot;
+    &quot;reflect&quot;
+)
+func main() {
+    // 声明一个空结构体
+    type cat struct {
+    }
+    // 创建cat的实例
+    ins := &amp;cat{}
+    // 获取结构体实例的反射类型对象
+    typeOfCat := reflect.TypeOf(ins)
+    // 显示反射类型对象的名称和种类
+    fmt.Printf(&quot;name:'%v' kind:'%v'\n&quot;,typeOfCat.Name(), typeOfCat.Kind())
+    // 取类型的元素
+    typeOfCat = typeOfCat.Elem()
+    // 显示反射类型对象的名称和种类
+    fmt.Printf(&quot;element name: '%v', element kind: '%v'\n&quot;, typeOfCat.Name(), typeOfCat.Kind())
+}
+代码输出如下：
+name: ''  kind: 'ptr'
+element name: 'cat', element kind: 'struct'
+</code></pre>
+
+<p>代码说明如下：</p>
+
+<pre><code>第 15 行，创建了cat结构体的实例，ins 是一个 *cat 类型的指针变量。
+第 18 行，对指针变量获取反射类型信息。
+第 21 行，输出指针变量的类型名称和种类。Go 语言的反射中对所有指针变量的种类都是 Ptr，但注意，指针变量的类型名称是空，不是 *cat。
+第 24 行，取指针类型的元素类型，也就是 cat 类型。这个操作不可逆，不可以通过一个非指针类型获取它的指针类型。
+第 27 行，输出指针变量指向元素的类型名称和种类，得到了 cat 的类型名称（cat）和种类（struct）。
+</code></pre>
+
+<ol>
+<li>对象方法</li>
+</ol>
+
+<p>获取对象方法的信息</p>
+
+<pre><code>method, _ := t.MethodByName(&quot;Init&quot;)
+fmt.Println(method)
+打印结果：
+{Init  func(*main.Controller, string, string) &lt;func(*main.Controller, string, string) Value&gt; 0}
+
+
+也可以
+
+vMethod := v.MethodByName(&quot;Init&quot;)
+fmt.Println(vMethod)
+</code></pre>
+
+<p>可以直接调用对应结构体方法</p>
+
+<ol>
+<li>类型</li>
+</ol>
+
+<p>可以通过Kind函数来检查类型，</p>
+
+<p>fmt.Println(&ldquo;Kind:  &ldquo;, reflect.ValueOf(x).Kind())
+fmt.Println(&ldquo;Kind is Int? &ldquo;, reflect.ValueOf(x).Kind() == reflect.int)
+Kind:   int
+Kind is Int?  true</p>
+
+<p>常用类型</p>
+
+<pre><code>type Kind uint
+
+const (
+    Invalid Kind = iota
+    Bool
+    Int
+    Int8
+    Int16
+    Int32
+    Int64
+    Uint
+    Uint8
+    Uint16
+    Uint32
+    Uint64
+    Uintptr
+    Float32
+    Float64
+    Complex64
+    Complex128
+    Array
+    Chan
+    Func
+    Interface
+    Map
+    Ptr             //如果是指针，则获取其所指向的元素
+    Slice
+    String
+    Struct
+    UnsafePointer
+)
+</code></pre>
+
+<ol>
+<li>接口转换</li>
+</ol>
+
+<p>通过Interface函数可以实现反射对象到接口值的转换，</p>
+
+<pre><code>func (v Value) Interface() interface {}
+// Interface 以 interface{} 返回 v 的值
+y := v.Interface().(float64)
+fmt.Println(y)
+</code></pre>
+
+<ol>
+<li>修改反射对象</li>
+</ol>
+
+<p>修改反射对象的前提条件是其值必须是可设置的</p>
+
+<pre><code>var x float64 = 3.4
+v := reflect.ValueOf(x)
+v.SetFloat(7.3) // Error: panic
+</code></pre>
+
+<p>为了避免这个问题，需要使用CanSet函数来检查该值的设置性，</p>
+
+<pre><code>var x float64 = 3.4
+v := reflect.ValueOf(x)
+fmt.Println(&quot;settability of v: &quot;, v.CanSet())   //  settability of v: false
+</code></pre>
+
+<p>那么如何才能设置该值呢？</p>
+
+<p>这里需要考虑一个常见的问题，参数传递，传值还是传引用或地址？</p>
+
+<p>在上面的例子中，我们使用的是reflect.ValueOf(x)，这是一个值传递，传递的是x的值的一个副本，不是x本身，因此更新副本中的值是不允许的。如果使用reflect.ValueOf(&amp;x)来获取地址，然后获取内容元素来替换刚才的值传递，就可以实现值的修改。</p>
+
+<pre><code>var x float64 = 3.4
+p := reflect.ValueOf(&amp;x) // 获取x的地址
+fmt.Println(&quot;settability of p: &quot;, p.CanSet())
+v := p.Elem()
+fmt.Println(&quot;settability of v: &quot;, v.CanSet())
+v.SetFloat(7.1)
+fmt.Println(v.Interface())
+fmt.Println(x)
+
+输出
+settability of p: false
+settability of v: true
+7.1
+7.1
+</code></pre>
+
+<ol>
+<li>结构体基本操作以及获取结构体标签</li>
+</ol>
+
+<p>首先介绍如何遍历结构体字段内容，</p>
+
+<p>假设结构体如下，</p>
+
+<pre><code>type T struct {
+    A int
+    B string
+}
+
+t := T{12, &quot;skidoo&quot;}
+</code></pre>
+
+<p>从而，通过反射来遍历所有的字段内容</p>
+
+<pre><code>s := reflect.ValueOf(&amp;t).Elem()
+typeOfT := s.Type()
+for i := 0; i &lt; s.NumField(); i++ {
+    f := s.Field(i)
+    fmt.Printf(&quot;%d %s %s = %v\n&quot;, i, typeOfT.Field(i).Name, f.Type(), f.Interface())
+}
+
+0 A int = 23
+1 B string = skidoo
+</code></pre>
+
+<p>接下来，如何获取结构体的标签内容?</p>
+
+<p>func main() {
+    type S struct {
+        F string <code>species:&quot;gopher&quot; color:&quot;blue&quot;</code>
+    }</p>
+
+<pre><code>s := S{}
+st := reflect.TypeOf(s)
+field := st.Field(0)
+fmt.Println(field.Tag.Get(&quot;color&quot;), field.Tag.Get(&quot;species&quot;))
+</code></pre>
+
+<p>}</p>
+
+<ol>
+<li><p>struct 嵌套结构遍历</p>
+
+<p>package main</p>
+
+<p>import (
+    &ldquo;reflect&rdquo;
+    &ldquo;fmt&rdquo;
+)</p>
+
+<p>type User struct {
+    Id int
+    Name string
+    Address Address
+}</p>
+
+<p>type Address struct {
+    Add string
+    Res int
+}</p>
+
+<p>func main(){
+    u := User{Id:1001, Name:&ldquo;aaa&rdquo; , Address:Address{Add:&ldquo;ccccccccc&rdquo;, Res:12}}
+    t := reflect.TypeOf(u)
+    v := reflect.ValueOf(u)
+    for i := 0; i &lt; v.NumField(); i++ {
+        if v.Field(i).CanInterface() {  //判断是否为可导出字段</p>
+
+<pre><code>        //判断是否是嵌套结构
+        if v.Field(i).Type().Kind() == reflect.Struct{
+            structField := v.Field(i).Type()
+            for j :=0 ; j&lt; structField.NumField(); j++ {
+                fmt.Printf(&quot;%s %s = %v -tag:%s \n&quot;,
+                    structField.Field(j).Name,
+                    structField.Field(j).Type,
+                    v.Field(i).Field(j).Interface(),
+                    structField.Field(j).Tag)
+            }
+            continue
+        }
+
+        fmt.Printf(&quot;%s %s = %v -tag:%s \n&quot;,
+            t.Field(i).Name,
+            t.Field(i).Type,
+            v.Field(i).Interface(),
+            t.Field(i).Tag)
+    }
+
+}
+</code></pre>
+
+<p>}</p>
+
+<p>//结果
+Id int = 1001 -tag:
+Name string = aaa -tag:
+Add string = ccccccccc -tag:
+Res int = 12 -tag:</p></li>
+</ol>
+
+<p>func Field(i int) StructField //使用索引来访问字段，索引从0开始，如果越界将panic</p>
+
+<p>func FieldByName(name string) (StructField,bool) //使用名称来访问字段，如果未找到那么返回false</p>
+
+<p>func FieldByNameFunc(match func(string) bool) (StructField,bool) //访问名称使得match函数返回true的字段，在同一个内嵌层次上，只能有一个字段使得match返回true。如果同一层次上多个字段使得match返回true，那么这些字段都认为是不符合要求的</p>
+
+<p>func FieldByIndex(index []int) StructField //这个方法使得访问结构的内嵌字段成为可能。将访问各个层次的字段的索引排列起来，就形成了一个[]int，参数index不可越界，否则panic</p>
+
+<p>note</p>
+
+<p>go语言里面struct里面变量如果大写则是public,如果是小写则是private的，private的时候通过反射不能获取其值</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-reflect/">https://kingjcy.github.io/post/golang/go-reflect/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/reflect/">
+                            <i class="fa fa-tags"></i>
+                            reflect
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-io/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/linux/tool/install-application/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li><a href="#reflect">reflect</a>
+<ul>
+<li><a href="#常规使用">常规使用</a></li>
+<li><a href="#其他使用">其他使用</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

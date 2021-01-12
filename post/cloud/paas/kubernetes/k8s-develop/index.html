@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="自定义控制器  总结
+ k8s自定义controller开发的整个过程：
+1、创建自定义API对象CRD（Custom Resource Definition），令k8s明白我们自定义的API对象； 2、编写代码，将CRD的情况写入对应的代码中，然后通过自动代码生成工具，将controller之外的informer，client等内容较为固定的代码通过工具生成； 3、编写controller，在里面判断实际情况是否达到了API对象的声明情况，如果未达到，就要进行实际业务处理，而这也是controller的通用做法；  实际编码过程并不复杂，动手编写的文件如下：
+├── controller.go ├── main.go └── pkg ├── apis │ └── bolingcavalry │ ├── register.go │ └── v1 │ ├── doc.go │ ├── register.go │ └── types.go └── signals ├── signal.go ├── signal_posix.go └── signal_windows.go  以上就是k8s自定义controller的整个开发过程。
+ 定义CRD
+ 创建student.yaml文件
+apiVersion: apiextensions.k8s.io/v1beta1 kind: CustomResourceDefinition metadata: # metadata.name的内容是由&quot;复数名.分组名&quot;构成，如下，students是复数名，bolingcavalry.k8s.io是分组名 name: students.bolingcavalry.k8s.io spec: # 分组名，在REST API中也会用到的，格式是: /apis/分组名/CRD版本 group: bolingcavalry.k8s.io # list of versions supported by this CustomResourceDefinition versions: - name: v1 # 是否有效的开关.">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="K8s系列---- K8s二次开发 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    K8s系列---- K8s二次开发
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年04月17日 
+                </div>
+                <h1 class="post-title">K8s系列---- K8s二次开发</h1>
+            </header>
+
+            <div class="post-content">
+                
+
+<h1 id="自定义控制器">自定义控制器</h1>
+
+<blockquote>
+<p>总结</p>
+</blockquote>
+
+<p>k8s自定义controller开发的整个过程：</p>
+
+<pre><code>1、创建自定义API对象CRD（Custom Resource Definition），令k8s明白我们自定义的API对象；
+2、编写代码，将CRD的情况写入对应的代码中，然后通过自动代码生成工具，将controller之外的informer，client等内容较为固定的代码通过工具生成；
+3、编写controller，在里面判断实际情况是否达到了API对象的声明情况，如果未达到，就要进行实际业务处理，而这也是controller的通用做法；
+</code></pre>
+
+<p>实际编码过程并不复杂，动手编写的文件如下：</p>
+
+<pre><code>├── controller.go
+├── main.go
+└── pkg
+    ├── apis
+    │   └── bolingcavalry
+    │       ├── register.go
+    │       └── v1
+    │           ├── doc.go
+    │           ├── register.go
+    │           └── types.go
+    └── signals
+        ├── signal.go
+        ├── signal_posix.go
+        └── signal_windows.go
+</code></pre>
+
+<p>以上就是k8s自定义controller的整个开发过程。</p>
+
+<blockquote>
+<p>定义CRD</p>
+</blockquote>
+
+<p>创建student.yaml文件</p>
+
+<pre><code>apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  # metadata.name的内容是由&quot;复数名.分组名&quot;构成，如下，students是复数名，bolingcavalry.k8s.io是分组名
+  name: students.bolingcavalry.k8s.io
+spec:
+  # 分组名，在REST API中也会用到的，格式是: /apis/分组名/CRD版本
+  group: bolingcavalry.k8s.io
+  # list of versions supported by this CustomResourceDefinition
+  versions:
+    - name: v1
+      # 是否有效的开关.
+      served: true
+      # 只有一个版本能被标注为storage
+      storage: true
+  # 范围是属于namespace的
+  scope: Namespaced
+  names:
+    # 复数名
+    plural: students
+    # 单数名
+    singular: student
+    # 类型名
+    kind: Student
+    # 简称，就像service的简称是svc
+    shortNames:
+    - stu
+</code></pre>
+
+<p>在student.yaml所在目录执行命令kubectl apply -f student.yaml，即可在k8s环境创建Student的定义，今后如果发起对类型为Student的对象的处理，k8s的api server就能识别到该对象类型了，如下所示，可以用kubectl get crd和kubectl describe crd stu命令查看更多细节，stu是在student.yaml中定义的简称</p>
+
+<pre><code>[root@master custom_controller]# kubectl apply -f student.yaml
+customresourcedefinition.apiextensions.k8s.io/students.bolingcavalry.k8s.io created
+[root@master custom_controller]# kubectl get crd
+NAME                            CREATED AT
+students.bolingcavalry.k8s.io   2019-03-30T13:33:13Z
+[root@master custom_controller]# kubectl describe crd stu
+Name:         students.bolingcavalry.k8s.io
+Namespace:
+Labels:       &lt;none&gt;
+Annotations:  kubectl.kubernetes.io/last-applied-configuration:
+                {&quot;apiVersion&quot;:&quot;apiextensions.k8s.io/v1beta1&quot;,&quot;kind&quot;:&quot;CustomResourceDefinition&quot;,&quot;metadata&quot;:{&quot;annotations&quot;:{},&quot;name&quot;:&quot;students.bolingcavalry...
+API Version:  apiextensions.k8s.io/v1beta1
+Kind:         CustomResourceDefinition
+Metadata:
+  Creation Timestamp:  2019-03-30T13:33:13Z
+  Generation:          1
+  Resource Version:    292010
+  Self Link:           /apis/apiextensions.k8s.io/v1beta1/customresourcedefinitions/students.bolingcavalry.k8s.io
+  UID:                 5e4ceb6e-52f0-11e9-96e1-000c29f1f9c9
+</code></pre>
+
+<p>如果您已配置好etcdctl，可以访问k8s的etcd上存储的数据，那么执行以下命令，就可以看到新的CRD已经保存在etcd中了</p>
+
+<pre><code>ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt --key=/etc/kubernetes/pki/etcd/healthcheck-client.key get /registry/apiextensions.k8s.io/customresourcedefinitions/ --prefix
+
+/registry/apiextensions.k8s.io/customresourcedefinitions/students.bolingcavalry.k8s.io{
+    &quot;kind&quot;: &quot;CustomResourceDefinition&quot;,
+    &quot;apiVersion&quot;: &quot;apiextensions.k8s.io/v1beta1&quot;,
+    &quot;metadata&quot;: {
+        &quot;name&quot;: &quot;students.bolingcavalry.k8s.io&quot;,
+        &quot;uid&quot;: &quot;5e4ceb6e-52f0-11e9-96e1-000c29f1f9c9&quot;,
+        &quot;generation&quot;: 1,
+        &quot;creationTimestamp&quot;: &quot;2019-03-30T13:33:13Z&quot;,
+        &quot;annotations&quot;: {
+            &quot;kubectl.kubernetes.io/last-applied-configuration&quot;: &quot;{\&quot;apiVersion\&quot;:\&quot;apiextensions.k8s.io/v1beta1\&quot;,\&quot;kind\&quot;:\&quot;CustomResourceDefinition\&quot;,\&quot;metadata\&quot;:{\&quot;annotations\&quot;:{},\&quot;name\&quot;:\&quot;students.bolingcavalry.k8s.io\&quot;},\&quot;spec\&quot;:{\&quot;group\&quot;:\&quot;bolingcavalry.k8s.io\&quot;,\&quot;names\&quot;:{\&quot;kind\&quot;:\&quot;Student\&quot;,\&quot;plural\&quot;:\&quot;students\&quot;,\&quot;shortNames\&quot;:[\&quot;stu\&quot;],\&quot;singular\&quot;:\&quot;student\&quot;},\&quot;scope\&quot;:\&quot;Namespaced\&quot;,\&quot;versions\&quot;:[{\&quot;name\&quot;:\&quot;v1\&quot;,\&quot;served\&quot;:true,\&quot;storage\&quot;:true}]}}\n&quot;
+        }
+    },
+    &quot;spec&quot;: {
+        &quot;group&quot;: &quot;bolingcavalry.k8s.io&quot;,
+        &quot;version&quot;: &quot;v1&quot;,
+        &quot;names&quot;: {
+            &quot;plural&quot;: &quot;students&quot;,
+            &quot;singular&quot;: &quot;student&quot;,
+            &quot;shortNames&quot;: [
+                &quot;stu&quot;
+            ],
+            &quot;kind&quot;: &quot;Student&quot;,
+            &quot;listKind&quot;: &quot;StudentList&quot;
+        },
+        &quot;scope&quot;: &quot;Namespaced&quot;,
+        &quot;versions&quot;: [
+            {
+                &quot;name&quot;: &quot;v1&quot;,
+                &quot;served&quot;: true,
+                &quot;storage&quot;: true
+            }
+        ],
+        &quot;conversion&quot;: {
+            &quot;strategy&quot;: &quot;None&quot;
+        }
+    },
+    &quot;status&quot;: {
+        &quot;conditions&quot;: [
+            {
+                &quot;type&quot;: &quot;NamesAccepted&quot;,
+                &quot;status&quot;: &quot;True&quot;,
+                &quot;lastTransitionTime&quot;: &quot;2019-03-30T13:33:13Z&quot;,
+                &quot;reason&quot;: &quot;NoConflicts&quot;,
+                &quot;message&quot;: &quot;no conflicts found&quot;
+            },
+            {
+                &quot;type&quot;: &quot;Established&quot;,
+                &quot;status&quot;: &quot;True&quot;,
+                &quot;lastTransitionTime&quot;: null,
+                &quot;reason&quot;: &quot;InitialNamesAccepted&quot;,
+                &quot;message&quot;: &quot;the initial names have been accepted&quot;
+            }
+        ],
+        &quot;acceptedNames&quot;: {
+            &quot;plural&quot;: &quot;students&quot;,
+            &quot;singular&quot;: &quot;student&quot;,
+            &quot;shortNames&quot;: [
+                &quot;stu&quot;
+            ],
+            &quot;kind&quot;: &quot;Student&quot;,
+            &quot;listKind&quot;: &quot;StudentList&quot;
+        },
+        &quot;storedVersions&quot;: [
+            &quot;v1&quot;
+        ]
+    }
+}
+</code></pre>
+
+<p>下面就可以创建stu类型的对象了，比如我们创建object-student.yaml</p>
+
+<pre><code>apiVersion: bolingcavalry.k8s.io/v1
+kind: Student
+metadata:
+  name: object-student
+spec:
+  name: &quot;张三&quot;
+  school: &quot;深圳中学&quot;
+</code></pre>
+
+<p>在object-student.yaml文件所在目录执行命令kubectl apply -f object-student.yaml，会看到提示创建成功</p>
+
+<pre><code>[root@master custom_controller]# kubectl apply -f object-student.yaml
+student.bolingcavalry.k8s.io/object-student created
+</code></pre>
+
+<p>行命令kubectl get stu可见已创建成功的Student对象</p>
+
+<pre><code>[root@master custom_controller]# kubectl get stu
+NAME             AGE
+object-student   15s
+</code></pre>
+
+<p>控制台输出的就是该Student对象存储在etcd中的内容</p>
+
+<pre><code>{
+    &quot;apiVersion&quot;: &quot;bolingcavalry.k8s.io/v1&quot;,
+    &quot;kind&quot;: &quot;Student&quot;,
+    &quot;metadata&quot;: {
+        &quot;annotations&quot;: {
+            &quot;kubectl.kubernetes.io/last-applied-configuration&quot;: &quot;{\&quot;apiVersion\&quot;:\&quot;bolingcavalry.k8s.io/v1\&quot;,\&quot;kind\&quot;:\&quot;Student\&quot;,\&quot;metadata\&quot;:{\&quot;annotations\&quot;:{},\&quot;name\&quot;:\&quot;object-student\&quot;,\&quot;namespace\&quot;:\&quot;default\&quot;},\&quot;spec\&quot;:{\&quot;name\&quot;:\&quot;张三\&quot;,\&quot;school\&quot;:\&quot;深圳中学\&quot;}}\n&quot;
+        },
+        &quot;creationTimestamp&quot;: &quot;2019-03-31T02:56:25Z&quot;,
+        &quot;generation&quot;: 1,
+        &quot;name&quot;: &quot;object-student&quot;,
+        &quot;namespace&quot;: &quot;default&quot;,
+        &quot;uid&quot;: &quot;92927d0d-5360-11e9-9d2a-000c29f1f9c9&quot;
+    },
+    &quot;spec&quot;: {
+        &quot;name&quot;: &quot;张三&quot;,
+        &quot;school&quot;: &quot;深圳中学&quot;
+    }
+}
+</code></pre>
+
+<p>至此，自定义API对象（也就是CRD）就创建成功了。</p>
+
+<p><strong>为什么要做controller？</strong></p>
+
+<p>如果仅仅是在etcd保存Student对象是没有什么意义的，试想通过deployment创建pod时，如果只在etcd创建pod对象，而不去node节点创建容器，那这个pod对象只是一条数据而已，没有什么实质性作用，其他对象如service、pv也是如此。</p>
+
+<p>controller的作用就是监听指定对象的新增、删除、修改等变化，针对这些变化做出相应的响应（例如新增pod的响应为创建docker容器）</p>
+
+<p><img src="/media/cloud/k8s/develop" alt="" /></p>
+
+<p>API对象的变化会通过Informer存入队列（WorkQueue），在Controller中消费队列的数据做出响应，响应相关的具体代码就是我们要做的真正业务逻辑。</p>
+
+<blockquote>
+<p>将controller之外的informer，client等内容较为固定的代码通过工具生成</p>
+</blockquote>
+
+<p>从上图可以发现整个逻辑还是比较复杂的，为了简化我们的自定义controller开发，k8s的大师们利用自动代码生成工具将controller之外的事情都做好了，我们只要专注于controller的开发就好。</p>
+
+<p>1、$GOPATH/src/目录下创建一个文件夹k8s_customize_controller：</p>
+
+<p>2、进入文件夹k8s_customize_controller，执行如下命令创建三层目录：</p>
+
+<pre><code>mkdir -p pkg/apis/bolingcavalry
+</code></pre>
+
+<p>3、在新建的bolingcavalry目录下创建文件register.go，内容如下：</p>
+
+<pre><code>package bolingcavalry
+
+const (
+        GroupName = &quot;bolingcavalry.k8s.io&quot;
+        Version   = &quot;v1&quot;
+)
+</code></pre>
+
+<p>4、在新建的bolingcavalry目录下创建名为v1的文件夹；</p>
+
+<p>5、在新建的v1文件夹下创建文件doc.go，内容如下：</p>
+
+<pre><code>// +k8s:deepcopy-gen=package
+
+// +groupName=bolingcavalry.k8s.io
+package v1
+</code></pre>
+
+<p>上述代码中的两行注释，都是代码生成工具会用到的，一个是声明为整个v1包下的类型定义生成DeepCopy方法，另一个声明了这个包对应的API的组名，和CRD中的组名一致；</p>
+
+<p>6、在v1文件夹下创建文件types.go，里面定义了Student对象的具体内容：</p>
+
+<pre><code>package v1
+
+import (
+    metav1 &quot;k8s.io/apimachinery/pkg/apis/meta/v1&quot;
+)
+
+// +genclient
+// +genclient:noStatus
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+type Student struct {
+    metav1.TypeMeta   `json:&quot;,inline&quot;`
+    metav1.ObjectMeta `json:&quot;metadata,omitempty&quot;`
+    Spec              StudentSpec `json:&quot;spec&quot;`
+}
+
+type StudentSpec struct {
+    name   string `json:&quot;name&quot;`
+    school string `json:&quot;school&quot;`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// StudentList is a list of Student resources
+type StudentList struct {
+    metav1.TypeMeta `json:&quot;,inline&quot;`
+    metav1.ListMeta `json:&quot;metadata&quot;`
+
+    Items []Student `json:&quot;items&quot;`
+}
+</code></pre>
+
+<p>从上述源码可见，Student对象的内容已经被设定好，主要有name和school这两个字段，表示学生的名字和所在学校，因此创建Student对象的时候内容就要和这里匹配了；</p>
+
+<p>7、在v1目录下创建register.go文件，此文件的作用是通过addKnownTypes方法使得client可以知道Student类型的API对象：</p>
+
+<pre><code>package v1
+
+import (
+    metav1 &quot;k8s.io/apimachinery/pkg/apis/meta/v1&quot;
+    &quot;k8s.io/apimachinery/pkg/runtime&quot;
+    &quot;k8s.io/apimachinery/pkg/runtime/schema&quot;
+
+    &quot;k8s_customize_controller/pkg/apis/bolingcavalry&quot;
+)
+
+var SchemeGroupVersion = schema.GroupVersion{
+    Group:   bolingcavalry.GroupName,
+    Version: bolingcavalry.Version,
+}
+
+var (
+    SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
+    AddToScheme   = SchemeBuilder.AddToScheme
+)
+
+func Resource(resource string) schema.GroupResource {
+    return SchemeGroupVersion.WithResource(resource).GroupResource()
+}
+
+func Kind(kind string) schema.GroupKind {
+    return SchemeGroupVersion.WithKind(kind).GroupKind()
+}
+
+func addKnownTypes(scheme *runtime.Scheme) error {
+    scheme.AddKnownTypes(
+        SchemeGroupVersion,
+        &amp;Student{},
+        &amp;StudentList{},
+    )
+
+    // register the type in the scheme
+    metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
+    return nil
+}
+</code></pre>
+
+<p>至此，为自动生成代码做的准备工作已经完成了，目前为止，$GOPATH/src目录下的文件和目录结构是这样的：</p>
+
+<pre><code>[root@golang src]# tree
+.
+└── k8s_customize_controller
+    └── pkg
+        └── apis
+            └── bolingcavalry
+                ├── register.go
+                └── v1
+                    ├── doc.go
+                    ├── register.go
+                    └── types.go
+
+5 directories, 4 files
+</code></pre>
+
+<p>8、执行以下命令，会先下载依赖包，再下载代码生成工具，再执行代码生成工作：</p>
+
+<pre><code>cd $GOPATH/src \
+&amp;&amp; go get -u k8s.io/apimachinery/pkg/apis/meta/v1 \
+&amp;&amp; go get -u k8s.io/code-generator/... \
+&amp;&amp; cd $GOPATH/src/k8s.io/code-generator \
+&amp;&amp; ./generate-groups.sh all \
+k8s_customize_controller/pkg/client \
+k8s_customize_controller/pkg/apis \
+bolingcavalry:v1
+</code></pre>
+
+<p>如果代码写得没有问题，会看到以下输出：</p>
+
+<pre><code>Generating deepcopy funcs
+Generating clientset for bolingcavalry:v1 at k8s_customize_controller/pkg/client/clientset
+Generating listers for bolingcavalry:v1 at k8s_customize_controller/pkg/client/listers
+Generating informers for bolingcavalry:v1 at k8s_customize_controller/pkg/client/informers
+</code></pre>
+
+<p>此时再去$GOPATH/src/k8s_customize_controller目录下执行tree命令，可见已生成了很多内容：</p>
+
+<pre><code>[root@master k8s_customize_controller]# tree
+.
+└── pkg
+    ├── apis
+    │   └── bolingcavalry
+    │       ├── register.go
+    │       └── v1
+    │           ├── doc.go
+    │           ├── register.go
+    │           ├── types.go
+    │           └── zz_generated.deepcopy.go
+    └── client
+        ├── clientset
+        │   └── versioned
+        │       ├── clientset.go
+        │       ├── doc.go
+        │       ├── fake
+        │       │   ├── clientset_generated.go
+        │       │   ├── doc.go
+        │       │   └── register.go
+        │       ├── scheme
+        │       │   ├── doc.go
+        │       │   └── register.go
+        │       └── typed
+        │           └── bolingcavalry
+        │               └── v1
+        │                   ├── bolingcavalry_client.go
+        │                   ├── doc.go
+        │                   ├── fake
+        │                   │   ├── doc.go
+        │                   │   ├── fake_bolingcavalry_client.go
+        │                   │   └── fake_student.go
+        │                   ├── generated_expansion.go
+        │                   └── student.go
+        ├── informers
+        │   └── externalversions
+        │       ├── bolingcavalry
+        │       │   ├── interface.go
+        │       │   └── v1
+        │       │       ├── interface.go
+        │       │       └── student.go
+        │       ├── factory.go
+        │       ├── generic.go
+        │       └── internalinterfaces
+        │           └── factory_interfaces.go
+        └── listers
+            └── bolingcavalry
+                └── v1
+                    ├── expansion_generated.go
+                    └── student.go
+
+21 directories, 27 files
+</code></pre>
+
+<p>如上所示，zz_generated.deepcopy.go就是DeepCopy代码文件，client目录下的内容都是客户端相关代码，在开发controller时会用到；</p>
+
+<p>client目录下的clientset、informers、listers的身份和作用可以和前面的图结合来理解；</p>
+
+<p>至此，自动生成代码的步骤已经完成。下面就是写我们的controller的逻辑了</p>
+
+<blockquote>
+<p>编写controller代码</p>
+</blockquote>
+
+<p>在k8s_customize_controller目录下创建controller.go</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;time&quot;
+
+    &quot;github.com/golang/glog&quot;
+    corev1 &quot;k8s.io/api/core/v1&quot;
+    &quot;k8s.io/apimachinery/pkg/api/errors&quot;
+    &quot;k8s.io/apimachinery/pkg/util/runtime&quot;
+    utilruntime &quot;k8s.io/apimachinery/pkg/util/runtime&quot;
+    &quot;k8s.io/apimachinery/pkg/util/wait&quot;
+    &quot;k8s.io/client-go/kubernetes&quot;
+    &quot;k8s.io/client-go/kubernetes/scheme&quot;
+    typedcorev1 &quot;k8s.io/client-go/kubernetes/typed/core/v1&quot;
+    &quot;k8s.io/client-go/tools/cache&quot;
+    &quot;k8s.io/client-go/tools/record&quot;
+    &quot;k8s.io/client-go/util/workqueue&quot;
+
+    bolingcavalryv1 &quot;github.com/zq2599/k8s-controller-custom-resource/pkg/apis/bolingcavalry/v1&quot;
+    clientset &quot;github.com/zq2599/k8s-controller-custom-resource/pkg/client/clientset/versioned&quot;
+    studentscheme &quot;github.com/zq2599/k8s-controller-custom-resource/pkg/client/clientset/versioned/scheme&quot;
+    informers &quot;github.com/zq2599/k8s-controller-custom-resource/pkg/client/informers/externalversions/bolingcavalry/v1&quot;
+    listers &quot;github.com/zq2599/k8s-controller-custom-resource/pkg/client/listers/bolingcavalry/v1&quot;
+)
+
+const controllerAgentName = &quot;student-controller&quot;
+
+const (
+    SuccessSynced = &quot;Synced&quot;
+
+    MessageResourceSynced = &quot;Student synced successfully&quot;
+)
+
+// Controller is the controller implementation for Student resources
+type Controller struct {
+    // kubeclientset is a standard kubernetes clientset
+    kubeclientset kubernetes.Interface
+    // studentclientset is a clientset for our own API group
+    studentclientset clientset.Interface
+
+    studentsLister listers.StudentLister
+    studentsSynced cache.InformerSynced
+
+    workqueue workqueue.RateLimitingInterface
+
+    recorder record.EventRecorder
+}
+
+// NewController returns a new student controller
+func NewController(
+    kubeclientset kubernetes.Interface,
+    studentclientset clientset.Interface,
+    studentInformer informers.StudentInformer) *Controller {
+
+    utilruntime.Must(studentscheme.AddToScheme(scheme.Scheme))
+    glog.V(4).Info(&quot;Creating event broadcaster&quot;)
+    eventBroadcaster := record.NewBroadcaster()
+    eventBroadcaster.StartLogging(glog.Infof)
+    eventBroadcaster.StartRecordingToSink(&amp;typedcorev1.EventSinkImpl{Interface: kubeclientset.CoreV1().Events(&quot;&quot;)})
+    recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
+
+    controller := &amp;Controller{
+        kubeclientset:    kubeclientset,
+        studentclientset: studentclientset,
+        studentsLister:   studentInformer.Lister(),
+        studentsSynced:   studentInformer.Informer().HasSynced,
+        workqueue:        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), &quot;Students&quot;),
+        recorder:         recorder,
+    }
+
+    glog.Info(&quot;Setting up event handlers&quot;)
+    // Set up an event handler for when Student resources change
+    studentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+        AddFunc: controller.enqueueStudent,
+        UpdateFunc: func(old, new interface{}) {
+            oldStudent := old.(*bolingcavalryv1.Student)
+            newStudent := new.(*bolingcavalryv1.Student)
+            if oldStudent.ResourceVersion == newStudent.ResourceVersion {
+                //版本一致，就表示没有实际更新的操作，立即返回
+                return
+            }
+            controller.enqueueStudent(new)
+        },
+        DeleteFunc: controller.enqueueStudentForDelete,
+    })
+
+    return controller
+}
+
+//在此处开始controller的业务
+func (c *Controller) Run(threadiness int, stopCh &lt;-chan struct{}) error {
+    defer runtime.HandleCrash()
+    defer c.workqueue.ShutDown()
+
+    glog.Info(&quot;开始controller业务，开始一次缓存数据同步&quot;)
+    if ok := cache.WaitForCacheSync(stopCh, c.studentsSynced); !ok {
+        return fmt.Errorf(&quot;failed to wait for caches to sync&quot;)
+    }
+
+    glog.Info(&quot;worker启动&quot;)
+    for i := 0; i &lt; threadiness; i++ {
+        go wait.Until(c.runWorker, time.Second, stopCh)
+    }
+
+    glog.Info(&quot;worker已经启动&quot;)
+    &lt;-stopCh
+    glog.Info(&quot;worker已经结束&quot;)
+
+    return nil
+}
+
+func (c *Controller) runWorker() {
+    for c.processNextWorkItem() {
+    }
+}
+
+// 取数据处理
+func (c *Controller) processNextWorkItem() bool {
+
+    obj, shutdown := c.workqueue.Get()
+
+    if shutdown {
+        return false
+    }
+
+    // We wrap this block in a func so we can defer c.workqueue.Done.
+    err := func(obj interface{}) error {
+        defer c.workqueue.Done(obj)
+        var key string
+        var ok bool
+
+        if key, ok = obj.(string); !ok {
+
+            c.workqueue.Forget(obj)
+            runtime.HandleError(fmt.Errorf(&quot;expected string in workqueue but got %#v&quot;, obj))
+            return nil
+        }
+        // 在syncHandler中处理业务
+        if err := c.syncHandler(key); err != nil {
+            return fmt.Errorf(&quot;error syncing '%s': %s&quot;, key, err.Error())
+        }
+
+        c.workqueue.Forget(obj)
+        glog.Infof(&quot;Successfully synced '%s'&quot;, key)
+        return nil
+    }(obj)
+
+    if err != nil {
+        runtime.HandleError(err)
+        return true
+    }
+
+    return true
+}
+
+// 处理
+func (c *Controller) syncHandler(key string) error {
+    // Convert the namespace/name string into a distinct namespace and name
+    namespace, name, err := cache.SplitMetaNamespaceKey(key)
+    if err != nil {
+        runtime.HandleError(fmt.Errorf(&quot;invalid resource key: %s&quot;, key))
+        return nil
+    }
+
+    // 从缓存中取对象
+    student, err := c.studentsLister.Students(namespace).Get(name)
+    if err != nil {
+        // 如果Student对象被删除了，就会走到这里，所以应该在这里加入执行
+        if errors.IsNotFound(err) {
+            glog.Infof(&quot;Student对象被删除，请在这里执行实际的删除业务: %s/%s ...&quot;, namespace, name)
+
+            return nil
+        }
+
+        runtime.HandleError(fmt.Errorf(&quot;failed to list student by: %s/%s&quot;, namespace, name))
+
+        return err
+    }
+
+    glog.Infof(&quot;这里是student对象的期望状态: %#v ...&quot;, student)
+    glog.Infof(&quot;实际状态是从业务层面得到的，此处应该去的实际状态，与期望状态做对比，并根据差异做出响应(新增或者删除)&quot;)
+
+    c.recorder.Event(student, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
+    return nil
+}
+
+// 数据先放入缓存，再入队列
+func (c *Controller) enqueueStudent(obj interface{}) {
+    var key string
+    var err error
+    // 将对象放入缓存
+    if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+        runtime.HandleError(err)
+        return
+    }
+
+    // 将key放入队列
+    c.workqueue.AddRateLimited(key)
+}
+
+// 删除操作
+func (c *Controller) enqueueStudentForDelete(obj interface{}) {
+    var key string
+    var err error
+    // 从缓存中删除指定对象
+    key, err = cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+    if err != nil {
+        runtime.HandleError(err)
+        return
+    }
+    //再将key放入队列
+    c.workqueue.AddRateLimited(key)
+}
+</code></pre>
+
+<p>上述代码有以下几处关键点：</p>
+
+<p>a. 创建controller的NewController方法中，定义了收到Student对象的增删改消息时的具体处理逻辑，除了同步本地缓存，就是将该对象的key放入消息中；</p>
+
+<p>b. 实际处理消息的方法是syncHandler，这里面可以添加实际的业务代码，来响应Student对象的增删改情况，达到业务目的；</p>
+
+<p>2、在$GOPATH/src/k8s_customize_controller/pkg目录下新建目录signals，在signals目录下新建文件signal_posix.go</p>
+
+<pre><code>// +build !windows
+
+package signals
+
+import (
+    &quot;os&quot;
+    &quot;syscall&quot;
+)
+
+var shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
+</code></pre>
+
+<p>在signals目录下新建文件signal.go</p>
+
+<pre><code>package signals
+
+import (
+        &quot;os&quot;
+        &quot;os/signal&quot;
+)
+
+var onlyOneSignalHandler = make(chan struct{})
+
+func SetupSignalHandler() (stopCh &lt;-chan struct{}) {
+        close(onlyOneSignalHandler) // panics when called twice
+
+        stop := make(chan struct{})
+        c := make(chan os.Signal, 2)
+        signal.Notify(c, shutdownSignals...)
+        go func() {
+                &lt;-c
+                close(stop)
+                &lt;-c
+                os.Exit(1) // second signal. Exit directly.
+        }()
+
+        return stop
+}
+</code></pre>
+
+<p>3、接下来可以编写main.go了，在k8s_customize_controller目录下创建main.go文件</p>
+
+<pre><code>package main
+
+import (
+    &quot;flag&quot;
+    &quot;time&quot;
+
+    &quot;github.com/golang/glog&quot;
+    &quot;k8s.io/client-go/kubernetes&quot;
+    &quot;k8s.io/client-go/tools/clientcmd&quot;
+    // Uncomment the following line to load the gcp plugin (only required to authenticate against GKE clusters).
+    // _ &quot;k8s.io/client-go/plugin/pkg/client/auth/gcp&quot;
+
+    clientset &quot;k8s_customize_controller/pkg/client/clientset/versioned&quot;
+    informers &quot;k8s_customize_controller/pkg/client/informers/externalversions&quot;
+    &quot;k8s_customize_controller/pkg/signals&quot;
+)
+
+var (
+    masterURL  string
+    kubeconfig string
+)
+
+func main() {
+    flag.Parse()
+
+    // 处理信号量
+    stopCh := signals.SetupSignalHandler()
+
+    // 处理入参
+    cfg, err := clientcmd.BuildConfigFromFlags(masterURL, kubeconfig)
+    if err != nil {
+        glog.Fatalf(&quot;Error building kubeconfig: %s&quot;, err.Error())
+    }
+
+    kubeClient, err := kubernetes.NewForConfig(cfg)
+    if err != nil {
+        glog.Fatalf(&quot;Error building kubernetes clientset: %s&quot;, err.Error())
+    }
+
+    studentClient, err := clientset.NewForConfig(cfg)
+    if err != nil {
+        glog.Fatalf(&quot;Error building example clientset: %s&quot;, err.Error())
+    }
+
+    studentInformerFactory := informers.NewSharedInformerFactory(studentClient, time.Second*30)
+
+    //得到controller
+    controller := NewController(kubeClient, studentClient,
+        studentInformerFactory.Bolingcavalry().V1().Students())
+
+    //启动informer
+    go studentInformerFactory.Start(stopCh)
+
+    //controller开始处理消息
+    if err = controller.Run(2, stopCh); err != nil {
+        glog.Fatalf(&quot;Error running controller: %s&quot;, err.Error())
+    }
+}
+
+func init() {
+    flag.StringVar(&amp;kubeconfig, &quot;kubeconfig&quot;, &quot;&quot;, &quot;Path to a kubeconfig. Only required if out-of-cluster.&quot;)
+    flag.StringVar(&amp;masterURL, &quot;master&quot;, &quot;&quot;, &quot;The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.&quot;)
+}
+</code></pre>
+
+<p>4、编译和启动</p>
+
+<p>在$GOPATH/src/k8s_customize_controller目录下，执行以下命令</p>
+
+<pre><code>go get k8s.io/client-go/kubernetes/scheme \
+&amp;&amp; go get github.com/golang/glog \
+&amp;&amp; go get k8s.io/kube-openapi/pkg/util/proto \
+&amp;&amp; go get k8s.io/utils/buffer \
+&amp;&amp; go get k8s.io/utils/integer \
+&amp;&amp; go get k8s.io/utils/trace
+</code></pre>
+
+<p>1、上述脚本将编译过程中依赖的库通过go get方式进行获取，属于笨办法，更好的方法是选用一种包依赖工具，具体的可以参照k8s的官方demo，这个代码中同时提供了godep和vendor两种方式来处理上面的包依赖问题，地址是：<a href="https://github.com/kubernetes/sample-controller">https://github.com/kubernetes/sample-controller</a>
+2、解决了包依赖问题后，在$GOPATH/src/k8s_customize_controller目录下执行命令go build，即可在当前目录生成k8s_customize_controller文件；
+3、将文件k8s_customize_controller复制到k8s环境中，记得通过chmod a+x命令给其可执行权限；
+4、执行命令./k8s_customize_controller -kubeconfig=$HOME/.kube/config -alsologtostderr=true，会立即启动controller，看到控制台输出如下</p>
+
+<pre><code>[root@master 31]# ./k8s_customize_controller -kubeconfig=$HOME/.kube/config -alsologtostderr=true
+I0331 23:27:17.909265   21540 controller.go:72] Setting up event handlers
+I0331 23:27:17.909450   21540 controller.go:96] 开始controller业务，开始一次缓存数据同步
+I0331 23:27:18.110448   21540 controller.go:101] worker启动
+I0331 23:27:18.110516   21540 controller.go:106] worker已经启动
+I0331 23:27:18.110653   21540 controller.go:181] 这里是student对象的期望状态: &amp;v1.Student{TypeMeta:v1.TypeMeta{Kind:&quot;Student&quot;, APIVersion:&quot;bolingcavalry.k8s.io/v1&quot;}, ObjectMeta:v1.ObjectMeta{Name:&quot;object-student&quot;, GenerateName:&quot;&quot;, Namespace:&quot;default&quot;, SelfLink:&quot;/apis/bolingcavalry.k8s.io/v1/namespaces/default/students/object-student&quot;, UID:&quot;92927d0d-5360-11e9-9d2a-000c29f1f9c9&quot;, ResourceVersion:&quot;310395&quot;, Generation:1, CreationTimestamp:v1.Time{Time:time.Time{wall:0x0, ext:63689597785, loc:(*time.Location)(0x1f9c200)}}, DeletionTimestamp:(*v1.Time)(nil), DeletionGracePeriodSeconds:(*int64)(nil), Labels:map[string]string(nil), Annotations:map[string]string{&quot;kubectl.kubernetes.io/last-applied-configuration&quot;:&quot;{\&quot;apiVersion\&quot;:\&quot;bolingcavalry.k8s.io/v1\&quot;,\&quot;kind\&quot;:\&quot;Student\&quot;,\&quot;metadata\&quot;:{\&quot;annotations\&quot;:{},\&quot;name\&quot;:\&quot;object-student\&quot;,\&quot;namespace\&quot;:\&quot;default\&quot;},\&quot;spec\&quot;:{\&quot;name\&quot;:\&quot;张三\&quot;,\&quot;school\&quot;:\&quot;深圳中学\&quot;}}\n&quot;}, OwnerReferences:[]v1.OwnerReference(nil), Initializers:(*v1.Initializers)(nil), Finalizers:[]string(nil), ClusterName:&quot;&quot;, ManagedFields:[]v1.ManagedFieldsEntry(nil)}, Spec:v1.StudentSpec{name:&quot;&quot;, school:&quot;&quot;}} ...
+</code></pre>
+
+<p>至此，自定义controller已经启动成功了，并且从缓存中获取到了上一章中创建的对象的信息，接下来我们在k8s环境对Student对象做增删改，看看controller是否能做出响应；</p>
+
+<p>5、验证controller</p>
+
+<p>新开一个窗口连接到k8s环境，新建一个名为new-student.yaml的文件，内容如下：
+    apiVersion: bolingcavalry.k8s.io/v1
+    kind: Student
+    metadata:
+      name: new-student
+    spec:
+      name: &ldquo;李四&rdquo;
+      school: &ldquo;深圳小学&rdquo;</p>
+
+<p>在new-student.yaml所在目录执行命令kubectl apply -f new-student.yaml；</p>
+
+<p>返回controller所在的控制台窗口，发现新输出了如下内容，可见新增student对象的事件已经被controller监听并处理：</p>
+
+<pre><code>I0331 23:43:03.789894   21540 controller.go:181] 这里是student对象的期望状态: &amp;v1.Student{TypeMeta:v1.TypeMeta{Kind:&quot;&quot;, APIVersion:&quot;&quot;}, ObjectMeta:v1.ObjectMeta{Name:&quot;new-student&quot;, GenerateName:&quot;&quot;, Namespace:&quot;default&quot;, SelfLink:&quot;/apis/bolingcavalry.k8s.io/v1/namespaces/default/students/new-student&quot;, UID:&quot;abcd77d6-53cb-11e9-9d2a-000c29f1f9c9&quot;, ResourceVersion:&quot;370653&quot;, Generation:1, CreationTimestamp:v1.Time{Time:time.Time{wall:0x0, ext:63689643783, loc:(*time.Location)(0x1f9c200)}}, DeletionTimestamp:(*v1.Time)(nil), DeletionGracePeriodSeconds:(*int64)(nil), Labels:map[string]string(nil), Annotations:map[string]string{&quot;kubectl.kubernetes.io/last-applied-configuration&quot;:&quot;{\&quot;apiVersion\&quot;:\&quot;bolingcavalry.k8s.io/v1\&quot;,\&quot;kind\&quot;:\&quot;Student\&quot;,\&quot;metadata\&quot;:{\&quot;annotations\&quot;:{},\&quot;name\&quot;:\&quot;new-student\&quot;,\&quot;namespace\&quot;:\&quot;default\&quot;},\&quot;spec\&quot;:{\&quot;name\&quot;:\&quot;李四\&quot;,\&quot;school\&quot;:\&quot;深圳小学\&quot;}}\n&quot;}, OwnerReferences:[]v1.OwnerReference(nil), Initializers:(*v1.Initializers)(nil), Finalizers:[]string(nil), ClusterName:&quot;&quot;, ManagedFields:[]v1.ManagedFieldsEntry(nil)}, Spec:v1.StudentSpec{name:&quot;&quot;, school:&quot;&quot;}} ...
+I0331 23:43:03.790076   21540 controller.go:182] 实际状态是从业务层面得到的，此处应该去的实际状态，与期望状态做对比，并根据差异做出响应(新增或者删除)
+I0331 23:43:03.790120   21540 controller.go:145] Successfully synced 'default/new-student'
+I0331 23:43:03.790141   21540 event.go:209] Event(v1.ObjectReference{Kind:&quot;Student&quot;, Namespace:&quot;default&quot;, Name:&quot;new-student&quot;, UID:&quot;abcd77d6-53cb-11e9-9d2a-000c29f1f9c9&quot;, APIVersion:&quot;bolingcavalry.k8s.io/v1&quot;, ResourceVersion:&quot;370653&quot;, FieldPath:&quot;&quot;}): type: 'Normal' reason: 'Synced' Student synced successfully
+</code></pre>
+
+<p>接下来您也可以尝试修改和删除已有的Student对象，观察controller控制台的输出，确定是否已经监听到所有student变化的事件，例如删除的事件日志如下：</p>
+
+<pre><code>I0331 23:44:37.236090   21540 controller.go:171] Student对象被删除，请在这里执行实际的删除业务: default/new-student ...
+I0331 23:44:37.236118   21540 controller.go:145] Successfully synced 'default/new-student'
+</code></pre>
+
+<hr />
+
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-develop/">https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-develop/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags//">
+                            <i class="fa fa-tags"></i>
+                            
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-unsafe/">Go Unsafe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-text/">Go Text</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-plugin/">Go Plugin</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-mine/">Go Mine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-internal/">Go Internal</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-index/">Go Index</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-image/">Go Image</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-html/">Go Html</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-hash/">Go Hash</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-go/">Go Go</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/kubernetes/k8s-code/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/kubernetes/k8s-exercise/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#自定义控制器">自定义控制器</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

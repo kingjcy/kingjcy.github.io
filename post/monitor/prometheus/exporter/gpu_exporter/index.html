@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="随着区块链、人工智能的盛行，越来越多的场景开始使用GPU，而其监控也随之受到重视。目前生产环境中大部分GPU为NVIDIA厂商，今天就聊聊公司内部如何进行GPU的监控。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Gpu_exporter - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Gpu_exporter
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年04月15日 
+                </div>
+                <h1 class="post-title">Gpu_exporter</h1>
+            </header>
+
+            <div class="post-content">
+                <p>随着区块链、人工智能的盛行，越来越多的场景开始使用GPU，而其监控也随之受到重视。目前生产环境中大部分GPU为NVIDIA厂商，今天就聊聊公司内部如何进行GPU的监控。</p>
+
+<p>NVML</p>
+
+<p>NVIDIA Management Library 是英伟达提供用于监控、管理GPU的API，底层是用C实现。我们常用的nvidia-smi命令也是基于该库进行的封装。官方同时也提供了perl、python版本的库。</p>
+
+<p>监控项</p>
+
+<p>在跟业务沟通后，我们整理了如下几个监控项，基本可以覆盖大部分应用场景。</p>
+
+<pre><code>温度
+GPU利用率
+内存总量
+已分配内存
+内存利用率
+</code></pre>
+
+<p>内存利用率跟已分配内存是有区别的，我理解只要有任务被分配到GPU就会分配内存，而分配的内存究竟有没有被使用才是内存利用率。根据官方的描述：内存利用率是指在每个采集周期内（可能在1/6至1秒）读写占用的时间百分比。</p>
+
+<pre><code>电源使用情况
+
+风扇速度
+</code></pre>
+
+<p>风扇并不是所有GPU都有</p>
+
+<pre><code>GPU数量
+
+GPU平均利用率
+GPU平均内存利用率
+</code></pre>
+
+<p>实现原理</p>
+
+<p>公司内部的监控系统为golang编写，所以需要借助第三方库github.com/mindprince/gonvml，利用cgo的特性直接使用官方的API。</p>
+
+<p>这个方案是在Linux环境下，依赖libnvidia-ml.so.1库，如果是Windows可以参考这里</p>
+
+<p>这个库主要包含2个文件</p>
+
+<pre><code>nvml.h
+
+nvml.h的存在让我们不依赖于构建环境中存在的NVML。
+
+bindings.go
+
+bindings.go是调用NVML函数的cgo桥。 bindings.go中的cgo前导代码使用dlopen动态加载NVML并使其功能可用。
+</code></pre>
+
+<p>详细的代码直接到github看就可以，不在这里贴出了。</p>
+
+<p>Agent相关代码</p>
+
+<pre><code>package funcs
+
+import (
+    &quot;log&quot;
+
+    &quot;github.com/mindprince/gonvml&quot;
+    &quot;github.com/open-falcon/falcon-plus/common/model&quot;
+)
+
+// 需要load libnvidia-ml.so.1库
+func GpuMetrics() (L []*model.MetricValue) {
+
+    if err := gonvml.Initialize(); err != nil {
+        log.Println(&quot;Initialize error: &quot;, err)
+        return
+    }
+
+    defer gonvml.Shutdown()
+
+    count, err := gonvml.DeviceCount()
+    if err != nil {
+        log.Println(&quot;DeviceCount error: &quot;, err)
+        return
+    }
+
+    if count == 0 {
+        return
+    }
+
+    temperature := uint(0)
+    totalMemory := uint64(0)
+    usedMemory := uint64(0)
+    gpuUtilization := uint(0)
+    memoryUtilization := uint(0)
+    powerUsage := uint(0)
+    allUtilization := uint(0)
+    allMemoryUtilization := uint(0)
+
+    for i := 0; i &lt; int(count); i++ {
+        dev, err := gonvml.DeviceHandleByIndex(uint(i))
+        if err != nil {
+            log.Println(&quot;DeviceHandleByIndex error:&quot;, err)
+            continue
+        }
+
+        uuid, err := dev.UUID()
+        if err != nil {
+            log.Println(&quot;dev.UUID error&quot;, err)
+        }
+
+        tag := &quot;uuid=&quot; + uuid
+
+        // 不是所有gpu都有风扇
+        fanSpeed, err := dev.FanSpeed()
+        if err != nil {
+            log.Println(&quot;dev.FanSpeed error: &quot;, err)
+        } else {
+            L = append(L, GaugeValue(&quot;gpu.fan.speed&quot;, fanSpeed, tag))
+        }
+
+        temperature, err = dev.Temperature()
+        if err != nil {
+            log.Println(&quot;dev.Temperature error: &quot;, err)
+            continue
+        }
+
+        totalMemory, usedMemory, err = dev.MemoryInfo()
+        if err != nil {
+            log.Println(&quot;dev.MemoryInfo error: &quot;, err)
+            continue
+        }
+
+        // 单位换算为兆
+        totalBillion := float64(totalMemory / 1024 / 1024)
+        usedBillion := float64(usedMemory / 1024 / 1024)
+
+        gpuUtilization, memoryUtilization, err = dev.UtilizationRates()
+        if err != nil {
+            log.Println(&quot;dev.UtilizationRates error: &quot;, err)
+            continue
+        }
+
+        allUtilization += gpuUtilization
+        allMemoryUtilization += memoryUtilization
+
+        powerUsage, err = dev.PowerUsage()
+        if err != nil {
+            log.Println(&quot;dev.PowerUsage error: &quot;, err)
+        }
+
+        // 单位换算为瓦特
+        powerWatt := float64(powerUsage / 1000)
+
+        L = append(L, GaugeValue(&quot;gpu.temperature&quot;, temperature, tag))
+        L = append(L, GaugeValue(&quot;gpu.memory.total&quot;, totalBillion, tag))
+        L = append(L, GaugeValue(&quot;gpu.memory.used&quot;, usedBillion, tag))
+        L = append(L, GaugeValue(&quot;gpu.memory.util&quot;, memoryUtilization, tag))
+        L = append(L, GaugeValue(&quot;gpu.util&quot;, gpuUtilization, tag))
+        L = append(L, GaugeValue(&quot;gpu.power.usage&quot;, powerWatt, tag))
+    }
+
+    L = append(L, GaugeValue(&quot;gpu.count&quot;, count))
+    L = append(L, GaugeValue(&quot;gpu.util.avg&quot;, allUtilization/count))
+    L = append(L, GaugeValue(&quot;gpu.memory.util.avg&quot;, allMemoryUtilization/count))
+    return L
+}
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/prometheus/exporter/gpu_exporter/">https://kingjcy.github.io/post/monitor/prometheus/exporter/gpu_exporter/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags//">
+                            <i class="fa fa-tags"></i>
+                            
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-unsafe/">Go Unsafe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-text/">Go Text</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-plugin/">Go Plugin</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-mine/">Go Mine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-internal/">Go Internal</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-index/">Go Index</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-image/">Go Image</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-html/">Go Html</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-hash/">Go Hash</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-go/">Go Go</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/linux/tool/supervisord/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/middleware/network/application-netprotocol/connect/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

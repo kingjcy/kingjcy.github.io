@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="最近在研究docker，在安装的时候遇到了升级内核的需求，docker需要内核在3.10.X，所以这边进行内核升级的研究。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Centos Kernel Update - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Centos Kernel Update
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年07月15日 
+                </div>
+                <h1 class="post-title">Centos Kernel Update</h1>
+            </header>
+
+            <div class="post-content">
+                <p>最近在研究docker，在安装的时候遇到了升级内核的需求，docker需要内核在3.10.X，所以这边进行内核升级的研究。</p>
+
+<blockquote>
+<h1 id="内核升级">内核升级</h1>
+</blockquote>
+
+<p>内核升级有两种方式：</p>
+
+<p>1.在elrepo源中存在内核版本，所以导入elrepo源可以直接用yum安装</p>
+
+<pre><code>rpm -import https://www.elrepo.prg/RPM-GPG-KEY-elrepo.org
+Yum -enanlerepo=elrepokernel install kernel-it -y
+</code></pre>
+
+<p>然后修改配置文件就可以了——这个没有实际验证。我采用了编译内核的方法升级的，具体如下</p>
+
+<p>2.编译内核
+1. 首先先看内核</p>
+
+<pre><code>`uname -r`
+</code></pre>
+
+<ol>
+<li><p>查看已经安装的和未安装的软件包组，来判断我们是否安装了相应的开发环境和开发库；</p>
+
+<p><code>yum grouplist</code></p></li>
+
+<li><p>一般是安装这两个软件包组，这样做会确定你拥有编译时所需的一切工具
+<code>yum groupinstall &quot;Development Tools&quot;</code></p></li>
+
+<li><p>你必须这样才能让 make *config 这个指令正确地执行
+<code>yum install ncurses-devel</code></p></li>
+
+<li><p>如果你没有 X 环境，这一条可以不用
+<code>yum install qt-devel</code></p></li>
+
+<li><p>创建 CentOS-6 内核时需要这些依赖包
+<code>yum install hmaccalc zlib-devel binutils-devel elfutils-libelf-devel</code></p></li>
+
+<li><p>下载内核源码</p></li>
+</ol>
+
+<p>官网 <a href="http://www.kernel.org">http://www.kernel.org</a></p>
+
+<pre><code>可以看到有stable, longterm等版本，longterm是比stable更稳定的版本，会长时间更新，因此我选择 3.10.104。
+
+    [root@sean ~]#wget  https://www.kernel.org/pub/linux/kernel/v3.x/linux-3.10.104.tar.xz  貌似下不下来，直接去官网下
+    [root@sean ~]# tar -xf linux-3.10.58.tar.xz -C /usr/src/
+    [root@sean ~]# cd /usr/src/linux-3.10.58/
+</code></pre>
+
+<ol>
+<li><p>复制一份已有的系统配置进行修改</p>
+
+<p>[root@sean linux-3.10.58]# cp /boot/config-2.6.32-220.el6.x86_64 .config</p>
+
+<p>在配置文件中追加一些内容兼容docker</p>
+
+<pre><code>CONFIG_NF_NAT_IPV4=y
+CONFIG_IP_NF_TARGET_MASQUERADE=y
+CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
+CONFIG_MEMCG_SWAP=y
+CONFIG_MEMCG_SWAP_ENABLED=y
+CONFIG_AUFS_FS=y
+CONFIG_DM_THIN_PROVISIONING=y
+CONFIG_OVERLAY_FS=y
+CONFIG_CGROUP_PERF=y
+CONFIG_CFS_BANDWIDTH=y
+HYPERVISOR_GUEST=y
+CONFIG_VMWARE_BALLOON=m
+</code></pre>
+
+<p>对配置文件的修改有两种工具可以使用</p>
+
+<ul>
+<li><p>使用make menuconfig工具来勾选选择General setup&ndash;&gt;Control Group support-&gt;Memory Resource Controller for Control Groups，y为选择，n为未选择，m为模块</p></li>
+
+<li><p>make oldconfig会读取当前目录下的.config文件，在.config文件里没有找到的选项则提示用户填写，然后备份.config文件为.config.old，并生成新的.config文件</p></li>
+</ul>
+
+<p>可以使用这个shell命令来完成配置文件的修改，就是在配置文件中没有找到选项的填y</p>
+
+<p>sh -c &lsquo;yes &ldquo;&rdquo; | make oldconfig&rsquo;</p></li>
+
+<li><p>编译:</p>
+
+<pre><code>[root@sean linux-3.10.58]# make -j4 bzImage  //生成内核文件
+[root@sean linux-3.10.58]# make -j4 modules  //编译模块
+[root@sean linux-3.10.58]# make -j4 modules_install  //编译安装模块
+</code></pre>
+
+<p>-j后面的数字是线程数，用于加快编译速度，一般的经验是，逻辑CPU，就填写那个数字，例如有8核，则为-j8。（modules部分耗时30多分钟）</p></li>
+
+<li><p>安装</p>
+
+<pre><code>make install
+</code></pre></li>
+
+<li><p>修改系统配置</p>
+
+<pre><code>vi /etc/grub.conf
+</code></pre>
+
+<p>default改为0，就是指向配置文件中的第一个，一般新安装的在第一个</p></li>
+
+<li><p>重启</p>
+
+<pre><code>reboot
+</code></pre>
+
+<p>升级成功，可以查看一下</p></li>
+
+<li><p>关于编译失败<br />
+编译过程中由于一些原因需要重新编译的，先清理环境变量，以及编译现场</p>
+
+<pre><code>make mrproper
+</code></pre>
+
+<p>清除编译文件</p>
+
+<pre><code>make clean
+</code></pre></li>
+</ol>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/linux/centos/centos-kernel-update/">https://kingjcy.github.io/post/linux/centos/centos-kernel-update/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/centos/">
+                            <i class="fa fa-tags"></i>
+                            Centos
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/kernel/">
+                            <i class="fa fa-tags"></i>
+                            Kernel
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/linux/centos/centos-update/">Centos Update</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年12月15日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/database/redis/redis-principle/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-net-web/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#内核升级">内核升级</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

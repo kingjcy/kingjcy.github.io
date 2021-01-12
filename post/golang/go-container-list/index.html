@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="list是一个双向链表。该结构具有链表的所有功能。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="golang使用系列---- List - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    golang使用系列---- List
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年10月11日 
+                </div>
+                <h1 class="post-title">golang使用系列---- List</h1>
+            </header>
+
+            <div class="post-content">
+                <p>list是一个双向链表。该结构具有链表的所有功能。</p>
+
+<p>1.首先看一下链表中存储的元素(Element)的定义：</p>
+
+<pre><code>// 双向链表的一个元素
+type Element struct {
+  // 前驱指针和后继指针
+  prev, next *Element
+
+  // 该元素属于哪个链表list
+  list *List
+
+  // 该元素存储的值
+  Value interface{}
+}
+</code></pre>
+
+<p>2.为Element这个结构体定义两个方法：</p>
+
+<pre><code>// Next 返回元素e的后一个元素 如果没有下一个元素则返回nil
+func (e *Element) Next() *Element {
+  if p := e.next; e.list != nil &amp;&amp; &amp;e.list.root != p {
+    return p
+  }
+  return nil
+}
+
+// Prev 返回元素e的前一个元素 如果没有下一个元素则返回nil
+func (e *Element) Prev() *Element {
+  if p := e.prev; e.list != nil &amp;&amp; &amp;e.list.root != p {
+    return p
+  }
+  return nil
+}
+</code></pre>
+
+<p>3.再看链表list的定义:</p>
+
+<pre><code>// List 代表一个双向链表
+// List的零值是一个空的列表
+type List struct {
+  // 根节点
+  root Element
+
+  // 当前链表的长度
+  len int
+}
+</code></pre>
+
+<p>4.为链表List定义一个初始化方法</p>
+
+<pre><code>// Init 初始化一个链表，或者重置一个链表
+func (l *List) Init() (*List) {
+  l.root.prev = &amp;l.root
+  l.root.next = &amp;l.root
+  l.len = 0
+  return l
+}
+</code></pre>
+
+<p>5.为链表List定义一个工厂方法，用来生成一个链表：</p>
+
+<pre><code>func New() *List {
+  return new(List).Init()
+}
+</code></pre>
+
+<p>基本操作函数</p>
+
+<pre><code>func (l *List) Back() *Element //获取list l的最后一个元素
+
+func (l *List) Front() *Element //获取list l的第一个元素
+
+func (l *List) Init() *List  //list l初始化或者清除list l
+
+func (l *List) InsertAfter(v interface{}, mark *Element) *Element  //在list l中元素mark之后插入一个值为v的元素，并返回该元素，如果mark不是list中元素，则list不改变。
+
+func (l *List) InsertBefore(v interface{}, mark *Element) *Element//在list l中元素mark之前插入一个值为v的元素，并返回该元素，如果mark不是list中元素，则list不改变。
+
+func (l *List) Len() int //获取list l的长度
+
+func (l *List) MoveAfter(e, mark *Element)  //将元素e移动到元素mark之后，如果元素e或者mark不属于list l，或者e==mark，则list l不改变。
+
+func (l *List) MoveBefore(e, mark *Element)//将元素e移动到元素mark之前，如果元素e或者mark不属于list l，或者e==mark，则list l不改变。
+
+func (l *List) MoveToBack(e *Element)//将元素e移动到list l的末尾，如果e不属于list l，则list不改变。
+
+func (l *List) MoveToFront(e *Element)//将元素e移动到list l的首部，如果e不属于list l，则list不改变。
+
+func (l *List) PushBack(v interface{}) *Element//在list l的末尾插入值为v的元素，并返回该元素。
+
+func (l *List) PushBackList(other *List)//在list l的尾部插入另外一个list，其中l和other可以相等。
+
+func (l *List) PushFront(v interface{}) *Element//在list l的首部插入值为v的元素，并返回该元素。
+
+func (l *List) PushFrontList(other *List)//在list l的首部插入另外一个list，其中l和other可以相等。
+
+func (l *List) Remove(e *Element) interface{}//如果元素e属于list l，将其从list中删除，并返回元素e的值。
+</code></pre>
+
+<p>举例说明其用法。</p>
+
+<pre><code>package main
+
+import (
+    &quot;container/list&quot;
+    &quot;fmt&quot;
+)
+
+func main() {
+    l := list.New() //创建一个新的list
+    for i := 0; i &lt; 5; i++ {
+        l.PushBack(i)
+    }
+    for e := l.Front(); e != nil; e = e.Next() {
+        fmt.Print(e.Value) //输出list的值,01234
+    }
+    fmt.Println(&quot;&quot;)
+    fmt.Println(l.Front().Value) //输出首部元素的值,0
+    fmt.Println(l.Back().Value)  //输出尾部元素的值,4
+    l.InsertAfter(6, l.Front())  //首部元素之后插入一个值为10的元素
+    for e := l.Front(); e != nil; e = e.Next() {
+        fmt.Print(e.Value) //输出list的值,061234
+    }
+    fmt.Println(&quot;&quot;)
+    l.MoveBefore(l.Front().Next(), l.Front()) //首部两个元素位置互换
+    for e := l.Front(); e != nil; e = e.Next() {
+        fmt.Print(e.Value) //输出list的值,601234
+    }
+    fmt.Println(&quot;&quot;)
+    l.MoveToFront(l.Back()) //将尾部元素移动到首部
+    for e := l.Front(); e != nil; e = e.Next() {
+        fmt.Print(e.Value) //输出list的值,460123
+    }
+    fmt.Println(&quot;&quot;)
+    l2 := list.New()
+    l2.PushBackList(l) //将l中元素放在l2的末尾
+    for e := l2.Front(); e != nil; e = e.Next() {
+        fmt.Print(e.Value) //输出l2的值,460123
+    }
+    fmt.Println(&quot;&quot;)
+    l.Init()           //清空l&lt;/span&gt;
+    fmt.Print(l.Len()) //0
+    for e := l.Front(); e != nil; e = e.Next() {
+        fmt.Print(e.Value) //输出list的值,无内容
+    }
+
+}
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-container-list/">https://kingjcy.github.io/post/golang/go-container-list/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/list/">
+                            <i class="fa fa-tags"></i>
+                            list
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li><li id="li-rels"><a href="/post/golang/go-threadsafety/">Go Threadsafety</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月04日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-container-ring/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-container-heap/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

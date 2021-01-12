@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="socket原理详解">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Socket - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Socket
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年09月19日 
+                </div>
+                <h1 class="post-title">Socket</h1>
+            </header>
+
+            <div class="post-content">
+                <p>socket原理详解</p>
+
+<p>1、什么是socket</p>
+
+<p>我们知道进程通信的方法有管道、命名管道、信号、消息队列、共享内存、信号量，这些方法都要求通信的两个进程位于同一个主机。但是如果通信双方不在同一个主机又该如何进行通信呢？在计算机网络中我们就学过了tcp/ip协议族，其实使用tcp/ip协议族就能达到我们想要的效果，如下图（图片来源于《tcp/ip协议详解卷一》第一章1.3）</p>
+
+<p><img src="/media/network/socket/socket-1.png" alt="" /></p>
+
+<p>　　　　　　　　　　　　　　　　　　　　　　　　　　 图一 各协议所处层次</p>
+
+<p>当然，这样做固然是可以的，但是，当我们使用不同的协议进行通信时就得使用不同的接口，还得处理不同协议的各种细节，这就增加了开发的难度，软件也不易于扩展。于是UNIX BSD就发明了socket这种东西，socket屏蔽了各个协议的通信细节，使得程序员无需关注协议本身，直接使用socket提供的接口来进行互联的不同主机间的进程的通信。这就好比操作系统给我们提供了使用底层硬件功能的系统调用，通过系统调用我们可以方便的使用磁盘（文件操作），使用内存，而无需自己去进行磁盘读写，内存管理。socket其实也是一样的东西，就是提供了tcp/ip协议的抽象，对外提供了一套接口，同过这个接口就可以统一、方便的使用tcp/ip协议的功能了。百说不如一图，看下面这个图就能明白了。</p>
+
+<p>　　　　　　　　　
+<img src="/media/network/socket/socket-2.png" alt="" />
+　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　图二 socket所处层次</p>
+
+<p>那么，在BSD UNIX又是如何实现这层抽象的呢？我们知道unix中万物皆文件，没错，bsd在实现上把socket设计成一种文件，然后通过虚拟文件系统的操作接口就可以访问socket，而访问socket时会调用相应的驱动程序，从而也就是使用底层协议进行通信。（vsf也就是unix提供给我们的面向对象编程，如果底层设备是磁盘，就对磁盘读写，如果底层设备是socket就使用底层协议在网中进行通信，而对外的接口都是一致的）。下面再看一下socket的结构是怎样的（图片来源于《tcp/ip协议详解卷二》章节一，1.8描述符），注意：这里的socket是一个实例化之后的socket，也就是说是一个具体的通信过程中的socket，不是指抽象的socket结构，下文还会进行解释。</p>
+
+<p>　　　　　　　　　
+<img src="/media/network/socket/socket-3.png" alt="" />
+　　　　　　　　 　　　　　　　　　　　      图三 udp socket实例的结构</p>
+
+<p>很明显，unix把socket设计成文件，通过描述符我们可以定位到具体的file结构体，file结构体中有个f_type属性，标识了文件的类型，如图，DTYPE_VNODE表示普通的文件DTYPE_SOCKET表示socket，当然还有其他的类型，比如管道、设备等，这里我们只关心socket类型。如果是socket类型，那么f_ops域指向的就是相应的socket类型的驱动，而f_data域指向了具体的socket结构体，socket结构体关键域有so_type,so_pcb。so_type常见的值有：</p>
+
+<p>SOCK_STREAM 提供有序的、可靠的、双向的和基于连接的字节流服务，当使用Internet地址族时使用TCP。
+SOCK_DGRAM 支持无连接的、不可靠的和使用固定大小（通常很小）缓冲区的数据报服务，当使用Internet地址族使用UDP。
+SOCK_RAW 原始套接字，允许对底层协议如IP或ICMP进行直接访问，可以用于自定义协议的开发。
+so_pcb表示socket控制块，其又指向一个结构体，该结构体包含了当前主机的ip地址(inp_laddr)，当前主机进程的端口号(inp_lport)，发送端主机的ip地址(inp_faddr)，发送端主体进程的端口号(inp_fport)。so_pcb是socket类型的关键结构，不亚于进程控制块之于进程，在进程中，一个pcb可以表示一个进程，描述了进程的所有信息，每个进程有唯一的进程编号，该编号就对应pcb；socket也同时是这样，每个socket有一个so_pcb，描述了该socket的所有信息，而每个socket有一个编号，这个编号就是socket描述符。说到这里，我们发现，socket确实和进程很像，就像我们把具体的进程看成是程序的一个实例，同样我们也可以把具体的socket看成是网络通信的一个实例。</p>
+
+<p>2、具体socket实例如何标识
+我们知道具体的一个文件可以用一个路径来表示，比如/home/zzy/src_code/client.c，那么具体的socket实例我们该如何表示呢，其实就是使用上面提到的so_pcb的那几个关键属性，也就是使用so_type+ip地址+端口号。如果我们使用so_type+ip地址+端口号实例一个socket，那么互联网上的其他主机就可以与该socket实例进行通信了。所以下面我们看一下socket如何进行实例化，看看socket给我们提供了哪些接口，而我们又该如何组织这些接口</p>
+
+<p>3、socket编程接口
+3.1、socket接口
+int socket(int protofamily, int so_type, int protocol);</p>
+
+<p>protofamily 指协议族，常见的值有：
+AF_INET，指定so_pcb中的地址要采用ipv4地址类型
+AF_INET6，指定so_pcb中的地址要采用ipv6的地址类型
+AF_LOCAL/AF_UNIX，指定so_pcb中的地址要使用绝对路径名
+当然也还有其他的协议族，用到再学习了
+so_type 指定socket的类型，也就是上面讲到的so_type字段，比较常用的类型有：
+SOCK_STREAM
+SOCK_DGRAM
+SOCK_RAW
+protocol 指定具体的协议，也就是指定本次通信能接受的数据包的类型和发送数据包的类型，常见的值有：
+IPPROTO_TCP，TCP协议
+IPPROTO_UDP，UPD协议
+0，如果指定为0，表示由内核根据so_type指定默认的通信协议
+这里解释一下图三，图三其实是使用AF_INET,SOCK_DGRAM,IPPRTO_UDP实例化之后的一个具体的socket。</p>
+
+<p>那为什么要通过这三个参数来生成一个socket描述符？</p>
+
+<p>答案就是通过这三个参数来确定一组固定的操作。我们说过抽象的socket对外提供了一个统一、方便的接口来进行网络通信，但对内核来说，每一个接口背后都是及其复杂的，同一个接口对应了不同协议，而内核有不同的实现，幸运的是，如果确定了这三个参数，那么相应的接口的映射也就确定了。在实现上，BSD就把socket分类描述，每一个类别都有进行通信的详细操作，分类见下图。而对socket的分类，就好比对unix设备的分类，我们对设备write和read时，底层的驱动是有各个设备自己提供的，而socket也一样，当我们指定不同的so_type时，底层提供的通信细节也由相应的类别提供。</p>
+
+<p>　　　　　　　　　　　　　　　　　　
+<img src="/media/network/socket/socket-4.png" alt="" />
+　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　图4 socket层次图</p>
+
+<p>更详细的socket（）函数参数描述请移步：
+<a href="http://blog.csdn.net/liuxingen/article/details/44995467">http://blog.csdn.net/liuxingen/article/details/44995467</a></p>
+
+<p><a href="http://blog.csdn.net/qiuchangyong/article/details/50099927">http://blog.csdn.net/qiuchangyong/article/details/50099927</a></p>
+
+<p>3.2、bind接口
+int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);</p>
+
+<p>bind函数就是给图三种so_pcb结构中的地址赋值的接口</p>
+
+<p>sockfd   是调用socket()函数创建的socket描述符
+addr     是具体的地址
+addrlen  表示addr的长度
+struct sockaddr其实是void的typedef，其常见的结构如下图（图片来源传智播客邢文鹏linux系统编程的笔记），这也是为什么需要addrlen参数的原因，不同的地址类型，其地址长度不一样：</p>
+
+<p>　　　　　　　　　　　　　　　　　　<img src="/media/network/socket/socket-5.png" alt="" /></p>
+
+<p>　　　　　　　　　　　　　　　　　　　　　　　　　　　　　　图5 地址结构图</p>
+
+<p>AF_INET:
+struct sockaddr_in {
+    sa_family_t    sin_family; /* address family: AF_INET <em>/
+    in_port_t      sin_port;   /</em> port in network byte order <em>/
+    struct in_addr sin_addr;   /</em> internet address <em>/
+};
+struct in_addr {
+    uint32_t       s_addr;     /</em> address in network byte order <em>/
+};
+AF_INET6:
+struct sockaddr_in6 {
+    sa_family_t     sin6_family;   /</em> AF_INET6 <em>/
+    in_port_t       sin6_port;     /</em> port number <em>/
+    uint32_t        sin6_flowinfo; /</em> IPv6 flow information <em>/
+    struct in6_addr sin6_addr;     /</em> IPv6 address <em>/
+    uint32_t        sin6_scope_id; /</em> Scope ID (new in 2.4) <em>/
+};
+struct in6_addr {
+    unsigned char   s6_addr[16];   /</em> IPv6 address <em>/
+};
+AF_UNIX:
+#define UNIX_PATH_MAX    108
+struct sockaddr_un {
+    sa_family_t sun_family;               /</em> AF_UNIX <em>/
+    char        sun_path[UNIX_PATH_MAX];  /</em> pathname */
+};
+3.3、connect接口
+int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);</p>
+
+<p>这三个参数和bind的三个参数类型一直，只不过此处strcut sockaddr表示对端公开的地址。三个参数都是传入参数。connect顾名思义就是拿来建立连接的函数，只有像tcp这样面向连接、提供可靠服务的协议才需要建立连接</p>
+
+<p>3.4、listen接口
+int listen(int sockfd, int backlog)</p>
+
+<p>告知内核在sockfd这个描述符上监听是否有连接到来，并设置同时能完成的最大连接数为backlog。3.6节还会继续解释这个参数。当调用listen后，内核就会建立两个队列，一个SYN队列，表示接受到请求，但未完成三次握手的连接；另一个是ACCEPT队列，表示已经完成了三次握手的队列</p>
+
+<p>sockfd 是调用socket()函数创建的socket描述符
+backlog 已经完成三次握手而等待accept的连接数
+关于backlog , man listen的描述如下：</p>
+
+<p>The behavior of the backlog argument on TCP sockets changed with Linux 2.2. Now it specifies the queue length for completely established sockets waiting to be accepted, instead of the number of incomplete connection requests. The maximum length of the queue for incomplete sockets can be set using /proc/sys/net/ipv4/tcp_max_syn_backlog. When syncookies are enabled there is no logical maximum length and this setting is ignored. See tcp(7) for more information.
+If the backlog argument is greater than the value in /proc/sys/net/core/somaxconn, then it is silently truncated to that value; the default value in this file is 128. In kernels before 2.4.25, this limit was a hard coded value, SOMAXCONN, with the value 128.
+3.5、accept接口
+int accept(int listen_sockfd, struct sockaddr *addr, socklen_t *addrlen)</p>
+
+<p>这三个参数与bind的三个参数含义一致，不过，此处的后两个参数是传出参数。在使用listen函数告知内核监听的描述符后，内核就会建立两个队列，一个SYN队列，表示接受到请求，但未完成三次握手的连接；另一个是ACCEPT队列，表示已经完成了三次握手的队列。而accept函数就是从ACCEPT队列中拿一个连接，并生成一个新的描述符，新的描述符所指向的结构体so_pcb中的请求端ip地址、请求端端口将被初始化。</p>
+
+<p>从上面可以知道，accpet的返回值是一个新的描述符，我们姑且称之为new_sockfd。那么new_sockfd和listen_sockfd有和不同呢？不同之处就在于listen_sockfd所指向的结构体so_pcb中的请求端ip地址、请求端端口没有被初始化，而new_sockfd的这两个属性被初始化了。</p>
+
+<p>3.6、listen、connect、accept流程及原理
+以AF_INET,SOCK_STREAM,IPPROTO_TCP三个参数实例化的socket为例，通过一个副图来讲解这三个函数的工作流程及粗浅原理（图片改自<a href="http://blog.csdn.net/russell_tao/article/details/9111769）">http://blog.csdn.net/russell_tao/article/details/9111769）</a></p>
+
+<p>　　　　　　　<img src="/media/network/socket/socket-6.png" alt="" /></p>
+
+<p>　　　　　　　　　　　　　　　　　　　　　　　    图6 listen、accept、connect流程及原理图</p>
+
+<p>服务器端在调用listen之后，内核会建立两个队列，SYN队列和ACCEPT队列，其中ACCPET队列的长度由backlog指定。
+服务器端在调用accpet之后，将阻塞，等待ACCPT队列有元素。
+客户端在调用connect之后，将开始发起SYN请求，请求与服务器建立连接，此时称为第一次握手。
+服务器端在接受到SYN请求之后，把请求方放入SYN队列中，并给客户端回复一个确认帧ACK，此帧还会携带一个请求与客户端建立连接的请求标志，也就是SYN，这称为第二次握手
+客户端收到SYN+ACK帧后，connect返回，并发送确认建立连接帧ACK给服务器端。这称为第三次握手
+服务器端收到ACK帧后，会把请求方从SYN队列中移出，放至ACCEPT队列中，而accept函数也等到了自己的资源，从阻塞中唤醒，从ACCEPT队列中取出请求方，重新建立一个新的sockfd，并返回。
+这就是listen,accept,connect这三个函数的工作流程及原理。从这个过程可以看到，在connect函数中发生了两次握手。</p>
+
+<p>更加详细的accept建立连接流程及原理请移步下面这个博文，该博文博主是个大牛，讲解的通熟易懂并且有深度：</p>
+
+<p><a href="http://blog.csdn.net/russell_tao/article/details/9111769">http://blog.csdn.net/russell_tao/article/details/9111769</a></p>
+
+<p>3.7、发送消息接口
+#include <unistd.h></p>
+
+<p>ssize_t write(int fd, const void *buf, size_t count);</p>
+
+<p>#include <sys/types.h>
+#include <sys/socket.h></p>
+
+<p>ssize_t send(int sockfd, const void *buf, size_t len, int flags);</p>
+
+<p>ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,const struct sockaddr *dest_addr, socklen_t addrlen);</p>
+
+<p>ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags);</p>
+
+<p>这几个接口都比较好理解，查一下man pages就知道什么含义了，man pages中讲解的非常清楚。这里只说一下flags参数，也是摘抄自man pages。</p>
+
+<p>flags:</p>
+
+<p>MSG_DONTWAIT (since Linux 2.2)，不阻塞
+Enables nonblocking operation; if the operation would block, EAGAIN or EWOULDBLOCK is returned (this can also be enabled using
+the O_NONBLOCK flag with the F_SETFL fcntl(2)).</p>
+
+<p>MSG_DONTROUTE，数据包不允许通过网关
+Don&rsquo;t use a gateway to send out the packet, only send to hosts on directly connected networks. This is usually used only by
+diagnostic or routing programs. This is only defined for protocol families that route; packet sockets don&rsquo;t.</p>
+
+<p>MSG_OOB，带外数据
+Sends out-of-band data on sockets that support this notion (e.g., of type SOCK_STREAM); the underlying protocol must also sup‐
+port out-of-band data.</p>
+
+<p>其他
+3.8、接受消息接口
+#include <unistd.h></p>
+
+<p>ssize_t read(int fd, void *buf, size_t count);</p>
+
+<p>#include <sys/types.h>
+#include <sys/socket.h></p>
+
+<p>ssize_t recv(int sockfd, void *buf, size_t len, int flags);</p>
+
+<p>ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,struct sockaddr *src_addr, socklen_t *addrlen);</p>
+
+<p>ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags);</p>
+
+<p>这几个接口都比较好理解，查一下man pages就知道什么含义了，man pages中讲解的非常清楚。</p>
+
+<p>4、socket编程流程及tcp状态变迁
+先做一个说明，下面的图都不是原创，是本人收藏已久的一些原理图，来源已经不记得了，如果大家知道来源的可以留言。</p>
+
+<p>socket编程的一般模型是固定的，下面我就以几幅图来说明，由于插图中已经有说明，我就不在做补充说明了。</p>
+
+<p>4.1 c/s模式之TCP
+　</p>
+
+<p><img src="/media/network/socket/socket-7.png" alt="" />
+ <img src="/media/network/socket/socket-8.png" alt="" /></p>
+
+<p>　　　　　　　　　　　　　　　　　　　　　　　　　　　　　图8 c/s模型tcp编程流程图及tcp状态变迁图</p>
+
+<p>4.2 c/s模式之UDP</p>
+
+<p><img src="/media/network/socket/socket-9.png" alt="" />
+<img src="/media/network/socket/socket-10.png" alt="" /></p>
+
+<p>socket 编程的端口和地址复用</p>
+
+<p>在linux socket网络编程中，大规模并发TCP或UDP连接时，经常会用到端口复用：
+ int opt = 1;
+ if(setsockopt(sockfd, SOL_SOCKET,SO_REUSEADDR, (const void *) &amp;opt, sizeof(opt))){
+    perror(&ldquo;setsockopt&rdquo;);
+    return -1;
+}
+那么什么是端口复用呢，如何理解呢，可以解释成如下： 
+在A机上进行客户端网络编程，假如它所使用的本地端口号是1234，如果没有开启端口复用的话，它用本地端口1234去连接B机再用本地端口连接C机时就不可以，若开启端口复用的话在用本地端口1234访问B机的情况下还可以用本地端口1234访问C机。若是服务器程序中监听的端口，即使开启了复用，也不可以用该端口望外发起连接了。</p>
+
+<p>SO_REUSEADDR和SO_REUSEPORT
+SO_REUSEADDR提供如下四个功能：</p>
+
+<p>SO_REUSEADDR允许启动一个监听服务器并捆绑其众所周知端口，即使以前建立的将此端口用做他们的
+        本地端口的连接仍存在。这通常是重启监听服务器时出现，若不设置此选项，则bind时将出错。</p>
+
+<p>SO_REUSEADDR允许在同一端口上启动同一服务器的多个实例，只要每个实例捆绑一个不同的本地IP地址
+            即可。对于TCP，我们根本不可能启动捆绑相同IP地址和相同端口号的多个服务器。</p>
+
+<p>SO_REUSEADDR允许单个进程捆绑同一端口到多个套接口上，只要每个捆绑指定不同的本地IP地址即
+            可。这一般不用于TCP服务器。</p>
+
+<p>SO_REUSEADDR允许完全重复的捆绑：当一个IP地址和端口绑定到某个套接口上时，还允许此IP地址和端
+            口捆绑到另一个套接口上。一般来说，这个特性仅在支持多播的系统上才有，而且只对UDP套
+            接口而言（TCP不支持多播）。
+SO_REUSEPORT选项有如下语义：</p>
+
+<p>此选项允许完全重复捆绑，但仅在想捆绑相同IP地址和端口的套接口都指定了此套接口选项才行。</p>
+
+<p>如果被捆绑的IP地址是一个多播地址，则SO_REUSEADDR和SO_REUSEPORT等效。
+使用这两个套接口选项的建议：</p>
+
+<p>在所有TCP服务器中，在调用bind之前设置SO_REUSEADDR套接口选项；
+当编写一个同一时刻在同一主机上可运行多次的多播应用程序时，设置SO_REUSEADDR选项，并将本组的多播地址作为本地IP地址捆绑。</p>
+
+<p>setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const void *)&amp;nOptval , sizeof(int)) &lt; 0) 
+附</p>
+
+<p>Q:编写 TCP/SOCK_STREAM 服务程序时，SO_REUSEADDR到底什么意思？</p>
+
+<p>A:这个套接字选项通知内核，如果端口忙，但TCP状态位于 TIME_WAIT ，可以重用端口。如果端口忙，
+而TCP状态位于其他状态，重用端口时依旧得到一个错误信息，指明&rdquo;地址已经使用中&rdquo;。如果你的服务程序停止
+后想立即重启，而新套接字依旧使用同一端口，此时SO_REUSEADDR 选项非常有用。必须意识到，此时任何
+非期望数据到达，都可能导致服务程序反应混乱，不过这只是一种可能，事实上很不可能。
+其实这个问题在Richard Stevens的《Unix网络编程指南》卷一里有很详细的解答(中文版P166-168页)。这里我只是写几个基本的例子来验证这个问题。
+首先声明一个问题：当两个socket的address和port相冲突，而你又想重用地址和端口，则旧的socket和新的socket都要已经被设置了SO_REUSEADDR特性，只有两者之一有这个特性还是有问题的。
+SO_REUSEADDR可以用在以下四种情况下。
+(摘自《Unix网络编程》卷一，即UNPv1)
+1、当有一个有相同本地地址和端口的socket1处于TIME_WAIT状态时，而你启动的程序的socket2要占用该地址和端口，你的程序就要用到该选项。
+2、SO_REUSEADDR允许同一port上启动同一服务器的多个实例(多个进程)。但每个实例绑定的IP地址是不能相同的。在有多块网卡或用IP Alias技术的机器可以测试这种情况。
+3、SO_REUSEADDR允许单个进程绑定相同的端口到多个socket上，但每个socket绑定的ip地址不同。这和2很相似，区别请看UNPv1。
+4、SO_REUSEADDR允许完全相同的地址和端口的重复绑定。但这只用于UDP的多播，不用于TCP。</p>
+
+<p>源码：</p>
+
+<p>[cpp] view plain copy
+#include <stdio.h>  
+#include <stdlib.h>  
+  
+#include <sys/socket.h>    
+#include <netinet/in.h>    
+#include <arpa/inet.h>    
+#include <sys/types.h>    
+#include <unistd.h>    
+  
+#define MAXLINE 100  
+  
+int main(int argc, char<strong> argv)  
+{  
+    int listenfd,connfd;  
+    struct sockaddr_in servaddr;  
+    char buff[MAXLINE+1];  
+    time_t ticks;  
+    unsigned short port;  
+    int flag=1,len=sizeof(int);  
+  
+    port=10013;  
+    if( (listenfd=socket(AF_INET,SOCK_STREAM,0)) == -1)  
+    {  
+        perror(&ldquo;socket&rdquo;);  
+        exit(1);  
+    }  
+    bzero(&amp;servaddr,sizeof(servaddr));  
+    servaddr.sin_family=AF_INET;  
+    servaddr.sin_addr.s_addr=htonl(INADDR_ANY);  
+    servaddr.sin_port=htons(port);  
+    /</strong>/if( setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &amp;flag, len) == -1)  
+    {  
+        perror(&ldquo;setsockopt&rdquo;);  
+        exit(1);  
+    }  
+    if( bind(listenfd,(struct sockaddr<em>)&amp;servaddr,sizeof(servaddr)) ==-1)  
+    {  
+        perror(&ldquo;bind&rdquo;);  
+        exit(1);  
+    }  
+    else  
+        printf(&ldquo;bind call OK!\n&rdquo;);  
+    if( listen(listenfd,5) == -1)  
+    {  
+        perror(&ldquo;listen&rdquo;);  
+        exit(1);  
+    }  
+  
+    for(;;) {  
+        if( (connfd=accept(listenfd,(struct sockaddr</em>)NULL,NULL)) == -1)  
+        {  
+            perror(&ldquo;accept&rdquo;);  
+            exit(1);  
+        }  
+        if( fork() == 0)/<strong>//<em>child process</em>/  
+        {  
+            close(listenfd);/</strong>//<em>这句不能少，原因请大家想想就知道了。</em>/  
+            ticks=time(NULL);  
+            snprintf(buff,100,&ldquo;%.24s\r\n&rdquo;,ctime(&amp;ticks));  
+            write(connfd,buff,strlen(buff));  
+            close(connfd);  
+            sleep(1);  
+            execlp(&ldquo;f1-9d&rdquo;,NULL);  
+            perror(&ldquo;execlp&rdquo;);  
+            exit(1);  
+        }  
+        close(connfd);  
+        exit(0);/**//<em> end parent</em>/  
+    }  
+}  </p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/middleware/network/socket/">https://kingjcy.github.io/post/middleware/network/socket/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags//">
+                            <i class="fa fa-tags"></i>
+                            
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-unsafe/">Go Unsafe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-text/">Go Text</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-plugin/">Go Plugin</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-mine/">Go Mine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-internal/">Go Internal</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-index/">Go Index</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-image/">Go Image</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-html/">Go Html</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-hash/">Go Hash</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-go/">Go Go</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/middleware/network/protocol/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/middleware/network/port/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

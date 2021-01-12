@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="平时在开发过程中， 和字符串打交道还是比较多的，比如分割， 去除， 替换等等常用的方法， 这些都是由strings包来提供的。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Go Strings - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Go Strings
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年10月12日 
+                </div>
+                <h1 class="post-title">Go Strings</h1>
+            </header>
+
+            <div class="post-content">
+                <p>平时在开发过程中， 和字符串打交道还是比较多的，比如分割， 去除， 替换等等常用的方法， 这些都是由strings包来提供的。</p>
+
+<h1 id="主要应用">主要应用</h1>
+
+<p>1.字符串比较</p>
+
+<pre><code>// Compare 函数，用于比较两个字符串的大小，如果两个字符串相等，返回为 0。如果 a 小于 b ，返回 -1 ，反之返回 1 。不推荐使用这个函数，直接使用 == != &gt; &lt; &gt;= &lt;= 等一系列运算符更加直观。
+func Compare(a, b string) int
+//   EqualFold 函数，计算 s 与 t 忽略字母大小写后是否相等。
+func EqualFold(s, t string) bool
+</code></pre>
+
+<p>示例：</p>
+
+<pre><code>a := &quot;gopher&quot;
+b := &quot;hello world&quot;
+fmt.Println(strings.Compare(a, b))
+fmt.Println(strings.Compare(a, a))
+fmt.Println(strings.Compare(b, a))
+
+fmt.Println(strings.EqualFold(&quot;GO&quot;, &quot;go&quot;))
+fmt.Println(strings.EqualFold(&quot;壹&quot;, &quot;一&quot;))
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>-1
+0
+1
+true
+false
+</code></pre>
+
+<p>2.是否存在某个字符或子串</p>
+
+<p>有三个函数做这件事：</p>
+
+<pre><code>// 子串 substr 在 s 中，返回 true
+func Contains(s, substr string) bool
+// chars 中任何一个 Unicode 代码点在 s 中，返回 true
+func ContainsAny(s, chars string) bool
+// Unicode 代码点 r 在 s 中，返回 true
+func ContainsRune(s string, r rune) bool
+</code></pre>
+
+<p>这里对 ContainsAny 函数进行一下说明，看如下例子：</p>
+
+<pre><code>fmt.Println(strings.ContainsAny(&quot;team&quot;, &quot;i&quot;))
+fmt.Println(strings.ContainsAny(&quot;failure&quot;, &quot;u &amp; i&quot;))
+fmt.Println(strings.ContainsAny(&quot;in failure&quot;, &quot;s g&quot;))
+fmt.Println(strings.ContainsAny(&quot;foo&quot;, &quot;&quot;))
+fmt.Println(strings.ContainsAny(&quot;&quot;, &quot;&quot;))
+</code></pre>
+
+<p>输出：</p>
+
+<pre><code>false
+true
+true
+false
+false
+</code></pre>
+
+<p>也就是说，第二个参数 chars 中任意一个字符（Unicode Code Point）如果在第一个参数 s 中存在，则返回 true。</p>
+
+<p>查看这三个函数的源码，发现它们只是调用了相应的 Index 函数（子串出现的位置），然后和 0 作比较返回 true 或 fale。如，Contains：</p>
+
+<pre><code>func Contains(s, substr string) bool {
+  return Index(s, substr) &gt;= 0
+}
+</code></pre>
+
+<p>3.子串出现次数 ( 字符串匹配 )</p>
+
+<p>在数据结构与算法中，可能会讲解以下字符串匹配算法：</p>
+
+<pre><code>朴素匹配算法
+KMP 算法
+Rabin-Karp 算法
+Boyer-Moore 算法
+</code></pre>
+
+<p>还有其他的算法，这里不一一列举，感兴趣的可以网上搜一下。</p>
+
+<p>在 Go 中，查找子串出现次数即字符串模式匹配，实现的是 Rabin-Karp 算法。Count 函数的签名如下：</p>
+
+<pre><code>func Count(s, sep string) int
+</code></pre>
+
+<p>在 Count 的实现中，处理了几种特殊情况，属于字符匹配预处理的一部分。这里要特别说明一下的是当 sep 为空时，Count 的返回值是：utf8.RuneCountInString(s) + 1</p>
+
+<pre><code>fmt.Println(strings.Count(&quot;cheese&quot;, &quot;e&quot;))
+fmt.Println(len(&quot;谷歌中国&quot;))
+fmt.Println(strings.Count(&quot;谷歌中国&quot;, &quot;&quot;))
+</code></pre>
+
+<p>输出：</p>
+
+<pre><code>3
+12
+5
+</code></pre>
+
+<p>关于 Rabin-Karp 算法的实现，有兴趣的可以看看 Count 的源码。</p>
+
+<p>另外，Count 是计算子串在字符串中出现的无重叠的次数，比如：</p>
+
+<pre><code>fmt.Println(strings.Count(&quot;fivevev&quot;, &quot;vev&quot;))
+</code></pre>
+
+<p>输出：</p>
+
+<pre><code>1
+</code></pre>
+
+<p>4.字符串分割为[]string</p>
+
+<p>这个需求很常见，倒不一定是为了得到[]string。</p>
+
+<p>该包提供了六个三组分割函数：Fields 和 FieldsFunc、Split 和 SplitAfter、SplitN 和 SplitAfterN。</p>
+
+<pre><code>func Fields(s string) []string
+func FieldsFunc(s string, f func(rune) bool) []string
+</code></pre>
+
+<p>Fields 用一个或多个连续的空格分隔字符串 s，返回子字符串的数组（slice）。如果字符串 s 只包含空格，则返回空列表 ([]string 的长度为 0）。其中，空格的定义是 unicode.IsSpace，之前已经介绍过。</p>
+
+<p>常见间隔符包括：&rsquo;\t&rsquo;, &lsquo;\n&rsquo;, &lsquo;\v&rsquo;, &lsquo;\f&rsquo;, &lsquo;\r&rsquo;, &lsquo; &lsquo;, U+0085 (NEL), U+00A0 (NBSP)</p>
+
+<p>由于是用空格分隔，因此结果中不会含有空格或空子字符串，例如：</p>
+
+<pre><code>fmt.Printf(&quot;Fields are: %q&quot;, strings.Fields(&quot;  foo bar  baz   &quot;))
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>Fields are: [&quot;foo&quot; &quot;bar&quot; &quot;baz&quot;]
+</code></pre>
+
+<p>FieldsFunc 用这样的 Unicode 代码点 c 进行分隔：满足 f&copy; 返回 true。该函数返回[]string。如果字符串 s 中所有的代码点 (unicode code points) 都满足 f&copy; 或者 s 是空，则 FieldsFunc 返回空 slice。</p>
+
+<p>也就是说，我们可以通过实现一个回调函数来指定分隔字符串 s 的字符。比如上面的例子，我们通过 FieldsFunc 来实现：</p>
+
+<pre><code>fmt.Println(strings.FieldsFunc(&quot;  foo bar  baz   &quot;, unicode.IsSpace))
+</code></pre>
+
+<p>实际上，Fields 函数就是调用 FieldsFunc 实现的：</p>
+
+<pre><code>func Fields(s string) []string {
+  return FieldsFunc(s, unicode.IsSpace)
+}
+</code></pre>
+
+<p>之所以将这四个函数放在一起讲，是因为它们都是通过一个同一个内部函数来实现的。它们的函数签名及其实现：</p>
+
+<pre><code>func Split(s, sep string) []string { return genSplit(s, sep, 0, -1) }
+func SplitAfter(s, sep string) []string { return genSplit(s, sep, len(sep), -1) }
+func SplitN(s, sep string, n int) []string { return genSplit(s, sep, 0, n) }
+func SplitAfterN(s, sep string, n int) []string { return genSplit(s, sep, len(sep), n) }
+</code></pre>
+
+<p>它们都调用了 genSplit 函数。</p>
+
+<p>这四个函数都是通过 sep 进行分割，返回[]string。如果 sep 为空，相当于分成一个个的 UTF-8 字符，如 Split(&ldquo;abc&rdquo;,&ldquo;&rdquo;)，得到的是[a b c]。</p>
+
+<p>Split(s, sep) 和 SplitN(s, sep, -1) 等价；SplitAfter(s, sep) 和 SplitAfterN(s, sep, -1) 等价。</p>
+
+<p>那么，Split 和 SplitAfter 有啥区别呢？通过这两句代码的结果就知道它们的区别了：</p>
+
+<pre><code>fmt.Printf(&quot;%q\n&quot;, strings.Split(&quot;foo,bar,baz&quot;, &quot;,&quot;))
+fmt.Printf(&quot;%q\n&quot;, strings.SplitAfter(&quot;foo,bar,baz&quot;, &quot;,&quot;))
+</code></pre>
+
+<p>输出：</p>
+
+<pre><code>[&quot;foo&quot; &quot;bar&quot; &quot;baz&quot;]
+[&quot;foo,&quot; &quot;bar,&quot; &quot;baz&quot;]
+</code></pre>
+
+<p>也就是说，Split 会将 s 中的 sep 去掉，而 SplitAfter 会保留 sep。</p>
+
+<p>带 N 的方法可以通过最后一个参数 n 控制返回的结果中的 slice 中的元素个数，当 n &lt; 0 时，返回所有的子字符串；当 n == 0 时，返回的结果是 nil；当 n &gt; 0 时，表示返回的 slice 中最多只有 n 个元素，其中，最后一个元素不会分割，比如：</p>
+
+<pre><code>fmt.Printf(&quot;%q\n&quot;, strings.SplitN(&quot;foo,bar,baz&quot;, &quot;,&quot;, 2))
+</code></pre>
+
+<p>输出：</p>
+
+<pre><code>[&quot;foo&quot; &quot;bar,baz&quot;]
+</code></pre>
+
+<p>另外看一下官方文档提供的例子，注意一下输出结果：</p>
+
+<pre><code>fmt.Printf(&quot;%q\n&quot;, strings.Split(&quot;a,b,c&quot;, &quot;,&quot;))
+fmt.Printf(&quot;%q\n&quot;, strings.Split(&quot;a man a plan a canal panama&quot;, &quot;a &quot;))
+fmt.Printf(&quot;%q\n&quot;, strings.Split(&quot; xyz &quot;, &quot;&quot;))
+fmt.Printf(&quot;%q\n&quot;, strings.Split(&quot;&quot;, &quot;Bernardo O'Higgins&quot;))
+</code></pre>
+
+<p>输出：</p>
+
+<pre><code>[&quot;a&quot; &quot;b&quot; &quot;c&quot;]
+[&quot;&quot; &quot;man &quot; &quot;plan &quot; &quot;canal panama&quot;]
+[&quot; &quot; &quot;x&quot; &quot;y&quot; &quot;z&quot; &quot; &quot;]
+[&quot;&quot;]
+</code></pre>
+
+<p>5.字符串是否有某个前缀或后缀</p>
+
+<p>这两个函数比较简单，源码如下：</p>
+
+<pre><code>// s 中是否以 prefix 开始
+func HasPrefix(s, prefix string) bool {
+  return len(s) &gt;= len(prefix) &amp;&amp; s[0:len(prefix)] == prefix
+}
+// s 中是否以 suffix 结尾
+func HasSuffix(s, suffix string) bool {
+  return len(s) &gt;= len(suffix) &amp;&amp; s[len(s)-len(suffix):] == suffix
+}
+</code></pre>
+
+<p>如果 prefix 或 suffix 为 &ldquo;&rdquo; , 返回值总是 true。</p>
+
+<p>示例：</p>
+
+<pre><code>fmt.Println(strings.HasPrefix(&quot;Gopher&quot;, &quot;Go&quot;))
+fmt.Println(strings.HasPrefix(&quot;Gopher&quot;, &quot;C&quot;))
+fmt.Println(strings.HasPrefix(&quot;Gopher&quot;, &quot;&quot;))
+fmt.Println(strings.HasSuffix(&quot;Amigo&quot;, &quot;go&quot;))
+fmt.Println(strings.HasSuffix(&quot;Amigo&quot;, &quot;Ami&quot;))
+fmt.Println(strings.HasSuffix(&quot;Amigo&quot;, &quot;&quot;))
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>true
+false
+true
+true
+false
+true
+</code></pre>
+
+<p>6.字符或子串在字符串中出现的位置</p>
+
+<p>有一序列函数与该功能有关：</p>
+
+<pre><code>// 在 s 中查找 sep 的第一次出现，返回第一次出现的索引
+func Index(s, sep string) int
+// 在 s 中查找字节 c 的第一次出现，返回第一次出现的索引
+func IndexByte(s string, c byte) int
+// chars 中任何一个 Unicode 代码点在 s 中首次出现的位置
+func IndexAny(s, chars string) int
+// 查找字符 c 在 s 中第一次出现的位置，其中 c 满足 f(c) 返回 true
+func IndexFunc(s string, f func(rune) bool) int
+// Unicode 代码点 r 在 s 中第一次出现的位置
+func IndexRune(s string, r rune) int
+
+// 有三个对应的查找最后一次出现的位置
+func LastIndex(s, sep string) int
+func LastIndexByte(s string, c byte) int
+func LastIndexAny(s, chars string) int
+func LastIndexFunc(s string, f func(rune) bool) int
+</code></pre>
+
+<p>这一序列函数，只举 IndexFunc 的例子：</p>
+
+<pre><code>han := func(c rune) bool {
+    return unicode.Is(unicode.Han, c) // 汉字
+}
+fmt.Println(strings.IndexFunc(&quot;Hello, world&quot;, han))
+fmt.Println(strings.IndexFunc(&quot;Hello, 世界&quot;, han))
+</code></pre>
+
+<p>输出：</p>
+
+<pre><code>-1
+7
+</code></pre>
+
+<p>7.字符串 JOIN 操作</p>
+
+<p>将字符串数组（或 slice）连接起来可以通过 Join 实现，函数签名如下：</p>
+
+<pre><code>func Join(a []string, sep string) string
+</code></pre>
+
+<p>假如没有这个库函数，我们自己实现一个，我们会这么实现：</p>
+
+<pre><code>func Join(str []string, sep string) string {
+  // 特殊情况应该做处理
+  if len(str) == 0 {
+      return &quot;&quot;
+  }
+  if len(str) == 1 {
+      return str[0]
+  }
+  buffer := bytes.NewBufferString(str[0])
+  for _, s := range str[1:] {
+      buffer.WriteString(sep)
+      buffer.WriteString(s)
+  }
+  return buffer.String()
+}
+</code></pre>
+
+<p>这里，我们使用了 bytes 包的 Buffer 类型，避免大量的字符串连接操作（因为 Go 中字符串是不可变的）。我们再看一下标准库的实现：</p>
+
+<pre><code>func Join(a []string, sep string) string {
+  if len(a) == 0 {
+      return &quot;&quot;
+  }
+  if len(a) == 1 {
+      return a[0]
+  }
+  n := len(sep) * (len(a) - 1)
+  for i := 0; i &lt; len(a); i++ {
+      n += len(a[i])
+  }
+
+  b := make([]byte, n)
+  bp := copy(b, a[0])
+  for _, s := range a[1:] {
+      bp += copy(b[bp:], sep)
+      bp += copy(b[bp:], s)
+  }
+  return string(b)
+}
+</code></pre>
+
+<p>标准库的实现没有用 bytes 包，当然也不会简单的通过 + 号连接字符串。Go 中是不允许循环依赖的，标准库中很多时候会出现代码拷贝，而不是引入某个包。这里 Join 的实现方式挺好，我个人猜测，不直接使用 bytes 包，也是不想依赖 bytes 包（其实 bytes 中的实现也是 copy 方式）。</p>
+
+<p>简单使用示例：</p>
+
+<pre><code>fmt.Println(Join([]string{&quot;name=xxx&quot;, &quot;age=xx&quot;}, &quot;&amp;&quot;))
+</code></pre>
+
+<p>输出结果:</p>
+
+<pre><code>name=xxx&amp;age=xx
+</code></pre>
+
+<p>8.字符串重复几次</p>
+
+<pre><code>func Repeat(s string, count int) string
+</code></pre>
+
+<p>将 s 重复 count 次，如果 count 为负数或返回值长度 len(s)*count 超出 string 上限会导致 panic，这个函数使用很简单：</p>
+
+<pre><code>fmt.Println(&quot;ba&quot; + strings.Repeat(&quot;na&quot;, 2))
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>banana
+</code></pre>
+
+<p>9.字符替换</p>
+
+<pre><code>func Map(mapping func(rune) rune, s string) string
+</code></pre>
+
+<p>Map 函数，将 s 的每一个字符按照 mapping 的规则做映射替换，如果 mapping 返回值 &lt;0 ，则舍弃该字符。该方法只能对每一个字符做处理，但处理方式很灵活，可以方便的过滤，筛选汉字等。</p>
+
+<p>示例：</p>
+
+<pre><code>mapping := func(r rune) rune {
+    switch {
+    case r &gt;= 'A' &amp;&amp; r &lt;= 'Z': // 大写字母转小写
+        return r + 32
+    case r &gt;= 'a' &amp;&amp; r &lt;= 'z': // 小写字母不处理
+        return r
+    case unicode.Is(unicode.Han, r): // 汉字换行
+        return '\n'
+    }
+    return -1 // 过滤所有非字母、汉字的字符
+}
+fmt.Println(strings.Map(mapping, &quot;Hello你#￥%……\n（'World\n,好Hello^(&amp;(*界gopher...&quot;))
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>hello
+world
+hello
+gopher
+</code></pre>
+
+<p>10.字符串子串替换</p>
+
+<p>进行字符串替换时，考虑到性能问题，能不用正则尽量别用，应该用这里的函数。</p>
+
+<p>字符串替换的函数签名如下：</p>
+
+<pre><code>// 用 new 替换 s 中的 old，一共替换 n 个。
+// 如果 n &lt; 0，则不限制替换次数，即全部替换
+func Replace(s, old, new string, n int) string
+// 该函数内部直接调用了函数 Replace(s, old, new , -1)
+func ReplaceAll(s, old, new string) string
+</code></pre>
+
+<p>使用示例：</p>
+
+<pre><code>fmt.Println(strings.Replace(&quot;oink oink oink&quot;, &quot;k&quot;, &quot;ky&quot;, 2))
+fmt.Println(strings.Replace(&quot;oink oink oink&quot;, &quot;oink&quot;, &quot;moo&quot;, -1))
+fmt.Println(strings.ReplaceAll(&quot;oink oink oink&quot;, &quot;oink&quot;, &quot;moo&quot;))
+</code></pre>
+
+<p>输出：</p>
+
+<pre><code>oinky oinky oink
+moo moo moo
+moo moo moo
+</code></pre>
+
+<p>如果我们希望一次替换多个，比如我们希望替换 This is <b>HTML</b> 中的 &lt; 和 &gt; 为 &lt; 和 &gt;，可以调用上面的函数两次。但标准库提供了另外的方法进行这种替换。</p>
+
+<p>11.大小写转换</p>
+
+<pre><code>func ToLower(s string) string
+func ToLowerSpecial(c unicode.SpecialCase, s string) string
+func ToUpper(s string) string
+func ToUpperSpecial(c unicode.SpecialCase, s string) string
+</code></pre>
+
+<p>大小写转换包含了 4 个相关函数，ToLower,ToUpper 用于大小写转换。ToLowerSpecial,ToUpperSpecial 可以转换特殊字符的大小写。 举个例子：</p>
+
+<pre><code>fmt.Println(strings.ToLower(&quot;HELLO WORLD&quot;))
+fmt.Println(strings.ToLower(&quot;Ā Á Ǎ À&quot;))
+fmt.Println(strings.ToLowerSpecial(unicode.TurkishCase, &quot;壹&quot;))
+fmt.Println(strings.ToLowerSpecial(unicode.TurkishCase, &quot;HELLO WORLD&quot;))
+fmt.Println(strings.ToLower(&quot;Önnek İş&quot;))
+fmt.Println(strings.ToLowerSpecial(unicode.TurkishCase, &quot;Önnek İş&quot;))
+
+fmt.Println(strings.ToUpper(&quot;hello world&quot;))
+fmt.Println(strings.ToUpper(&quot;ā á ǎ à&quot;))
+fmt.Println(strings.ToUpperSpecial(unicode.TurkishCase, &quot;一&quot;))
+fmt.Println(strings.ToUpperSpecial(unicode.TurkishCase, &quot;hello world&quot;))
+fmt.Println(strings.ToUpper(&quot;örnek iş&quot;))
+fmt.Println(strings.ToUpperSpecial(unicode.TurkishCase, &quot;örnek iş&quot;))
+</code></pre>
+
+<p>输出结果:</p>
+
+<pre><code>hello world
+ā á ǎ à
+壹
+hello world
+önnek iş
+önnek iş
+HELLO WORLD
+Ā Á Ǎ À       // 汉字拼音有效
+一           //  汉字无效
+HELLO WORLD
+ÖRNEK IŞ
+ÖRNEK İŞ    // 有细微差别
+</code></pre>
+
+<p>12.标题处理</p>
+
+<pre><code>func Title(s string) string
+func ToTitle(s string) string
+func ToTitleSpecial(c unicode.SpecialCase, s string) string
+</code></pre>
+
+<p>标题处理包含 3 个相关函数，其中 Title 会将 s 每个单词的首字母大写，不处理该单词的后续字符。ToTitle 将 s 的每个字母大写。ToTitleSpecial 将 s 的每个字母大写，并且会将一些特殊字母转换为其对应的特殊大写字母。</p>
+
+<p>举个例子：</p>
+
+<pre><code>fmt.Println(strings.Title(&quot;hElLo wOrLd&quot;))
+fmt.Println(strings.ToTitle(&quot;hElLo wOrLd&quot;))
+fmt.Println(strings.ToTitleSpecial(unicode.TurkishCase, &quot;hElLo wOrLd&quot;))
+fmt.Println(strings.Title(&quot;āáǎà ōóǒò êēéěè&quot;))
+fmt.Println(strings.ToTitle(&quot;āáǎà ōóǒò êēéěè&quot;))
+fmt.Println(strings.ToTitleSpecial(unicode.TurkishCase, &quot;āáǎà ōóǒò êēéěè&quot;))
+fmt.Println(strings.Title(&quot;dünyanın ilk borsa yapısı Aizonai kabul edilir&quot;))
+fmt.Println(strings.ToTitle(&quot;dünyanın ilk borsa yapısı Aizonai kabul edilir&quot;))
+fmt.Println(strings.ToTitleSpecial(unicode.TurkishCase, &quot;dünyanın ilk borsa yapısı Aizonai kabul edilir&quot;))
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>HElLo WOrLd
+HELLO WORLD
+HELLO WORLD
+Āáǎà Ōóǒò Êēéěè
+ĀÁǍÀ ŌÓǑÒ ÊĒÉĚÈ
+ĀÁǍÀ ŌÓǑÒ ÊĒÉĚÈ
+Dünyanın Ilk Borsa Yapısı Aizonai Kabul Edilir
+DÜNYANIN ILK BORSA YAPISI AIZONAI KABUL EDILIR
+DÜNYANIN İLK BORSA YAPISI AİZONAİ KABUL EDİLİR
+</code></pre>
+
+<p>13.修剪</p>
+
+<pre><code>// 将 s 左侧和右侧中匹配 cutset 中的任一字符的字符去掉
+func Trim(s string, cutset string) string
+// 将 s 左侧的匹配 cutset 中的任一字符的字符去掉
+func TrimLeft(s string, cutset string) string
+// 将 s 右侧的匹配 cutset 中的任一字符的字符去掉
+func TrimRight(s string, cutset string) string
+// 如果 s 的前缀为 prefix 则返回去掉前缀后的 string , 否则 s 没有变化。
+func TrimPrefix(s, prefix string) string
+// 如果 s 的后缀为 suffix 则返回去掉后缀后的 string , 否则 s 没有变化。
+func TrimSuffix(s, suffix string) string
+// 将 s 左侧和右侧的间隔符去掉。常见间隔符包括：'\t', '\n', '\v', '\f', '\r', ' ', U+0085 (NEL)
+func TrimSpace(s string) string
+// 将 s 左侧和右侧的匹配 f 的字符去掉
+func TrimFunc(s string, f func(rune) bool) string
+// 将 s 左侧的匹配 f 的字符去掉
+func TrimLeftFunc(s string, f func(rune) bool) string
+// 将 s 右侧的匹配 f 的字符去掉
+func TrimRightFunc(s string, f func(rune) bool) string
+包含了 9 个相关函数用于修剪字符串。
+</code></pre>
+
+<p>举个例子：</p>
+
+<pre><code>x := &quot;!!!@@@你好,!@#$ Gophers###$$$&quot;
+fmt.Println(strings.Trim(x, &quot;@#$!%^&amp;*()_+=-&quot;))
+fmt.Println(strings.TrimLeft(x, &quot;@#$!%^&amp;*()_+=-&quot;))
+fmt.Println(strings.TrimRight(x, &quot;@#$!%^&amp;*()_+=-&quot;))
+fmt.Println(strings.TrimSpace(&quot; \t\n Hello, Gophers \n\t\r\n&quot;))
+fmt.Println(strings.TrimPrefix(x, &quot;!&quot;))
+fmt.Println(strings.TrimSuffix(x, &quot;$&quot;))
+
+f := func(r rune) bool {
+    return !unicode.Is(unicode.Han, r) // 非汉字返回 true
+}
+fmt.Println(strings.TrimFunc(x, f))
+fmt.Println(strings.TrimLeftFunc(x, f))
+fmt.Println(strings.TrimRightFunc(x, f))
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>你好,!@#$ Gophers
+你好,!@#$ Gophers###$$$
+!!!@@@你好,!@#$ Gophers
+Hello, Gophers
+!!@@@你好,!@#$ Gophers###$$$
+!!!@@@你好,!@#$ Gophers###$$
+你好
+你好,!@#$ Gophers###$$$
+!!!@@@你好
+</code></pre>
+
+<h1 id="类型">类型</h1>
+
+<p>1.Replacer 类型</p>
+
+<p>这是一个结构，没有导出任何字段，实例化通过 func NewReplacer(oldnew &hellip;string) *Replacer 函数进行，其中不定参数 oldnew 是 old-new 对，即进行多个替换。如果 oldnew 长度与奇数，会导致 panic.</p>
+
+<p>示例：</p>
+
+<pre><code>r := strings.NewReplacer(&quot;&lt;&quot;, &quot;&amp;lt;&quot;, &quot;&gt;&quot;, &quot;&amp;gt;&quot;)
+fmt.Println(r.Replace(&quot;This is &lt;b&gt;HTML&lt;/b&gt;!&quot;))
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>This is &amp;lt;b&amp;gt;HTML&amp;lt;/b&amp;gt;!
+</code></pre>
+
+<p>另外，Replacer 还提供了另外一个方法，它在替换之后将结果写入 io.Writer 中。</p>
+
+<pre><code>func (r *Replacer) WriteString(w io.Writer, s string) (n int, err error)
+</code></pre>
+
+<p>2.Reader 类型</p>
+
+<p>看到名字就能猜到，这是实现了 io 包中的接口。它实现了 io.Reader（Read 方法），io.ReaderAt（ReadAt 方法），io.Seeker（Seek 方法），io.WriterTo（WriteTo 方法），io.ByteReader（ReadByte 方法），io.ByteScanner（ReadByte 和 UnreadByte 方法），io.RuneReader（ReadRune 方法） 和 io.RuneScanner（ReadRune 和 UnreadRune 方法）。</p>
+
+<p>Reader 结构如下：</p>
+
+<pre><code>type Reader struct {
+    s        string    // Reader 读取的数据来源
+    i        int // current reading index（当前读的索引位置）
+    prevRune int // index of previous rune; or &lt; 0（前一个读取的 rune 索引位置）
+}
+</code></pre>
+
+<p>可见 Reader 结构没有导出任何字段，而是提供一个实例化方法：</p>
+
+<pre><code>func NewReader(s string) *Reader
+</code></pre>
+
+<p>该方法接收一个字符串，返回的 Reader 实例就是从该参数字符串读数据。在后面学习了 bytes 包之后，可以知道 bytes.NewBufferString 有类似的功能，不过，如果只是为了读取，NewReader 会更高效。</p>
+
+<p>3.Builder 类型</p>
+
+<pre><code>type Builder struct {
+    addr *Builder // of receiver, to detect copies by value
+    buf  []byte
+}
+</code></pre>
+
+<p>该类型实现了 io 包下的 Writer, ByteWriter, StringWriter 等接口，可以向该对象内写入数据，Builder 没有实现 Reader 等接口，所以该类型不可读，但提供了 String 方法可以获取对象内的数据。</p>
+
+<pre><code>// 该方法向 b 写入一个字节
+func (b *Builder) WriteByte(c byte) error
+// WriteRune 方法向 b 写入一个字符
+func (b *Builder) WriteRune(r rune) (int, error)
+// WriteRune 方法向 b 写入字节数组 p
+func (b *Builder) Write(p []byte) (int, error)
+// WriteRune 方法向 b 写入字符串 s
+func (b *Builder) WriteString(s string) (int, error)
+// Len 方法返回 b 的数据长度。
+func (b *Builder) Len() int
+// Cap 方法返回 b 的 cap。
+func (b *Builder) Cap() int
+// Grow 方法将 b 的 cap 至少增加 n (可能会更多)。如果 n 为负数，会导致 panic。
+func (b *Builder) Grow(n int)
+// Reset 方法将 b 清空 b 的所有内容。
+func (b *Builder) Reset()
+// String 方法将 b 的数据以 string 类型返回。
+func (b *Builder) String() string
+</code></pre>
+
+<p>Builder 有 4 个与写入相关的方法，这 4 个方法的 error 都总是为 nil.</p>
+
+<p>Builder 的 cap 会自动增长，一般不需要手动调用 Grow 方法。</p>
+
+<p>String 方法可以方便的获取 Builder 的内容。</p>
+
+<p>举个例子：</p>
+
+<pre><code>b := strings.Builder{}
+_ = b.WriteByte('7')
+n, _ := b.WriteRune('夕')
+fmt.Println(n)
+n, _ = b.Write([]byte(&quot;Hello, World&quot;))
+fmt.Println(n)
+n, _ = b.WriteString(&quot;你好，世界&quot;)
+fmt.Println(n)
+fmt.Println(b.Len())
+fmt.Println(b.Cap())
+b.Grow(100)
+fmt.Println(b.Len())
+fmt.Println(b.Cap())
+fmt.Println(b.String())
+b.Reset()
+fmt.Println(b.String())
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>3
+12
+15
+31
+32
+31
+164
+7夕Hello, World你好，世界
+</code></pre>
+
+<p><strong>这边主要是要注意，使用返回值作为新值，原来值是不变的。</strong></p>
+
+<h2 id="实际使用">实际使用</h2>
+
+<ol>
+<li><p>分割</p>
+
+<p>s := &ldquo;I_Love<em>golangCaff&rdquo;
+res := strings.Split(s, &ldquo;</em>&rdquo;)
+for value := range res {
+    fmt.Println(value)
+}</p></li>
+
+<li><p>替换</p>
+
+<p>fmt.Println(strings.Replace(s, &ldquo;_&ldquo;, &ldquo;.&rdquo;, 1)) //参数依次 (原字符串，被替换字符串， 用来替换的字符, 替换的次数(-1表示没有限制)</p></li>
+
+<li><p>连接</p>
+
+<p>fmt.Println(strings.Join(strings.Split(s, &ldquo;_&ldquo;), &ldquo;+&rdquo;)) //strings.Join([]s, &ldquo;连接符&rdquo;)</p></li>
+
+<li><p>介绍其他一些字符串操作函数(s 字符串类型， t 字符串类型, xs 字符串切片)</p>
+
+<p>strings.TrimSpace(s) //返回去除字符串首尾空白的字符串
+strings.Contains(s, t) //s中是否包含t
+strings.Count(s, t) // t在s中出现的次数
+strings.Trim(s, t) //去除s中t字符 还有TrimLeft(s, t)以及TrimRight(s, t)
+strings.repeat(s, i) //重复i次s字符
+strings.ToLower(s) //将字符串变为小写
+strings.ToUpper(s) //将字符串变为大写
+strings.Index(s, t) //t在s中出现的第一次索引的位置，不出现为-1</p></li>
+
+<li><p>substring实现(中文解决方案)</p></li>
+
+<li><p>原生方法,直接使用slice切片实现，但此方法对于包括中文字符就截取错误</p>
+
+<p>s:=&ldquo;abcde&rdquo;
+fmt.Println(s[0:2]);</p>
+
+<p>//输出
+//ab</p>
+
+<p>//包含中文的字符串
+s2 := &ldquo;我是中国人&rdquo;
+fmt.Println(s2[0:2])</p>
+
+<p>//输出
+//  ��
+//有乱码呀</p></li>
+
+<li><p>如果需要支持中文，则需要使用rune</p>
+
+<p>//获取source的子串,如果start小于0或者end大于source长度则返回&rdquo;&rdquo;
+//start:开始index，从0开始，包括0
+//end:结束index，以end结束，但不包括end
+func substring(source string, start int, end int) string {
+    var r = []rune(source)
+    length := len&reg;</p>
+
+<pre><code>if start &lt; 0 || end &gt; length || start &gt; end {
+    return &quot;&quot;
+}
+
+if start == 0 &amp;&amp; end == length {
+    return source
+}
+
+return string(r[start : end])
+</code></pre>
+
+<p>}</p></li>
+</ol>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-strings/">https://kingjcy.github.io/post/golang/go-strings/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/strings/">
+                            <i class="fa fa-tags"></i>
+                            strings
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-template/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-strconv/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#主要应用">主要应用</a></li>
+<li><a href="#类型">类型</a>
+<ul>
+<li><a href="#实际使用">实际使用</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

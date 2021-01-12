@@ -1,0 +1,1992 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="beego 是一个快速开发 Go 应用的 HTTP 框架，他可以用来快速开发 API、Web 及后端服务等各种应用，是一个 RESTful 的框架。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="golang框架系列---- Beego - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    golang框架系列---- Beego
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年06月25日 
+                </div>
+                <h1 class="post-title">golang框架系列---- Beego</h1>
+            </header>
+
+            <div class="post-content">
+                <p>beego 是一个快速开发 Go 应用的 HTTP 框架，他可以用来快速开发 API、Web 及后端服务等各种应用，是一个 RESTful 的框架。</p>
+
+<p>beego 是基于八大独立的模块构建的，是一个高度解耦的框架。当初设计 beego 的时候就是考虑功能模块化，用户即使不使用 beego 的 HTTP 逻辑，也依旧可以使用这些独立模块</p>
+
+<h2 id="安装">安装</h2>
+
+<h3 id="bee-工具的安装">bee 工具的安装</h3>
+
+<p>bee 工具是一个为了协助快速开发 beego 项目而创建的项目，通过 bee 您可以很容易的进行 beego 项目的创建、热编译、开发、测试、和部署。</p>
+
+<pre><code>go get github.com/beego/bee
+</code></pre>
+
+<p>我们在命令行输入 bee，可以看到如下的信息</p>
+
+<pre><code>Bee is a tool for managing beego framework.
+
+Usage:
+
+    bee command [arguments]
+
+The commands are:
+
+    new         create an application base on beego framework
+    run         run the app which can hot compile
+    pack        compress an beego project
+    api         create an api application base on beego framework
+    bale        packs non-Go files to Go source files
+    version     show the bee &amp; beego version
+    generate    source code generator
+    migrate     run database migrations
+</code></pre>
+
+<h3 id="详解">详解</h3>
+
+<ul>
+<li>new</li>
+</ul>
+
+<p>new 命令是新建一个 Web 项目，我们在命令行下执行 bee new &lt;项目名&gt; 就可以创建一个新的项目。但是注意该命令必须在 $GOPATH/src 下执行。最后会在 $GOPATH/src 相应目录下生成如下目录结构的项目</p>
+
+<pre><code>├── conf
+│   └── app.conf
+├── controllers
+│   ├── admin
+│   └── default.go
+├── main.go
+├── models
+│   └── models.go
+├── static
+│   ├── css
+│   ├── ico
+│   ├── img
+│   └── js
+└── views
+    ├── admin
+    └── index.tpl
+</code></pre>
+
+<p>从上面的目录结构我们可以看出来 M（models 目录）、V（views 目录）和 C（controllers 目录）的结构， main.go 是入口文件。</p>
+
+<ul>
+<li>api</li>
+</ul>
+
+<p>很多用户使用 beego 来开发 API 应用。所以这个 api 命令就是用来创建 API 应用的</p>
+
+<pre><code>apiproject
+├── conf
+│   └── app.conf
+├── controllers
+│   └── object.go
+│   └── user.go
+├── docs
+│   └── doc.go
+├── main.go
+├── models
+│   └── object.go
+│   └── user.go
+├── routers
+│   └── router.go
+└── tests
+    └── default_test.go
+</code></pre>
+
+<p>从上面的目录我们可以看到和 Web 项目相比，少了 static 和 views 目录，多了一个 test 模块，用来做单元测试的。</p>
+
+<p>同时，该命令还支持一些自定义参数自动连接数据库创建相关 model 和 controller:</p>
+
+<pre><code>bee api [appname] [-tables=“”] [-driver=mysql] [-conn=root:@tcp(127.0.0.1:3306)/test]
+</code></pre>
+
+<p>如果 conn 参数为空则创建一个示例项目，否则将基于链接信息链接数据库创建项目。</p>
+
+<ul>
+<li>run</li>
+</ul>
+
+<p>bee run 命令是运行监控 beego 的项目</p>
+
+<ul>
+<li>pack</li>
+</ul>
+
+<p>pack 目录用来发布应用的时候打包，会把项目打包成 zip 包，这样我们部署的时候直接把打包之后的项目上传，解压就可以部署了</p>
+
+<p>beego的安装</p>
+
+<pre><code>go get github.com/astaxie/beego
+</code></pre>
+
+<h2 id="项目">项目</h2>
+
+<p>一、入口main.go</p>
+
+<pre><code>package main
+
+import (
+    _ &quot;quickstart/routers&quot;
+    &quot;github.com/astaxie/beego&quot;
+)
+
+func main() {
+    beego.Run()
+}
+</code></pre>
+
+<p>首先beego.Run()</p>
+
+<ol>
+<li>解析配置文件</li>
+<li>监听服务端口</li>
+<li>执行用户的 hookfunc，是否开启 session，是否编译模板，是否开启文档功能，是否启动管理模块</li>
+</ol>
+
+<p>路由router</p>
+
+<p>引入了一个包 _ &ldquo;quickstart/routers&rdquo;,这个包只引入执行了里面的 init 函数</p>
+
+<p>路由包里面我们看到执行了路由注册 beego.Router, 这个函数的功能是映射 URL 到 controller，第一个参数是 URL (用户请求的地址)，这里我们注册的是 /，也就是我们访问的不带任何参数的 URL，第二个参数是对应的 Controller，也就是我们即将把请求分发到那个控制器来执行相应的逻辑</p>
+
+<p>二、 路由</p>
+
+<p>MVC 结构执行时，beego 存在三种方式的路由:固定路由、正则路由、自动路由</p>
+
+<p>1.基础路由</p>
+
+<pre><code>beego.Get(router, beego.FilterFunc)
+beego.Post(router, beego.FilterFunc)
+beego.Put(router, beego.FilterFunc)
+beego.Head(router, beego.FilterFunc)
+beego.Options(router, beego.FilterFunc)
+beego.Delete(router, beego.FilterFunc)
+beego.Any(router, beego.FilterFunc)
+</code></pre>
+
+<p>基本 GET 路由</p>
+
+<pre><code>beego.Get(&quot;/&quot;,func(ctx *context.Context){
+     ctx.Output.Body([]byte(&quot;hello world&quot;))
+})
+</code></pre>
+
+<p>注册一个可以响应任何 HTTP 的路由</p>
+
+<pre><code>beego.Any(&quot;/foo&quot;,func(ctx *context.Context){
+     ctx.Output.Body([]byte(&quot;bar&quot;))
+})
+</code></pre>
+
+<p>支持自定义的 handler 实现</p>
+
+<p>有些时候我们已经实现了一些 rpc 的应用,但是想要集成到 beego 中,或者其他的 httpserver 应用</p>
+
+<pre><code>s := rpc.NewServer()
+s.RegisterCodec(json.NewCodec(), &quot;application/json&quot;)
+s.RegisterService(new(HelloService), &quot;&quot;)
+beego.Handler(&quot;/rpc&quot;, s)
+</code></pre>
+
+<p>beego.Handler(router, http.Handler) 这个函数是关键,第一个参数表示路由 URI, 第二个就是你自己实现的 http.Handler, 注册之后就会把所有 rpc 作为前缀的请求分发到 http.Handler 中进行处理.</p>
+
+<p>2.固定路由也就是全匹配的路由</p>
+
+<pre><code>beego.Router(&quot;/&quot;, &amp;controllers.MainController{})
+beego.Router(&quot;/admin&quot;, &amp;admin.UserController{})
+beego.Router(&quot;/admin/index&quot;, &amp;admin.ArticleController{})
+beego.Router(&quot;/admin/addpkg&quot;, &amp;admin.AddController{})
+</code></pre>
+
+<p>如上所示的路由就是我们最常用的路由方式，一个固定的路由，一个控制器，然后根据用户请求方法不同请求控制器中对应的方法，典型的 RESTful 方式。</p>
+
+<p>3.正则路由</p>
+
+<pre><code>beego.Router(“/api/?:id”, &amp;controllers.RController{})
+</code></pre>
+
+<p>匹配 /api/123   :id = 123   可以匹配 /api/ 这个URL</p>
+
+<pre><code>beego.Router(“/api/:id”, &amp;controllers.RController{})
+</code></pre>
+
+<p>匹配 /api/123   :id = 123   不可以匹配 /api/ 这个URL</p>
+
+<p>这样可以通过this.Ctx.Input.Param(&rdquo;:id&rdquo;)在controller获取url中的值。</p>
+
+<p>HTTP Method</p>
+
+<p>1.默认方法</p>
+
+<pre><code>*: 包含以下所有的函数
+get: GET 请求
+post: POST 请求
+put: PUT 请求
+delete: DELETE 请求
+patch: PATCH 请求
+options: OPTIONS 请求
+head: HEAD 请求
+</code></pre>
+
+<p>2.自定义方法</p>
+
+<p>请求的 method 和函数名一致，例如 GET 请求执行 Get 函数，POST 请求执行 Post 函数），如果用户期望自定义函数名，那么可以使用如下方式：</p>
+
+<pre><code>beego.Router(&quot;/&quot;,&amp;IndexController{},&quot;*:Index&quot;)
+
+*表示任意的 method 都执行该函数
+使用 httpmethod:funcname 格式来展示
+多个不同的格式使用 ; 分割
+多个 method 对应同一个 funcname，method 之间通过 , 来分割
+</code></pre>
+
+<p>自动匹配</p>
+
+<p>路由的控制器注册到自动路由</p>
+
+<pre><code>beego.AutoRouter(&amp;controllers.ObjectController{})
+</code></pre>
+
+<p>那么 beego 就会通过反射获取该结构体中所有的实现方法</p>
+
+<pre><code>/object/login   调用 ObjectController 中的 Login 方法
+</code></pre>
+
+<p>除了前缀两个 /:controller/:method 的匹配之外，剩下的 url beego 会帮你自动化解析为参数，保存在 this.Ctx.Input.Params 当中：</p>
+
+<pre><code>/object/blog/2013/09/12  调用 ObjectController 中的 Blog 方法，参数如下：map[0:2013 1:09 2:12]
+</code></pre>
+
+<p>注解路由</p>
+
+<p>从 beego 1.3 版本开始支持了注解路由，用户无需在 router 中注册路由，只需要 Include 相应地 controller，然后在 controller 的 method 方法上面写上 router 注释（// @router）就可以了</p>
+
+<pre><code>// CMS API
+type CMSController struct {
+    beego.Controller
+}
+
+func (c *CMSController) URLMapping() {
+    c.Mapping(&quot;StaticBlock&quot;, c.StaticBlock)
+    c.Mapping(&quot;AllBlock&quot;, c.AllBlock)
+}
+
+
+// @router /staticblock/:key [get]
+func (this *CMSController) StaticBlock() {
+
+}
+
+// @router /all/:key [get]
+func (this *CMSController) AllBlock() {
+
+}
+</code></pre>
+
+<p>可以在 router.go 中通过如下方式注册路由</p>
+
+<pre><code>beego.Include(&amp;CMSController{})
+</code></pre>
+
+<p>beego 自动会进行源码分析，注意只会在 dev 模式下进行生成，生成的路由放在 “/routers/commentsRouter.go” 文件中。</p>
+
+<p>这样上面的路由就支持了如下的路由：</p>
+
+<pre><code>GET /staticblock/:key
+GET /all/:key
+</code></pre>
+
+<p>其实效果和自己通过 Router 函数注册是一样的：</p>
+
+<pre><code>beego.Router(&quot;/staticblock/:key&quot;, &amp;CMSController{}, &quot;get:StaticBlock&quot;)
+beego.Router(&quot;/all/:key&quot;, &amp;CMSController{}, &quot;get:AllBlock&quot;)
+</code></pre>
+
+<p>同时大家注意到新版本里面增加了 URLMapping 这个函数，这是新增加的函数，用户如果没有进行注册，那么就会通过反射来执行对应的函数，如果注册了就会通过 interface 来进行执行函数，性能上面会提升很多。</p>
+
+<p>namespace增加命令空间也就是在url中加一层</p>
+
+<p>接口如下:</p>
+
+<pre><code>NewNamespace(prefix string, funcs …interface{})
+
+初始化 namespace 对象,下面这些函数都是 namespace 对象的方法,但是强烈推荐使用 NS 开头的相应函数注册，因为这样更容易通过 gofmt 工具看的更清楚路由的级别关系
+NSCond(cond namespaceCond)
+
+支持满足条件的就执行该 namespace, 不满足就不执行
+NSBefore(filiterList …FilterFunc)
+NSAfter(filiterList …FilterFunc)
+
+上面分别对应 beforeRouter 和 FinishRouter 两个过滤器，可以同时注册多个过滤器
+NSInclude(cList …ControllerInterface)
+NSRouter(rootpath string, c ControllerInterface, mappingMethods …string)
+NSGet(rootpath string, f FilterFunc)
+NSPost(rootpath string, f FilterFunc)
+NSDelete(rootpath string, f FilterFunc)
+NSPut(rootpath string, f FilterFunc)
+NSHead(rootpath string, f FilterFunc)
+NSOptions(rootpath string, f FilterFunc)
+NSPatch(rootpath string, f FilterFunc)
+NSAny(rootpath string, f FilterFunc)
+NSHandler(rootpath string, h http.Handler)
+NSAutoRouter(c ControllerInterface)
+NSAutoPrefix(prefix string, c ControllerInterface)
+
+上面这些都是设置路由的函数,详细的使用和上面 beego 的对应函数是一样的
+NSNamespace(prefix string, params …innnerNamespace)
+</code></pre>
+
+<p>三、 controller</p>
+
+<pre><code>package controllers
+
+import (
+        &quot;github.com/astaxie/beego&quot;
+)
+
+type MainController struct {
+        beego.Controller
+}
+
+func (this *MainController) Get() {
+        this.Data[&quot;Website&quot;] = &quot;beego.me&quot;
+        this.Data[&quot;Email&quot;] = &quot;astaxie@gmail.com&quot;
+        this.TplName = &quot;index.tpl&quot;
+}
+</code></pre>
+
+<p>我们声明了一个控制器 MainController，这个控制器里面内嵌(匿名组合)了 beego.Controller，这就是 Go 的嵌入方式，也就是 MainController 自动拥有了所有 beego.Controller 的方法。</p>
+
+<pre><code>type xxxController struct {
+    beego.Controller
+}
+</code></pre>
+
+<p>beego.Controller 拥有很多方法，其中包括 Init、Prepare、Post、Get、Delete、Head 等方法。我们可以通过重写的方式来实现这些方法，而我们上面的代码就是重写了 Get 方法，没有重写就调用beego的方法。可以使用 StopRun 来终止执行逻辑，可以在任意的地方执行。</p>
+
+<p>我们根据上面的路由重restful的请求中路由到这个控制器，并且执行get方法。get方法就是对业务逻辑流程的处理。</p>
+
+<p>this.Data这是一个用来存储输出数据的 map，可以赋值任意类型的值。可以直接用 this.Ctx.WriteString 输出字符串。</p>
+
+<p>最后一个就是需要去渲染的模板，this.TplName 就是需要渲染的模板，这里指定了 index.tpl，如果用户不设置该参数，那么默认会去到模板目录的 Controller/&lt;方法名&gt;.tpl 查找，例如上面的方法会去 maincontroller/get.tpl (文件、文件夹必须小写)。</p>
+
+<p>用户设置了模板之后系统会自动的调用 Render 函数（这个函数是在 beego.Controller 中实现的），所以无需用户自己来调用渲染。</p>
+
+<p>默认函数</p>
+
+<p>beego.Controller实现了接口beego.ControllerInterface，beego.ControllerInterface定义了如下函数：</p>
+
+<pre><code>Init(ct *Context, cn string)
+</code></pre>
+
+<p>这个函数主要初始化了Context、相应的Controller名称，模板名，初始化模板参数的容器Data</p>
+
+<pre><code>Prepare()
+</code></pre>
+
+<p>这个函数主要是为了用户扩展用的，这个函数会在下面定义的这些Method方法之前执行，用户可以重写这个函数实现类似用户验证之类。</p>
+
+<pre><code>Get()
+</code></pre>
+
+<p>如果用户请求的HTTP Method是GET, 那么就执行该函数，默认是403，用户继承的子struct中可以实现了该方法以处理Get请求.</p>
+
+<pre><code>Post()
+</code></pre>
+
+<p>如果用户请求的HTTP Method是POST, 那么就执行该函数，默认是403，用户继承的子struct中可以实现了该方法以处理Post请求.</p>
+
+<pre><code>Delete()
+</code></pre>
+
+<p>如果用户请求的HTTP Method是DELETE, 那么就执行该函数，默认是403，用户继承的子struct中可以实现了该方法以处理Delete请求.</p>
+
+<pre><code>Put()
+</code></pre>
+
+<p>如果用户请求的HTTP Method是PUT, 那么就执行该函数，默认是403，用户继承的子struct中可以实现了该方法以处理Put请求.</p>
+
+<pre><code>Head()
+</code></pre>
+
+<p>如果用户请求的HTTP Method是HEAD, 那么就执行该函数，默认是403，用户继承的子struct中可以实现了该方法以处理Head请求.</p>
+
+<pre><code>Patch()
+</code></pre>
+
+<p>如果用户请求的HTTP Method是PATCH, 那么就执行该函数，默认是403，用户继承的子struct中可以实现了该方法以处理Patch请求.</p>
+
+<pre><code>Options()
+</code></pre>
+
+<p>如果用户请求的HTTP Method是OPTIONS, 那么就执行该函数，默认是403，用户继承的子struct中可以实现了该方法以处理Options请求.</p>
+
+<pre><code>Finish()
+</code></pre>
+
+<p>这个函数实在执行完相应的http Method方法之后执行的，默认是空，用户可以在子Strcut中重写这个函数，执行例如数据库关闭，清理数据之类的工作</p>
+
+<pre><code>Render() error
+</code></pre>
+
+<p>这个函数主要用来实现渲染模板，如果beego.AutoRender为true的情况下才会执行。</p>
+
+<p>四、 配置文件</p>
+
+<p>beego 目前支持 INI、XML、JSON、YAML 格式的配置文件解析，但是默认采用了 INI 格式解析，用户可以通过简单的配置就可以获得很大的灵活性。</p>
+
+<p>beego 默认会解析当前应用下的 conf/app.conf 文件。</p>
+
+<p>可以直接通过beego.BConfig.AppName=&ldquo;beepkg&rdquo;来设置。</p>
+
+<p>可以通过如下的方式获取设置的配置信息</p>
+
+<pre><code>beego.AppConfig.String(&quot;mysqluser&quot;)
+beego.AppConfig.String(&quot;mysqlpass&quot;)
+beego.AppConfig.String(&quot;mysqlurls&quot;)
+beego.AppConfig.String(&quot;mysqldb&quot;)
+</code></pre>
+
+<p>AppConfig提供好多方法需要时查阅使用。</p>
+
+<p>配置文件里面支持 section</p>
+
+<pre><code>runmode =&quot;dev&quot;
+[dev]
+httpport = 8080
+[prod]
+httpport = 8088
+[test]
+httpport = 8888
+</code></pre>
+
+<p>不同的runmode启动的端口不一样。</p>
+
+<p>INI 格式配置支持 include 方式，引用多个配置文件</p>
+
+<p>配置文件解析支持从环境变量中获取配置项，配置项格式：${环境变量}。</p>
+
+<p>配置里面的所有参数使用时可以去beego中查看，很详细。</p>
+
+<p>五、 跨站请求伪造(Cross-site request forgery)， 简称为 XSRF</p>
+
+<p>beego 有内建的 XSRF 的防范机制，要使用此机制，你需要在应用配置文件中加上 enablexsrf 设定：</p>
+
+<pre><code>enablexsrf = true
+xsrfkey = 61oETzKXQAGaYdkL5gEmGeJJFuYh7EQnp2XdTP1o
+xsrfexpire = 3600
+</code></pre>
+
+<p>或者直接在 main 入口处这样设置：</p>
+
+<pre><code>beego.EnableXSRF = true
+beego.XSRFKEY = &quot;61oETzKXQAGaYdkL5gEmGeJJFuYh7EQnp2XdTP1o&quot;
+beego.XSRFExpire = 3600  //过期时间，默认1小时
+</code></pre>
+
+<p>如果开启了 XSRF，那么 beego 的 Web 应用将对所有用户设置一个 _xsrf 的 cookie 值（默认过期 1 小时），如果 POST PUT DELET 请求中没有这个 cookie 值，那么这个请求会被直接拒绝。</p>
+
+<p>六、 获取参数</p>
+
+<p>我们经常需要获取用户传递的数据，包括 Get、POST 等方式的请求，beego 里面会自动解析这些数据，你可以通过如下方式获取数据：</p>
+
+<pre><code>GetString(key string) string
+GetStrings(key string) []string
+GetInt(key string) (int64, error)
+GetBool(key string) (bool, error)
+GetFloat(key string) (float64, error)
+</code></pre>
+
+<p>使用例子如下：</p>
+
+<pre><code>func (this *MainController) Post() {
+    jsoninfo := this.GetString(&quot;jsoninfo&quot;)  ----这个jsoninfo是在post请求中body中发送的字符串，还是key/value格式，key就是jsoninfo
+    if jsoninfo == &quot;&quot; {
+        this.Ctx.WriteString(&quot;jsoninfo is empty&quot;)
+        return
+    }
+}
+</code></pre>
+
+<p>如果你需要的数据可能是其他类型的，例如是 int 类型而不是 int64，那么你需要这样处理：</p>
+
+<pre><code>func (this *MainController) Post() {
+    id := this.Input().Get(&quot;id&quot;)
+    intid, err := strconv.Atoi(id)
+}
+</code></pre>
+
+<p>更多其他的 request 的信息，用户可以通过 this.Ctx.Request 获取请求信息</p>
+
+<p>如果要把表单里的内容赋值到一个 struct 里，除了用上面的方法一个一个获取再赋值外，beego 提供了通过另外一个更便捷的方式，就是通过 struct 的字段名或 tag 与表单字段对应直接解析到 struct。</p>
+
+<p>定义 struct：</p>
+
+<pre><code>type user struct {
+    Id    int         `form:&quot;-&quot;`
+    Name  interface{} `form:&quot;username&quot;`
+    Age   int         `form:&quot;age&quot;`
+    Email string
+}
+</code></pre>
+
+<p>表单：</p>
+
+<pre><code>&lt;form id=&quot;user&quot;&gt;
+    名字：&lt;input name=&quot;username&quot; type=&quot;text&quot; /&gt;
+    年龄：&lt;input name=&quot;age&quot; type=&quot;text&quot; /&gt;
+    邮箱：&lt;input name=&quot;Email&quot; type=&quot;text&quot; /&gt;
+    &lt;input type=&quot;submit&quot; value=&quot;提交&quot; /&gt;
+&lt;/form&gt;
+</code></pre>
+
+<p>Controller 里解析：</p>
+
+<pre><code>func (this *MainController) Post() {
+    u := user{}
+    if err := this.ParseForm(&amp;u); err != nil {
+        //handle error
+    }
+}
+</code></pre>
+
+<p>获取 Request Body 里的内容</p>
+
+<p>1.在配置文件里设置 copyrequestbody = true</p>
+
+<p>2.在 Controller 中</p>
+
+<pre><code>func (this *ObjectController) Post() {
+    var ob models.Object
+    json.Unmarshal(this.Ctx.Input.RequestBody, &amp;ob)
+}
+</code></pre>
+
+<p>Unmarshal和marshal就是将json和[] byte进行互换。</p>
+
+<p>数据绑定-这个使用于指定的数据</p>
+
+<p>支持从用户请求中直接数据 bind 到指定的对象。</p>
+
+<pre><code>URL：?id=123&amp;isok=true&amp;ft=1.2&amp;ol[0]=1&amp;ol[1]=2&amp;ul[]=str&amp;ul[]=array&amp;user.Name=astaxie
+
+var id int
+this.Ctx.Input.Bind(&amp;id, &quot;id&quot;)  //id ==123
+
+var isok bool
+this.Ctx.Input.Bind(&amp;isok, &quot;isok&quot;)  //isok ==true
+
+var ft float64
+this.Ctx.Input.Bind(&amp;ft, &quot;ft&quot;)  //ft ==1.2
+
+ol := make([]int, 0, 2)
+this.Ctx.Input.Bind(&amp;ol, &quot;ol&quot;)  //ol ==[1 2]
+
+ul := make([]string, 0, 2)
+this.Ctx.Input.Bind(&amp;ul, &quot;ul&quot;)  //ul ==[str array]
+
+user struct{Name}
+this.Ctx.Input.Bind(&amp;user, &quot;user&quot;)  //user =={Name:&quot;astaxie&quot;}
+</code></pre>
+
+<p>文件上传</p>
+
+<p>在你的 form 表单中增加这个属性 enctype=&ldquo;multipart/form-data&rdquo;，否则你的浏览器不会传输你的上传文件。</p>
+
+<p>Beego 提供了两个很方便的方法来处理文件上传：</p>
+
+<pre><code>GetFile(key string) (multipart.File, *multipart.FileHeader, error)
+</code></pre>
+
+<p>该方法主要用于用户读取表单中的文件名 the_file，然后返回相应的信息，用户根据这些变量来处理文件上传：过滤、保存文件等。</p>
+
+<pre><code>SaveToFile(fromfile, tofile string) error
+</code></pre>
+
+<p>该方法是在 GetFile 的基础上实现了快速保存的功能</p>
+
+<p>七、 session 控制</p>
+
+<p>session机制是一种服务器端的机制，服务器使用一种类似于散列表的结构（也可能就是使用散列表）来保存信息。</p>
+
+<p>当程序需要为某个客户端的请求创建一个session的时候，服务器首先检查这个客户端的请求里是否已包含了一个session标识 - 称为session id，如果已包含一个session id则说明以前已经为此客户端创建过session，服务器就按照session id把这个session检索出来使用（如果检索不到，可能会新建一个），如果客户端请求不包含session id，则为此客户端创建一个session并且生成一个与此session相关联的session id，session id的值应该是一个既不会重复，又不容易被找到规律以仿造的字符串，这个session id将被在本次响应中返回给客户端保存。</p>
+
+<p>保存这个session id的方式可以采用cookie，这样在交互过程中浏览器可以自动的按照规则把这个标识发挥给服务器。一般这个cookie的名字都是类似于SEEESIONID，而。比如weblogic对于web应用程序生成的cookie，JSESSIONID=ByOK3vjFD75aPnrF7C2HmdnV6QZcEbzWoWiBYEnLerjQ99zWpBng!-145788764，它的名字就是JSESSIONID。</p>
+
+<p>beego 内置了 session 模块，目前 session 模块支持的后端引擎包括 memory、cookie、file、mysql、redis、couchbase、memcache、postgres，用户也可以根据相应的 interface 实现自己的引擎。</p>
+
+<p>beego 中使用 session 相当方便，只要在 main 入口函数中设置如下：</p>
+
+<pre><code>beego.BConfig.WebConfig.Session.SessionOn = true
+</code></pre>
+
+<p>或者通过配置文件配置如下：</p>
+
+<pre><code>sessionon = true
+</code></pre>
+
+<p>八、 过滤器</p>
+
+<p>beego 支持自定义过滤中间件，例如安全验证，强制跳转等。</p>
+
+<p>过滤器函数如下所示：</p>
+
+<pre><code>beego.InsertFilter(pattern string, postion int, filter FilterFunc, params ...bool)
+</code></pre>
+
+<p>InsertFilter 函数的三个必填参数，一个可选参数</p>
+
+<pre><code>pattern 路由规则，可以根据一定的规则进行路由，如果你全匹配可以用 *
+postion 执行 Filter 的地方，四个固定参数如下，分别表示不同的执行过程
+BeforeStatic 静态地址之前
+BeforeRouter 寻找路由之前
+BeforeExec 找到路由之后，开始执行相应的 Controller 之前
+AfterExec 执行完 Controller 逻辑之后执行的过滤器
+FinishRouter 执行完逻辑之后执行的过滤器
+filter filter 函数 type FilterFunc func(*context.Context)
+params
+设置 returnOnOutput 的值(默认 true), 是否允许如果有输出是否跳过其他 filters，默认只要有输出就不再执行其他 filters
+是否重置 filters 的参数，默认是 false，因为在 filters 的 pattern 和本身的路由的 pattern 冲突的时候，可以把 filters 的参数重置，这样可以保证在后续的逻辑中获取到正确的参数，例如设置了 /api/* 的 filter，同时又设置了 /api/docs/* 的 router，那么在访问 /api/docs/swagger/abc.js 的时候，在执行 filters 的时候设置 :splat 参数为 docs/swagger/abc.js，但是如果不清楚 filter 的这个路由参数，就会在执行路由逻辑的时候保持 docs/swagger/abc.js，如果设置了 true，就会重置 :splat 参数.
+</code></pre>
+
+<p>flash数据在两个逻辑间传递临时数据。</p>
+
+<p>flash 对象有三个级别的设置：</p>
+
+<pre><code>Notice 提示信息
+Warning 警告信息
+Error 错误信息
+</code></pre>
+
+<p>URL</p>
+
+<p>beego中可以匹配url 也可以通过UrlFor() 函数就是用于获取指定函数的 URL 的</p>
+
+<p>各种数据模式的输出</p>
+
+<p>JSON 数据直接输出：</p>
+
+<pre><code>func (this *AddController) Get() {
+    mystruct := { ... }
+    this.Data[&quot;json&quot;] = &amp;mystruct
+    this.ServeJSON()
+}
+</code></pre>
+
+<p>调用 ServeJSON 之后，会设置 content-type 为 application/json，然后同时把数据进行 JSON 序列化输出。
+XML 数据直接输出：</p>
+
+<pre><code>func (this *AddController) Get() {
+    mystruct := { ... }
+    this.Data[&quot;xml&quot;]=&amp;mystruct
+    this.ServeXML()
+}
+</code></pre>
+
+<p>调用 ServeXML 之后，会设置 content-type 为 application/xml，同时数据会进行 XML 序列化输出。
+jsonp 调用</p>
+
+<pre><code>func (this *AddController) Get() {
+    mystruct := { ... }
+    this.Data[&quot;jsonp&quot;] = &amp;mystruct
+    this.ServeJSONP()
+}
+</code></pre>
+
+<p>调用 ServeJSONP 之后，会设置 content-type 为 application/javascript，然后同时把数据进行 JSON 序列化，然后根据请求的 callback 参数设置 jsonp 输出。</p>
+
+<p>validation表单验证</p>
+
+<p>获取包</p>
+
+<pre><code>go get github.com/astaxie/beego/validation
+</code></pre>
+
+<p>正常通过 StructTag 使用，也可以直接用对应函数使用</p>
+
+<pre><code>type user struct {
+    Id     int
+    Name   string `valid:&quot;Required;Match(/^Bee.*/)&quot;` // Name 不能为空并且以 Bee 开头
+    Age    int    `valid:&quot;Range(1, 140)&quot;` // 1 &lt;= Age &lt;= 140，超出此范围即为不合法
+    Email  string `valid:&quot;Email; MaxSize(100)&quot;` // Email 字段需要符合邮箱格式，并且最大长度不能大于 100 个字符
+    Mobile string `valid:&quot;Mobile&quot;` // Mobile 必须为正确的手机号
+    IP     string `valid:&quot;IP&quot;` // IP 必须为一个正确的 IPv4 地址
+}
+</code></pre>
+
+<p>StructTag 可用的验证函数：</p>
+
+<pre><code>Required 不为空，即各个类型要求不为其零值
+Min(min int) 最小值，有效类型：int，其他类型都将不能通过验证)
+Max(max int) 最大值，有效类型：int，其他类型都将不能通过验证
+Range(min, max int) 数值的范围，有效类型：int，他类型都将不能通过验证
+MinSize(min int) 最小长度，有效类型：string slice，其他类型都将不能通过验证
+MaxSize(max int) 最大长度，有效类型：string slice，其他类型都将不能通过验证
+Length(length int) 指定长度，有效类型：string slice，其他类型都将不能通过验证
+Alpha alpha字符，有效类型：string，其他类型都将不能通过验证
+Numeric 数字，有效类型：string，其他类型都将不能通过验证
+AlphaNumeric alpha 字符或数字，有效类型：string，其他类型都将不能通过验证
+Match(pattern string) 正则匹配，有效类型：string，其他类型都将被转成字符串再匹配(fmt.Sprintf(“%v”, obj).Match)
+AlphaDash alpha 字符或数字或横杠 -_，有效类型：string，其他类型都将不能通过验证
+Email 邮箱格式，有效类型：string，其他类型都将不能通过验证
+IP IP 格式，目前只支持 IPv4 格式验证，有效类型：string，其他类型都将不能通过验证
+Base64 base64 编码，有效类型：string，其他类型都将不能通过验证
+Mobile 手机号，有效类型：string，其他类型都将不能通过验证
+Tel 固定电话号，有效类型：string，其他类型都将不能通过验证
+Phone 手机号或固定电话号，有效类型：string，其他类型都将不能通过验证
+ZipCode 邮政编码，有效类型：string，其他类型都将不能通过验证
+</code></pre>
+
+<p>九、 错误处理</p>
+
+<p>跳转</p>
+
+<pre><code>func (this *AddController) Get() {
+    this.Redirect(&quot;/&quot;, 302)
+}
+</code></pre>
+
+<p>中止</p>
+
+<pre><code>this.Abort(&quot;401&quot;)
+</code></pre>
+
+<p>beego 框架默认支持 401、403、404、500、503 这几种错误的处理。用户可以自定义相应的错误处理，例如下面重新定义 404 页面：</p>
+
+<pre><code>func page_not_found(rw http.ResponseWriter, r *http.Request){
+    t,_:= template.New(&quot;404.html&quot;).ParseFiles(beego.ViewsPath+&quot;/404.html&quot;)
+    data :=make(map[string]interface{})
+    data[&quot;content&quot;] = &quot;page not found&quot;
+    t.Execute(rw, data)
+}
+
+func main() {
+    beego.ErrorHandler(&quot;404&quot;,page_not_found)
+    beego.Router(&quot;/&quot;, &amp;controllers.MainController{})
+    beego.Run()
+}
+</code></pre>
+
+<p>从 1.4.3 版本开始，支持 Controller 方式定义 Error 错误处理函数，这样就可以充分利用系统自带的模板处理，以及 context 等方法</p>
+
+<pre><code>package controllers
+
+import (
+    &quot;github.com/astaxie/beego&quot;
+)
+
+type ErrorController struct {
+    beego.Controller
+}
+
+func (c *ErrorController) Error404() {
+    c.Data[&quot;content&quot;] = &quot;page not found&quot;
+    c.TplName = &quot;404.tpl&quot;
+}
+</code></pre>
+
+<p>通过上面的例子我们可以看到，所有的函数都是有一定规律的，都是 Error 开头，后面的名字就是我们调用 Abort 的名字，例如 Error404 函数其实调用对应的就是 Abort(&ldquo;404&rdquo;)</p>
+
+<p>我们就只要在 beego.Run 之前采用 beego.ErrorController 注册这个错误处理函数就可以了</p>
+
+<pre><code>package main
+
+    import (
+        _ &quot;btest/routers&quot;
+        &quot;btest/controllers&quot;
+
+        &quot;github.com/astaxie/beego&quot;
+    )
+
+    func main() {
+        beego.ErrorController(&amp;controllers.ErrorController{})
+        beego.Run()
+    }
+</code></pre>
+
+<p>十、 日志处理</p>
+
+<p>beego 的日志处理是基于 logs 模块搭建的，内置了一个变量 BeeLogger，默认已经是 logs.BeeLogger 类型，初始化了 console，也就是默认输出到 console。</p>
+
+<p>一般在程序中我们使用如下的方式进行输出：</p>
+
+<pre><code>beego.Emergency(&quot;this is emergency&quot;)
+beego.Alert(&quot;this is alert&quot;)
+beego.Critical(&quot;this is critical&quot;)
+beego.Error(&quot;this is error&quot;)
+beego.Warning(&quot;this is warning&quot;)
+beego.Notice(&quot;this is notice&quot;)
+beego.Informational(&quot;this is informational&quot;)
+beego.Debug(&quot;this is debug&quot;)
+</code></pre>
+
+<p>设置输出到文件</p>
+
+<pre><code>beego.SetLogger(&quot;file&quot;, `{&quot;filename&quot;:&quot;logs/test.log&quot;}`)
+</code></pre>
+
+<p>这个默认情况就会同时输出到两个地方，一个 console，一个 file，如果只想输出到文件，就需要调用删除操作：</p>
+
+<pre><code>beego.BeeLogger.DelLogger(&quot;console&quot;)
+</code></pre>
+
+<p>通过设置级别设置日志级别</p>
+
+<pre><code>beego.SetLevel(beego.LevelInformational)
+</code></pre>
+
+<p>日志的级别如上所示的代码这样分为八个级别：</p>
+
+<pre><code>LevelEmergency
+LevelAlert
+LevelCritical
+LevelError
+LevelWarning
+LevelNotice
+LevelInformational
+LevelDebug
+</code></pre>
+
+<p>输出文件名和行号</p>
+
+<pre><code>beego.SetLogFuncCall(true)
+</code></pre>
+
+<p>开启传入参数 true, 关闭传入参数 false, 默认是关闭的.</p>
+
+<p>十一、 Model</p>
+
+<p>beego 的模块设计</p>
+
+<pre><code>session 模块
+grace 模块
+cache 模块
+logs 模块
+httplib 模块
+context 模块
+toolbox 模块
+config 模块
+i18n 模块
+</code></pre>
+
+<p>这些模块都可以单独import使用，在beego也有相应的封装，具体使用查看文档。</p>
+
+<p>Model 就是逐步抽象的过程，一般我们会在 Model 里面处理一些数据读取。在beego中主要是orm。</p>
+
+<p>ORM 使用方法</p>
+
+<p>beego中的orm：将关系数据库中表中的记录映射成为对象，以对象的形式展现，程序员可以把对数据库的操作转化为对对象的操作。支持mysql。pq</p>
+
+<p>目前 ORM 支持三种数据库，以下为测试过的 driver</p>
+
+<p>将你需要使用的 driver 加入 import 中</p>
+
+<pre><code>import (
+    _ &quot;github.com/go-sql-driver/mysql&quot;
+    _ &quot;github.com/lib/pq&quot;
+    _ &quot;github.com/mattn/go-sqlite3&quot;
+)
+</code></pre>
+
+<p>1.注册</p>
+
+<pre><code>orm.RegisterDriver(&quot;mysql&quot;, orm.DRMySQL)
+
+// For version 1.6
+orm.DRMySQL
+orm.DRSqlite
+orm.DRPostgres
+</code></pre>
+
+<p>mysql / sqlite3 / postgres 这三种是默认已经注册过的，所以可以无需设置</p>
+
+<p>2.连接</p>
+
+<p>ORM 必须注册一个别名为 default 的数据库，作为默认使用。</p>
+
+<p>ORM 使用 golang 自己的连接池</p>
+
+<pre><code>// 参数1        数据库的别名，用来在 ORM 中切换数据库使用
+// 参数2        driverName
+// 参数3        对应的链接字符串
+orm.RegisterDataBase(&quot;default&quot;, &quot;mysql&quot;, &quot;root:root@/orm_test?charset=utf8&quot;)
+
+// 参数4(可选)  设置最大空闲连接
+// 参数5(可选)  设置最大数据库连接 (go &gt;= 1.2)
+maxIdle := 30
+maxConn := 30
+orm.RegisterDataBase(&quot;default&quot;, &quot;mysql&quot;, &quot;root:root@/orm_test?charset=utf8&quot;, maxIdle, maxConn)
+
+
+根据数据库的别名，设置数据库的最大空闲连接
+
+orm.SetMaxIdleConns(&quot;default&quot;, 30)
+
+根据数据库的别名，设置数据库的最大数据库连接 (go &gt;= 1.2)
+
+orm.SetMaxOpenConns(&quot;default&quot;, 30)
+</code></pre>
+
+<p>注册模型</p>
+
+<pre><code>orm.RegisterModel(new(User), new(Profile), new(Post))
+</code></pre>
+
+<p>将你定义的 Model 进行注册，最佳设计是有单独的 models.go 文件，在他的 init 函数中进行注册。</p>
+
+<p>使用表名前缀</p>
+
+<pre><code>orm.RegisterModelWithPrefix(&quot;prefix_&quot;, new(User))
+</code></pre>
+
+<p>创建后的表名为 prefix_user</p>
+
+<p>从已注册的数据库返回 *sql.DB 对象，默认返回别名为 default 的数据库</p>
+
+<pre><code>db, err := orm.GetDB()
+if err != nil {
+    fmt.Println(&quot;get default DataBase&quot;)
+}
+
+db, err := orm.GetDB(&quot;alias&quot;)
+if err != nil {
+    fmt.Println(&quot;get alias DataBase&quot;)
+}
+</code></pre>
+
+<ol>
+<li><p>使用</p>
+
+<p>var o Ormer
+o = orm.NewOrm() // 创建一个 Ormer
+// NewOrm 的同时会执行 orm.BootStrap (整个 app 只执行一次)，用以验证模型之间的定义并缓存。</p></li>
+</ol>
+
+<p>切换数据库，或者，进行事务处理，都会作用于这个 Ormer 对象，以及其进行的任何查询。</p>
+
+<p>ormer对象提供了封装好的操作方法</p>
+
+<pre><code>QueryTable
+</code></pre>
+
+<p>传入表名，或者 Model 对象，返回一个 QuerySeter</p>
+
+<pre><code>o := orm.NewOrm()
+
+// 获取 QuerySeter 对象，user 为表名
+qs := o.QueryTable(&quot;user&quot;)
+
+// 也可以直接使用对象作为表名
+user := new(User)
+qs = o.QueryTable(user) // 返回 QuerySeter
+</code></pre>
+
+<p>Using</p>
+
+<p>切换为其他数据库</p>
+
+<pre><code>orm.RegisterDataBase(&quot;db1&quot;, &quot;mysql&quot;, &quot;root:root@/orm_db2?charset=utf8&quot;)
+orm.RegisterDataBase(&quot;db2&quot;, &quot;sqlite3&quot;, &quot;data.db&quot;)
+
+o1 := orm.NewOrm()
+o1.Using(&quot;db1&quot;)
+
+o2 := orm.NewOrm()
+o2.Using(&quot;db2&quot;)
+</code></pre>
+
+<p>默认使用 default 数据库，无需调用 Using</p>
+
+<p>Raw</p>
+
+<p>使用 sql 语句直接进行操作</p>
+
+<p>Raw 函数，返回一个 RawSeter 用以对设置的 sql 语句和参数进行操作</p>
+
+<pre><code>o := NewOrm()
+var r RawSeter
+r = o.Raw(&quot;UPDATE user SET name = ? WHERE name = ?&quot;, &quot;testing&quot;, &quot;slene&quot;)
+</code></pre>
+
+<p>Driver</p>
+
+<p>返回当前 ORM 使用的 db 信息</p>
+
+<pre><code>type Driver interface {
+    Name() string
+    Type() DriverType
+}
+
+orm.RegisterDataBase(&quot;db1&quot;, &quot;mysql&quot;, &quot;root:root@/orm_db2?charset=utf8&quot;)
+orm.RegisterDataBase(&quot;db2&quot;, &quot;sqlite3&quot;, &quot;data.db&quot;)
+
+o1 := orm.NewOrm()
+o1.Using(&quot;db1&quot;)
+dr := o1.Driver()
+fmt.Println(dr.Name() == &quot;db1&quot;) // true
+fmt.Println(dr.Type() == orm.DRMySQL) // true
+
+o2 := orm.NewOrm()
+o2.Using(&quot;db2&quot;)
+dr = o2.Driver()
+fmt.Println(dr.Name() == &quot;db2&quot;) // true
+fmt.Println(dr.Type() == orm.DRSqlite) // true
+</code></pre>
+
+<p>调试模式打印查询语句</p>
+
+<pre><code>orm.Debug = true
+</code></pre>
+
+<p>CRUD</p>
+
+<p>如果已知主键的值，那么可以使用这些方法进行 CRUD 操作</p>
+
+<p>Read</p>
+
+<pre><code>o := orm.NewOrm()
+user := User{Id: 1}
+
+err = o.Read(&amp;user)
+
+if err == orm.ErrNoRows {
+    fmt.Println(&quot;查询不到&quot;)
+} else if err == orm.ErrMissPK {
+    fmt.Println(&quot;找不到主键&quot;)
+} else {
+    fmt.Println(user.Id, user.Name)
+}
+</code></pre>
+
+<p>Read 默认通过查询主键赋值，可以使用指定的字段进行查询：</p>
+
+<pre><code>user := User{Name: &quot;slene&quot;}
+err = o.Read(&amp;user, &quot;Name&quot;)
+</code></pre>
+
+<p>ReadOrCreate</p>
+
+<p>尝试从数据库读取，不存在的话就创建一个</p>
+
+<p>Insert</p>
+
+<p>第一个返回值为自增健 Id 的值</p>
+
+<pre><code>o := orm.NewOrm()
+var user User
+user.Name = &quot;slene&quot;
+user.IsActive = true
+
+id, err := o.Insert(&amp;user)
+if err == nil {
+    fmt.Println(id)
+}
+</code></pre>
+
+<p>创建后会自动对 auto 的 field 赋值</p>
+
+<p>InsertMulti</p>
+
+<p>同时插入多个对象</p>
+
+<p>类似sql语句</p>
+
+<pre><code>insert into table (name, age) values(&quot;slene&quot;, 28),(&quot;astaxie&quot;, 30),(&quot;unknown&quot;, 20)
+</code></pre>
+
+<p>第一个参数 bulk 为并列插入的数量，第二个为对象的slice</p>
+
+<p>返回值为成功插入的数量</p>
+
+<pre><code>users := []User{
+    {Name: &quot;slene&quot;},
+    {Name: &quot;astaxie&quot;},
+    {Name: &quot;unknown&quot;},
+    ...
+}
+successNums, err := o.InsertMulti(100, users)
+</code></pre>
+
+<p>bulk 为 1 时，将会顺序插入 slice 中的数据</p>
+
+<p>Update</p>
+
+<p>第一个返回值为影响的行数</p>
+
+<pre><code>o := orm.NewOrm()
+user := User{Id: 1}
+if o.Read(&amp;user) == nil {
+    user.Name = &quot;MyName&quot;
+    if num, err := o.Update(&amp;user); err == nil {
+        fmt.Println(num)
+    }
+}
+</code></pre>
+
+<p>Update 默认更新所有的字段，可以更新指定的字段：</p>
+
+<pre><code>// 只更新 Name
+o.Update(&amp;user, &quot;Name&quot;)
+// 指定多个字段
+// o.Update(&amp;user, &quot;Field1&quot;, &quot;Field2&quot;, ...)
+</code></pre>
+
+<p>Delete</p>
+
+<p>第一个返回值为影响的行数</p>
+
+<pre><code>o := orm.NewOrm()
+if num, err := o.Delete(&amp;User{Id: 1}); err == nil {
+    fmt.Println(num)
+}
+</code></pre>
+
+<p>expr</p>
+
+<p>User 表查询对应的 Profile.Age 为条件，则使用 Profile__Age 注意，字段的分隔符号使用双下划线 <strong>，除了描述字段， expr 的尾部可以增加操作符以执行对应的 sql 操作。比如 Profile</strong>Age__gt 代表 Profile.Age &gt; 18 的条件查询。</p>
+
+<pre><code>qs.Filter(&quot;id&quot;, 1) // WHERE id = 1
+qs.Filter(&quot;profile__age&quot;, 18) // WHERE profile.age = 18
+qs.Filter(&quot;Profile__Age&quot;, 18) // 使用字段名和 Field 名都是允许的
+qs.Filter(&quot;profile__age&quot;, 18) // WHERE profile.age = 18
+qs.Filter(&quot;profile__age__gt&quot;, 18) // WHERE profile.age &gt; 18
+qs.Filter(&quot;profile__age__gte&quot;, 18) // WHERE profile.age &gt;= 18
+qs.Filter(&quot;profile__age__in&quot;, 18, 20) // WHERE profile.age IN (18, 20)
+
+qs.Filter(&quot;profile__age__in&quot;, 18, 20).Exclude(&quot;profile__lt&quot;, 1000)
+// WHERE profile.age IN (18, 20) AND NOT profile_id &lt; 1000
+</code></pre>
+
+<p>Operators</p>
+
+<p>exact</p>
+
+<pre><code>qs.Filter(&quot;name&quot;, &quot;slene&quot;) // WHERE name = 'slene'
+qs.Filter(&quot;name__exact&quot;, &quot;slene&quot;) // WHERE name = 'slene'
+
+// 使用 = 匹配，大小写是否敏感取决于数据表使用的 collation
+
+qs.Filter(&quot;profile_id&quot;, nil) // WHERE profile_id IS NULL
+</code></pre>
+
+<p>iexact</p>
+
+<pre><code>qs.Filter(&quot;name__iexact&quot;, &quot;slene&quot;)
+// WHERE name LIKE 'slene'
+// 大小写不敏感，匹配任意 'Slene' 'sLENE'
+</code></pre>
+
+<p>contains</p>
+
+<pre><code>qs.Filter(&quot;name__contains&quot;, &quot;slene&quot;)
+// WHERE name LIKE BINARY '%slene%'
+// 大小写敏感, 匹配包含 slene 的字符
+</code></pre>
+
+<p>icontains</p>
+
+<pre><code>qs.Filter(&quot;name__icontains&quot;, &quot;slene&quot;)
+// WHERE name LIKE '%slene%'
+// 大小写不敏感, 匹配任意 'im Slene', 'im sLENE'
+</code></pre>
+
+<p>in</p>
+
+<pre><code>qs.Filter(&quot;profile__age__in&quot;, 17, 18, 19, 20)
+// WHERE profile.age IN (17, 18, 19, 20)
+
+
+ids:=[]int{17,18,19,20}
+qs.Filter(&quot;profile__age__in&quot;, ids)
+// WHERE profile.age IN (17, 18, 19, 20)
+</code></pre>
+
+<p>gt / gte</p>
+
+<pre><code>qs.Filter(&quot;profile__age__gt&quot;, 17)
+// WHERE profile.age &gt; 17
+
+qs.Filter(&quot;profile__age__gte&quot;, 18)
+// WHERE profile.age &gt;= 18
+</code></pre>
+
+<p>lt / lte</p>
+
+<p>qs.Filter(&ldquo;profile<strong>age</strong>lt&rdquo;, 17)
+    // WHERE profile.age &lt; 17</p>
+
+<pre><code>qs.Filter(&quot;profile__age__lte&quot;, 18)
+// WHERE profile.age &lt;= 18
+</code></pre>
+
+<p>startswith</p>
+
+<pre><code>qs.Filter(&quot;name__startswith&quot;, &quot;slene&quot;)
+// WHERE name LIKE BINARY 'slene%'
+// 大小写敏感, 匹配以 'slene' 起始的字符串
+</code></pre>
+
+<p>istartswith</p>
+
+<pre><code>qs.Filter(&quot;name__istartswith&quot;, &quot;slene&quot;)
+// WHERE name LIKE 'slene%'
+// 大小写不敏感, 匹配任意以 'slene', 'Slene' 起始的字符串
+</code></pre>
+
+<p>endswith</p>
+
+<pre><code>qs.Filter(&quot;name__endswith&quot;, &quot;slene&quot;)
+// WHERE name LIKE BINARY '%slene'
+// 大小写敏感, 匹配以 'slene' 结束的字符串
+</code></pre>
+
+<p>iendswith</p>
+
+<pre><code>qs.Filter(&quot;name__iendswithi&quot;, &quot;slene&quot;)
+// WHERE name LIKE '%slene'
+// 大小写不敏感, 匹配任意以 'slene', 'Slene' 结束的字符串
+</code></pre>
+
+<p>isnull</p>
+
+<pre><code>qs.Filter(&quot;profile__isnull&quot;, true)
+qs.Filter(&quot;profile_id__isnull&quot;, true)
+// WHERE profile_id IS NULL
+
+qs.Filter(&quot;profile__isnull&quot;, false)
+// WHERE profile_id IS NOT NULL
+</code></pre>
+
+<p>QuerySeter高级查询接口</p>
+
+<p>Filter</p>
+
+<p>用来过滤查询结果，起到 包含条件 的作用</p>
+
+<p>多个 Filter 之间使用 AND 连接</p>
+
+<pre><code>qs.Filter(&quot;profile__isnull&quot;, true).Filter(&quot;name&quot;, &quot;slene&quot;)
+// WHERE profile_id IS NULL AND name = 'slene'
+</code></pre>
+
+<p>Exclude</p>
+
+<p>用来过滤查询结果，起到 排除条件 的作用</p>
+
+<p>使用 NOT 排除条件</p>
+
+<p>多个 Exclude 之间使用 AND 连接</p>
+
+<pre><code>qs.Exclude(&quot;profile__isnull&quot;, true).Filter(&quot;name&quot;, &quot;slene&quot;)
+// WHERE NOT profile_id IS NULL AND name = 'slene'
+</code></pre>
+
+<p>SetCond</p>
+
+<p>自定义条件表达式</p>
+
+<pre><code>cond := orm.NewCondition()
+cond1 := cond.And(&quot;profile__isnull&quot;, false).AndNot(&quot;status__in&quot;, 1).Or(&quot;profile__age__gt&quot;, 2000)
+
+qs := orm.QueryTable(&quot;user&quot;)
+qs = qs.SetCond(cond1)
+// WHERE ... AND ... AND NOT ... OR ...
+
+cond2 := cond.AndCond(cond1).OrCond(cond.And(&quot;name&quot;, &quot;slene&quot;))
+qs = qs.SetCond(cond2).Count()
+// WHERE (... AND ... AND NOT ... OR ...) OR ( ... )
+</code></pre>
+
+<p>Limit</p>
+
+<p>限制最大返回数据行数，第二个参数可以设置 Offset</p>
+
+<pre><code>var DefaultRowsLimit = 1000 // ORM 默认的 limit 值为 1000
+
+// 默认情况下 select 查询的最大行数为 1000
+// LIMIT 1000
+
+qs.Limit(10)
+// LIMIT 10
+
+qs.Limit(10, 20)
+// LIMIT 10 OFFSET 20 注意跟 SQL 反过来的
+
+qs.Limit(-1)
+// no limit
+
+qs.Limit(-1, 100)
+// LIMIT 18446744073709551615 OFFSET 100
+// 18446744073709551615 是 1&lt;&lt;64 - 1 用来指定无 limit 限制 但有 offset 偏移的情况
+</code></pre>
+
+<p>Offset</p>
+
+<p>设置 偏移行数</p>
+
+<pre><code>qs.Offset(20)
+// LIMIT 1000 OFFSET 20
+GroupBy
+
+qs.GroupBy(&quot;id&quot;, &quot;age&quot;)
+// GROUP BY id,age
+</code></pre>
+
+<p>OrderBy</p>
+
+<p>参数使用 expr</p>
+
+<p>在 expr 前使用减号 - 表示 DESC 的排列</p>
+
+<pre><code>qs.OrderBy(&quot;id&quot;, &quot;-profile__age&quot;)
+// ORDER BY id ASC, profile.age DESC
+
+qs.OrderBy(&quot;-profile__age&quot;, &quot;profile&quot;)
+// ORDER BY profile.age DESC, profile_id ASC
+</code></pre>
+
+<p>Distinct</p>
+
+<p>对应 sql 的 distinct 语句, 返回不重复的值.</p>
+
+<pre><code>qs.Distinct()
+// SELECT DISTINCT
+</code></pre>
+
+<p>RelatedSel</p>
+
+<p>关系查询，参数使用 expr</p>
+
+<pre><code>var DefaultRelsDepth = 5 // 默认情况下直接调用 RelatedSel 将进行最大 5 层的关系查询
+
+qs := o.QueryTable(&quot;post&quot;)
+
+qs.RelatedSel()
+// INNER JOIN user ... LEFT OUTER JOIN profile ...
+
+qs.RelatedSel(&quot;user&quot;)
+// INNER JOIN user ...
+// 设置 expr 只对设置的字段进行关系查询
+
+// 对设置 null 属性的 Field 将使用 LEFT OUTER JOIN
+</code></pre>
+
+<p>Count</p>
+
+<p>依据当前的查询条件，返回结果行数</p>
+
+<pre><code>cnt, err := o.QueryTable(&quot;user&quot;).Count() // SELECT COUNT(*) FROM USER
+fmt.Printf(&quot;Count Num: %s, %s&quot;, cnt, err)
+Exist
+
+exist := o.QueryTable(&quot;user&quot;).Filter(&quot;UserName&quot;, &quot;Name&quot;).Exist()
+fmt.Printf(&quot;Is Exist: %s&quot;, exist)
+</code></pre>
+
+<p>Update</p>
+
+<p>依据当前查询条件，进行批量更新操作</p>
+
+<pre><code>num, err := o.QueryTable(&quot;user&quot;).Filter(&quot;name&quot;, &quot;slene&quot;).Update(orm.Params{
+    &quot;name&quot;: &quot;astaxie&quot;,
+})
+fmt.Printf(&quot;Affected Num: %s, %s&quot;, num, err)
+// SET name = &quot;astaixe&quot; WHERE name = &quot;slene&quot;
+原子操作增加字段值
+
+// 假设 user struct 里有一个 nums int 字段
+num, err := o.QueryTable(&quot;user&quot;).Update(orm.Params{
+    &quot;nums&quot;: orm.ColValue(orm.ColAdd, 100),
+})
+// SET nums = nums + 100
+orm.ColValue 支持以下操作
+
+ColAdd      // 加
+ColMinus    // 减
+ColMultiply // 乘
+ColExcept   // 除
+</code></pre>
+
+<p>Delete</p>
+
+<p>依据当前查询条件，进行批量删除操作</p>
+
+<pre><code>num, err := o.QueryTable(&quot;user&quot;).Filter(&quot;name&quot;, &quot;slene&quot;).Delete()
+fmt.Printf(&quot;Affected Num: %s, %s&quot;, num, err)
+// DELETE FROM user WHERE name = &quot;slene&quot;
+PrepareInsert
+
+用于一次 prepare 多次 insert 插入，以提高批量插入的速度。
+
+var users []*User
+...
+qs := o.QueryTable(&quot;user&quot;)
+i, _ := qs.PrepareInsert()
+for _, user := range users {
+    id, err := i.Insert(user)
+    if err == nil {
+        ...
+    }
+}
+// PREPARE INSERT INTO user (`name`, ...) VALUES (?, ...)
+// EXECUTE INSERT INTO user (`name`, ...) VALUES (&quot;slene&quot;, ...)
+// EXECUTE ...
+// ...
+i.Close() // 别忘记关闭 statement
+</code></pre>
+
+<p>All</p>
+
+<p>返回对应的结果集对象</p>
+
+<pre><code>All 的参数支持 *[]Type 和 *[]*Type 两种形式的 slice
+
+var users []*User
+num, err := o.QueryTable(&quot;user&quot;).Filter(&quot;name&quot;, &quot;slene&quot;).All(&amp;users)
+fmt.Printf(&quot;Returned Rows Num: %s, %s&quot;, num, err)
+All / Values / ValuesList / ValuesFlat 受到 Limit 的限制，默认最大行数为 1000
+
+可以指定返回的字段：
+
+type Post struct {
+    Id      int
+    Title   string
+    Content string
+    Status  int
+}
+
+// 只返回 Id 和 Title
+var posts []Post
+o.QueryTable(&quot;post&quot;).Filter(&quot;Status&quot;, 1).All(&amp;posts, &quot;Id&quot;, &quot;Title&quot;)
+对象的其他字段值将会是对应类型的默认值
+</code></pre>
+
+<p>One</p>
+
+<p>尝试返回单条记录</p>
+
+<pre><code>var user User
+err := o.QueryTable(&quot;user&quot;).Filter(&quot;name&quot;, &quot;slene&quot;).One(&amp;user)
+if err == orm.ErrMultiRows {
+    // 多条的时候报错
+    fmt.Printf(&quot;Returned Multi Rows Not One&quot;)
+}
+if err == orm.ErrNoRows {
+    // 没有找到记录
+    fmt.Printf(&quot;Not row found&quot;)
+}
+可以指定返回的字段：
+
+// 只返回 Id 和 Title
+var post Post
+o.QueryTable(&quot;post&quot;).Filter(&quot;Content__istartswith&quot;, &quot;prefix string&quot;).One(&amp;post, &quot;Id&quot;, &quot;Title&quot;)
+对象的其他字段值将会是对应类型的默认值
+</code></pre>
+
+<p>Values</p>
+
+<p>返回结果集的 key =&gt; value 值</p>
+
+<pre><code>key 为 Model 里的 Field name，value 的值 以 string 保存
+
+var maps []orm.Params
+num, err := o.QueryTable(&quot;user&quot;).Values(&amp;maps)
+if err == nil {
+    fmt.Printf(&quot;Result Nums: %d\n&quot;, num)
+    for _, m := range maps {
+        fmt.Println(m[&quot;Id&quot;], m[&quot;Name&quot;])
+    }
+}
+返回指定的 Field 数据
+
+TODO: 暂不支持级联查询 RelatedSel 直接返回 Values
+
+但可以直接指定 expr 级联返回需要的数据
+
+var maps []orm.Params
+num, err := o.QueryTable(&quot;user&quot;).Values(&amp;maps, &quot;id&quot;, &quot;name&quot;, &quot;profile&quot;, &quot;profile__age&quot;)
+if err == nil {
+    fmt.Printf(&quot;Result Nums: %d\n&quot;, num)
+    for _, m := range maps {
+        fmt.Println(m[&quot;Id&quot;], m[&quot;Name&quot;], m[&quot;Profile&quot;], m[&quot;Profile__Age&quot;])
+        // map 中的数据都是展开的，没有复杂的嵌套
+    }
+}
+</code></pre>
+
+<p>ValuesList</p>
+
+<pre><code>顾名思义，返回的结果集以slice存储
+
+结果的排列与 Model 中定义的 Field 顺序一致
+
+返回的每个元素值以 string 保存
+
+var lists []orm.ParamsList
+num, err := o.QueryTable(&quot;user&quot;).ValuesList(&amp;lists)
+if err == nil {
+    fmt.Printf(&quot;Result Nums: %d\n&quot;, num)
+    for _, row := range lists {
+        fmt.Println(row)
+    }
+}
+当然也可以指定 expr 返回指定的 Field
+
+var lists []orm.ParamsList
+num, err := o.QueryTable(&quot;user&quot;).ValuesList(&amp;lists, &quot;name&quot;, &quot;profile__age&quot;)
+if err == nil {
+    fmt.Printf(&quot;Result Nums: %d\n&quot;, num)
+    for _, row := range lists {
+        fmt.Printf(&quot;Name: %s, Age: %s\m&quot;, row[0], row[1])
+    }
+}
+ValuesFlat
+
+只返回特定的 Field 值，将结果集展开到单个 slice 里
+
+var list orm.ParamsList
+num, err := o.QueryTable(&quot;user&quot;).ValuesFlat(&amp;list, &quot;name&quot;)
+if err == nil {
+    fmt.Printf(&quot;Result Nums: %d\n&quot;, num)
+    fmt.Printf(&quot;All User Names: %s&quot;, strings.Join(list, &quot;, &quot;))
+}
+</code></pre>
+
+<p>关联查询</p>
+
+<p>使用具体的sql语句查询</p>
+
+<ol>
+<li>使用 Raw SQL 查询，无需使用 ORM 表定义</li>
+<li>多数据库，都可直接使用占位符号 ?，自动转换</li>
+
+<li><p>查询时的参数，支持使用 Model Struct 和 Slice, Array</p>
+
+<p>ids := []int{1, 2, 3}
+p.Raw(&ldquo;SELECT name FROM user WHERE id IN (?, ?, ?)&rdquo;, ids)</p></li>
+</ol>
+
+<p>返回一个 RawSeter</p>
+
+<pre><code>o := orm.NewOrm()
+var r RawSeter
+r = o.Raw(&quot;UPDATE user SET name = ? WHERE name = ?&quot;, &quot;testing&quot;, &quot;slene&quot;)
+</code></pre>
+
+<p>Exec</p>
+
+<p>执行 sql 语句，返回 sql.Result 对象</p>
+
+<pre><code>res, err := o.Raw(&quot;UPDATE user SET name = ?&quot;, &quot;your&quot;).Exec()
+if err == nil {
+    num, _ := res.RowsAffected()
+    fmt.Println(&quot;mysql row affected nums: &quot;, num)
+}
+</code></pre>
+
+<p>QueryRow</p>
+
+<p>QueryRow 和 QueryRows 提供高级 sql mapper 功能</p>
+
+<p>支持 struct</p>
+
+<pre><code>type User struct {
+    Id       int
+    UserName string
+}
+
+var user User
+err := o.Raw(&quot;SELECT id, user_name FROM user WHERE id = ?&quot;, 1).QueryRow(&amp;user)
+</code></pre>
+
+<p>from beego 1.1.0 取消了多个对象支持</p>
+
+<p>QueryRows</p>
+
+<p>QueryRows 支持的对象还有 map 规则是和 QueryRow 一样的，但都是 slice</p>
+
+<pre><code>type User struct {
+    Id       int
+    UserName string
+}
+
+var users []User
+num, err := o.Raw(&quot;SELECT id, user_name FROM user WHERE id = ?&quot;, 1).QueryRows(&amp;users)
+if err == nil {
+    fmt.Println(&quot;user nums: &quot;, num)
+}
+</code></pre>
+
+<p>from beego 1.1.0 取消了多个对象支持</p>
+
+<p>SetArgs</p>
+
+<p>改变 Raw(sql, args…) 中的 args 参数，返回一个新的 RawSeter</p>
+
+<p>用于单条 sql 语句，重复利用，替换参数然后执行。</p>
+
+<pre><code>res, err := r.SetArgs(&quot;arg1&quot;, &quot;arg2&quot;).Exec()
+res, err := r.SetArgs(&quot;arg1&quot;, &quot;arg2&quot;).Exec()
+</code></pre>
+
+<p>Values / ValuesList / ValuesFlat</p>
+
+<p>Raw SQL 查询获得的结果集 Value 为 string 类型，NULL 字段的值为空 ``</p>
+
+<p>Values</p>
+
+<p>返回结果集的 key =&gt; value 值</p>
+
+<pre><code>var maps []orm.Params
+num, err = o.Raw(&quot;SELECT user_name FROM user WHERE status = ?&quot;, 1).Values(&amp;maps)
+if err == nil &amp;&amp; num &gt; 0 {
+    fmt.Println(maps[0][&quot;user_name&quot;]) // slene
+}
+</code></pre>
+
+<p>ValuesList</p>
+
+<p>返回结果集 slice</p>
+
+<pre><code>var lists []orm.ParamsList
+num, err = o.Raw(&quot;SELECT user_name FROM user WHERE status = ?&quot;, 1).ValuesList(&amp;lists)
+if err == nil &amp;&amp; num &gt; 0 {
+    fmt.Println(lists[0][0]) // slene
+}
+</code></pre>
+
+<p>ValuesFlat</p>
+
+<p>返回单一字段的平铺 slice 数据</p>
+
+<pre><code>var list orm.ParamsList
+num, err = o.Raw(&quot;SELECT id FROM user WHERE id &lt; ?&quot;, 10).ValuesFlat(&amp;list)
+if err == nil &amp;&amp; num &gt; 0 {
+    fmt.Println(list) // []{&quot;1&quot;,&quot;2&quot;,&quot;3&quot;,...}
+}
+</code></pre>
+
+<p>RowsToMap</p>
+
+<pre><code>res := make(orm.Params)
+nums, err := o.Raw(&quot;SELECT name, value FROM options_table&quot;).RowsToMap(&amp;res, &quot;name&quot;, &quot;value&quot;)
+// res is a map[string]interface{}{
+//  &quot;total&quot;: 100,
+//  &quot;found&quot;: 200,
+// }
+</code></pre>
+
+<p>RowsToStruct</p>
+
+<pre><code>type Options struct {
+    Total int
+    Found int
+}
+
+res := new(Options)
+nums, err := o.Raw(&quot;SELECT name, value FROM options_table&quot;).RowsToStruct(res, &quot;name&quot;, &quot;value&quot;)
+fmt.Println(res.Total) // 100
+fmt.Println(res.Found) // 200
+</code></pre>
+
+<p>Prepare</p>
+
+<p>用于一次 prepare 多次 exec，以提高批量执行的速度。</p>
+
+<pre><code>p, err := o.Raw(&quot;UPDATE user SET name = ? WHERE name = ?&quot;).Prepare()
+res, err := p.Exec(&quot;testing&quot;, &quot;slene&quot;)
+res, err  = p.Exec(&quot;testing&quot;, &quot;astaxie&quot;)
+...
+...
+p.Close() // 别忘记关闭 statement
+</code></pre>
+
+<p>构造查询</p>
+
+<p>QueryBuilder 提供了一个简便，流畅的 SQL 查询构造器。在不影响代码可读性的前提下用来快速的建立 SQL 语句。</p>
+
+<p>QueryBuilder 在功能上与 ORM 重合， 但是各有利弊。ORM 更适用于简单的 CRUD 操作，而 QueryBuilder 则更适用于复杂的查询，例如查询中包含子查询和多重联结。</p>
+
+<pre><code>// User 包装了下面的查询结果
+type User struct {
+    Name string
+    Age  int
+}
+var users []User
+
+// 获取 QueryBuilder 对象. 需要指定数据库驱动参数。
+// 第二个返回值是错误对象，在这里略过
+qb, _ := orm.NewQueryBuilder(&quot;mysql&quot;)
+
+// 构建查询对象
+qb.Select(&quot;user.name&quot;,
+    &quot;profile.age&quot;).
+    From(&quot;user&quot;).
+    InnerJoin(&quot;profile&quot;).On(&quot;user.id_user = profile.fk_user&quot;).
+    Where(&quot;age &gt; ?&quot;).
+    OrderBy(&quot;name&quot;).Desc().
+    Limit(10).Offset(0)
+
+// 导出 SQL 语句
+sql := qb.String()
+
+// 执行 SQL 语句
+o := orm.NewOrm()
+o.Raw(sql, 20).QueryRows(&amp;users)
+</code></pre>
+
+<p>完整 API 接口:</p>
+
+<pre><code>type QueryBuilder interface {
+    Select(fields ...string) QueryBuilder
+    From(tables ...string) QueryBuilder
+    InnerJoin(table string) QueryBuilder
+    LeftJoin(table string) QueryBuilder
+    RightJoin(table string) QueryBuilder
+    On(cond string) QueryBuilder
+    Where(cond string) QueryBuilder
+    And(cond string) QueryBuilder
+    Or(cond string) QueryBuilder
+    In(vals ...string) QueryBuilder
+    OrderBy(fields ...string) QueryBuilder
+    Asc() QueryBuilder
+    Desc() QueryBuilder
+    Limit(limit int) QueryBuilder
+    Offset(offset int) QueryBuilder
+    GroupBy(fields ...string) QueryBuilder
+    Having(cond string) QueryBuilder
+    Subquery(sub string, alias string) string
+    String() string
+}
+</code></pre>
+
+<p>事务处理</p>
+
+<p>ORM 可以简单的进行事务操作</p>
+
+<pre><code>o := NewOrm()
+err := o.Begin()
+// 事务处理过程
+...
+...
+// 此过程中的所有使用 o Ormer 对象的查询都在事务处理范围内
+if SomeError {
+    err = o.Rollback()
+} else {
+    err = o.Commit()
+}
+</code></pre>
+
+<p>模型定义</p>
+
+<p>复杂的模型定义不是必须的，此功能用作数据库数据转换和自动建表，在数据库操作中是重要</p>
+
+<p>默认的表名规则，使用驼峰转蛇形：</p>
+
+<pre><code>AuthUser -&gt; auth_user
+Auth_User -&gt; auth__user
+DB_AuthUser -&gt; d_b__auth_user
+</code></pre>
+
+<p>除了开头的大写字母以外，遇到大写会增加 _，原名称中的下划线保留。</p>
+
+<p>还可以自定义，设置参数，具体使用时到官方文档查询。</p>
+
+<p>十二、 view</p>
+
+<p>在前面编写 Controller 的时候，我们在 Get 里面写过这样的语句 this.TplName = &ldquo;index.tpl&rdquo;，设置显示的模板文件，默认支持 tpl 和 html 的后缀名，如果想设置其他后缀你可以调用 beego.AddTemplateExt 接口设置</p>
+
+<p>主要是模版语言语法，先去了解然后查阅文档使用。</p>
+
+<p>十三、 证书</p>
+
+<p>1、首先需要获得一个https的证书，这个证书可以自己做，也可以到ca网站申请。如果是自己做的证书，浏览器访问的时候会提示不安全链接之类，建议还是自己申请。在腾讯云里有免费1年的CA证书可以申请，可以申请试用。</p>
+
+<p>2、获得CA证书后，一般里面会有不同服务器的证书版本，我一般是用nginx版本的，就可以直接通过nginx转发流量到Beego了。如果是直接用beego作为http服务器，就需要设置beego的配置文件，配置如下：</p>
+
+<pre><code>EnableHTTPS = true
+EnableHttpTLS = true
+HTTPSPort = 9092
+HTTPSCertFile = &quot;server.crt&quot;
+HTTPSKeyFile = &quot;server.key&quot;  
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/frame/beego/">https://kingjcy.github.io/post/golang/frame/beego/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/beego/">
+                            <i class="fa fa-tags"></i>
+                            beego
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/frame/echo/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/frame/frame/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li><a href="#安装">安装</a>
+<ul>
+<li><a href="#bee-工具的安装">bee 工具的安装</a></li>
+<li><a href="#详解">详解</a></li>
+</ul></li>
+<li><a href="#项目">项目</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

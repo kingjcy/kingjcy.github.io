@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="web框架是我们常用的一种框架，很多东西都是通用的，所以设计一个，就可以基本理解掌握所有的东西，很有必要自己设计一次，加深理解，那么如何设计一个web框架？这边主要是借鉴分析beego框架来熟悉。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="golang框架系列---- 如何设计一个web框架 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    golang框架系列---- 如何设计一个web框架
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年11月13日 
+                </div>
+                <h1 class="post-title">golang框架系列---- 如何设计一个web框架</h1>
+            </header>
+
+            <div class="post-content">
+                <p>web框架是我们常用的一种框架，很多东西都是通用的，所以设计一个，就可以基本理解掌握所有的东西，很有必要自己设计一次，加深理解，那么如何设计一个web框架？这边主要是借鉴分析beego框架来熟悉。</p>
+
+<h1 id="常规设计">常规设计</h1>
+
+<blockquote>
+<p>web框架常用的就是mvc结构</p>
+</blockquote>
+
+<pre><code>模型 (Model) 代表数据结构。通常来说，模型类将包含取出、插入、更新数据库资料等这些功能。
+视图 (View) 是展示给用户的信息的结构及样式。一个视图通常是一个网页，但是在Go中，一个视图也可以是一个页面片段，如页头、页尾。它还可以是一个 RSS 页面，或其它类型的“页面”，Go实现的template包已经很好的实现了View层中的部分功能。
+控制器 (Controller) 是模型、视图以及其他任何处理HTTP请求所必须的资源之间的中介，并生成网页。
+</code></pre>
+
+<blockquote>
+<p>框架的数据流</p>
+</blockquote>
+
+<ol>
+<li>main.go作为应用入口，初始化一些运行博客所需要的基本资源，配置信息，监听端口。</li>
+<li>路由功能检查HTTP请求，根据URL以及method来确定谁(控制层)来处理请求的转发资源。</li>
+<li>如果缓存文件存在，它将绕过通常的流程执行，被直接发送给浏览器。</li>
+<li>安全检测:应用程序控制器调用之前，HTTP请求和任一用户提交的数据将被过滤。</li>
+<li>控制器装载模型、核心库、辅助函数，以及任何处理特定请求所需的其它资源，控制器主要负责处理业务逻
+辑。</li>
+<li>输出视图层中渲染好的即将发送到Web浏览器中的内容。如果开启缓存，视图首先被缓存，将用于以后的常规
+请求。</li>
+</ol>
+
+<blockquote>
+<p>目录结构</p>
+</blockquote>
+
+<p>根据上面的应用程序流程设计，博客的目录结构设计如下:</p>
+
+<pre><code>|——main.go              入口文件
+|——conf                配置文件和处理模块
+|——controllers          控制器入口
+|——models               数据库处理模块
+|——utils                辅助函数库
+|——static               静态文件目录
+|——views                视图库
+</code></pre>
+
+<h1 id="路由器设计">路由器设计</h1>
+
+<p>目前几乎所有的Web应用路由实现都是基于http默认的路由器，但是Go自带的路由器有几个限制:</p>
+
+<pre><code>不支持参数设定，例如/user/:uid 这种泛类型匹配
+无法很好的支持REST模式，无法限制访问的方法，例如上面的例子中，用户访问/foo，可以用
+GET、POST、DELETE、HEAD等方式访问
+一般网站的路由规则太多了，编写繁琐。我前面自己开发了一个API应用，路由规则有三十几条，这种路由多
+了之后其实可以进一步简化，通过struct的方法进行一种简化
+</code></pre>
+
+<p>beego框架的路由器基于上面的几点限制考虑设计了一种REST方式的路由实现，路由设计也是基于上面Go默认设计的两点来考虑:存储路由和转发路由</p>
+
+<p>1.存储路由</p>
+
+<p>针对前面所说的限制点，我们首先要解决参数支持就需要用到正则，第二和第三点我们通过一种变通的方法来解决，REST的方法对应到struct的方法中去，然后路由到struct而不是函数，这样在转发路由的时候就可以根据method来执行不同的方法。</p>
+
+<p>根据上面的思路，我们设计了两个数据类型controllerInfo(保存路径和对应的struct，这里是一个reflect.Type类型)和ControllerRegistor(routers是一个slice用来保存用户添加的路由信息，以及beego框架的应用信息)</p>
+
+<pre><code>type controllerInfo struct { regex *regexp.Regexp params map[int]string controllerType reflect.Type
+}
+type ControllerRegistor struct { routers []*controllerInfo Application *App
+}
+</code></pre>
+
+<p>ControllerRegistor对外的接口函数有</p>
+
+<pre><code>func (p *ControllerRegistor) Add(pattern string, c ControllerInterface)
+</code></pre>
+
+<p>详细的实现如下所示:</p>
+
+<pre><code>func (p *ControllerRegistor) Add(pattern string, c ControllerInterface) { parts := strings.Split(pattern, &quot;/&quot;)
+j := 0
+params := make(map[int]string) for i, part := range parts {
+if strings.HasPrefix(part, &quot;:&quot;) { expr := &quot;([^/]+)&quot;
+} }
+//a user may choose to override the defult expression // similar to expressjs: ‘/user/:id([0-9]+)’
+if index := strings.Index(part, &quot;(&quot;); index != -1 { expr = part[index:]
+part = part[:index]
+}
+params[j] = part parts[i] = expr j++
+//recreate the url pattern, with parameters replaced //by regular expressions. then compile the regex
+pattern = strings.Join(parts, &quot;/&quot;)
+regex, regexErr := regexp.Compile(pattern) if regexErr != nil {
+//TODO add error handling here to avoid panic panic(regexErr)
+return
+}
+//now create the Route
+t := reflect.Indirect(reflect.ValueOf(c)).Type() route := &amp;controllerInfo{}
+route.regex = regex
+route.params = params
+route.controllerType = t
+p.routers = append(p.routers, route) }
+</code></pre>
+
+<p>静态路由实现</p>
+
+<p>上面我们实现的动态路由的实现，Go的http包默认支持静态文件处理FileServer，由于我们实现了自定义的路由器，
+那么静态文件也需要自己设定，beego的静态文件夹路径保存在全局变量StaticDir中，StaticDir是一个map类型，实
+现如下:</p>
+
+<pre><code>func (app *App) SetStaticPath(url string, path string) *App { StaticDir[url] = path
+return app
+}
+</code></pre>
+
+<p>应用中设置静态路径可以使用如下方式实现:
+    beego.SetStaticPath(&ldquo;/img&rdquo;,&ldquo;/static/img&rdquo;)</p>
+
+<p>2.转发路由</p>
+
+<p>转发路由是基于ControllerRegistor里的路由信息来进行转发的，详细的实现如下代码所示:</p>
+
+<pre><code>// AutoRoute
+func (p *ControllerRegistor) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+defer func() {
+if err := recover(); err != nil {
+if !RecoverPanic {
+// go back to panic panic(err)
+} else {
+Critical(&quot;Handler crashed with error&quot;, err) for i := 1; ; i += 1 {
+_, file, line, ok := runtime.Caller(i) if !ok {
+break }
+Critical(file, line) }
+bool
+} }
+}()
+var started for prefix,
+file := staticDir http.ServeFile(w, started = true return
+} }
+requestPath := r.URL.Path
+staticDir := range StaticDir {
+if strings.HasPrefix(r.URL.Path, prefix) {
++ r.URL.Path[len(prefix):] r, file)
+//find a matching Route
+for _, route := range p.routers {
+//check if Route pattern matches url
+if !route.regex.MatchString(requestPath) {
+continue }
+//get submatches (params)
+matches := route.regex.FindStringSubmatch(requestPath)
+//double check that the Route matches the URL pattern. if len(matches[0]) != len(requestPath) {
+continue }
+params := make(map[string]string) if len(route.params) &gt; 0 {
+//add url parameters to the query param map values := r.URL.Query()
+for i, match := range matches[1:] {
+values.Add(route.params[i], match)
+params[route.params[i]] = match }
+//reassemble query params and add to RawQuery
+
+r.URL.RawQuery = url.Values(values).Encode() + &quot;&amp;&quot; + r.URL.RawQuery
+//r.URL.RawQuery = url.Values(values).Encode() }
+//Invoke the request handler
+vc := reflect.New(route.controllerType)
+init := vc.MethodByName(&quot;Init&quot;)
+in := make([]reflect.Value, 2)
+ct := &amp;Context{ResponseWriter: w, Request: r, Params: params} in[0] = reflect.ValueOf(ct)
+in[1] = reflect.ValueOf(route.controllerType.Name()) init.Call(in)
+in = make([]reflect.Value, 0)
+method := vc.MethodByName(&quot;Prepare&quot;)
+method.Call(in)
+if r.Method == &quot;GET&quot; {
+method = vc.MethodByName(&quot;Get&quot;)
+method.Call(in)
+} else if r.Method == &quot;POST&quot; {
+method = vc.MethodByName(&quot;Post&quot;)
+method.Call(in)
+} else if r.Method == &quot;HEAD&quot; {
+method = vc.MethodByName(&quot;Head&quot;)
+method.Call(in)
+} else if r.Method == &quot;DELETE&quot; {
+method = vc.MethodByName(&quot;Delete&quot;)
+method.Call(in)
+} else if r.Method == &quot;PUT&quot; {
+method = vc.MethodByName(&quot;Put&quot;)
+method.Call(in)
+} else if r.Method == &quot;PATCH&quot; {
+method = vc.MethodByName(&quot;Patch&quot;)
+method.Call(in)
+} else if r.Method == &quot;OPTIONS&quot; {
+method = vc.MethodByName(&quot;Options&quot;)
+method.Call(in) }
+if AutoRender {
+method = vc.MethodByName(&quot;Render&quot;) method.Call(in)
+}
+method = vc.MethodByName(&quot;Finish&quot;) method.Call(in)
+started = true
+break
+}
+//if no matches to url, throw a not found exception if started == false {
+http.NotFound(w, r) }
+}
+</code></pre>
+
+<p>使用入门</p>
+
+<p>基于这样的路由设计之后就可以解决前面所说的三个限制点，使用的方式如下所示:</p>
+
+<pre><code>基本的使用注册路由:
+beego.BeeApp.RegisterController(&quot;/&quot;, &amp;controllers.MainController{})
+参数注册:
+beego.BeeApp.RegisterController(&quot;/:param&quot;, &amp;controllers.UserController{})
+正则匹配:
+beego.BeeApp.RegisterController(&quot;/users/:uid([0-9]+)&quot;, &amp;controllers.UserController{})
+</code></pre>
+
+<h1 id="controller设计">controller设计</h1>
+
+<p>传统的MVC框架大多数是基于Action设计的后缀式映射，然而，现在Web流行REST风格的架构。尽管使用Filter或者
+rewrite能够通过URL重写实现REST风格的URL。</p>
+
+<p>controller作用</p>
+
+<p>MVC设计模式是目前Web应用开发中最常见的架构模式，通过分离 Model(模型)、View(视图)和 Controller(控
+制器)，可以更容易实现易于扩展的用户界面(UI)。Model指后台返回的数据;View指需要渲染的页面，通常是模板
+页面，渲染后的内容通常是HTML;Controller指Web开发人员编写的处理不同URL的控制器，如前面小节讲述的路由就
+是URL请求转发到控制器的过程，controller在整个的MVC框架中起到了一个核心的作用，负责处理业务逻辑，因此控
+制器是整个框架中必不可少的一部分，</p>
+
+<p>beego的REST设计</p>
+
+<p>前面小节介绍了路由实现了注册struct的功能，而struct中实现了REST方式，因此我们需要设计一个用于逻辑处理
+controller的基类，这里主要设计了两个类型，一个struct、一个interface</p>
+
+<pre><code>type Controller struct {
+    Ct    *Context
+    Tpl    *template.Template
+    Data map[interface{}]interface{}
+    ChildName string
+    TplNames string
+    Layout []string
+    TplExt    string
+}
+
+type ControllerInterface interface {
+    Init(ct *Context, cn string)    //初始化上下文和子类名称
+    Prepare()                       //开始执行之前的一些处理
+    Get()                           //method=GET的处理
+    Post()
+    Delete()
+    Put()
+    Head()
+    Patch()
+    Options()
+    Finish()                        //执行完成之后的处理
+    Render() error                  //执行完method对应的方法之后渲染页面
+}
+</code></pre>
+
+<p>那么前面介绍的路由add函数的时候是定义了ControllerInterface类型，因此，只要我们实现这个接口就可以，所以
+我们的基类Controller实现如下的方法:</p>
+
+<pre><code>func (c *Controller) Init(ct *Context, cn string) {
+    c.Data = make(map[interface{}]interface{}) c.Layout = make([]string, 0)
+    c.TplNames = &quot;&quot;
+    c.ChildName = cn c.Ct = ct c.TplExt = &quot;tpl&quot;
+}
+
+func (c *Controller) Prepare() {}
+func (c *Controller) Finish() {}
+func (c *Controller)    Get() {
+    http.Error(c.Ct.ResponseWriter, &quot;Method Not Allowed&quot;, 405)
+}
+
+
+
+func (c *Controller) Post() {
+    http.Error(c.Ct.ResponseWriter, &quot;Method Not Allowed&quot;, 405)
+}
+func (c *Controller) Delete() {
+    http.Error(c.Ct.ResponseWriter, &quot;Method Not Allowed&quot;, 405)
+}
+func (c *Controller) Put() {
+    http.Error(c.Ct.ResponseWriter, &quot;Method Not Allowed&quot;, 405)
+}
+func (c *Controller) Head() {
+    http.Error(c.Ct.ResponseWriter, &quot;Method Not Allowed&quot;, 405)
+}
+func (c *Controller) Patch() {
+    http.Error(c.Ct.ResponseWriter, &quot;Method Not Allowed&quot;, 405)
+}
+func (c *Controller) Options() {
+    http.Error(c.Ct.ResponseWriter, &quot;Method Not Allowed&quot;, 405)
+}
+func (c *Controller) Render() error {
+    if len(c.Layout) &gt; 0 {
+        var filenames []string
+        for _, file := range c.Layout {
+        filenames = append(filenames, path.Join(ViewsPath,file))
+        }
+        t, err := template.ParseFiles(filenames...) if err != nil {
+         Trace(&quot;template ParseFiles err:&quot;, err) }
+
+        err = t.ExecuteTemplate(c.Ct.ResponseWriter, c.TplNames, c.Data) if err != nil {
+        Trace(&quot;template Execute err:&quot;, err) }
+    } else {
+        if c.TplNames == &quot;&quot; {
+            c.TplNames = c.ChildName + &quot;/&quot; + c.Ct.Request.Method + &quot;.&quot; + c.TplExt
+        }
+        t, err := template.ParseFiles(path.Join(ViewsPath, c.TplNames)) if err != nil {
+        Trace(&quot;template ParseFiles err:&quot;, err) }
+        err = t.Execute(c.Ct.ResponseWriter, c.Data)
+        if err != nil {
+            Trace(&quot;template Execute err:&quot;, err)
+        }
+    }
+    return nil
+}
+
+func (c *Controller) Redirect(url string, code int) {
+    c.Ct.Redirect(code, url)
+}
+</code></pre>
+
+<p>上面的controller基类已经实现了接口定义的函数，通过路由根据url执行相应的controller的原则，会依次执行如下:</p>
+
+<pre><code>Init()  初始化
+Prepare() 执行之前的初始化，每个继承的子类可以来实现该函数
+method() 根据不同的method执行不同的函数:GET、POST、PUT、HEAD等，子类来实现这些函数，如果没实现，那么默认都
+Render() 可选，根据全局变量AutoRender来判断是否执行
+Finish()    执行完之后执行的操作，每个继承的子类可以来实现该函数
+</code></pre>
+
+<p>使用</p>
+
+<pre><code>package controllers
+import (
+    &quot;github.com/astaxie/beego&quot;
+)
+
+type MainController struct {
+    beego.Controller
+}
+func (this *MainController) Get() {
+    this.Data[&quot;Username&quot;] = &quot;astaxie&quot;
+    this.Data[&quot;Email&quot;] = &quot;astaxie@gmail.com&quot;
+    this.TplNames = &quot;index.tpl&quot;
+}
+</code></pre>
+
+<p>上面的方式我们实现了子类MainController，实现了Get方法，那么如果用户通过其他的方式(POST/HEAD等)来访问该
+资源都将返回403，而如果是Get来访问，因为我们设置了AutoRender=true，那么在执行玩Get方法之后会自动执行</p>
+
+<h1 id="日志和配置设计">日志和配置设计</h1>
+
+<p>1.beego的日志设计</p>
+
+<p>beego的日志设计部署思路来自于seelog，根据不同的level来记录日志，但是beego设计的日志系统比较轻量级，采
+用了系统的log.Logger接口，默认输出到os.Stdout,用户可以实现这个接口然后通过beego.SetLogger设置自定义的
+输出，详细的实现如下所示:</p>
+
+<pre><code>// Log levels to control the logging output.
+const (
+    LevelTrace = iota
+    LevelDebug
+    LevelInfo
+    LevelWarning
+    LevelError
+    LevelCritical
+)
+// logLevel controls the global log level used by the logger.
+var level = LevelTrace
+// LogLevel returns the global log level and can be used in // own implementations of the logger interface.
+func Level() int {
+    return level
+}
+// SetLogLevel sets the global log level used by the simple // logger.
+func SetLevel(l int) {
+    level = l
+}
+</code></pre>
+
+<p>上面这一段实现了日志系统的日志分级，默认的级别是Trace，用户通过SetLevel可以设置不同的分级。</p>
+
+<pre><code>// logger references the used application logger.
+var BeeLogger = log.New(os.Stdout, &quot;&quot;, log.Ldate|log.Ltime)
+// SetLogger sets a new logger.
+func SetLogger(l *log.Logger) {
+    BeeLogger = l
+}
+// Trace logs a message at trace level.
+func Trace(v ...interface{}) {
+    if level &lt;= LevelTrace { BeeLogger.Printf(&quot;[T] %v\n&quot;, v)
+} }
+// Debug logs a message at debug level.
+func Debug(v ...interface{}) {
+    if level &lt;= LevelDebug { BeeLogger.Printf(&quot;[D] %v\n&quot;, v)
+} }
+// Info logs a message at info level.
+func Info(v ...interface{}) {
+    if level &lt;= LevelInfo { BeeLogger.Printf(&quot;[I] %v\n&quot;, v)
+} }
+// Warning logs a message at warning level.
+func Warn(v ...interface{}) {
+    if level &lt;= LevelWarning {
+        BeeLogger.Printf(&quot;[W] %v\n&quot;, v)
+} }
+// Error logs a message at error level.
+func Error(v ...interface{}) {
+if level &lt;= LevelError {
+    BeeLogger.Printf(&quot;[E] %v\n&quot;, v)
+} }
+// Critical logs a message at critical level.
+func Critical(v ...interface{}) {
+if level &lt;= LevelCritical {
+    BeeLogger.Printf(&quot;[C] %v\n&quot;, v)
+} }
+</code></pre>
+
+<p>上面这一段代码默认初始化了一个BeeLogger对象，默认输出到os.Stdout，用户可以通过beego.SetLogger来设置实
+现了logger的接口输出。这里面实现了六个函数:</p>
+
+<pre><code>Trace(一般的记录信息，举例如下:)
+    &quot;Entered parse function validation block&quot;
+    &quot;Validation: entered second 'if'&quot;
+    &quot;Dictionary 'Dict' is empty. Using default value&quot;
+Debug(调试信息，举例如下:)
+    &quot;Web page requested: http://somesite.com Params='...'&quot;
+    &quot;Response generated. Response size: 10000. Sending.&quot;
+    &quot;New file received. Type:PNG Size:20000&quot;
+Info(打印信息，举例如下:)
+    &quot;Web server restarted&quot;
+    &quot;Hourly statistics: Requested pages: 12345 Errors: 123 ...&quot;
+    &quot;Service paused. Waiting for 'resume' call&quot;
+Warn(警告信息，举例如下:)
+    &quot;Cache corrupted for file='test.file'. Reading from back-end&quot;
+    &quot;Database 192.168.0.7/DB not responding. Using backup 192.168.0.8/DB&quot;
+    &quot;No response from statistics server. Statistics not sent&quot;
+Error(错误信息，举例如下:)
+    &quot;Internal error. Cannot process request #12345 Error:....&quot;
+    &quot;Cannot perform login: credentials DB not responding&quot;
+Critical(致命错误，举例如下:)
+    &quot;Critical panic received: .... Shutting down&quot;
+    &quot;Fatal error: ... App is shutting down to prevent data corruption or loss&quot;
+</code></pre>
+
+<p>可以看到每个函数里面都有对level的判断，所以如果我们在部署的时候设置了level=LevelWarning，那么
+Trace、Debug、Info这三个函数都不会有任何的输出，以此类推。</p>
+
+<p>2.beego的配置设计</p>
+
+<p>配置信息的解析，beego实现了一个key=value的配置文件读取，类似ini配置文件的格式，就是一个文件解析的过
+程，然后把解析的数据保存到map中，最后在调用的时候通过几个string、int之类的函数调用返回相应的值，具体的
+实现请看下面:</p>
+
+<p>首先定义了一些ini配置文件的一些全局性常量 :</p>
+
+<pre><code>var (
+    bComment= []byte{'#'}
+    bEmpty= []byte{}
+    bEqual= []byte{'='}
+    bDQuote= []byte{'&quot;'}
+)
+</code></pre>
+
+<p>定义了配置文件的格式:</p>
+
+<pre><code>// A Config represents the configuration.
+type Config struct {
+    filename string
+    comment map[int][]string // id: []{comment, key...}; id 1 is for main comment. data map[string]string // key: value
+    offset map[string]int64 // key: offset; for editing.
+    sync.RWMutex
+}
+</code></pre>
+
+<p>定义了解析文件的函数，解析文件的过程是打开文件，然后一行一行的读取，解析注释、空行和key=value数据,返回的值确定为bool、int、float64或string:</p>
+
+<p>应用指南</p>
+
+<p>下面这个函数是我一个应用中的例子，用来获取远程url地址的json数据，实现如下:</p>
+
+<pre><code>func GetJson() {
+    resp, err := http.Get(beego.AppConfig.String(&quot;url&quot;))
+    if err != nil {
+        beego.Critical(&quot;http get info error&quot;)
+        return
+    }
+    defer resp.Body.Close()
+    body, err := ioutil.ReadAll(resp.Body)
+    err = json.Unmarshal(body, &amp;AllInfo)
+    if err != nil {
+        beego.Critical(&quot;error:&quot;, err)
+    }
+}
+</code></pre>
+
+<p>函数中调用了框架的日志函数beego.Critical函数用来报错，调用了beego.AppConfig.String(&ldquo;url&rdquo;)用来
+获取配置文件中的信息，配置文件的信息如下(app.conf):</p>
+
+<pre><code>appname = hs
+url =&quot;http://www.api.com/api.html&quot;
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/frame/webframe/">https://kingjcy.github.io/post/golang/frame/webframe/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/frame/">
+                            <i class="fa fa-tags"></i>
+                            frame
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/web/">
+                            <i class="fa fa-tags"></i>
+                            web
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/mvc/">
+                            <i class="fa fa-tags"></i>
+                            mvc
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/web/html/">Html Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月28日)</span></li><li id="li-rels"><a href="/post/web/css/">Css Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月28日)</span></li><li id="li-rels"><a href="/post/golang/frame/frame/">golang框架系列---- 概述</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年06月25日)</span></li><li id="li-rels"><a href="/post/golang/go-net-web/">Go Net</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年07月11日)</span></li><li id="li-rels"><a href="/post/golang/go-net/">Go Net</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年07月11日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/zabbix/zabbixcode/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/map/uml/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#常规设计">常规设计</a></li>
+<li><a href="#路由器设计">路由器设计</a></li>
+<li><a href="#controller设计">controller设计</a></li>
+<li><a href="#日志和配置设计">日志和配置设计</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

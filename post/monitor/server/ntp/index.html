@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="ntp客户端的监控
+
+主要是监控客户端的存活状态，和时间偏移值offset，是否同步时间成功。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Ntp - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Ntp
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年10月15日 
+                </div>
+                <h1 class="post-title">Ntp</h1>
+            </header>
+
+            <div class="post-content">
+                <p>ntp客户端的监控</p>
+
+<p>主要是监控客户端的存活状态，和时间偏移值offset，是否同步时间成功。</p>
+
+<p>node_exporter和ntp_exporter主要是获取了时间偏移值offset，针对我们现在使用了三种时间同步的方式的情况，我们需要使用脚本进行监控</p>
+
+<p>设计</p>
+
+<ol>
+<li>ntpdate</li>
+</ol>
+
+<p>监控脚本</p>
+
+<pre><code>#!/bin/bash
+ntp=`crontab -l |grep ntp |awk '{print $NF}'`
+ntpdate -q $ntp 1&gt;/dev/null 2&gt;/dev/null 
+if [ $? -eq 0 ];then
+offset=`ntpdate -q $ntp |tail -n1|awk '{print $(NF-1)}'` 
+echo $offset        #同步上输出偏移值
+else
+echo 2             #未同步上时钟源，输出2
+fi
+</code></pre>
+
+<ol>
+<li>ntpd</li>
+</ol>
+
+<p>监控脚本</p>
+
+<pre><code>#!/bin/bash
+status=`service ntpd status|grep running|wc -l`
+ntpq=`ntpq -p -n |grep \* |wc -l`
+if [ $status == 1 -a $ntpq == 1 ]
+then
+offset=`ntpq -pn |grep \* |awk '{print $(NF-1)}'` 
+    echo $offset 
+elif [ $status == 1 -a $ntpq == 0 ]
+then
+    echo 2
+else
+    echo 0
+fi
+</code></pre>
+
+<ol>
+<li>chronyd</li>
+</ol>
+
+<p>监控脚本</p>
+
+<pre><code>#!/bin/bash
+status=`systemctl status chronyd.service |grep running|wc -l`
+chronyd=`chronyc sources |grep &quot;*&quot;`
+if [ $status == 1 -a $chronyd == 1 ]
+then
+    echo 1
+elif [ $status == 1 -a $chronyd == 0 ]
+then
+    echo 2
+else
+    echo 0
+fi
+</code></pre>
+
+<p>在能区分组件的情况下</p>
+
+<p>脚本中输出监控的组件，偏移时间，存活状态，然后在界面统一展示</p>
+
+<p>先将三种客户端整理成一个脚本进行执行</p>
+
+<pre><code>#!/bin/bash
+CHRONY()
+{
+    chronystatus=`systemctl status chronyd.service |grep running|wc -l`
+    chronyd=`chronyc sources |grep &quot;*&quot;|wc -l`
+    if [[ $chronystatus == 1 &amp;&amp; $chronyd == 1 ]]
+    then
+        echo &quot;chronyd|0|0|0&quot;  #CHRONY服务同步正常
+    elif [[ $chronystatus == 1 &amp;&amp; $chronyd == 0 ]]
+    then
+        echo &quot;chronyd|0|2|0&quot; #警告:CHRONY服务正常，未同步成功 （半小时检查一次，若连续4次都输出2，则输出告警）
+    else
+        echo &quot;chronyd|1|2|0&quot; #严重告警:CHRONY服务异常
+    fi
+}
+
+NTP()
+{
+    status=`service ntpd status|grep running|wc -l`
+    ntpq=`ntpq -p -n |grep \* |wc -l`
+    if [ $status == 1 -a $ntpq == 1 ]
+    then
+        offset=`ntpq -pn |grep \* |awk '{print $(NF-1)}'|awk '{printf &quot;%.6f\n&quot;,$1/1000}'`
+        echo &quot;ntpd|0|0|&quot;$offset  #同步上输出偏移值（若偏移值大于0.6s,输出警告）
+    elif [ $status == 1 -a $ntpq == 0 ]
+    then
+        echo &quot;ntpd|0|2|0&quot; #警告:NTP服务正常，未同步成功 （半小时检查一次，若连续4次都输出2，则输出告警）
+    else
+        echo &quot;ntpd|1|2|0&quot; #严重告警:NTP服务异常
+    fi
+}
+
+NTP_CRON()
+{
+    ntp=`crontab -l |grep ntpdate |awk '{print $NF}'`
+    ntpdate -q $ntp 1&gt;/dev/null 2&gt;/dev/null
+    if [ $? -eq 0 ];then
+        offset=`ntpdate -q $ntp |tail -n1|awk '{print $(NF-1)}'`
+        echo &quot;ntpdate|0|0|&quot;$offset        #同步上输出偏移值（若偏移值大于0.6s,输出警告）
+    else
+        echo &quot;ntpdate|0|2|0&quot;             #警告:未同步上时钟源 （半小时检查一次，若连续4次都输出2，则输出告警）
+    fi
+}
+
+cronntp=`crontab -l |grep ntpdate |wc -l`
+susentp=`crontab -l |grep sntp |wc -l`
+ntpstatus=`service ntpd status 2&gt;/dev/null|grep running|wc -l`
+chronystatus=`systemctl status chronyd.service 2&gt;/dev/null|grep running|wc -l`
+
+if [ $ntpstatus == 1 ]
+then
+    NTP                                         #ntp服务开启，执行ntp服务检查
+elif [ $cronntp == 0 -a $chronystatus == 1 ]
+then
+    CHRONY                                      #chrony服务开启，执行chrony服务检查
+elif [ $cronntp == 1 -a $ntpstatus == 0 ]
+then
+    NTP_CRON                                    #ntp定时任务开启，执行ntpdate检查
+elif [ $susentp == 1 ]
+then
+    echo &quot;ntpdate|0|0|0&quot;                        #suse操作系统存在定时任务，默认同步正常
+else
+    echo &quot;notime|3|3|0&quot;                         #无定时任务，且ntp服务以及chronyd服务没有开启，输出提示：请添加时钟校验
+fi
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/server/ntp/">https://kingjcy.github.io/post/monitor/server/ntp/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/ntp/">
+                            <i class="fa fa-tags"></i>
+                            ntp
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/prometheus/monitor-scheme/infrastructure/">监控架构系列---- Infrastructure</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/monitor-scheme/k8s/">监控架构系列---- K8s监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年05月12日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/monitor-scheme/promes-admin/">监控架构系列---- 后台架构</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年05月12日)</span></li><li id="li-rels"><a href="/post/monitor/zabbix/zabbixcode/">监控系列---- zabbix源码阅读</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年11月25日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/prometheus/">prometheus系列---- Prometheus入门</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年06月29日)</span></li><li id="li-rels"><a href="/post/monitor/zabbix/zabbix/">监控系列---- Zabbix基本使用</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年03月04日)</span></li><li id="li-rels"><a href="/post/linux/server/ntp/">Ntp</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(0001年01月01日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/worklife/leetmeetcode/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/prometheus/exporter/script_exporter/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

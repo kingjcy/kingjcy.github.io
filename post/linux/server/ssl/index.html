@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="SSL：（Secure Socket Layer，安全套接字层），为Netscape所研发，用以保障在Internet上数据传输之安全，利用数据加密(Encryption)技术，可确保数据在网络上之传输过程中不会被截取。当前版本为3.0。它已被广泛地用于Web浏览器与服务器之间的身份认证和加密数据传输。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="linux系列---- ssl - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    linux系列---- ssl
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年08月11日 
+                </div>
+                <h1 class="post-title">linux系列---- ssl</h1>
+            </header>
+
+            <div class="post-content">
+                <p>SSL：（Secure Socket Layer，安全套接字层），为Netscape所研发，用以保障在Internet上数据传输之安全，利用数据加密(Encryption)技术，可确保数据在网络上之传输过程中不会被截取。当前版本为3.0。它已被广泛地用于Web浏览器与服务器之间的身份认证和加密数据传输。</p>
+
+<h1 id="ssl和tls简介">SSL和TLS简介</h1>
+
+<p>SSL</p>
+
+<p>SSL协议位于TCP/IP协议与各种应用层协议之间，为数据通讯提供安全支持。SSL协议可分为两层：</p>
+
+<p>SSL记录协议（SSL Record Protocol）：它建立在可靠的传输协议（如TCP）之上，为高层协议提供数据封装、压缩、加密等基本功能的支持。</p>
+
+<p>SSL握手协议（SSL Handshake Protocol）：它建立在SSL记录协议之上，用于在实际的数据传输开始前，通讯双方进行身份认证、协商加密算法、交换加密密钥等。</p>
+
+<p>TLS</p>
+
+<p>TLS：(Transport Layer Security，传输层安全协议)，用于两个应用程序之间提供保密性和数据完整性。</p>
+
+<p>TLS 1.0是IETF（Internet Engineering Task Force，Internet工程任务组）制定的一种新的协议，它建立在SSL 3.0协议规范之上，是SSL 3.0的后续版本，可以理解为SSL 3.1，它是写入了 RFC 的。该协议由两层组成： TLS 记录协议（TLS Record）和 TLS 握手协议（TLS Handshake）。较低的层为 TLS 记录协议，位于某个可靠的传输协议（例如 TCP）上面。</p>
+
+<p>SSL/TLS协议提供的服务主要有：</p>
+
+<pre><code>认证用户和服务器，确保数据发送到正确的客户机和服务器；
+加密数据以防止数据中途被窃取；
+维护数据的完整性，确保数据在传输过程中不被改变。
+</code></pre>
+
+<p>SSL协议分为两部分：Handshake Protocol和Record Protocol。其中Handshake Protocol用来协商密钥，协议的大部分内容就是通信双方如何利用它来安全的协商出一份密钥。 Record Protocol则定义了传输的格式。</p>
+
+<p>由于非对称加密的速度比较慢，所以它一般用于密钥交换，双方通过公钥算法协商出一份密钥，然后通过对称加密来通信，当然，为了保证数据的完整性，在加密前要先经过HMAC的处理。</p>
+
+<p>SSL缺省只进行server端的认证，客户端的认证是可选的。</p>
+
+<h1 id="ssl加密原理">ssl加密原理</h1>
+
+<p>(比较枯燥的原理讲解，可以结合下面的实例来进行理解)</p>
+
+<p>1.客户端首先要告知服务端，自己支持哪些加密算法，所以客户端需要将本地支持的加密套件(Cipher Suite)的列表传送给服务端。除此之外，客户端还要产生一个随机数，这个随机数一方面需要在客户端保存，另一方面需要传送给服务端，客户端的随机数需要跟服务端产生的随机数结合起来产生后面要讲到的 Master Secret 。</p>
+
+<p>2.服务端需要将自己的证书发送给客户端。这个证书是对于服务端的一种认证。例如，客户端收到了一个来自于称自己是www.alipay.com的数据，但是如何证明对方是合法的alipay支付宝呢？这就是证书的作用，支付宝的证书可以证明它是alipay，而不是财付通。证书是需要申请，并由专门的数字证书认证机构(CA)通过非常严格的审核之后颁发的电子证书。颁发证书的同时会产生一个私钥和公钥。私钥由服务端自己保存，不可泄漏。公钥则是附带在证书的信息中，可以公开的。证书本身也附带一个证书电子签名，这个签名用来验证证书的完整性和真实性，可以防止证书被串改。另外，证书还有个有效期。</p>
+
+<p>在服务端向客户端发送的证书中没有提供足够的信息（证书公钥）的时候，还可以向客户端发送一个 Server Key Exchange，</p>
+
+<p>此外，对于非常重要的保密数据，服务端还需要对客户端进行验证，以保证数据传送给了安全的合法的客户端。服务端可以向客户端发出 Cerficate Request 消息，要求客户端发送证书对客户端的合法性进行验证。比如，金融机构往往只允许认证客户连入自己的网络，就会向正式客户提供USB密钥，里面就包含了一张客户端证书。</p>
+
+<p>跟客户端一样，服务端也需要产生一个随机数发送给客户端。客户端和服务端都需要使用这两个随机数来产生Master Secret。</p>
+
+<p>最后服务端会发送一个Server Hello Done消息给客户端，表示Server Hello消息结束了。</p>
+
+<p>3.Client Key Exchange</p>
+
+<p>如果服务端需要对客户端进行验证，在客户端收到服务端的 Server Hello 消息之后，首先需要向服务端发送客户端的证书，让服务端来验证客户端的合法性。</p>
+
+<p>Certificate Verify
+接着，客户端需要对服务端的证书进行检查，如果证书不是可信机构颁布、或者证书中的域名与实际域名不一致、或者证书已经过期，就会向访问者显示一个警告，由其选择是否还要继续通信。如果证书没有问题，客户端就会从服务器证书中取出服务器的公钥。然后，向服务器发送下面三项信息：</p>
+
+<pre><code>1.一个随机数。该随机数用服务器公钥加密，防止被窃听编码改变通知，表示随后的信息都将用双方商定的加密方法和密钥发送客户端握手结束通知，表示客户端的握手阶段已经结束。这一项同时也是前面发送的所有内容的hash值，用来供服务器校验
+
+上面第一项的随机数，是整个握手阶段出现的第三个随机数，它是客户端使用一些加密算法(例如：RSA, Diffie-Hellman)产生一个48个字节的Key，这个Key叫 PreMaster Secret，很多材料上也被称作 PreMaster Key。
+
+2.ChangeCipherSpec
+ChangeCipherSpec是一个独立的协议，体现在数据包中就是一个字节的数据，用于告知服务端，客户端已经切换到之前协商好的加密套件（Cipher Suite）的状态，准备使用之前协商好的加密套件加密数据并传输了。
+
+3.在ChangecipherSpec传输完毕之后，客户端会使用之前协商好的加密套件和Session Secret加密一段 Finish 的数据传送给服务端，此数据是为了在正式传输应用数据之前对刚刚握手建立起来的加解密通道进行验证。
+</code></pre>
+
+<p>4.服务端在接收到客户端传过来的 PreMaster 加密数据之后，使用私钥对这段加密数据进行解密，并对数据进行验证，也会使用跟客户端同样的方式生成 Session Secret，一切准备好之后，会给客户端发送一个 ChangeCipherSpec，告知客户端已经切换到协商过的加密套件状态，准备使用加密套件和 Session Secret加密数据了。之后，服务端也会使用 Session Secret 加密一段 Finish 消息发送给客户端，以验证之前通过握手建立起来的加解密通道是否成功。</p>
+
+<p>根据之前的握手信息，如果客户端和服务端都能对Finish信息进行正常加解密且消息正确的被验证，则说明握手通道已经建立成功，接下来，双方可以使用上面产生的Session Secret对数据进行加密传输了。</p>
+
+<p>ssl加密通信流程</p>
+
+<pre><code>客户端----&gt;服务端----&gt;客户端-----&gt;服务端
+</code></pre>
+
+<h2 id="实例">实例</h2>
+
+<p>如果上面的说明不够清晰，这里我们用个形象的比喻，我们假设A与B通信，A是SSL客户端，B是SSL服务器端，加密后的消息放在方括号[]里，以突出明文消息的区别。双方的处理动作的说明用圆括号（）括起。</p>
+
+<p>A：我想和你安全的通话，我这里的对称加密算法有DES,RC5,密钥交换算法有RSA和DH，摘要算法有MD5和SHA。</p>
+
+<p>B：我们用DES－RSA－SHA这对组合好了。
+这是我的证书，里面有我的名字和公钥，你拿去验证一下我的身份（把证书发给A）。
+目前没有别的可说的了。</p>
+
+<p>A：（查看证书上B的名字是否无误，并通过手头早已有的CA的证书验证了B的证书的真实性，如果其中一项有误，发出警告并断开连接，这一步保证了B的公钥的真实性）
+（产生一份秘密消息，这份秘密消息处理后将用作加密密钥，加密初始化向量（IV）和hmac的密钥。将这份秘密消息-协议中称为per_master_secret-用B的公钥加密，封装成称作ClientKeyExchange的消息。由于用了B的公钥，保证了第三方无法窃听）
+我生成了一份秘密消息，并用你的公钥加密了，给你（把ClientKeyExchange发给B）
+注意，下面我就要用加密的办法给你发消息了！
+（将秘密消息进行处理，生成加密密钥，加密初始化向量和hmac的密钥）
+[我说完了]</p>
+
+<p>B：（用自己的私钥将ClientKeyExchange中的秘密消息解密出来，然后将秘密消息进行处理，生成加密密钥，加密初始化向量和hmac的密钥，这时双方已经安全的协商出一套加密办法了）
+注意，我也要开始用加密的办法给你发消息了！
+[我说完了]</p>
+
+<p>A: [我的秘密是&hellip;]</p>
+
+<p>B: [其它人不会听到的&hellip;]</p>
+
+<h1 id="ca认证">CA认证</h1>
+
+<p>CA: 证书授权中心( certificate authority)。 它呢，类似于国家出入境管理处一样，给别人颁发护照；也类似于国家工商管理局一样，给公司企业颁发营业执照。</p>
+
+<p>所谓CA（Certificate Authority）认证中心，它是采用PKI（Public Key Infrastructure）公开密钥基础架构技术，专门提供网络身份认证服务，CA可以是民间团体，也可以是政府机构。负责签发和管理数字证书，且具有权威性和公正性的第三方信任机构，它的作用就像我们现实生活中颁发证件的公司，如护照办理机构。目前国内的CA认证中心主要分为区域性CA认证中心和行业性CA认证中心。当然也可以是我们自己使用ssl工具生成签发给指定的 用户。</p>
+
+<p>它有两大主要性质：</p>
+
+<pre><code>1) CA本身是受信任的 // 国际认可的
+
+2) 给他受信任的申请对象颁发证书 // 和办理护照一样，要确定你的合法身份，你不能是犯罪分子或造反派。当然，你需要被收保护费，同时，CA可以随时吊销你的证书。
+</code></pre>
+
+<p>CA 的证书 ca.crt 和 SSL Server的证书 server.crt 是什么关系呢？</p>
+
+<pre><code>1) SSL Server 自己生成一个 私钥/公钥对。server.key/server.pub // 私钥加密，公钥解密！
+
+2) server.pub 生成一个请求文件 server.req. 请求文件中包含有 server 的一些信息，如域名/申请者/公钥等。
+
+3) server 将请求文件 server.req 递交给 CA，CA验明正身后，将用 ca.key和请求文件加密生成 server.crt
+
+4) 由于 ca.key 和 ca.crt 是一对, 于是 ca.crt 可以解密 server.crt.
+</code></pre>
+
+<p>在实际应用中：如果 SSL Client 想要校验 SSL server.那么 SSL server 必须要将他的证书 server.crt 传给 client.然后 client 用 ca.crt 去校验 server.crt 的合法性。如果是一个钓鱼网站，那么CA是不会给他颁发合法server.crt证书的，这样client 用ca.crt去校验，就会失败。比如浏览器作为一个 client,你想访问合法的淘宝网站<a href="https://www.taobao.com">https://www.taobao.com</a>, 结果不慎访问到 <a href="https://wwww.jiataobao.com">https://wwww.jiataobao.com</a> ,那么浏览器将会检验到这个假淘宝钓鱼网站的非法性，提醒用户不要继续访问！这样就可以保证了client的所有https访问都是安全的。</p>
+
+<p>何为SSL/TLS单向认证，双向认证？</p>
+
+<p>1.单向认证指的是只有一个对象校验对端的证书合法性。</p>
+
+<p>通常都是client来校验服务器的合法性。那么client需要一个ca.crt,服务器需要server.crt,server.key</p>
+
+<p>2.双向认证指的是相互校验，服务器需要校验每个client,client也需要校验服务器。</p>
+
+<p>server 需要 server.key 、server.crt 、ca.crt</p>
+
+<p>client 需要 client.key 、client.crt 、ca.crt</p>
+
+<h1 id="ssl-工具">ssl 工具</h1>
+
+<p>上面都是一些协议，真正使用的都是ssl的工具，比如openssl，cfssl</p>
+
+<h3 id="openssl安装">openssl安装</h3>
+
+<p>从openssl官网下载最新的稳定版本，<a href="https://www.openssl.org/source/">https://www.openssl.org/source/</a> 当前的稳定版是 openssl-fips-2.0.16.tar.gz（联邦信息处理标准（Federal Information Processing Standards，FIPS）是一套描述文件处理、加密算法和其他信息技术标准（在非军用政府机构和与这些机构合作的政府承包商和供应商中应用的标准）的标准。），下载后上传到服务器的/usr/local/src目录下。</p>
+
+<p>查看系统是否已安装gcc编译器</p>
+
+<pre><code>gcc -v
+</code></pre>
+
+<p>如果gcc版本较老，我们可以使用yum命令对其进行升级对其进行升级，</p>
+
+<pre><code>yum update gcc
+</code></pre>
+
+<p>如果需要安装的话，使用以下命令</p>
+
+<pre><code>yum -y install gcc
+</code></pre>
+
+<p>4，解压openssl包</p>
+
+<pre><code>tar -xzf openssl-fips-2.0.16.tar.gz
+</code></pre>
+
+<p>得到openssl-fips-2.0.16目录，然后进入openssl-fips-2.0.16目录中。</p>
+
+<p>5，检查是否已安装zlib库</p>
+
+<pre><code>whereis zlib
+</code></pre>
+
+<p>如果已安装，会打印出zlib的路径，如果没有打印出路径，则表示没有安装，需要我们下载安装。</p>
+
+<pre><code>yum -y install zlib
+</code></pre>
+
+<p>6，安装openssl到 /usr/local/openssl 目录，安装之后，编译；</p>
+
+<pre><code>./config shared zlib  --prefix=/usr/local/openssl &amp;&amp; make &amp;&amp; make install
+</code></pre>
+
+<p>安装结束后执行以下命令</p>
+
+<pre><code>./config -t／./config --prefix=/usr/local/openssl/
+make depend
+</code></pre>
+
+<p>进入/usr/local目录下，执行以下命令</p>
+
+<pre><code>ln -s openssl ssl
+</code></pre>
+
+<p>在/etc/ld.so.conf文件的最后面，添加如下内容：/usr/local/openssl/lib
+然后执行以下命令</p>
+
+<pre><code>ldconfig
+</code></pre>
+
+<p>添加OPESSL的环境变量,在etc／的profile的最后一行，添加：</p>
+
+<pre><code>export OPENSSL=/usr/local/openssl/bin
+export PATH=$OPENSSL:$PATH:$HOME/bin
+</code></pre>
+
+<p>退出命令界面，再从新登录，使配置生效。</p>
+
+<h3 id="cfssl">cfssl</h3>
+
+<p>安装</p>
+
+<pre><code>  wget https://pkg.cfssl.org/R1.2/cfssl_linux-amd64
+  wget https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64
+  wget https://pkg.cfssl.org/R1.2/cfssl-certinfo_linux-amd64
+
+  sudo cp cfssl_linux-amd64 /usr/local/bin/cfssl 
+  sudo cp cfssljson_linux-amd64 /usr/local/bin/cfssljson
+  sudo cp cfssl-certinfo_linux-amd64 /usr/local/bin/cfssl-certinfo
+
+  cd /usr/local/bin/ 
+
+  chmod +x cfssl
+  chmod +x cfssljson
+  chmod +x cfssl-certinfo
+</code></pre>
+
+<p>初始化</p>
+
+<pre><code>mkdir ~/cfssl
+cd ~/cfssl
+cfssl print-defaults config &gt; ca-config.json
+cfssl print-defaults csr &gt; ca-csr.json
+</code></pre>
+
+<h3 id="使用">使用</h3>
+
+<p>创建自己的内部服务使用的CA认证中心</p>
+
+<p>运行认证中心需要一个CA证书和相应的私钥。后者是极其敏感的数据。任何知道私钥的人都可以充当CA颁发证书。因此，私钥的保护至关重要</p>
+
+<p>#配置CA的证书生成策略</p>
+
+<pre><code>cat &lt;&lt; EOF &gt; ca-config.json
+{
+  &quot;signing&quot;: {
+      &quot;default&quot;: {
+          &quot;expiry&quot;: &quot;87600h&quot;
+      },
+      &quot;profiles&quot;: {
+          &quot;server&quot;: {
+              &quot;expiry&quot;: &quot;87600h&quot;,
+              &quot;usages&quot;: [
+                  &quot;signing&quot;,
+                  &quot;key encipherment&quot;,
+                  &quot;server auth&quot;
+              ]
+          },
+          &quot;client&quot;: {
+              &quot;expiry&quot;: &quot;87600h&quot;,
+              &quot;usages&quot;: [
+                  &quot;signing&quot;,
+                  &quot;key encipherment&quot;,
+                  &quot;client auth&quot;
+              ]
+          },
+          &quot;peer&quot;: {
+              &quot;expiry&quot;: &quot;87600h&quot;,
+              &quot;usages&quot;: [
+                  &quot;signing&quot;,
+                  &quot;key encipherment&quot;,
+                  &quot;server auth&quot;,
+                  &quot;client auth&quot;
+              ]
+          }
+      }
+  }
+}
+EOF
+</code></pre>
+
+<p>说明</p>
+
+<pre><code>ca-config.json：可以定义多个 profiles，分别指定不同的过期时间、使用场景等参数；后续在签名证书时使用某个 profile；
+signing：表示该证书可用于签名其它证书；生成的 ca.pem 证书中 CA=TRUE；
+server auth：服务端证书；表示client可以用该 CA 对server提供的证书进行验证；server 由服务器使用，并由客户端验证服务器身份
+client auth：客户端证书；表示server可以用该CA对client提供的证书进行验证；client用于通过服务器验证客户端。
+peer 对等证书；就是server auth、client auth都有的。成员之间共用，供它们彼此之间通信使用
+</code></pre>
+
+<p>生成CA的证书和私钥</p>
+
+<pre><code>cat &lt;&lt; EOF &gt; ca-csr.json
+{
+  &quot;CN&quot;: &quot;dudu_ca&quot;,
+  &quot;key&quot;: {
+    &quot;algo&quot;: &quot;rsa&quot;,
+    &quot;size&quot;: 2048
+  },
+  &quot;names&quot;: [
+    {
+      &quot;C&quot;: &quot;CN&quot;,
+      &quot;ST&quot;: &quot;BeiJing&quot;,
+      &quot;L&quot;: &quot;BeiJing&quot;,
+      &quot;O&quot;: &quot;dudu_ca&quot;,
+      &quot;OU&quot;: &quot;dudu_ca&quot;
+    }
+  ]
+}
+</code></pre>
+
+<p>生成运行CA所必需的文件ca-key.pem（私钥）和ca.pem（证书），还会生成ca.csr（证书签名请求），用于交叉签名或重新签名。</p>
+
+<p>请保持ca-key.pem文件的安全。此密钥允许在CA中创建任何类型的证书。*.csr 文件在整个过程中不会使用</p>
+
+<pre><code>cfssl gencert -initca ca-csr.json | cfssljson -bare ca
+</code></pre>
+
+<p>生成如下文件</p>
+
+<pre><code>ca.csr  ca-key.pem  ca.pem
+</code></pre>
+
+<h3 id="ca使用实例">CA使用实例</h3>
+
+<p>生成kubernetes的证书。</p>
+
+<p>证书最重要的价值是通用名称（CN）和主机（hosts）</p>
+
+<p>最重要的部分是CN ，这应该是您的主机名和hosts阵列，它必须包含所有的：您的本地主机名、127.0.0.1、服务器的私有IP地址（不是其面向公众的IP）</p>
+
+<p>#kubernetes服务的生成策略</p>
+
+<pre><code>cat &lt;&lt; EOF &gt; kubernetes-csr.json
+{
+  &quot;CN&quot;: &quot;kubernetes&quot;,
+  &quot;hosts&quot;: [
+    &quot;127.0.0.1&quot;,
+    &quot;10.29.167.233&quot;,
+    &quot;169.169.0.1&quot;,
+    &quot;kubernetes&quot;,
+    &quot;kubernetes.default&quot;,
+    &quot;kubernetes.default.svc&quot;,
+    &quot;kubernetes.default.svc.cluster&quot;,
+    &quot;kubernetes.default.svc.cluster.local&quot;
+  ],
+  &quot;key&quot;: {
+      &quot;algo&quot;: &quot;rsa&quot;,
+      &quot;size&quot;: 2048
+  },
+  &quot;names&quot;: [
+      {
+          &quot;C&quot;: &quot;CN&quot;,
+          &quot;ST&quot;: &quot;BeiJing&quot;,
+          &quot;L&quot;: &quot;BeiJing&quot;,
+          &quot;O&quot;: &quot;k8s&quot;,
+          &quot;OU&quot;: &quot;System&quot;
+      }
+  ]
+}
+EOF
+</code></pre>
+
+<p>说明</p>
+
+<pre><code>“O”：Organization，kube-apiserver 从证书中提取该字段作为请求用户所属的组 (Group)；
+
+&quot;CN&quot;: 字段 kube-apiserver 从证书中提取该字段作为请求的用户名 (User Name)；浏览器使用该字段验证网站是否合法
+
+如果 hosts 字段不为空则需要指定授权使用该证书的 IP 或域名列表，由于该证书后续被 etcd 集群和 kubernetes master 集群使用，所以上面分别指定了 etcd 集群、kubernetes master 集群的主机 IP 和 kubernetes 服务的服务 IP（一般是 kue-apiserver 指定的 service-cluster-ip-range 网段的第一个IP，如 10.254.0.1。
+</code></pre>
+
+<p>对等证书   生成kubernetes的证书和私钥。使用CA认证中心的私钥和证书签名生成机构的证书和私钥。</p>
+
+<pre><code>cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=peer kubernetes-csr.json | cfssljson -bare kubernetes
+</code></pre>
+
+<p>子节点客户端证书</p>
+
+<pre><code>  cat &lt;&lt; EOF &gt; kubernetes-proxy-csr.json
+  {
+    &quot;CN&quot;: &quot;kube-proxy&quot;,
+    &quot;hosts&quot;: [],
+    &quot;key&quot;: {
+      &quot;algo&quot;: &quot;rsa&quot;,
+      &quot;size&quot;: 2048
+    },
+    &quot;names&quot;: [
+      {
+        &quot;C&quot;: &quot;CN&quot;,
+        &quot;ST&quot;: &quot;BeiJing&quot;,
+        &quot;L&quot;: &quot;BeiJing&quot;,
+        &quot;O&quot;: &quot;k8s&quot;,
+        &quot;OU&quot;: &quot;System&quot;
+      }
+    ]
+  }
+  EOF
+</code></pre>
+
+<p>命令</p>
+
+<pre><code>cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=client kubernetes-proxy-csr.json | cfssljson -bare proxy
+</code></pre>
+
+<p>生成如下文件</p>
+
+<pre><code>kubernetes.csr  kubernetes-key.pem  kubernetes.pem
+</code></pre>
+
+<p>master 主节点api服务管理客户端证书</p>
+
+<pre><code> cat &lt;&lt; EOF &gt; kubernetes-apiserver-client-csr.json
+  {
+    &quot;CN&quot;: &quot;controllermanager&quot;,
+    &quot;hosts&quot;: [],
+    &quot;key&quot;: {
+      &quot;algo&quot;: &quot;rsa&quot;,
+      &quot;size&quot;: 2048
+    },
+    &quot;names&quot;: [
+      {
+        &quot;C&quot;: &quot;CN&quot;,
+        &quot;ST&quot;: &quot;BeiJing&quot;,
+        &quot;L&quot;: &quot;BeiJing&quot;,
+        &quot;O&quot;: &quot;k8s&quot;,
+        &quot;OU&quot;: &quot;System&quot;
+      }
+    ]
+  }
+  EOF
+</code></pre>
+
+<p>命令</p>
+
+<pre><code>cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=client kubernetes-apiserver-client-csr.json | cfssljson -bare apiserver
+</code></pre>
+
+<p>服务端证书 -profile=server</p>
+
+<pre><code>cfssl print-defaults csr &gt; server-csr.json
+  &quot;CN&quot;: &quot;coreos1&quot;,
+  &quot;hosts&quot;: [
+      &quot;192.168.122.68&quot;,
+      &quot;ext.example.com&quot;,
+      &quot;coreos1.local&quot;,
+      &quot;coreos1&quot;
+  ],
+cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=server server-csr.json | cfssljson -bare server
+</code></pre>
+
+<p>客户端证书 -profile=client 客户端证书可以忽略hosts，只设定CN通用名</p>
+
+<pre><code>cfssl print-defaults csr &gt; client-csr.json
+  修改
+  &quot;CN&quot;: &quot;client&quot;,
+  &quot;hosts&quot;: [&quot;&quot;],
+
+cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=client client-csr.json | cfssljson -bare client
+</code></pre>
+
+<p>验证证书</p>
+
+<pre><code>openssl x509 -in ca.pem -text -noout
+openssl x509 -in server.pem -text -noout
+openssl x509 -in client.pem -text -noout
+
+cfssl-certinfo -cert kubernetes.pem
+
+导入证书到系统，更新系统证书库
+
+update-ca-trust check   #检查是否启用
+update-ca-trust enable  #启用系统共享CA存储
+cp foo.crt /etc/pki/ca-trust/source/anchors/  #将证书复制到此目录  具有高优先级，不会被覆盖
+update-ca-trust extract   #最后提取更新
+
+cat foo.crt &gt; /etc/pki/tls/certs/ca-bundle.crt   #老版本的处理方式
+</code></pre>
+
+<p>注意事项</p>
+
+<p>设置所有私钥文件权限 chmod 600 *-key.pem</p>
+
+<p>不要把你的ca-key.pem放入容器的Linux配置，建议将其存放在安全的地方。该密钥允许生成尽可能多的证书</p>
+
+<p>使用通配符*地址生成的密钥和证书。将在任何机器上工作。它将简化证书例程，但会增加安全风险。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/linux/server/ssl/">https://kingjcy.github.io/post/linux/server/ssl/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/server/">
+                            <i class="fa fa-tags"></i>
+                            server
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/ssl/">
+                            <i class="fa fa-tags"></i>
+                            ssl
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/middleware/network/application-netprotocol/connect/">Connect</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月12日)</span></li><li id="li-rels"><a href="/post/architecture/server/">Server</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年01月31日)</span></li><li id="li-rels"><a href="/post/linux/server/iptables/">Iptables</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月29日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/tool/bazel/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/linux/c&#43;&#43;/thread/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#ssl和tls简介">SSL和TLS简介</a></li>
+<li><a href="#ssl加密原理">ssl加密原理</a>
+<ul>
+<li><a href="#实例">实例</a></li>
+</ul></li>
+<li><a href="#ca认证">CA认证</a></li>
+<li><a href="#ssl-工具">ssl 工具</a>
+<ul>
+<li>
+<ul>
+<li><a href="#openssl安装">openssl安装</a></li>
+<li><a href="#cfssl">cfssl</a></li>
+<li><a href="#使用">使用</a></li>
+<li><a href="#ca使用实例">CA使用实例</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

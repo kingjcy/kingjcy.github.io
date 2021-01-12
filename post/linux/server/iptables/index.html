@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="防火墙是通过审查经过的每一个数据包，判断它是否有相匹配的过滤规则，根据规则的先后顺序进行一一比较，直到满足其中的一条规则为止，然后依据控制机制做出相应的动作。如果都不满足，则将数据包丢弃，从而保护网络的安全。目前防火墙有两种机制：一个是阻止传输流通过，一个是允许传输流通过。就是我们所说的过滤式的防火墙，还有就是代理服务器。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Iptables - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Iptables
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年11月29日 
+                </div>
+                <h1 class="post-title">Iptables</h1>
+            </header>
+
+            <div class="post-content">
+                <p>防火墙是通过审查经过的每一个数据包，判断它是否有相匹配的过滤规则，根据规则的先后顺序进行一一比较，直到满足其中的一条规则为止，然后依据控制机制做出相应的动作。如果都不满足，则将数据包丢弃，从而保护网络的安全。目前防火墙有两种机制：一个是阻止传输流通过，一个是允许传输流通过。就是我们所说的过滤式的防火墙，还有就是代理服务器。</p>
+
+<h1 id="iptables">iptables</h1>
+
+<p>iptables 是一个配置 Linux 内核 防火墙 的命令行工具，是 netfilter 项目的一部分。术语 iptables 也经常代指该内核级防火墙。iptables 可以直接配置，也可以通过许多 前端[broken link: invalid section] 和 图形界面[broken link: invalid section] 配置。iptables 用于 ipv4，ip6tables 用于 ipv6。</p>
+
+<h2 id="iptables基本概念">iptables基本概念</h2>
+
+<p>规则（rules）：预定义条件，一般类似于“如果数据包头符合这样的条件，就这样处理这个数据包。”</p>
+
+<p>链（chains）：是数据包传播的路径，每一条链其实就是众多规则中的一个检查清单，每一条链中可以有一条或数条规则。</p>
+
+<p>表（tables）：提供特定的功能，iptables内置了4个表，即filter表、nat表、mangle表和raw表，分别用于实现包过滤，网络地址转换、包重构(修改)和数据跟踪处理。</p>
+
+<p>显而易见，数据包在链上传输，通过表中不同规则的检查，决定怎么处理这些数据包，比如放行（accept）、拒绝（reject）和丢弃（drop）等</p>
+
+<h2 id="iptables命令">iptables命令</h2>
+
+<pre><code>iptables [-t table] 命令 [chain] [rules] [-j target]
+</code></pre>
+
+<ol>
+<li><p>table——指定表，也就是上面指iptables内的四张表。</p></li>
+
+<li><p>命令——对链的操作命令</p>
+
+<ul>
+<li>-P或–policy &lt;链名&gt; 定义默认策略</li>
+<li>-L或–list &lt;链名&gt; 查看iptables规则列表</li>
+<li>-A或—append &lt;链名&gt; 在规则列表的最后增加1条规则</li>
+<li>-I或–insert &lt;链名&gt; 在指定的位置插入1条规则</li>
+<li>-D或–delete &lt;链名&gt; 从规则列表中删除1条规则</li>
+<li>-R或–replace &lt;链名&gt; 替换规则列表中的某条规则</li>
+<li>-F或–flush &lt;链名&gt; 删除表中所有规则</li>
+<li>-Z或–zero &lt;链名&gt; 将表中数据包计数器和流量计数器归零</li>
+</ul></li>
+</ol>
+
+<p>例如</p>
+
+<pre><code>iptables -A 将一个规则添加到链末尾
+iptables -D 将指定的链中删除规则
+iptables -F 将指定的链中删除所有规则
+iptables -I 将在指定链的指定编号位置插入一个规则
+iptables -L 列出指定链中所有规则
+iptables -t nat -L 列出所有NAT链中所有规则
+iptables -N 建立用户定义链
+iptables -X 删除用户定义链
+iptables -P 修改链的默认设置，如将iptables -P INPUT DROP (将INPUT链设置为DROP)
+</code></pre>
+
+<ol>
+<li><p>chain——链名</p>
+
+<ul>
+<li>INPUT</li>
+<li>OUTPUT</li>
+<li>FORWORD</li>
+<li>PREROUTING</li>
+<li>POSTROUTING</li>
+</ul></li>
+
+<li><p>rules——规则</p>
+
+<ul>
+<li>-i或–in-interface &lt;网络接口名&gt; 指定数据包从哪个网络接口进入，如ppp0、eth0和eth1等</li>
+<li>-o或–out-interface &lt;网络接口名&gt; 指定数据包从哪块网络接口输出，如ppp0、eth0和eth1等
+<br /></li>
+</ul></li>
+</ol>
+
+<p>上面两个支持</p>
+
+<pre><code>* -p或—proto协议类型 &lt; 协议类型&gt; 指定数据包匹配的协议，如TCP、UDP和ICMP等
+    * TCP
+    * UDP
+    * ICMP
+    * protocol name  from /etc/protocol
+* -s或–source &lt;源地址或子网&gt; 指定数据包匹配的源地址
+* –sport &lt;源端口号&gt; 指定数据包匹配的源端口号，可以使用“起始端口号:结束端口号”的格式指定一个范围的端口
+* -d或–destination &lt;目标地址或子网&gt; 指定数据包匹配的目标地址
+* –dport目标端口号 指定数据包匹配的目标端口号，可以使用“起始端口号:结束端口号”的格式指定一个范围的端口
+</code></pre>
+
+<ol>
+<li><p>target——动作如何进行</p>
+
+<ul>
+<li>ACCEPT 接受数据包</li>
+<li>DROP 丢弃数据包</li>
+<li>REDIRECT 与DROP基本一样，区别在于它除了阻塞包之外， 还向发送者返回错误信息。</li>
+<li>SNAT 源地址转换，即改变数据包的源地址</li>
+<li>DNAT 目标地址转换，即改变数据包的目的地址</li>
+<li>MASQUERADE IP伪装，即是常说的NAT技术，MASQUERADE只能用于ADSL等拨号上网的IP伪装，也就是主机的IP是由ISP分配动态的；如果主机的IP地址是静态固定的，就要使用SNAT</li>
+<li>LOG 日志功能，将符合规则的数据包的相关信息记录在日志中，以便管理员的分析和排错</li>
+</ul></li>
+</ol>
+
+<p>例如</p>
+
+<pre><code>--dport 指定目标TCP/IP端口 如 –dport 80
+--sport 指定源TCP/IP端口 如 –sport 80
+-p tcp 指定协议为tcp
+-p icmp 指定协议为ICMP
+-p udp 指定协议为UDP
+-j DROP 拒绝
+-j ACCEPT 允许
+-j REJECT 拒绝并向发出消息的计算机发一个消息
+-j LOG 在/var/log/messages中登记分组匹配的记录
+-m mac –mac 绑定MAC地址
+-m limit –limit 1/s 1/m 设置时间策列
+-s 10.10.0.0或10.10.0.0/16 指定源地址或地址段
+-d 10.10.0.0或10.10.0.0/16 指定目标地址或地址段
+-s ! 10.10.0.0 指定源地址以外的
+</code></pre>
+
+<p>iptables服务操作</p>
+
+<p>/etc/sysconfig/iptables  配置规则文件，规则都是保存在这个配置文件中。</p>
+
+<p>centos6</p>
+
+<p>iptables服务命令</p>
+
+<pre><code>-- 启动服务
+# /etc/init.d/iptables start 
+# service iptables start
+
+-- 停止服务
+# /etc/init.d/iptables stop
+# service iptables stop
+
+-- 重启服务
+# /etc/init.d/iptables restart
+# service iptables restart
+
+-- 保存设置
+# /etc/init.d/iptables save
+# service iptables save
+</code></pre>
+
+<p>CentOS7 配置 iptables</p>
+
+<pre><code># 配置好 yum 源以后安装 iptables-service
+yum install -y iptables-services
+# 停止 firewalld
+systemctl stop firewalld
+# 禁止 firewalld 自动启动
+systemctl disable firewalld
+# 启动 iptables
+systemctl start iptables
+# 将 iptables 设置为开机自动启动，以后即可通过 iptables-service 控制 iptables 服务
+systemctl enable iptables
+</code></pre>
+
+<p>常用操作</p>
+
+<p>1.使用以下命令查看当前规则和匹配数</p>
+
+<pre><code># iptables -nvL
+Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination   
+
+Chain FORWARD (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination    
+
+Chain OUTPUT (policy ACCEPT 0K packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination
+</code></pre>
+
+<p>2.使用这些命令刷新和重置 iptables 到默认状态</p>
+
+<ol>
+<li><p>清除预设表filter中的所有规则链的规则</p>
+
+<h1 id="iptables-f">iptables -F</h1></li>
+
+<li><p>清除预设表filter中使用者自定链中的规则</p>
+
+<h1 id="iptables-x">iptables -X</h1></li>
+</ol>
+
+<p>还有</p>
+
+<pre><code>iptables -t nat -F
+iptables -t nat -X
+iptables -t mangle -F
+iptables -t mangle -X
+iptables -t raw -F
+iptables -t raw -X
+iptables -t security -F
+iptables -t security -X
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+</code></pre>
+
+<p>设定预设规则</p>
+
+<pre><code>-- 请求接入包丢弃
+[root@home ~]# iptables -P INPUT DROP
+-- 接受响应数据包
+[root@home ~]# iptables -P OUTPUT ACCEPT
+-- 转发数据包丢弃 
+[root@home ~]# iptables -P FORWARD DROP
+</code></pre>
+
+<p>添加防火墙规则</p>
+
+<p>首先添加INPUT链,INPUT链的默认规则是DROP,所以我们就写需要ACCETP(通过)的链。</p>
+
+<p>开启SSH服务端口</p>
+
+<pre><code>[root@tp ~]# iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+[root@tp ~]# iptables -A OUTPUT -p tcp --sport 22 -j ACCEPT 
+</code></pre>
+
+<p>注:如果在预设设置把OUTPUT设置成DROP策略的话，就需要设置OUTPUT规则，否则无法进行SSH连接。</p>
+
+<p>开启Web服务端口</p>
+
+<pre><code>[root@tp ~]# iptables -A OUTPUT -p tcp --sport 80 -j ACCEPT
+[root@tp ~]# iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+</code></pre>
+
+<p>开启邮件服务的25、110端口</p>
+
+<pre><code>[root@tp ~]# iptables -A INPUT -p tcp --dport 110 -j ACCEPT
+[root@tp ~]# iptables -A INPUT -p tcp --dport 25 -j ACCEPT
+</code></pre>
+
+<p>开启FTP服务的21端口</p>
+
+<pre><code>[root@tp ~]# iptables -A INPUT -p tcp --dport 21 -j ACCEPT
+[root@tp ~]# iptables -A INPUT -p tcp --dport 20 -j ACCEPT
+</code></pre>
+
+<p>开启DNS服务的53端口</p>
+
+<pre><code>[root@tp ~]# iptables -A INPUT -p tcp --dport 53 -j ACCEPT
+</code></pre>
+
+<p>设置icmp服务</p>
+
+<pre><code>[root@tp ~]# iptables -A OUTPUT -p icmp -j ACCEPT (OUTPUT设置成DROP的话)
+[root@tp ~]# iptables -A INPUT -p icmp -j ACCEPT    (INPUT设置成DROP的话)
+</code></pre>
+
+<p>允许loopback</p>
+
+<p>不然会导致DNS无法正常关闭等问题</p>
+
+<pre><code>[root@tp ~]# IPTABLES -A INPUT -i lo -p all -j ACCEPT 
+(如果是INPUT DROP)
+[root@tp ~]# IPTABLES -A OUTPUT -o lo -p all -j ACCEPT
+(如果是OUTPUT DROP)
+</code></pre>
+
+<p>减少不安全的端口连接</p>
+
+<pre><code>[root@tp ~]# iptables -A OUTPUT -p tcp --sport 31337 -j DROP
+[root@tp ~]# iptables -A OUTPUT -p tcp --dport 31337 -j DROP
+</code></pre>
+
+<p>说明：有些特洛伊木马会扫描端口31337到31340(即黑客语言中的 elite 端口)上的服务。既然合法服务都不使用这些非标准端口来通信,阻塞这些端口能够有效地减少你的网络上可能被感染的机器和它们的远程主服务器进行独立通信的机会。此外，其他端口也一样,像:31335、27444、27665、20034 NetBus、9704、137-139（smb）,2049(NFS)端口也应被禁止。</p>
+
+<p>只允许某台主机或某个网段进行SSH连接</p>
+
+<p>只允许192.168.0.3的机器进行SSH连接</p>
+
+<pre><code>[root@tp ~]# iptables -A INPUT -s 192.168.0.3 -p tcp --dport 22 -j ACCEPT
+</code></pre>
+
+<p>如果允许或限制一段IP地址可用192.168.0.0/24表示192.168.0.1-255端的所有IP, 24表示子网掩码数。</p>
+
+<pre><code>[root@tp ~]# iptables -A INPUT -s 192.168.0.0/24 -p tcp --dport 22 -j ACCEPT
+</code></pre>
+
+<p>注意：指定某个主机或者某个网段进行SSH连接，需要在iptables配置文件中的-A INPUT -p tcp -m tcp &ndash;dport 22 -j ACCEPT
+删除，因为它表示所有地址都可以登陆.</p>
+
+<p>如果只允许除了192.168.0.3的主机外都能进行SSH连接</p>
+
+<pre><code>[root@tp ~]# iptables -A INPUT -s ! 192.168.0.3 -p tcp --dport 22 -j ACCEPT
+</code></pre>
+
+<p>开启转发功能</p>
+
+<pre><code>在做NAT网络配置时,FORWARD默认规则是DROP时,必须开启数据包转发功能
+
+[root@tp ~]# iptables -A FORWARD -i eth0 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+[root@tp ~]# iptables -A FORWARD -i eth1 -o eh0 -j ACCEPT
+</code></pre>
+
+<p>丢弃坏的TCP包</p>
+
+<pre><code>[root@tp ~]#iptables -A FORWARD -p TCP ! --syn -m state --state NEW -j DROP
+</code></pre>
+
+<p>处理IP碎片数量，防止DDOS攻击，允许每秒100个</p>
+
+<pre><code>[root@tp ~]#iptables -A FORWARD -f -m limit --limit 100/s --limit-burst 100 -j ACCEPT
+</code></pre>
+
+<p>设置ICMP包过滤, 允许每秒1个包, 限制触发条件是10个包</p>
+
+<pre><code>[root@tp ~]#iptables -A FORWARD -p icmp -m limit --limit 1/s --limit-burst 10 -j ACCEPT
+</code></pre>
+
+<p>DROP非法连接</p>
+
+<pre><code>[root@tp ~]# iptables -A INPUT   -m state --state INVALID -j DROP
+[root@tp ~]# iptables -A OUTPUT  -m state --state INVALID -j DROP
+[root@tp ~]# iptables -A FORWARD -m state --state INVALID -j DROP
+</code></pre>
+
+<p>允许所有已经建立的和相关的连接</p>
+
+<pre><code>[root@tp ~]# iptables-A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+[root@tp ~]# iptables-A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+[root@tp ~]# /etc/rc.d/init.d/iptables save
+</code></pre>
+
+<ol>
+<li>配置NAT表防火墙</li>
+</ol>
+
+<p>查看本机关于NAT的设置情况</p>
+
+<pre><code>[root@tp rc.d]# iptables -t nat -L
+</code></pre>
+
+<p>清除NAT规则</p>
+
+<pre><code>[root@tp ~]# iptables -F -t nat
+[root@tp ~]# iptables -X -t nat
+[root@tp ~]# iptables -Z -t nat
+</code></pre>
+
+<p>添加规则</p>
+
+<p>添加基本的NAT地址转换，添加规则时，我们只添加DROP链，因为默认链全是ACCEPT。</p>
+
+<p>防止外网用内网IP欺骗</p>
+
+<pre><code>[root@tp sysconfig]# iptables -t nat -A PREROUTING -i eth0 -s 10.0.0.0/8 -j DROP
+[root@tp sysconfig]# iptables -t nat -A PREROUTING -i eth0 -s 172.16.0.0/12 -j DROP
+[root@tp sysconfig]# iptables -t nat -A PREROUTING -i eth0 -s 192.168.0.0/16 -j DROP
+</code></pre>
+
+<p>禁止与211.101.46.253的所有连接</p>
+
+<pre><code>[root@tp ~]# iptables -t nat -A PREROUTING -d 211.101.46.253 -j DROP
+</code></pre>
+
+<p>禁用FTP(21)端口</p>
+
+<pre><code>[root@tp ~]# iptables -t nat -A PREROUTING -p tcp --dport 21 -j DROP
+</code></pre>
+
+<p>只禁用211.101.46.253地址的FTP连接,其他连接可以进行。</p>
+
+<pre><code>[root@tp ~]# iptables -t nat -A PREROUTING -p tcp --dport 21 -d 211.101.46.253 -j DROP
+</code></pre>
+
+<p>编辑规则实例</p>
+
+<p>有两种方式添加规则，一种是在链上附加规则，另一种是将规则插入到链上某个特定位置。这里将讲解这两种方式。</p>
+
+<p>首先，由于电脑不是路由器(unless, of course, it is a router)，因此将 FORWARD 链默认的规则由 ACCEPT 改成 DROP。</p>
+
+<pre><code>iptables -P FORWARD DROP
+</code></pre>
+
+<p>Dropbox 的局域网同步特性 — 每30秒广播数据包到所有可视的计算机，如果我们碰巧在一个拥有 Dropbox 客户端的局域网中，但是我们不想使用这个特性，那么我们希望拒绝这些数据包。</p>
+
+<pre><code># iptables -A INPUT -p tcp --dport 17500 -j REJECT --reject-with icmp-port-unreachable
+# iptables -nvL --line-numbers
+Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+1        0     0 REJECT     tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:17500 reject-with icmp-port-unreachable
+
+Chain FORWARD (policy DROP 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+</code></pre>
+
+<p>现在，我们改变对 Dropbox 的看法，并且决定安装其到我们的计算机，我们也希望局域网同步，但是我们的网络只有一个特定的 IP 地址，因此需要使用 -R 参数来替换旧规则，10.0.0.85 是我们的另一个 IP 地址。</p>
+
+<pre><code># iptables -R INPUT 1 -p tcp --dport 17500 ! -s 10.0.0.85 -j REJECT --reject-with icmp-port-unreachable
+# iptables -nvL --line-numbers
+Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+1        0     0 REJECT     tcp  --  *      *      !10.0.0.85            0.0.0.0/0            tcp dpt:17500 reject-with icmp-port-unreachable
+
+Chain FORWARD (policy DROP 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+</code></pre>
+
+<p>现在我们替换了原来的规则，使 10.0.0.85 可以访问计算机 17500 端口。但是我们意识到这条规则是不可升级的。如果友好的 Dropbox 用户想要访问设备上的 17500 端口。我们应该马上允许，而不是在测试过所有防火墙规则后再允许。</p>
+
+<p>因此我们写一条新规则来立即允许受信任的用户。使用 -I 参数来在旧规则前插入一条新规则：</p>
+
+<pre><code># iptables -I INPUT -p tcp --dport 17500 -s 10.0.0.85 -j ACCEPT -m comment --comment &quot;Friendly Dropbox&quot;
+# iptables -nvL --line-numbers
+Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+1        0     0 ACCEPT     tcp  --  *      *       10.0.0.85            0.0.0.0/0            tcp dpt:17500 /* Friendly Dropbox */
+2        0     0 REJECT     tcp  --  *      *      !10.0.0.85            0.0.0.0/0            tcp dpt:17500 reject-with icmp-port-unreachable
+
+Chain FORWARD (policy DROP 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+</code></pre>
+
+<p>更改第二条规则，使其拒绝 17500 端口的任何数据包：</p>
+
+<pre><code># iptables -R INPUT 2 -p tcp --dport 17500 -j REJECT --reject-with icmp-port-unreachable
+</code></pre>
+
+<p>我们的最终规则如下：</p>
+
+<pre><code># iptables -nvL --line-numbers
+Chain INPUT (policy ACCEPT 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+1        0     0 ACCEPT     tcp  --  *      *       10.0.0.85            0.0.0.0/0            tcp dpt:17500 /* Friendly Dropbox */
+2        0     0 REJECT     tcp  --  *      *       0.0.0.0/0            0.0.0.0/0            tcp dpt:17500 reject-with icmp-port-unreachable
+
+Chain FORWARD (policy DROP 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+num   pkts bytes target     prot opt in     out     source               destination
+</code></pre>
+
+<p>配置文件
+在 Arch Linux 中， Iptables 规则默认存放在 /etc/iptables/iptables.rules 文件中，它们不会被自动加载，因此需要启用 iptables.service，服务会在启动时读取文件并且加载规则，或者直接启动服务：</p>
+
+<pre><code>systemctl enable iptables.service
+systemctl start iptables.service
+</code></pre>
+
+<h2 id="监控">监控</h2>
+
+<p>iptables是一个属于服务器常用的一个防火墙服务。所以我们对其状态，规则和流量进行监控，具体监控情况，可以查考监控篇。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/linux/server/iptables/">https://kingjcy.github.io/post/linux/server/iptables/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/iptables/">
+                            <i class="fa fa-tags"></i>
+                            iptables
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/server/">
+                            <i class="fa fa-tags"></i>
+                            server
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/proxy/">
+                            <i class="fa fa-tags"></i>
+                            proxy
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/middleware/network/application-netprotocol/connect/">Connect</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月12日)</span></li><li id="li-rels"><a href="/post/architecture/server/">Server</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年01月31日)</span></li><li id="li-rels"><a href="/post/linux/server/ssl/">linux系列---- ssl</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年08月11日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-proxy/">K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/middleware/network/proxy/nginx/">网络代理系列---- Nginx</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2015年03月15日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-rpc/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/kubernetes/k8s-principle/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#iptables">iptables</a>
+<ul>
+<li><a href="#iptables基本概念">iptables基本概念</a></li>
+<li><a href="#iptables命令">iptables命令</a></li>
+</ul></li>
+<li><a href="#iptables-f">iptables -F</a></li>
+<li><a href="#iptables-x">iptables -X</a>
+<ul>
+<li><a href="#监控">监控</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

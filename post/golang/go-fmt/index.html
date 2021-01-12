@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="fmt是实现了格式化的I/O函数，这点类似Ｃ语言中的printf和scanf，但是更加简单．">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Go Fmt - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Go Fmt
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年05月30日 
+                </div>
+                <h1 class="post-title">Go Fmt</h1>
+            </header>
+
+            <div class="post-content">
+                <p>fmt是实现了格式化的I/O函数，这点类似Ｃ语言中的printf和scanf，但是更加简单．</p>
+
+<p>基本函数讲解</p>
+
+<pre><code>// Print 将参数列表 a 中的各个参数转换为字符串并写入到标准输出中。
+// 非字符串参数之间会添加空格，返回写入的字节数。
+func Print(a ...interface{}) (n int, err error)
+
+// Println 功能类似 Print，只不过最后会添加一个换行符。
+// 所有参数之间会添加空格，返回写入的字节数。
+func Println(a ...interface{}) (n int, err error)
+
+// Printf 将参数列表 a 填写到格式字符串 format 的占位符中。
+// 填写后的结果写入到标准输出中，返回写入的字节数。
+func Printf(format string, a ...interface{}) (n int, err error)
+</code></pre>
+
+<hr />
+
+<p>功能同上面三个函数，只不过将转换结果写入到 w 中。</p>
+
+<pre><code>func Fprint(w io.Writer, a ...interface{}) (n int, err error)
+func Fprintln(w io.Writer, a ...interface{}) (n int, err error)
+func Fprintf(w io.Writer, format string, a ...interface{}) (n int, err error)
+</code></pre>
+
+<hr />
+
+<p>功能同上面三个函数，只不过将转换结果以字符串形式返回。</p>
+
+<pre><code>func Sprint(a ...interface{}) string
+func Sprintln(a ...interface{}) string
+func Sprintf(format string, a ...interface{}) string
+</code></pre>
+
+<hr />
+
+<p>功能同 Sprintf，只不过结果字符串被包装成了 error 类型。</p>
+
+<pre><code>func Errorf(format string, a ...interface{}) error
+</code></pre>
+
+<hr />
+
+<p>示例</p>
+
+<pre><code>func main() {
+    fmt.Print(&quot;a&quot;, &quot;b&quot;, 1, 2, 3, &quot;c&quot;, &quot;d&quot;, &quot;\n&quot;)
+    fmt.Println(&quot;a&quot;, &quot;b&quot;, 1, 2, 3, &quot;c&quot;, &quot;d&quot;)
+    fmt.Printf(&quot;ab %d %d %d cd\n&quot;, 1, 2, 3)
+    // ab1 2 3cd
+    // a b 1 2 3 c d
+    // ab 1 2 3 cd
+
+    if err := percent(30, 70, 90, 160); err != nil {
+        fmt.Println(err)
+    }
+    // 30%
+    // 70%
+    // 90%
+    // 数值 160 超出范围（100）
+}
+
+func percent(i ...int) error {
+    for _, n := range i {
+        if n &gt; 100 {
+            return fmt.Errorf(&quot;数值 %d 超出范围（100）&quot;, n)
+        }
+        fmt.Print(n, &quot;%\n&quot;)
+    }
+    return nil
+}
+</code></pre>
+
+<hr />
+
+<p>Formatter 由自定义类型实现，用于实现该类型的自定义格式化过程。</p>
+
+<p>当格式化器需要格式化该类型的变量时，会调用其 Format 方法。</p>
+
+<pre><code>type Formatter interface {
+    // f 用于获取占位符的旗标、宽度、精度等信息，也用于输出格式化的结果
+    // c 是占位符中的动词
+    Format(f State, c rune)
+}
+</code></pre>
+
+<p>由格式化器（Print 之类的函数）实现，用于给自定义格式化过程提供信息</p>
+
+<pre><code>type State interface {
+    // Formatter 通过 Write 方法将格式化结果写入格式化器中，以便输出。
+    Write(b []byte) (ret int, err error)
+    // Formatter 通过 Width 方法获取占位符中的宽度信息及其是否被设置。
+    Width() (wid int, ok bool)
+    // Formatter 通过 Precision 方法获取占位符中的精度信息及其是否被设置。
+    Precision() (prec int, ok bool)
+    // Formatter 通过 Flag 方法获取占位符中的旗标[+- 0#]是否被设置。
+    Flag(c int) bool
+}
+</code></pre>
+
+<p>Stringer 由自定义类型实现，用于实现该类型的自定义格式化过程。</p>
+
+<p>当格式化器需要输出该类型的字符串格式时就会调用其 String 方法。</p>
+
+<pre><code>type Stringer interface {
+    String() string
+}
+</code></pre>
+
+<p>Stringer 由自定义类型实现，用于实现该类型的自定义格式化过程。</p>
+
+<p>当格式化器需要输出该类型的 Go 语法字符串（%#v）时就会调用其 String 方法。</p>
+
+<pre><code>type GoStringer interface {
+    GoString() string
+}
+</code></pre>
+
+<hr />
+
+<p>示例</p>
+
+<pre><code>type Ustr string
+
+func (us Ustr) String() string {
+    return strings.ToUpper(string(us))
+}
+
+func (us Ustr) GoString() string {
+    return `&quot;` + strings.ToUpper(string(us)) + `&quot;`
+}
+
+func (u Ustr) Format(f fmt.State, c rune) {
+    write := func(s string) {
+        f.Write([]byte(s))
+    }
+    switch c {
+    case 'm', 'M':
+        write(&quot;旗标：[&quot;)
+        for s := &quot;+- 0#&quot;; len(s) &gt; 0; s = s[1:] {
+            if f.Flag(int(s[0])) {
+                write(s[:1])
+            }
+        }
+        write(&quot;]&quot;)
+        if v, ok := f.Width(); ok {
+            write(&quot; | 宽度：&quot; + strconv.FormatInt(int64(v), 10))
+        }
+        if v, ok := f.Precision(); ok {
+            write(&quot; | 精度：&quot; + strconv.FormatInt(int64(v), 10))
+        }
+    case 's', 'v': // 如果使用 Format 函数，则必须自己处理所有格式，包括 %#v
+        if c == 'v' &amp;&amp; f.Flag('#') {
+            write(u.GoString())
+        } else {
+            write(u.String())
+        }
+    default: // 如果使用 Format 函数，则必须自己处理默认输出
+        write(&quot;无效格式：&quot; + string(c))
+    }
+}
+
+func main() {
+    u := Ustr(&quot;Hello World!&quot;)
+    // &quot;-&quot; 标记和 &quot;0&quot; 标记不能同时存在
+    fmt.Printf(&quot;%-+ 0#8.5m\n&quot;, u) // 旗标：[+- #] | 宽度：8 | 精度：5
+    fmt.Printf(&quot;%+ 0#8.5M\n&quot;, u)  // 旗标：[+ 0#] | 宽度：8 | 精度：5
+    fmt.Println(u)                // HELLO WORLD!
+    fmt.Printf(&quot;%s\n&quot;, u)         // HELLO WORLD!
+    fmt.Printf(&quot;%#v\n&quot;, u)        // &quot;HELLO WORLD!&quot;
+    fmt.Printf(&quot;%d\n&quot;, u)         // 无效格式：d
+}
+</code></pre>
+
+<hr />
+
+<p>Scan 从标准输入中读取数据，并将数据用空白分割并解析后存入 a 提供的变量中（换行符会被当作空白处理），变量必须以指针传入。当读到 EOF 或所有变量都填写完毕则停止扫描。返回成功解析的参数数量。</p>
+
+<pre><code>func Scan(a ...interface{}) (n int, err error)
+</code></pre>
+
+<p>Scanln 和 Scan 类似，只不过遇到换行符就停止扫描。</p>
+
+<pre><code>func Scanln(a ...interface{}) (n int, err error)
+</code></pre>
+
+<p>Scanf 从标准输入中读取数据，并根据格式字符串 format 对数据进行解析，将解析结果存入参数 a 所提供的变量中，变量必须以指针传入。输入端的换行符必须和 format 中的换行符相对应（如果格式字符串中有换行符，则输入端必须输入相应的换行符）。占位符 %c 总是匹配下一个字符，包括空白，比如空格符、制表符、换行符。返回成功解析的参数数量。</p>
+
+<pre><code>func Scanf(format string, a ...interface{}) (n int, err error)
+</code></pre>
+
+<p>功能同上面三个函数，只不过从 r 中读取数据。</p>
+
+<pre><code>func Fscan(r io.Reader, a ...interface{}) (n int, err error)
+func Fscanln(r io.Reader, a ...interface{}) (n int, err error)
+func Fscanf(r io.Reader, format string, a ...interface{}) (n int, err error)
+</code></pre>
+
+<p>功能同上面三个函数，只不过从 str 中读取数据。</p>
+
+<pre><code>func Sscan(str string, a ...interface{}) (n int, err error)
+func Sscanln(str string, a ...interface{}) (n int, err error)
+func Sscanf(str string, format string, a ...interface{}) (n int, err error)
+</code></pre>
+
+<hr />
+
+<p>示例</p>
+
+<pre><code>// 对于 Scan 而言，回车视为空白
+func main() {
+    a, b, c := &quot;&quot;, 0, false
+    fmt.Scan(&amp;a, &amp;b, &amp;c)
+    fmt.Println(a, b, c)
+    // 在终端执行后，输入 abc 1 回车 true 回车
+    // 结果 abc 1 true
+}
+
+// 对于 Scanln 而言，回车结束扫描
+func main() {
+    a, b, c := &quot;&quot;, 0, false
+    fmt.Scanln(&amp;a, &amp;b, &amp;c)
+    fmt.Println(a, b, c)
+    // 在终端执行后，输入 abc 1 true 回车
+    // 结果 abc 1 true
+}
+
+// 格式字符串可以指定宽度
+func main() {
+    a, b, c := &quot;&quot;, 0, false
+    fmt.Scanf(&quot;%4s%d%t&quot;, &amp;a, &amp;b, &amp;c)
+    fmt.Println(a, b, c)
+    // 在终端执行后，输入 1234567true 回车
+    // 结果 1234 567 true
+}
+</code></pre>
+
+<hr />
+
+<p>Scanner 由自定义类型实现，用于实现该类型的自定义扫描过程。</p>
+
+<p>当扫描器需要解析该类型的数据时，会调用其 Scan 方法。</p>
+
+<pre><code>type Scanner interface {
+    // state 用于获取占位符中的宽度信息，也用于从扫描器中读取数据进行解析。
+    // verb 是占位符中的动词
+    Scan(state ScanState, verb rune) error
+}
+</code></pre>
+
+<p>由扫描器（Scan 之类的函数）实现，用于给自定义扫描过程提供数据和信息。</p>
+
+<pre><code>type ScanState interface {
+    // ReadRune 从扫描器中读取一个字符，如果用在 Scanln 类的扫描器中，
+    // 则该方法会在读到第一个换行符之后或读到指定宽度之后返回 EOF。
+    // 返回“读取的字符”和“字符编码所占用的字节数”
+    ReadRune() (r rune, size int, err error)
+    // UnreadRune 撤消最后一次的 ReadRune 操作，
+    // 使下次的 ReadRune 操作得到与前一次 ReadRune 相同的结果。
+    UnreadRune() error
+    // SkipSpace 为 Scan 方法提供跳过开头空白的能力。
+    // 根据扫描器的不同（Scan 或 Scanln）决定是否跳过换行符。
+    SkipSpace()
+    // Token 用于从扫描器中读取符合要求的字符串，
+    // Token 从扫描器中读取连续的符合 f(c) 的字符 c，准备解析。
+    // 如果 f 为 nil，则使用 !unicode.IsSpace(c) 代替 f(c)。
+    // skipSpace：是否跳过开头的连续空白。返回读取到的数据。
+    // 注意：token 指向共享的数据，下次的 Token 操作可能会覆盖本次的结果。
+    Token(skipSpace bool, f func(rune) bool) (token []byte, err error)
+    // Width 返回占位符中的宽度值以及宽度值是否被设置
+    Width() (wid int, ok bool)
+    // 因为上面实现了 ReadRune 方法，所以 Read 方法永远不应该被调用。
+    // 一个好的 ScanState 应该让 Read 直接返回相应的错误信息。
+    Read(buf []byte) (n int, err error)
+}
+</code></pre>
+
+<hr />
+
+<p>示例</p>
+
+<pre><code>type Ustr string
+
+func (u *Ustr) Scan(state fmt.ScanState, verb rune) (err error) {
+    var s []byte
+    switch verb {
+    case 'S':
+        s, err = state.Token(true, func(c rune) bool { return 'A' &lt;= c &amp;&amp; c &lt;= 'Z' })
+        if err != nil {
+            return
+        }
+    case 's', 'v':
+        s, err = state.Token(true, func(c rune) bool { return 'a' &lt;= c &amp;&amp; c &lt;= 'z' })
+        if err != nil {
+            return
+        }
+    default:
+        return fmt.Errorf(&quot;无效格式：%c&quot;, verb)
+    }
+    *u = Ustr(s)
+    return nil
+}
+
+func main() {
+    var a, b, c, d, e Ustr
+    n, err := fmt.Scanf(&quot;%3S%S%3s%2v%x&quot;, &amp;a, &amp;b, &amp;c, &amp;d, &amp;e)
+    fmt.Println(a, b, c, d, e)
+    fmt.Println(n, err)
+    // 在终端执行后，输入 ABCDEFGabcdefg 回车
+    // 结果：
+    // ABC DEFG abc de
+    // 4 无效格式：x
+}
+</code></pre>
+
+<p>从键盘和标准输入 os.Stdin 读取输入，最简单的办法是使用 fmt 包提供的 Scan 和 Sscan 开头的函数。</p>
+
+<p>从控制台读取输入:</p>
+
+<pre><code>package main
+import &quot;fmt&quot;
+
+var (
+   firstName, lastName, s string
+   i int
+   f float32
+   input = &quot;56.12 / 5212 / Go&quot;
+   format = &quot;%f / %d / %s&quot;
+)
+
+func main() {
+   fmt.Println(&quot;Please enter your full name: &quot;)
+   fmt.Scanln(&amp;firstName, &amp;lastName)
+   // fmt.Scanf(&quot;%s %s&quot;, &amp;firstName, &amp;lastName)
+   fmt.Printf(&quot;Hi %s %s!\n&quot;, firstName, lastName) // Hi Chris Naegels
+   fmt.Sscanf(input, format, &amp;f, &amp;i, &amp;s)
+   fmt.Println(&quot;From the string we read: &quot;, f, i, s)
+    // 输出结果: From the string we read: 56.12 5212 Go
+</code></pre>
+
+<p>}</p>
+
+<p>Scanln 扫描来自标准输入的文本，将空格分隔的值依次存放到后续的参数内，直到碰到换行。</p>
+
+<p>Scanf 与其类似，除了 Scanf 的第一个参数用作格式字符串，用来决定如何读取。</p>
+
+<p>Sscan 和以 Sscan 开头的函数则是从字符串读取，除此之外，与 Scanf相同。如果这些函数读取到的结果与您预想的不同，您可以检查成功读入数据的个数和返回的错误。</p>
+
+<p>也可以使用 bufio 包提供的缓冲读取（buffered reader）来读取数据</p>
+
+<pre><code>package main
+import (
+    &quot;fmt&quot;
+    &quot;bufio&quot;
+    &quot;os&quot;
+)
+
+var inputReader *bufio.Reader
+var input string
+var err error
+
+func main() {
+    inputReader = bufio.NewReader(os.Stdin)
+    fmt.Println(&quot;Please enter some input: &quot;)
+    input, err = inputReader.ReadString('\n')
+    if err == nil {
+        fmt.Printf(&quot;The input was: %s\n&quot;, input)
+    }
+}
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-fmt/">https://kingjcy.github.io/post/golang/go-fmt/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/fmt/">
+                            <i class="fa fa-tags"></i>
+                            fmt
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-os/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-cobra/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

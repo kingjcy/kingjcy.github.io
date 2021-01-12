@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="PaaS paas就是一个为应用提供自动化（部署，运维）的平台。
+paas的定位 平台即服务（PaaS）与基础设施即服务（IaaS）是不同的，PaaS并不是IaaS的一个扩展特性，对于基础设施即服务（IaaS）来说，基础单元就是资源，这里的资源是指服务器，磁盘，网络等，IaaS所做的一切就是按照需要提供这些资源。例如，亚马逊（amazon）的EC2服务，所有的工具都以资源为中心，所有的文档都是关于资源的，所有的开发都是专注于资源，同时人们也因为需要这些资源而使用它。
+对于平台即服务（PaaS）来说，基础单元就是应用。那么什么是应用？就是一个系统，就是代码以及所有那些在任何时候都与这些代码通信的服务。这不仅仅是资源，事实上，一个应用是由很多单独的资源绑定在一起组成的。将所有这些资源连接在一起所需要付出的工作量通常被低估了。从一个单一的运行Apache和Mysql的服务器转移到一个拥有单独的负载均衡服务器，缓存服务器，应用服务器，数据库服务器以及冗余的失效恢复的系统架构需要大量的工作，包括前期投入以及后期维护。一个成熟的PaaS平台可以为用户提供上述的所有功能，在减少用户大量工作的前提下，大幅度提升用户应用的开发速度，运行稳定性，可靠性，极大的降低了用户的开发，测试及运维的成本。
+利用PaaS可以做的另外一件事，就是从应用的角度来管理IaaS。通常情况下，使用者对于IaaS的资源需求实质上是来源于运行在IaaS之上的应用，如何根据应用的需求动态的使用IaaS资源又成为摆在云使用者面前的一个难题，PaaS作为SaaS与IaaS的沟通者，可以根据SaaS的需求动态的协调IaaS资源，使IaaS按需分配资源的理念变得更智能，更有实际意义。
+IaaS为云使用者提供了按需分配的能力，用户可以按照自己的需求定制计算资源，存储资源，网络资源，并且利用云端的海量资源随时快速的开启资源，并在工作完成时，随时释放资源，在享受云带来的高可靠性的同时，也最大化的降低了使用成本，提升了资源利用率。
+但是IaaS为云使用者带来的便利只局限在资源这个层面上，云使用者可以快速，稳定，海量的使用资源，但是一旦获取到资源后，云使用者依然要为运行在资源之上的应用搭建各种适配环境（部署），解决应用的各种依赖，安装应用要使用的各种服务，维护应用的运行生命周期。这些问题IaaS都没有解决，或者说，这些问题本质上也不是IaaS需要解决的问题，而是PaaS需要解决的问题。
+综上所述
+1、IaaS关注于硬件的自动化管理，目标是人与机器的解耦合，提升了效率和性能。 2、PaaS关注于应用的自动化管理，目标是应用与操作系统的解耦合，提升了弹性和控制。在应用的角度，paas可以管理iaas。  PaaS的分类 我们需要了解一下PaaS平台自身的分类。Gartner把它们分为两类
+一类是应用部署和运行平台APaaS（Application Platform As a Service） 一类是集成平台IPaaS（Integration Platform As a Service）。  APaaS是一种面向IT企业和机构的云计算应用开发与部署平台。APaaS主要为应用提供运行环境和数据存储，能够将本地部署的传统应用直接部署到APaaS上。
+IPaaS是用于集成和协同的PaaS平台，不仅可以支持与现有云服务间的连接性，而且可以以安全的方式提供企业应用的访问能力。IPaaS主要用于集成和构建复合应用。
+大数据厂商的PaaS实际上是属于IPaaS，而容器厂商和IaaS厂商的PaaS大致为APaaS。
+APaaS的一般特性
+大规模分布式系统：
+完全模块化的分布式系统，保证云平台可靠性； 每个模块单独存在和运行，通过消息总线进行通讯； 系统耦合度低，便于弹性动态扩展；  弹性伸缩框架：
+平台自身组件支持实时横向扩展; 根据应用的负载情况，动态加载应用实例； 应用实例支持实时水平扩展；  运维自动化：
+日常运维操作简化; 故障自动恢复;  应用部署简单化：
+一键式应用快速部署; 支持多种应用开发框架，包括Spring、.NET、Ruby on Rails，Node.js等; 通过buildpack扩展运行不同语言应用的能力;  支持多种服务：
+支持多种数据服务，包括MySQL、mongodb、PostgreSQL等; 通过service broker组件扩展多种应用服务能力，包括数据库、中间件、缓存、云存储等。  主流PaaS平台架构及对比 了解了PaaS的分类，我们再来看看PaaS的具体技术对比。由于IPaaS具有很强的业务属性，因此这里我们主要来看一下更通用的APaaS，也是目前被大家最多提起的。说到PaaS，相信很多人都会把他和容器、Docker关联起来。下面来看几张图：
+  这张图很清晰的划分出了XaaS以及各种概念对应的平台。大家所熟知的容器平台在这里实际上是CaaS的一种。那么CaaS和PaaS有什么区别呢？我们接下来对比一下CaaS和PaaS里面最具代表性的两个平台：CaaS和CloudFoundry。
+ Docker/CaaS
+ Docker/CaaS 提供直接管理操作基础设施的性能，带来基础设施层面的灵活性。用户 通过直接操作容器可以更灵活的实现应用迁移、部署。但这个更加轻量的平台带来了用户学 习成本和使用复杂度的增加。
+容器云平台的搭建只依托 Swarm/Mesos/K8s 等容器编排调度系统就可以实现，还需 要引入大量的第三方解决方案，例如日志、监控、网络等。这就意味着一定的试错成本，另 外第三方系统的成熟度发展不一，组成一套统一的云平台后进入生产环境的应用需要经过一 定周期的论证和验证。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算系列---- PaaS - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算系列---- PaaS
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年01月02日 
+                </div>
+                <h1 class="post-title">云计算系列---- PaaS</h1>
+            </header>
+
+            <div class="post-content">
+                
+
+<h2 id="paas">PaaS</h2>
+
+<p>paas就是一个为应用提供自动化（部署，运维）的平台。</p>
+
+<h3 id="paas的定位">paas的定位</h3>
+
+<p>平台即服务（PaaS）与基础设施即服务（IaaS）是不同的，PaaS并不是IaaS的一个扩展特性，对于基础设施即服务（IaaS）来说，基础单元就是资源，这里的资源是指服务器，磁盘，网络等，IaaS所做的一切就是按照需要提供这些资源。例如，亚马逊（amazon）的EC2服务，所有的工具都以资源为中心，所有的文档都是关于资源的，所有的开发都是专注于资源，同时人们也因为需要这些资源而使用它。</p>
+
+<p>对于平台即服务（PaaS）来说，基础单元就是应用。那么什么是应用？就是一个系统，就是代码以及所有那些在任何时候都与这些代码通信的服务。这不仅仅是资源，事实上，一个应用是由很多单独的资源绑定在一起组成的。将所有这些资源连接在一起所需要付出的工作量通常被低估了。从一个单一的运行Apache和Mysql的服务器转移到一个拥有单独的负载均衡服务器，缓存服务器，应用服务器，数据库服务器以及冗余的失效恢复的系统架构需要大量的工作，包括前期投入以及后期维护。一个成熟的PaaS平台可以为用户提供上述的所有功能，在减少用户大量工作的前提下，大幅度提升用户应用的开发速度，运行稳定性，可靠性，极大的降低了用户的开发，测试及运维的成本。</p>
+
+<p>利用PaaS可以做的另外一件事，就是从应用的角度来管理IaaS。通常情况下，使用者对于IaaS的资源需求实质上是来源于运行在IaaS之上的应用，如何根据应用的需求动态的使用IaaS资源又成为摆在云使用者面前的一个难题，PaaS作为SaaS与IaaS的沟通者，可以根据SaaS的需求动态的协调IaaS资源，使IaaS按需分配资源的理念变得更智能，更有实际意义。</p>
+
+<p>IaaS为云使用者提供了按需分配的能力，用户可以按照自己的需求定制计算资源，存储资源，网络资源，并且利用云端的海量资源随时快速的开启资源，并在工作完成时，随时释放资源，在享受云带来的高可靠性的同时，也最大化的降低了使用成本，提升了资源利用率。</p>
+
+<p>但是IaaS为云使用者带来的便利只局限在资源这个层面上，云使用者可以快速，稳定，海量的使用资源，但是一旦获取到资源后，云使用者依然要为运行在资源之上的应用搭建各种适配环境（部署），解决应用的各种依赖，安装应用要使用的各种服务，维护应用的运行生命周期。这些问题IaaS都没有解决，或者说，这些问题本质上也不是IaaS需要解决的问题，而是PaaS需要解决的问题。</p>
+
+<p>综上所述</p>
+
+<pre><code>1、IaaS关注于硬件的自动化管理，目标是人与机器的解耦合，提升了效率和性能。
+2、PaaS关注于应用的自动化管理，目标是应用与操作系统的解耦合，提升了弹性和控制。在应用的角度，paas可以管理iaas。
+</code></pre>
+
+<h3 id="paas的分类">PaaS的分类</h3>
+
+<p>我们需要了解一下PaaS平台自身的分类。Gartner把它们分为两类</p>
+
+<pre><code>一类是应用部署和运行平台APaaS（Application Platform As a Service）
+一类是集成平台IPaaS（Integration Platform As a Service）。
+</code></pre>
+
+<p>APaaS是一种面向IT企业和机构的云计算应用开发与部署平台。APaaS主要为应用提供运行环境和数据存储，能够将本地部署的传统应用直接部署到APaaS上。</p>
+
+<p>IPaaS是用于集成和协同的PaaS平台，不仅可以支持与现有云服务间的连接性，而且可以以安全的方式提供企业应用的访问能力。IPaaS主要用于集成和构建复合应用。</p>
+
+<p>大数据厂商的PaaS实际上是属于IPaaS，而容器厂商和IaaS厂商的PaaS大致为APaaS。</p>
+
+<p>APaaS的一般特性</p>
+
+<p>大规模分布式系统：</p>
+
+<pre><code>完全模块化的分布式系统，保证云平台可靠性；
+每个模块单独存在和运行，通过消息总线进行通讯；
+系统耦合度低，便于弹性动态扩展；
+</code></pre>
+
+<p>弹性伸缩框架：</p>
+
+<pre><code>平台自身组件支持实时横向扩展;
+根据应用的负载情况，动态加载应用实例；
+应用实例支持实时水平扩展；
+</code></pre>
+
+<p>运维自动化：</p>
+
+<pre><code>日常运维操作简化;
+故障自动恢复;
+</code></pre>
+
+<p>应用部署简单化：</p>
+
+<pre><code>一键式应用快速部署;
+支持多种应用开发框架，包括Spring、.NET、Ruby on Rails，Node.js等;
+通过buildpack扩展运行不同语言应用的能力;
+</code></pre>
+
+<p>支持多种服务：</p>
+
+<pre><code>支持多种数据服务，包括MySQL、mongodb、PostgreSQL等;
+通过service broker组件扩展多种应用服务能力，包括数据库、中间件、缓存、云存储等。
+</code></pre>
+
+<h3 id="主流paas平台架构及对比">主流PaaS平台架构及对比</h3>
+
+<p>了解了PaaS的分类，我们再来看看PaaS的具体技术对比。由于IPaaS具有很强的业务属性，因此这里我们主要来看一下更通用的APaaS，也是目前被大家最多提起的。说到PaaS，相信很多人都会把他和容器、Docker关联起来。下面来看几张图：</p>
+
+<!--![](/media/cloud/compute/cloud1)-->
+
+<!--![](/media/cloud/compute/cloud2)-->
+
+<p><img src="/media/cloud/compute/cloud3" alt="" /></p>
+
+<p>这张图很清晰的划分出了XaaS以及各种概念对应的平台。大家所熟知的容器平台在这里实际上是CaaS的一种。那么CaaS和PaaS有什么区别呢？我们接下来对比一下CaaS和PaaS里面最具代表性的两个平台：CaaS和CloudFoundry。</p>
+
+<blockquote>
+<p>Docker/CaaS</p>
+</blockquote>
+
+<p>Docker/CaaS 提供直接管理操作基础设施的性能，带来基础设施层面的灵活性。用户 通过直接操作容器可以更灵活的实现应用迁移、部署。但这个更加轻量的平台带来了用户学 习成本和使用复杂度的增加。</p>
+
+<p>容器云平台的搭建只依托 Swarm/Mesos/K8s 等容器编排调度系统就可以实现，还需 要引入大量的第三方解决方案，例如日志、监控、网络等。这就意味着一定的试错成本，另 外第三方系统的成熟度发展不一，组成一套统一的云平台后进入生产环境的应用需要经过一 定周期的论证和验证。</p>
+
+<blockquote>
+<p>Cloud Foundry 平台</p>
+</blockquote>
+
+<p>Cloud Foundry 隐藏了基础设施层面的复杂度，提供应用层的管理操作，简化基础设 施和应用的构建管理，平台也使用容器技术，但仅仅是平台架构中的实现细节。通过 CF 可 以更加敏捷的实现应用开发、部署、业务实现等。</p>
+
+<p>Cloud Foundry 的架构是一个相当完整的 PaaS 架构，模块丰富，平台自身可以提供 对于平台节点、应用的监控、管理，日志，自动化运维等完整的解决方案。每个模块都部署 在一个或多个虚拟机上。这些虚拟机是自动创建的，由 PaaS 管理他的生命周期。它的应用 部署跟 Docker 镜像部署不太一样，它是把程序包直接部署。一个命令行或是一个点击就可 以部署</p>
+
+<p>在经过长时间的应用，Cloud Foundry 已有很多在生产环境的案例。Cloud Foundry 率先采用 RunC 作为容器运行时，而且刚刚做了一个 25 万个容器集群的测试，验 证了 PaaS+RunC 的大规模集群的支持。</p>
+
+<p>CloudFoundry等平台则是基于容器技术打造。相比于虚拟机，容器带来的系统开销非常低，如果一台虚拟机的操作系统需要占用2G的内存，则7个虚拟机所组成的集群只是操作系统就需要14G的内存占用。基于容器的技术如果一台16G的裸机除去2G的操作系统开销，还能够部署7个容器进程。所以，从经济性来说，容器的技术远远好于虚拟机。另外一个比较的标准是性能，容器的性能相对而言更好一些，具体的比较参数可以参见IBM研究院出的报告。但是，从安全性和隔离型来说，虚拟机是远远好于容器的。</p>
+
+<p>CloudFoundry的架构设计如下图所示。</p>
+
+<pre><code>首先，CF也提供了一个路由模块(Router)，该模块基本是基于ngnix打造，只是在ngnix技术上提供了动态注册的功能。在部署时，由于CF会同时部署非常多的应用实例，所以需要一个router集群来满足应用的需要；
+其次，CF的应用容器基于自己开发的warden技术，warden也是基于LXC技术，但是使用c和ruby作了一层简单的封装。Docker的大热让CloudFoundry很纠结；
+第三，CF使用service broker来集成各种资源服务，如mongo、mysql、rabbitmq和redis等。最后，CF使用消息总线NATS/GNATS来完成应用之间的通讯。
+</code></pre>
+
+<p><img src="/media/cloud/compute/cloud4" alt="" /></p>
+
+<p>可以这样来说：容器技术是PaaS平台的底层技术，是PaaS平台不可缺少的部分。但是把容器平台说成PaaS，未免会有点以偏概全了。</p>
+
+<pre><code>特性  Cloudfoundry    Docker／CaaS
+应用部署方式  直接部署程序Release包  需要制作Docker镜像
+监控  完整解决方案  需要集成第三方工具
+日志  完整解决方案  需要集成第三方工具
+网络  完整解决方案  需要集成第三方工具
+自动化运维   可以和IaaS联动   不支持IaaS联动
+</code></pre>
+
+<blockquote>
+<p>openshift</p>
+</blockquote>
+
+<p>Cloud Foundry 是一个常被用于和 Openshift 对比的产品，前者由 Pivotal 公司开发(大名鼎鼎的 Springboot，SpringCloud就是他们家的)，后者由 Redhat 开发。很难用一两句话说清两个 PaaS 孰优孰劣，但就我个人的使用体验而言，Cloud Foundry 自动化程度更高一些，而 Openshift 可定制化程度也更高，Openshift 上的应用甚至不需要是一个严格的十二因素应用，这也就意味着可以将任何类型的应用迁移到 Openshift 上。</p>
+
+<p>Openshift 实际上由三部分组成，</p>
+
+<pre><code>核心部分实现容器的调度是封装的 Kubernetes
+除此之外还有一个内置的镜像仓库（Image Registry），这个仓库是可选的，Openshift 也可以配置使用 Dockerhub 或者企业自己的镜像仓库
+最外层部分是一个友好的 Web 界面，用于展示和操作 Openshift 的资源。
+</code></pre>
+
+<p>如下图所示，Openshift 要成为一个完整的数字化平台需要依赖于两个外部系统，一个代码库，一个是持续集成服务，事实上这两个外部服务也是可以跑在 Openshift 里面的。右边的灰色矩形就是 Openshift 的主要架构了，它的上层是一个路由（Router），用于 DNS 解析和转发，确保用户能够调用到 Openshift 集群中的服务。红色的部分是跑在 RHEL 操作系统上的 Kubernetes 集群，侧面是外部存储服务，因为集群里的计算单元是漂浮的，所以通常 Kubernetes 集群只提供计算能力，数据持久外需要依赖外部的比如说 S3，EBS 等云服务商提供的存储服务。最下层同样也是由云服务商提供的基础设施服务。</p>
+
+<p><img src="/media/cloud/compute/cloud6" alt="" /></p>
+
+<p>Cloud Foundry和OpenShift特性对比</p>
+
+<p>Cloud Foundry</p>
+
+<pre><code>优势
+
+支持各种各样的语言、web框架、数据
+
+为开发者和云供应商提供简易和快速的自服务部署
+
+应用程序容器、服务和节点都被监视，如果在预期状态之外会自动重启
+
+PaaS支持大数据和移动服务
+
+可以使用命令行、Eclipse、Spring Tools Suite、Maven、Gradle 进行部署
+
+
+缺点
+
+虽然自动横向扩展只存在测试版，但是已计划在第三季度的Pivotal CF中释放；另一个Cloud Foundry发行版ActiveState的Stackato已经支持这一特性
+
+Cloud Foundry v2版本尚未提供可下载“微型”VM，但是你可以下载Stackato Micro，或者使用其中一个Cloud Foundry安装程序在本地VM中进行安装
+
+只支持 Ubuntu Linux上的有限应用程序，除下你使用Cloud Foundry的Uhuru Windows版本，这个并未评测
+
+平台
+
+Pivotal CF：VMware vSphere，OpenStac，Amazon Web Services，Google Cloud Platform
+</code></pre>
+
+<p>OpenShift</p>
+
+<pre><code>优势
+
+支持各种各样的语言、web框架、数据、应用程序堆栈
+
+为开发者和云供应商提供简易和快速的自服务部署
+
+自动应用程序扩展
+
+在开源代码等级整合Git，通过git push出发自动部署
+
+闲置gear终止允许更高的应用程序密度
+
+只要支持Red Hat Enterprise Linux就可以运行在任何硬件、云或者是虚拟机上
+
+缺点
+
+很大程度受限于只支持 Red Hat Linux上运行的应用程序，除非你使用Uhuru OpenShift.Net产品，这一点并未评测
+
+平台
+
+OpenShift Enterprise：Red Hat Enterprise Linux。
+
+OpenShift Origin：KVM、VirtualBox、VMware Fusion/Player
+</code></pre>
+
+<blockquote>
+<p>rancher</p>
+</blockquote>
+
+<p>虽然 Kubernete 在容器调度方面表现出众，但他的功能还元不构成一个 PaaS 平台，于是很多厂商开始基于 Kubernetes 开发自己的 PaaS 平台，其中就有目前在国内创业公司被大量使用的 Rancher，值得注意的是 Rancher 是在2016年才开始发布第一个版本，而 Openshift 则早在13年就开始基于 Kubernetes 的开发，但目前看来国内市场对 Rancher 的接受度是远高于 Openshift 的，就使用体验上看，Rancher 也确实更简单易用。</p>
+
+<p>这边需要详解的了解一下<a href="/posts/cloud/container/platform/racher/">rancher</a>(todo)</p>
+
+<p>OpenShift有开源版本，是免费的。但是真的在企业级的使用情况下，还是要花钱的，比较贵。</p>
+
+<p>它们俩各有各的特点。</p>
+
+<p>OpenShift:</p>
+
+<pre><code>设计了ImageStream，BuildConfig与DeploymentConfig等资源对象，及s2i构建方法，方便了开发者实施Devops。
+
+添加了一个内部镜像仓库。
+
+使用Route资源，为应用提供了一个公共统一的访问入口。类似于Ingress，使用起来比Ingress方便。
+
+提供了一个友好的可视化界面。
+
+对容器有更多的安全策略，更安全
+
+有更高的可靠性。 作为RedHat的企业级容器平台，红帽会对集群做详细的测试，修复bug。
+
+一般版本会落后K8S一个大版本，对原生K8S改进较大
+
+一般为只管理单个OpenShift集群
+</code></pre>
+
+<p>Rancher:</p>
+
+<pre><code>1. 具有良好的界面，rancher 的中文化做的比较好，对k8s的一些组件重新做了打包，在国内安装比较方便
+
+2. 方便管理多个K8S集群
+
+3. 对网络插件的选择会比OpenShift更加灵活
+
+4. 与K8S版本同步，及时拥有K8S最新的特性，对K8S自身改动较少
+</code></pre>
+
+<p>个人认为，单集群管理使用OpenShift，更稳定，更简单，也更安全，而如果是要管理多集群，选择Rancher。不过OpenShift 4起红帽也支持多集群管理，但还不能私有化部署。</p>
+
+<p>两种方案都有不少的企业客户选择，因为都是基于K8S， 功能上都差不多 。不管是构建DevOps流水线，还是生产部署原生应用上。</p>
+
+<h2 id="容器云平台">容器云平台</h2>
+
+<p>现在各大企业搭建的容器云平台都是基于docker的paas平台。基本上都是基于rancher，openshift搭建，或者使用k8s自己管理。</p>
+
+<p>容器云平台自下而上分别覆盖了云计算的 IaaS 层和 PaaS 层涉及的各类问题，包括资源调度、服务编排、应用部署、监控日志、配置管理、存储网络管理、安全等。</p>
+
+<p>为什么企业建设容器云平台？</p>
+
+<p>传统企业在数字化转型进程中，已完成物理机虚拟化的进程，虚拟化技术一定程度上降低了运维复杂性，提升资源的使用率。但这仅解决了 IaaS 层面基础设施的问题。业务应用研发还面临很多挑战：</p>
+
+<pre><code>业务应用不够稳定，响应效率低下，业务流程复杂，导致用户体验较差；  
+业务应用规模复杂，组件间耦合度高；庞大的部署架构使得应用的开发、测试、发版和升级也比较复杂，使得业务升级停机时间和部署成本增加；
+在面临互联网企业的激烈市场竞争时，业务部门的需求变化越发频繁，同时希望研发部门的软件交付周期越来越短。但研发工作量大、周期长等问题，难以支持需求的快速响应和敏捷开发。
+基础设施薄弱，缺乏支撑互联网快速迭代的云环境，资源分配效率低。生产环境缺乏互联网监控手段等。
+</code></pre>
+
+<p>总结就是业务复杂不稳定，维护迭代困难，资源使用效率低。</p>
+
+<p>容器可以封装业务应用的整个环境运行时，容器镜像可实现应用交付的一致性和标准化，可以很好的解决业务应用研发现有的挑战。所以传统企业的业务应用开始容器化。但容器化应用真正运行在生产环境，还需解决与容器环境相关的计算、网络、存储、监控、安全、高可用等方面的问题，所以企业需要建设容器云平台。</p>
+
+<h3 id="paas平台架构">PaaS平台架构</h3>
+
+<p><img src="/media/cloud/compute/cloud9" alt="" /></p>
+
+<p>1、研发云</p>
+
+<p>研发云就是基于jenkins+harbor+helm搭建的开发部署平台。</p>
+
+<blockquote>
+<p>DevOps</p>
+</blockquote>
+
+<p>由于软件开发复杂度的增高和更多的协同工作，敏捷开发能够更好地在协同工作中确保软件开发和交付质量。而 CI/CD 就是专门为解决上述需求的软件开发实践。CI/CD 要求每次的集成都是通过自动化的构建来验证，包括自动编译、发布和测试，从而尽快地发现集成错误，让团队能够更快的开发内聚的软件，减轻了软件发布时的压力。</p>
+
+<pre><code>持续集成：持续集成是一种实现产品和应用快速迭代的一种实践方式，这种实践要求开发人员所提交的每一次代码都能够快速被合并到生产线，并进行自动构建和上线。能够容易定位 Bug 并提前发现和解决，降低开发成本。
+
+持续交付：持续交付的缩短了需求完成周期，满足小粒度交付需求，打造自持敏捷开发，精益迭代和持续交付的研发基础设施。此外，提高了产品迭代速度，提升了应用软件质量。并且支持容器扩容、收缩、升级和回滚，轻松实现应用灰度发布，还拥有更快的应用交付和Go-to-Market能力。
+
+流水线：应用从代码编译、测试、打包和部署的过程，流水线管理一般使用常用的 Jenkinsfile 来表述一组 CI/CD 流程。从代码仓库 、代码编译、镜像制作、镜像安全、推送到仓库、应用版本、到定时构建的端到端流水线设置。
+
+版本发布：DevOps 的应用版本管理可备份每个应用的关键配置。应用下可以设置应用版本，用于记录本次应用和其下制品版本的关系，可便于部署或回滚操作。
+</code></pre>
+
+<p>核心</p>
+
+<p><a href="/posts/cloud/container/CDCI/jenkins/">jenkins</a>(todo)</p>
+
+<p><a href="/posts/cloud/container/CDCI/fabric8/">fabric8</a>(todo)</p>
+
+<blockquote>
+<p>交付中心</p>
+</blockquote>
+
+<p>容器镜像实现容器运行时标准化，应用模板（helm）实现编排文件的标准化。镜像和应用模板是开发（Dev）和运维（Ops）的媒介，完成测试的镜像、应用模板可以发布到生产环境；然后在容器云平台上部署和管理应用，持续监控应用服务的运行情况，并保持持续的反馈运行情况，以便及时的改进，形成一个良性循环。交付中心实现镜像、应用模板的集中安全统一管理，实现企业软件资源积累和沉淀。让所有用户都可以自由地下载为服务组件，这为开发者提供了巨大便利。</p>
+
+<pre><code>镜像工场：提供了多种构建镜像的方式，支持对接 CI/CD 工具，能够简化企业应用容器化的难度，轻松实现应用的容器化。并提供日常镜像维护的功能，比如镜像扫描、镜像同步和镜像清理等。其实就是镜像仓库，目前最常用的Harbor。
+
+应用模板：基于 Helm 标准的应用模板提供统一的资源管理与调度，高效地实现了模板的快速部署与后期管理，大幅简化了Kubernetes资源的安装管理过程。
+</code></pre>
+
+<p>核心</p>
+
+<p><a href="/posts/cloud/container/CDCI/harbor/">harbor</a>(harbor)</p>
+
+<p><a href="/posts/cloud/container/CDCI/helm/">helm</a>(todo)</p>
+
+<p>2、基础云</p>
+
+<p>基础云就是基于docker+k8s的搭建的资源调度平台。</p>
+
+<blockquote>
+<p>基础设施管理</p>
+</blockquote>
+
+<p>容器云平台的基础设施资源主要包括主机、网络、存储资源等。</p>
+
+<pre><code>主机：容器云平台的计算能力由节点 (Node) 提供，节点类型分为控制节点和容器节点，业务应用的容器组都运行在容器节点。节点可以是物理机或虚拟机，平台可根据业务需求组建一定规模的节点集群。容器云平台的节点管理需满足企业对集群运维监控的需求，支持实时查看集群资源使用情况和节点状态，查看任意节点上 CPU 和内存的消耗、容器组数及状态。并且提供对节点的全方位细粒度的资源监控如 IOPS、磁盘吞吐、网卡流量，让用户一目了然所有节点资源状态。
+
+网络：容器云平台的容器需要进行网络隔离或者网络连通，网络的管理功能需要支持标准的容器网络模型，还需要支持扩展的网络技术。以此来提供丰富的网络功能，更好的为业务服务提供最佳网络服务方案。不同的选择在网络性能、网络节点规模等方面各不相同。网络方案主要有 Bridge 网络模式、Host网络模式、Overlay网络模式等方案。容器调度管理应支持图形化管理网络，减轻网络配置技术难度，弱化对指定硬件厂商的依赖。此外，网络通信安全方面应支持创建安全加密网络，保障网络通信信息安全。
+
+存储：容器是无状态的，当容器崩溃重启时，容器中临时存放在磁盘的文件将会丢失。 其次，当在一个容器组中同时运行多个容器时，需要在这些容器之间共享文件。但是生产业务应用大部分都是有状态，容器云平台通过存储卷解决存储问题，并支持对接多种存储方案，比如采用 Ceph、NFS、glusterfs 等。
+</code></pre>
+
+<p>核心</p>
+
+<p><a href="/posts/cloud/container/kubernetes/k8s-network/">k8s网络</a>(todo)</p>
+
+<p><a href="/posts/distributed/store/store/">分布式存储</a>(todo)</p>
+
+<blockquote>
+<p>应用管理</p>
+</blockquote>
+
+<p>容器云平台最核心的功能就是应用全生命周期管理。应用通常是一个独立完整的业务功能，一个应用可能由多个服务组件组成，对于微服务而言每个组件都可以独立于其他组件部署、启动、运行和治理。容器云平台需要提高对应用的一键式部署、健康检查、弹性扩缩、升级发布、资源管理、访问管理、监控管理等功能，从而保证应用的整体服务能力。</p>
+
+<pre><code>一键式部署：一般支持通过镜像、应用模板和 YAML 等方式部署应用，让用户可通过多种应用交付物快速便捷的部署。
+
+健康检查：由于容器启动后应用还需要较长时间才能接受请求，容器正常运行但容器中的应用服务异常等原因。需要支持应用健康状态的检查，健康检查结果会指导负载均衡、滚动发布和弹性伸缩，实现更平滑的过程 。
+
+弹性扩缩：支持通过手动、自动和定时等方式对容器的实例进行弹性的扩缩，保证应用运行的稳定性。
+
+升级发布：支持通过单一服务按照指定实例数滚动升级实现滚动发布；通过建立跨服务的 4 层负载均衡实现灰度发布／蓝绿发布；并支持一键回滚；基于预定义镜像规则自动发布，支持 DevOps 自动化流水线场景。
+
+资源管理：对容器部署或运行过程中的的 CPU、内存等计算资源、网络和存储资源的分配进行集中管理。
+
+访问管理：容器的外部接入访问入口，和平台内部访问容器的控制台入口的管理。
+
+监控管理：对容器产生的日志进行统一查看和导出，并且配置容器的日志管理服务器；对容器的资源包括CPU、内存、网络、存储等的使用情况进行可视化监控。
+</code></pre>
+
+<p>核心</p>
+
+<p><a href="/posts/cloud/container/kubernetes/k8s-tutorial/">k8s</a></p>
+
+<p><a href="/posts/cloud/container/docker/docker/">docker</a></p>
+
+<blockquote>
+<p>服务治理</p>
+</blockquote>
+
+<p>服务治理通过提供完整的非侵入式的微服务治理解决方案，支持完整的服务生命周期管理和流量治理。能够很好的解决云原生服务的管理、网络连接以及安全管理等服务网络治理问题。</p>
+
+<pre><code>灰度发布：灰度发布是迭代软件产品在生产环境安全上线的重要手段。允许用户按照标准制定一套流量分发规则，平滑稳定的实现灰度发布功能。主要有金丝雀、蓝绿、A/B Testing 等典型灰度发布功能。
+
+流量治理：应用流量治理提供可视化云原生应用的网络状态监控，并实现在线的网络连接和安全策略的管理配置。提供策略化、场景化的网络连接、安全策略管理能力。支持基于应用拓扑对服务配置负载均衡、熔断容错等治理规则，并提供实时的、可视化的服务流量管理。
+
+流量监控：通过流量监控可以监控流量概况、组件运行状态、调用链等信息，并在系统业务异常时快速定位到问题点。
+</code></pre>
+
+<p>核心</p>
+
+<p><a href="/posts/devops/ops/">发布</a>(todo)</p>
+
+<p>[流控]()(todo)</p>
+
+<p>3、监控云</p>
+
+<p>监控云就是基于prometheus+EFK生态搭建的监控日志告警平台。</p>
+
+<blockquote>
+<p>运维管理</p>
+</blockquote>
+
+<p>日志、监控和告警等实现对容器云平台的组件状态、基础设施资源、运行的各个应用系统统一管理。让用户能够对平台进行手动和自动检查、排错和维护，保证平台的稳定。</p>
+
+<pre><code>日志：日志模块需收集平台组件、业务应用、业务服务以及云上中间件的日志。可采用平台统一日志管理系统EFK生态。
+
+监控告警：监控模块需提供对集群和应用的资源状态两个维度监控。并支持大规模系统监控、多指标监控、多维度监控，为每一个层级资源的运行状态都提供实时的多种指标监控。并且收集资源实时监控数据和历史监控数据，帮助用户观察和建立资源和集群性能的正常标准。通过不同时间、不同负载条件下监测集群各项基础指标，并以图表或列表的形式展现。监控模块可采用平台的自有监控体系，或对接外部监控系统，比如 Prometheus。
+</code></pre>
+
+<p>核心</p>
+
+<p><a href="/posts/monitor/prometheus/prometheus/">prometheus</a></p>
+
+<p><a href="/posts/programe/log/containerlogcollect/">EFK</a>(todo)</p>
+
+<p>4、安全云</p>
+
+<p>安全云就是基于RBAC的权限管理平台。</p>
+
+<blockquote>
+<p>企业安全</p>
+</blockquote>
+
+<p>容器云平台除了具备需要具备平台资源管理、应用生命周期管理，还需要提供企业安全和运行所需的功能。</p>
+
+<pre><code>多租户管理：不同租户中的资源彼此隔离。使得它们既可以共享同一个平套资源，也能够互不干扰。多租户管理的核心是分配好人员 (组织) 和资源之间的权限关系。对于容器云平台来说，需要将平台的计算资源、存储资源和网络资源，分配给各租户，让租户根据自身使用场景管理应用、用户、角色和资源。
+
+用户管理：用户管理模块，可对企业用户进行增删改查等操作，以及配置用户密码安全策略，保证用户和平台安全；同时可对接企业用户目录，同步企业现存用户管理系统，避免重复操作。
+
+权限管理：权限管理是在 Kubernetes 的角色访问控制（RBAC）的能力基础上，打造的细粒度权限管理功能。支持集群级别、租户级别的权限控制，能够从集群和租户层面对用户组或用户进行细粒度授权。
+
+第三方登录认证：当容器云平台中具有多系统，或者对接企业现有用户中心时，需要实现第三方登录认证。用户只需要登录一次，就可以访问所有相互信任的应用系统。解决企业不同业务应用之间的身份认证问题。
+</code></pre>
+
+<p>核心</p>
+
+<p>[rbac]()(todo)</p>
+
+<blockquote>
+<p>PaaS平台功能组件</p>
+</blockquote>
+
+<p><img src="/media/cloud/compute/cloud7" alt="" /></p>
+
+<blockquote>
+<p>实战</p>
+</blockquote>
+
+<p>具体实施时，主要有几个基础组件需要开发：</p>
+
+<p>基础云{k8s+docker}，研发云(CD/CI)，监控云{prometheus+EFK}</p>
+
+<pre><code>0、一键建站：k8s集群的搭建
+1、CD/CI:重开发到提交的git，然后webhook触发编译，最后成功后推送的镜像库（harbor），jenkins可以提供这完整的一套服务。
+2、服开：一键交付：申请配额，选择环境，选择应用，进行配置（环境变量，资源配置），选择镜像，启动
+3、服务管理，需要定制化一套Kubernetes的Deployment模板，从Ingress到Service再到RC都定义在这套模板里面，方便对容器进行扩容、缩容、删除，登陆等操作；
+4、日志管理：EFK
+5、监控告警：prometheus生态
+6、权限管理：rbac
+</code></pre>
+
+<p>用户</p>
+
+<pre><code>​平台视角：容器云平台由企业数据中心搭建和维护，主要由运维人员进行平台管理、资源管理等；
+租户视角：容器云平台由业务开发中心使用，负责业务应用开发的人员进行应用管理运维，比如开发、测试等；
+标准化交付视角：通过 DevOps 流程构建标准化镜像、应用模板，实现业务应用的标准化交付。
+</code></pre>
+
+<h3 id="平台迭代流程">平台迭代流程</h3>
+
+<ol>
+<li>搭建强稳定性的容器云平台，这是企业内部应用上容器云平台的基石；</li>
+<li>完成单体应用的容器化，开展企业应用容器化之路；</li>
+<li>开展企业内部应用容器化推广，培养企业内部对于容器标准化意识，明晰容器化应用与平台运维的边界；</li>
+<li>开始 DevOps 企业组织架构建设，完善应用自动化构建、测试、部署、发布全流程；</li>
+<li>开展中间件层面支持，完成企业数据中台；</li>
+<li>引入微服务流程，完成微服务相关治理能力。</li>
+</ol>
+
+<h3 id="容器云平台建设意义">容器云平台建设意义</h3>
+
+<blockquote>
+<p>标准化交付</p>
+</blockquote>
+
+<p>容器镜像实现应用运行环境的一致性和标准化，屏蔽了应用部署过程中遇到的不同环境需要的环境配置、安装步骤等复杂问题。把原先部署、配置的运维工作提前到开发交付阶段，在制作镜像的阶段解决运维上线中出现的问题。提供了企业开发、测试和生产环境的一致性，对于自主研发能力和效率的提升会有极大的帮助。</p>
+
+<blockquote>
+<p>应用微服务化</p>
+</blockquote>
+
+<p>微服务架构可轻量级构建冗余，可扩展性强。容器云平台提供应用微服务化的能力，将现有的大型应用程序通过微服务架构拆成多个独立模块，每个模块使用一个应用镜像进行微服务部署；支持镜像级别的升级发布；支持容器粒度的隔离，且容器被平均分布在底层宿主机上，保证应用每个微服务的安全和稳定。助力企业一步实现微服务架构，实现应用云原生转型。</p>
+
+<blockquote>
+<p>弹性扩缩</p>
+</blockquote>
+
+<p>应用的访问流量是不确定的，需要避免因流量激增导致应用挂掉；以及避免因为流量减少导致大量资源浪费。容器云平台支持对主机、应用服务级别的双重扩缩，可根据用户的业务需求和预设策略，自动调整计算资源，使主机或服务数量自动随业务负载增长而增加，随业务负载降低而减少。实现业务应用的快速弹性扩缩，提升资源使用效率，保证应用运行稳定性。</p>
+
+<blockquote>
+<p>敏捷开发快速上线（DevOps）</p>
+</blockquote>
+
+<p>DevOps 将开发团队与运维团队通过一套流程或方法建立更具协作性、更高效的的关系，使得开发、测试、发布应用能够更加敏捷、高效、可靠。容器的 build、ship、run 的理念及其技术特点，更够更好的与 CI/CD 技术进行融合，从技术手段上保证项目管理方式和管理理念的真正有效落地。同时容器云平台提供代码构建、镜像打包、服务快速部署、灰度发布、自动伸缩、负载均衡等持续交付工具链，大大简化了持续集成、测试和发布的过程。使开发者专注业务的开发和测试无需关注运行环境和运维，加速应用的快速迭代和上线。</p>
+
+<blockquote>
+<p>跨平台</p>
+</blockquote>
+
+<p>容器可运行在多种云平台环境中，目前支持容器的 IaaS 平台包括但不限于亚马逊平台（AWS)、Google云平台（GCP）、微软云平台（Azure），企业无需担心应用和第三方云平台绑定。并且实现对企业已有异构基础资源的统一化管理，屏蔽环境差异性。实现应用多云混合部署，降低系统运维难度。</p>
+
+<blockquote>
+<p>提高资源利用率</p>
+</blockquote>
+
+<p>容器是基于操作系统的轻量级虚拟化技术，多个容器可以共享操作系统的内核进程和内核资源，从而有效节省操作系统级资源开销。容器具有资源隔离与限制的能力，可以精确地对应用分配 CPU 和内存等资源，保证了应用间不会相互影响。并且容器云平台将资源进行池化管理，按需分配、快速调度、环境隔离和及时回收，改变企业 IT 资源使用方式，提高整理利用率。</p>
+
+<blockquote>
+<p>应用资源积累</p>
+</blockquote>
+
+<p>镜像仓库可集中式存放、管理企业的业务应用镜像，并且很好的分发到不同的环境进行部署。业务应用镜像经过安全扫描、部署测试等流程化审核后，可将业务应用镜像进行售卖和运营。并且容器云平台内置应用商店，可将社区容器化应用、常用中间件等一键部署，减少对非业务组件的研发和维护。</p>
+
+<h3 id="paas平台和saas应用市场的关系">PaaS平台和SaaS应用市场的关系</h3>
+
+<p>大家有没有发现一个现象？10年以前，SaaS应用市场是非常少的。现在各大平台都会有自己的SaaS应用市场。出现这种现象的原因无外乎技术的进步，搭建SaaS应用市场的成本降低了。更确切的说：SaaS应用市场是PaaS平台的一种外延。在底层PaaS技术的支撑下，SaaS应用的开发、交付、运营的门槛大幅度的降低了。</p>
+
+<p>基于PaaS平台构建的SaaS应用市场会逐步加快SaaS应用生态的发展。</p>
+
+<p>PaaS平台下进行云原生应用开发</p>
+
+<p>有了PaaS平台帮我们解决底层平台的问题，那么我们的应用开发者要怎么做才能开发出云原生应用呢？</p>
+
+<p>使用标准化流程自动配置，从而使新的开发者花费最少的学习成本加入这个项目。</p>
+
+<p>和操作系统之间尽可能的划清界限，在各个系统中提供最大的可移植性。</p>
+
+<p>适合部署在现代的云计算平台，从而在服务器和系统管理方面节省资源。</p>
+
+<p>将开发环境和生产环境的差异降至最低，并使用持续交付实施敏捷开发。</p>
+
+<p>可以在工具、架构和开发流程不发生明显变化的前提下实现扩展。</p>
+
+<p>这套理论适用于任意语言和后端服务（数据库、消息队列、缓存等）开发的应用程序。</p>
+
+<p>下面我们一起来看看具体包含哪些要素：</p>
+
+<pre><code>基准代码：一份基准代码，多份部署
+依赖：显式声明依赖关系
+配置：在环境中存储配置
+后端服务：把后端服务当作附加资源
+构建，发布，运行：严格分离构建和运行
+进程：以一个或多个无状态进程运行应用
+端口绑定：通过端口绑定提供服务
+并发：通过进程模型进行扩展
+易处理：快速启动和优雅终止可最大化健壮性
+开发环境与线上环境等价：尽可能的保持开发，预发布，线上环境相同
+日志：把日志当作事件流
+管理进程：后台管理任务当作一次性进程运行
+</code></pre>
+
+<h3 id="paas的未来发展">PaaS的未来发展</h3>
+
+<p>先抛一个结论：PaaS是云的未来。</p>
+
+<p>IaaS是一个资源转售的生意，PaaS代表了云计算的未来，PaaS解决的是平台架构的问题，同时也是真正做到按需付费。对于业务客户而言，底层技术不会给他们带来直接的业务价值，这也就决定了软件开发商更应该聚焦在业务层。高并发、高可靠、存储服务、应用自身维护等和业务不直接关联的平台服务都可以借助PaaS技术来完成。现在的创业团队可以借助各类PaaS技术快速的创建高并发、高可靠的应用，未来这种模式也会进一步普及。</p>
+
+<p>更融合的调度 物理机、虚拟机和容器各有优势，一个复杂的应用场景会用到各计算平台的优势，融合调度未来必然会成为主流框架。</p>
+
+<p>更融合的编排 说到调度，就离不开编排。当前阶段上云是大趋势，私有云加公有云的模式会长期持续。那么融合的编排框架也必然会成为解决成本问题的一个重要选择。</p>
+
+<p>更细粒度的弹性 IaaS解决了基础设施的弹性，但是还不够。技术的发展会进一步细化弹性的粒度，往更节约的方向发展。</p>
+
+<p>更高的资源利用率 当前的技术及架构下，计算资源很大一部分时间都是闲置的。以有限的资源来应对更高的数据处理要求，资源利用率会随着云技术的发展进一步提高。</p>
+
+<h2 id="附录">附录</h2>
+
+<blockquote>
+<p>应用架构</p>
+</blockquote>
+
+<p><img src="/media/cloud/compute/cloud5" alt="" /></p>
+
+<p>架构说明</p>
+
+<pre><code>路由模块：该模块的基本功能是将终端用户请求路由到对应的服务器实例，并提供应用动态注册等功能。目前绝大多数的实现是基于ngnix，同时也需要使用简单的lua脚本完成应用注册和路由查询等基本功能；
+服务管理模块：该模块会为开发人员和运维人员提供管理接口，其基本功能包括创建应用实例、配置应用运行参数、启停应用、发布应用程序、扩容或缩容等。服务管理模块也需要提供相应的客户端被用户使用，如命令行或是用户界面等；
+应用容器模块：应用容器是PaaS平台的核心，其主要功能是管理应用实例的生命周期，汇报应用的运行状态等。目前来看，应用容器可以基于虚拟机来实现(如AWS)，也可以使用Linux容器技术来实现，最早使用的是LXC，CloudFoundry使用的是自己的warden，同样也是基于cgroup，现在最新的是docker；
+应用部署模块：应用部署模块需要将应用程序打包成为可直接部署的发布包。该模块是实现PaaS平台开发性的关键。由于现有通用的PaaS平台需要支持多种编程语言和框架，如Java, Python, Ruby和PHP等，当应用发布时，PaaS平台需要根据不同的编程语言将应用打包成为通用的发布包，然后传递给容器模块部署。应用部署模块是实现这一过程的关键，目前来看起源于Heroku的buildpack已经被大家广发接受；
+块存储模块：该模块主要用于存储应用的发布包，需要保证程序包的长久存储和。目前AWS的Beanstalk直接使用S3，CF可以使用网络文件系统NFS或是其他任何分布式文件存储系统（如HBase）；
+数据存储模块：该模块需要保存应用和服务的基本信息，可以基于任何现有的数据库技术实现，如MYSQL或是MONGODB等；
+监控模块：该模块的作用是持续监控应用的运行状态，比如健康状态（是否存活）、资源使用率（CPU、内存、硬盘、网络等）和可用性等。这些指标会成为整个PaaS平台运维的关键，也为自动弹性伸缩奠定基础；
+用户认证模块：该模块需要保证应用程序的安全性和隔离性，通常而言，公有云的提供商会使用OAuth等技术集成现有的用户认证服务；
+消息总线模块：该模块也是最重要的模块，由于PaaS平台所搭建的是一个大规模分布式环境，通常而言，规模在数百台到上千台的机器数量，所有模块之间的通讯会变成一个核心的问题。所以消息总线会变成系统之间通讯的基础，通常需要支持pub/sub模式。
+</code></pre>
+
+<p>基于该架构，应用实例的弹性伸缩也能够非常容易的实现。首先需要监控服务来不断获取实时的应用状态，当某些指标超出预先定义的阈值时，平台会启动伸缩服务，首先从应用容器模块预留资源，然后调用应用部署模块打包应用并部署，最后将应用节点注册到路由模块完成整个伸缩的过程。</p>
+
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/paas/">https://kingjcy.github.io/post/cloud/paas/paas/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloud/">
+                            <i class="fa fa-tags"></i>
+                            cloud
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/compute/">
+                            <i class="fa fa-tags"></i>
+                            compute
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/compute/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年01月02日)</span></li><li id="li-rels"><a href="/post/programe/paas/paas/">项目系列---- PaaS平台</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年04月18日)</span></li><li id="li-rels"><a href="/post/programe/paas/snpaas/">项目系列---- PaaS平台</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年04月18日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/database/tsdb/m3db/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/compute/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li><a href="#paas">PaaS</a>
+<ul>
+<li><a href="#paas的定位">paas的定位</a></li>
+<li><a href="#paas的分类">PaaS的分类</a></li>
+<li><a href="#主流paas平台架构及对比">主流PaaS平台架构及对比</a></li>
+</ul></li>
+<li><a href="#容器云平台">容器云平台</a>
+<ul>
+<li><a href="#paas平台架构">PaaS平台架构</a></li>
+<li><a href="#平台迭代流程">平台迭代流程</a></li>
+<li><a href="#容器云平台建设意义">容器云平台建设意义</a></li>
+<li><a href="#paas平台和saas应用市场的关系">PaaS平台和SaaS应用市场的关系</a></li>
+<li><a href="#paas的未来发展">PaaS的未来发展</a></li>
+</ul></li>
+<li><a href="#附录">附录</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

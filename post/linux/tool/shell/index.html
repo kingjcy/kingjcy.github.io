@@ -1,0 +1,3881 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="shell主要是用于linux的系统操作的脚本语言，python主要适用于web界面的，如果用python写一些linux系统的东西会比较冗余。
+
+shell是一个命令解释器，也就是我们常说的bash(bash只是shell中最常用的一种，还有很多shell解释器)，是与操作系统直接进行交互的还可以支持多种编程化操作的强大工具。
+
+shell是一种很强大的脚本语言，也是操作终端的利器，用好shell可以让你在linux环境开发中如鱼得水，这边边学习边记录，便于备忘与查找。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="linux工具系列---- Shell - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    linux工具系列---- Shell
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2015年03月12日 
+                </div>
+                <h1 class="post-title">linux工具系列---- Shell</h1>
+            </header>
+
+            <div class="post-content">
+                <p>shell主要是用于linux的系统操作的脚本语言，python主要适用于web界面的，如果用python写一些linux系统的东西会比较冗余。</p>
+
+<p>shell是一个命令解释器，也就是我们常说的bash(bash只是shell中最常用的一种，还有很多shell解释器)，是与操作系统直接进行交互的还可以支持多种编程化操作的强大工具。</p>
+
+<p>shell是一种很强大的脚本语言，也是操作终端的利器，用好shell可以让你在linux环境开发中如鱼得水，这边边学习边记录，便于备忘与查找。</p>
+
+<p>linux下的shell命令大部分都是去查询相关的文件去然后转化展示的，因为linux下一切皆文件。</p>
+
+<h2 id="场景">场景</h2>
+
+<p>不适合shell的场景</p>
+
+<ol>
+<li><p>密集型任务，需要计算，hash，排序</p></li>
+
+<li><p>对跨平台和安全性有要求的</p></li>
+
+<li><p>大量文件操作，图型操作，io和socket</p></li>
+</ol>
+
+<p>这些不适用的场景可以用强大一点的脚本语言python，ruby，perl，或者高层次的编译语言c/c++，java等。</p>
+
+<h2 id="shell基本语法">shell基本语法</h2>
+
+<p>1.开头</p>
+
+<pre><code>#!/bin/sh 
+</code></pre>
+
+<p>符号#!用来告诉系统它后面的参数是用来执行该文件的程序,是一个解释器的标记。在这个例子中我们使用/bin/sh来执行程序。</p>
+
+<pre><code>1 #!/bin/sh
+2 #!/bin/bash
+3 #!/usr/bin/perl 
+4 #!/usr/bin/tcl 
+5 #!/bin/sed -f
+6 #!/usr/awk -f
+</code></pre>
+
+<p>2.特殊字符</p>
+
+<pre><code># 注释
+/ 转义
+; 命令分隔符
+;; case终止符
+
+    case &quot;$variable&quot; in
+    abc) echo &quot;\$variable = abc&quot; ;; 
+    xyz) echo &quot;\$variable = xyz&quot; ;; 
+    esac
+
+. source/正则中匹配任意字符
+, 逗号链接了一系列的算术操作,虽然里边所有的内容都被运行了,但只有最后一项被 返回
+` 后置引用,命令替换
+: 空命令
+$ 变量替换,在正则表达式中作为行结束符
+${} 参数替换
+() 命令组.如:(a=hello;echo)  在()中的命令列表,将作为一个子 shell 来运行. 在()中的变量,由于是在子 shell 中,所以对于脚本剩下的部分是不可用的. 如:
+
+    a=123
+    ( a=321; )
+
+    echo&quot;a=$a&quot; 
+
+    a=123
+
+{} 这个结构创建了一个匿名的函数.但是与函数不同的是,在其中声明的变量,对于脚本其他部分的代码来说还是可见的,在大括号中,不允许有空白,除非这个空白是有意义的
+    a=123
+    ( a=321; )
+
+    echo&quot;a=$a&quot; 
+
+    a=321
+
+
+&gt; &amp;&gt; &gt;&amp; &gt;&gt;  重定向.
+scriptname &gt;filename 重定向脚本的输出到文件中.覆盖文件原有内容.
+command &amp;&gt;filename 重定向 stdout 和 stderr 到文件中
+command &gt;&amp;2 重定向 command 的 stdout 到 stderr
+scriptname &gt;&gt;filename 重定向脚本的输出到文件中.添加到文件尾端,如果没有文件, 则创建这个文件.
+&gt;| 强制重定向
+
+
+| 管道
+子进程的运行的管道,不能够改变脚本的变量.
+1 variable=&quot;initial_value&quot;
+2 echo &quot;new_value&quot; | read variable
+3 echo &quot;variable = $variable&quot; #variable = initial_value
+
+
+|| 或逻辑操作
+
+    1 if [ $condition1 ] || [ $condition2 ]
+    2 if [ $condition1 -o $condition2 ] 相同
+    3 # 如果 condition1 或 condition2 为 true,那结果就为 true.
+    4
+    5 if [[ $condition1 || $condition2 ]] # 也可以
+    6 # 注意||不允许出现在[ ... ]中.
+
+&amp;&amp; 与逻辑操作
+
+    1 if [ $condition1 ] &amp;&amp; [ $condition2 ]
+    2 与if [ $condition1 -a $condition2 ] 相同
+    3 # 如果 condition1 和 condition2 都为 true,那结果就为 true.
+    4
+    5 if [[ $condition1 &amp;&amp; $condition2 ]] # 也可以.
+    6 # 注意&amp;&amp;不允许出现在[ ... ]中.
+
+
+\- 选项,前缀.在所有的命令内如果想使用选项参数的话,前边都要加上&quot;-&quot;,之前工作的目录
+
+^ 行首,正则表达式中表示行首.&quot;^&quot;定位到行首.
+
+exit 退出脚本
+
+
+((...))与 let 命令很像,允许算术扩展和赋值.举个简单的例子 a=$(( 5 + 3 )),将把 a 设为 &quot;5+3&quot;或者 8.然而,双圆括号也是一种在 Bash 中允许使用 C 风格的变量处理的机制.
+</code></pre>
+
+<p>3.变量</p>
+
+<p>在shell编程中，所有的变量都由字符串组成，并且您不需要对变量进行声明，直接赋值就可以，应用变量的话，用$+变量名的形式。</p>
+
+<p><strong>等号前后不能有空格,如果赋值后面是执行语句，需要用&rdquo;`&ldquo;来表示，执行语句都是用&rdquo;`&ldquo;都可以,不一定都是在赋值后面</strong></p>
+
+<p>4。数组</p>
+
+<pre><code>A=(1 1 2 3)  定义
+${A[i]}    取数组的值,重0开始的
+${A[@]}     显示所有的参数
+${#A[@]}    显示参数的个数
+${A[@]/1/2}  将一换成2
+unset A[2]  删除A[2]
+</code></pre>
+
+<p>5.函数</p>
+
+<pre><code>function command()
+{
+
+}
+</code></pre>
+
+<p>6.重定向：将命令的结果输出到文件，而不是标准输出（屏幕）。</p>
+
+<pre><code>&gt; 写入文件并覆盖旧文件 
+&gt;&gt; 加到文件的尾部，保留旧文件内容。
+</code></pre>
+
+<p>7.流程控制</p>
+
+<p>判断</p>
+
+<pre><code>if .... then 
+.... 
+elif .... then 
+.... 
+else 
+.... 
+fi
+
+当 if 和 then 在一个条件测试的同一行中的话,必须使用&quot;;&quot;
+
+
+通常用&quot; [ ] &quot;来表示条件测试。注意这里的空格很重要。要确保方括号的空格。 
+[ -f &quot;somefile&quot; ] ：判断是否是一个文件 
+[ -x &quot;/bin/ls&quot; ] ：判断/bin/ls是否存在并有可执行权限 
+[ -n &quot;$var&quot; ] ：判断$var变量是否有值 
+[ &quot;$a&quot; = &quot;$b&quot; ] ：判断$a和$b是否相等 ,注意“=”和变量之间要有空格。
+多重条件可以用&amp;&amp;或者||来逻辑判断，但是用两个[]来使用，例如[]||[]
+
+1.整数比较 
+-eq 等于,如:if [ &quot;$a&quot; -eq &quot;$b&quot; ]   
+-ne/!= 不等于,如:if [ &quot;$a&quot; -ne &quot;$b&quot; ] 
+-gt 大于,如:if [ &quot;$a&quot; -gt &quot;$b&quot; ]   
+-ge 大于等于,如:if [ &quot;$a&quot; -ge &quot;$b&quot; ]   
+-lt 小于,如:if [ &quot;$a&quot; -lt &quot;$b&quot; ]   
+-le 小于等于,如:if [ &quot;$a&quot; -le &quot;$b&quot; ]   
+&lt;   小于(需要双括号),如:((&quot;$a&quot; &lt; &quot;$b&quot;))   
+&lt;=  小于等于(需要双括号),如:((&quot;$a&quot; &lt;= &quot;$b&quot;))   
+&gt;   大于(需要双括号),如:((&quot;$a&quot; &gt; &quot;$b&quot;))   
+&gt;   &gt;=  大于等于(需要双括号),如:((&quot;$a&quot; &gt;= &quot;$b&quot;))   
+
+
+
+2.字符串比较
+
+= 等于,如:if [ &quot;$a&quot; = &quot;$b&quot; ]   
+== 等于,如:if [ &quot;$a&quot; == &quot;$b&quot; ],与=等价  
+
+[[ $a == z* ]]   # 如果$a以&quot;z&quot;开头(模式匹配)那么将为true   
+[[ $a == &quot;z*&quot; ]] # 如果$a等于z*(字符匹配),那么结果为true   
+
+[ $a == z* ]     # File globbing 和word splitting将会发生
+[ &quot;$a&quot; == &quot;z*&quot; ] # 如果$a等于z*(字符匹配),那么结果为true
+
+
+
+3.判断变量是否为空
+
+FILEBEAT_PATH=$1
+if [ &quot;${FILEBEAT_PATH}&quot; == &quot;&quot; ]; then
+FILEBEAT_PATH=/pilot
+fi
+</code></pre>
+
+<p>循环</p>
+
+<pre><code>while
+while表达式： ----------while read line    这边的line只是一个变量，read应该读到换行符就解释
+while ...; do 
+.... 
+done &lt; filename   -----追加文件输入
+
+可以用关键字&quot;break&quot; 用来跳出循环；也可以用关键字”continue”用来不执行余下的部分而直接跳到下一个循环。大部分和for差不多，但是有一些必须使用while，比如无限循环。一般和read一起使用对文件进行操作，比如行操作，read line大部分和for差不多，但是有一些必须使用while，比如无限循环。
+
+for var in ....; do 
+.... 
+done 
+
+在一个 for 循环中忽略[list]的话,将会使循环操作$@从命令行传递给脚本的参数
+
+也可以使用命令替换来产生 for 循环的[list],例如`seq 1 15`
+
+for在shell中十分强大，它在批量操作，批量部署上有这个很大的优势。
+
+until 条件
+do
+done
+
+直到条件满足才退出
+</code></pre>
+
+<p>选择</p>
+
+<pre><code>case &quot;$variable&quot; in
+&quot;$condition1&quot;) command...
+;;
+&quot;$condition1&quot;) command...
+;;
+esac
+注意: 对变量使用&quot;&quot;并不是强制的,因为不会发生单词分离. 每句测试行,都以右小括号)结尾.
+每个条件块都以两个分号结尾;;.
+case 块的结束以 esac(case 的反向拼
+
+
+select i in var
+do
+done
+
+一般与变量结合使用
+
+PS3=&quot;what do you like:&quot;
+selct i in centos ubuntu readhat
+do 
+    echo &quot;you like $i&quot;
+done
+
+1)centos
+2)ubuntu
+3)readhat
+what do you like:1
+you like centos
+
+可以结合上面的case进行步骤操作。
+</code></pre>
+
+<h1 id="shell常用命令">shell常用命令</h1>
+
+<p>下面就是我们常规使用的命令总结了</p>
+
+<h2 id="awk">awk</h2>
+
+<p>awk是一个强大的文本分析工具，相对于grep的查找，sed的编辑，awk在其对数据分析并生成报告时，显得尤为强大。简单来说awk就是把文件逐行的读入，以空格为默认分隔符将每行切片，切开的部分再进行各种分析处理。</p>
+
+<p><strong>使用方法</strong></p>
+
+<p>awk &lsquo;{pattern + action}&rsquo; {filenames}
+尽管操作可能会很复杂，但语法总是这样，其中 pattern 表示 AWK 在数据中查找的内容，而 action 是在找到匹配内容时所执行的一系列命令。花括号（{}）不需要在程序中始终出现，但它们用于根据特定的模式对一系列指令进行分组。 pattern就是要表示的正则表达式，用斜杠括起来。</p>
+
+<p>awk语言的最基本功能是在文件或者字符串中基于指定规则浏览和抽取信息，awk抽取信息后，才能进行其他文本操作。完整的awk脚本通常用来格式化文本文件中的信息。</p>
+
+<p>通常，awk是以文件的一行为处理单位的。awk每接收文件的一行，然后执行相应的命令，来处理文本。</p>
+
+<p><strong>实例</strong></p>
+
+<pre><code>[root@www ~]# last -n 5 &lt;==仅取出前五行
+root     pts/1   192.168.1.100  Tue Feb 10 11:21   still logged in
+root     pts/1   192.168.1.100  Tue Feb 10 00:46 - 02:28  (01:41)
+root     pts/1   192.168.1.100  Mon Feb  9 11:41 - 18:30  (06:48)
+dmtsai   pts/1   192.168.1.100  Mon Feb  9 11:41 - 11:41  (00:00)
+root     tty1                   Fri Sep  5 14:09 - 14:10  (00:01)
+</code></pre>
+
+<p>如果只是显示最近登录的5个帐号</p>
+
+<pre><code>#last -n 5 | awk  '{print $1}'
+root
+root
+root
+dmtsai
+root
+</code></pre>
+
+<p>awk工作流程是这样的：读入有&rsquo;\n&rsquo;换行符分割的一条记录，然后将记录按指定的域分隔符划分域，填充域，$0则表示所有域,$1表示第一个域,$n表示第n个域。默认域分隔符是&rdquo;空白键&rdquo; 或 &ldquo;[tab]键&rdquo;,所以$1表示登录用户，$3表示登录用户ip,以此类推。</p>
+
+<p>NF最后一行，NR是最后一列。</p>
+
+<p>指定分隔符 awk -F: &lsquo;{print &ldquo;01: &ldquo;$1}&lsquo;,这个就以：分域了。可以在print中添加注解，相当于拼接字符串。</p>
+
+<h2 id="空格">空格</h2>
+
+<ol>
+<li>等号赋值两边不能有空格, var=string</li>
+<li>command,针对=后面跟上命令的，可以有空格，但是后面的命令必须要用``来执行，注意</li>
+<li>命令与选项之间需要空格</li>
+<li>管道两边空格可有可无</li>
+</ol>
+
+<h2 id="sed">sed</h2>
+
+<p>sed是一个很好的文件处理工具，本身是一个管道命令，主要是以行为单位进行处理，可以将数据行进行替换、删除、新增、选取等特定工作，下面先了解一下sed的用法</p>
+
+<p>sed命令行格式为：</p>
+
+<pre><code>sed [-nefri] ‘command’ 输入文本
+
+常用选项：
+    -n∶使用安静(silent)模式。在一般 sed 的用法中，所有来自 STDIN的资料一般都会被列出到萤幕上。但如果加上 -n 参数后，则只有经过sed 特殊处理的那一行(或者动作)才会被列出来。
+    -e∶直接在指令列模式上进行 sed 的动作编辑；
+    -f∶直接将 sed 的动作写在一个档案内， -f filename 则可以执行 filename 内的sed 动作；
+    -r∶sed 的动作支援的是延伸型正规表示法的语法。(预设是基础正规表示法语法)
+    -i∶直接修改读取的档案内容，而不是由萤幕输出。 不加则不修改源文件
+
+常用命令：
+     a   ∶新增， a 的后面可以接字串，而这些字串会在新的一行出现(目前的下一行)～
+     c   ∶取代， c 的后面可以接字串，这些字串可以取代 n1,n2 之间的行！
+     d   ∶删除，因为是删除啊，所以 d 后面通常不接任何咚咚；
+     i   ∶插入， i 的后面可以接字串，而这些字串会在新的一行出现(目前的上一行)；
+     p  ∶列印，亦即将某个选择的资料印出。通常 p 会与参数 sed -n 一起运作～
+     s  ∶取代，可以直接进行取代的工作哩！通常这个 s 的动作可以搭配正规表示法！例如 1,20s/old/new/g 就是啦！
+</code></pre>
+
+<p>下面来实例说明使用方法</p>
+
+<p>1.新增</p>
+
+<p>在第二行后(亦即是加在第三行)加上『drink tea?』字样！</p>
+
+<pre><code>[root@www ~]# nl /etc/passwd | sed '2a drink tea'
+1 root:x:0:0:root:/root:/bin/bash
+2 bin:x:1:1:bin:/bin:/sbin/nologin
+drink tea
+3 daemon:x:2:2:daemon:/sbin:/sbin/nologin
+</code></pre>
+
+<p>这边还有一种方式就是插入，和新增的区别在于位置。</p>
+
+<pre><code> nl /etc/passwd | sed '2i drink tea'
+</code></pre>
+
+<p>2.取代</p>
+
+<p>将第2-5行的内容取代成为『No 2-5 number』呢？</p>
+
+<pre><code>[root@www ~]# nl /etc/passwd | sed '2,5c No 2-5 number'
+1 root:x:0:0:root:/root:/bin/bash
+No 2-5 number
+6 sync:x:5:0:sync:/sbin:/bin/sync
+</code></pre>
+
+<p>3.删除</p>
+
+<p>将 /etc/passwd 的内容列出并且列印行号，同时，请将第 2~5 行删除！</p>
+
+<pre><code>[root@www ~]# nl /etc/passwd | sed '2,5d'
+1 root:x:0:0:root:/root:/bin/bash
+6 sync:x:5:0:sync:/sbin:/bin/sync
+7 shutdown:x:6:0:shutdown:/sbin:/sbin/shutdown
+</code></pre>
+
+<p>4.打印</p>
+
+<pre><code> sed &quot;1p&quot;                   打印第一行，一到五行1，5p，匹配打印这一行/a/p,最后一行$p
+</code></pre>
+
+<p>5.查找替换,这个应该是我们最常使用的。</p>
+
+<pre><code>sed &quot;s/a/b/g&quot; filename      替换，b替换a
+sed &quot;s/^/&amp;/g&quot; filename     开头是^,结尾是$,开头替换为&amp;，这些都是正则里面的，可以用于其他的比如grep，学会举一反三
+</code></pre>
+
+<p>经常场景</p>
+
+<pre><code>1. 在文件最后追加一些内容，常用于配置
+
+sed -i &quot;$a 内容&quot; filename 可以用于追加内容，但是觉得还是直接用echo &quot;&quot; &gt;&gt; filename好一点
+
+2.还可以在每个行首行尾追加内容
+
+sed -i &quot;s/$/&amp; 内容/g&quot; filename
+</code></pre>
+
+<h2 id="变量">$变量</h2>
+
+<p>特殊变量列表</p>
+
+<pre><code>变量     含义
+$0     当前脚本的文件名
+$n     传递给脚本或函数的参数。n 是一个数字，表示第几个参数。例如，第一个参数是$1，第二个参数是$2。
+$#     传递给脚本或函数的参数个数。
+$*     传递给脚本或函数的所有参数。
+$@     传递给脚本或函数的所有参数。被双引号(&quot; &quot;)包含时，与 $* 稍有不同，下面将会讲到。
+$?     上个命令的退出状态，或函数的返回值。0表示成功，可以用于脚本的命令执行状态的判断。127代表command not found
+$$     当前Shell进程ID。对于 Shell 脚本，就是这些脚本所在的进程ID
+</code></pre>
+
+<p>退出状态代码，用于$?</p>
+
+<pre><code>0 命令成功完成
+
+1通常的未知错误
+
+2误用shell命令
+
+126命令无法执行
+
+127没有找到命令
+
+128无效的退出参数
+
+128+x使用Linux信号x的致命错误。
+
+130使用Ctrl-C终止的命令
+
+255规范外的退出状态
+</code></pre>
+
+<h3 id="多台服务器">多台服务器</h3>
+
+<p>ue是很好的文本编辑器，用于处理文本编辑上具有很大的优势，包括块处理，替换，编码上，要学会用它来编辑我们需要的文档，比如今天的ip端口的整理替换用于shell脚本来跑，现在大部分我大部分使用sublime text。</p>
+
+<p>1.安装redis</p>
+
+<pre><code>redis=(10.147.0.1 10.147.0.107 10.147.0.16 10.147.0.31 10.147.0.17 10.147.0.32 10.147.0.46 10.147.0.61 10.147.0.47 10.147.0.62 10.147.0.76 10.147.0.91 10.147.0.77 10.147.0.92)
+</code></pre>
+
+<p>这边给变量赋值，这些ip在ue中可以很好的处理。等于号前后不能有空格，数组就是用大括号和逗号来表达</p>
+
+<pre><code>for x in ${redis[@]}
+do
+ssh $x -t &quot;mkdir -p /root/redis&quot;---当命令行出现“”时候需要使用\这个来转义
+done
+
+for x in ${redis[@]};do scp redis-3.2.8.tar.gz root@$x:/root/redis; done
+</code></pre>
+
+<p>这边把安装包重一台机器上复制到所有的机器上。-t 该参数通过指定一个伪终端迫使SecureShell客户端以交互模式工作，即使在给定命令的情况下也是如此。它被用于执行在远地主机上的基于屏幕的程序。通过-t参数来执行后面的命令，然后退出。</p>
+
+<pre><code>for x in ${redis[@]}
+do 
+ssh $$x -t &quot;tar -zxf redis-3.2.8.tar.gz &amp;&amp; cd redis-3.2.8 &amp;&amp; make &amp;&amp; make PREFIX=/usr/lib/redis install &amp;&amp; chown -R  hnapp:hnapp /usr/lib/redis &amp;&amp; chmod 777 -R /usr/lib/redis&quot;
+done
+</code></pre>
+
+<p>这边就是把所有的机器上安装上redis,可以将所有的命令进行联合用&amp;&amp;。这样用shell的for循环在一台机器上处理所有机器的安装，可以大幅度提高工作效率和减少出错。</p>
+
+<p>修改所有机器的密码</p>
+
+<pre><code>for x in ${cxx[@]}; do ssh $x -t &quot;echo Rljgvz0j | passwd --stdin root&quot;; done
+</code></pre>
+
+<p>2.创建集群的配置文件</p>
+
+<pre><code>for x in ${redis[@]}; do ssh $x -t &quot;mkdir /usr/lib/redis/conf&quot;; done
+cd /usr/lib/redis/conf
+vi redis-common.conf
+for x in ${redis[@]}; do scp redis-common.conf $x:`pwd`; done
+</code></pre>
+
+<p>可以这样创建一个公共配置文件include在每个配置文件中,这边有一个pwd指令是指当前目录，上面这个是正常的方法，下面我们来使用单个配置文件</p>
+
+<p>首先在一台机器上创建一个配置文件redis-.conf，在文件文件中需要改变的设置为变量</p>
+
+<pre><code>daemonize yes
+tcp-backlog 511
+timeout 0
+tcp-keepalive 0
+loglevel notice
+databases 16
+dir xccccccccccccccccccc
+slave-serve-stale-data yes
+slave-read-only yes
+repl-disable-tcp-nodelay yes
+slave-priority 100
+appendonly yes
+appendfsync everysec
+no-appendfsync-on-rewrite yes
+auto-aof-rewrite-min-size 64mb
+lua-time-limit 5000
+cluster-enabled yes
+cluster-node-timeout 15000
+cluster-migration-barrier 1
+slowlog-log-slower-than 10000
+slowlog-max-len 128
+notify-keyspace-events &quot;&quot;
+hash-max-ziplist-entries 512
+hash-max-ziplist-value 64
+list-max-ziplist-entries 512
+list-max-ziplist-value 64
+set-max-intset-entries 512
+zset-max-ziplist-entries 128
+zset-max-ziplist-value 64
+activerehashing yes
+client-output-buffer-limit normal 0 0 0
+client-output-buffer-limit slave 256mb 64mb 60
+client-output-buffer-limit pubsub 32mb 8mb 60
+hz 10
+aof-rewrite-incremental-fsync yes
+port 6379
+maxmemory cxxxxxxxxxxxxx
+maxmemory-policy allkeys-lru
+appendfilename &quot;appendonly-6379.aof&quot;
+dbfilename dump-6379.rdb
+cluster-config-file nodes-6379.conf
+auto-aof-rewrite-percentage 80-100
+logfile xcxcxcxcxcxcxcxcxcxc
+protected-mode no
+</code></pre>
+
+<p>然后写脚本redis_install.sh来替换变量，生成对应的配置文件</p>
+
+<pre><code>#!/bin/bash                                                     ----shell脚本的可执行文件，类似的python都是这样声明
+
+clusterName=$1                                                  ----获取shell的参数$1-n
+memCache=$2 
+
+----因为嵌套在下面的循环中，会导致冲突，所有这边单独拿出来跑一边
+rm -f mkredisdir.sh
+echo &quot;#!/bin/bash&quot; &gt;&gt; mkredisdir.sh
+cat redis_$clusterName.txt | awk -F'[: ]' '{for(i=2;i&lt;=NF;i++){printf(&quot;ssh %s -ttt \&quot;mkdir -p /data1/redis/%s\&quot; \n&quot;,$1,$i)}}' &gt;&gt; mkredisdir.sh  ----NF最后一行，NR是最后一列。
+chmod 755 mkredisdir.sh
+./mkredisdir.sh
+if [ $? -ne 0 ];then
+    exit 1
+fi
+
+
+
+
+while read line                                                 ----while循环结构do,done,读一行read line
+do
+    IP=`echo ${line} |  awk -F: '{print $1}'`                   ----获取文件中一行的ip,awk对line进行域划分，这边获取第一域            
+    dirName=`echo /usr/lib/redis/conf/$clusterName/`            ----获取文件名，这个shell中用``来执行命令，获取对结果给变量
+    portList=(`echo ${line} |  awk -F: '{print $2}' | tr -d '|'`)   ----这边获取端口list,用tr删除所有的|
+    for x in ${portList[@]}                                         ----在端口中循环
+    do
+
+        logfile=&quot;/data1/redis/$x/$x.log&quot;                            ----获取日志文件名
+        tmpFileName=/tmp/redis-$x.conf                              ----临时文件名,tmp目录下系统是自动清理的，一般清理十天前的文件
+        sed &quot;s/6379/$x/g&quot; redis-.conf &gt; $tmpFileName                ----把redis-.conf文件中的6379替换为变量$x重写到新文件中
+        sed -i &quot;s#xccccccccccccccccccc#/data1/redis/$x#g&quot; $tmpFileName  ----这边是把新文件中的xccccccccccccccccccc替换为/data1/redis/$x，如果变量中含有／就用#
+        sed -i &quot;s/cxxxxxxxxxxxxx/$memCache/g&quot; $tmpFileName
+        sed -i &quot;s#xcxcxcxcxcxcxcxcxcxc#$logfile#g&quot; $tmpFileName
+        scp $tmpFileName $IP:${dirName}/                                ----将对应的配置文件拷贝到对应主机的目录下
+        if [ $? -ne 0 ];then                                            ----如果失败则退出
+            echo &quot;scp  $tmpFileName to $IP failed.&quot;
+            exit 1
+        fi
+    done
+done &lt; redis_${clusterName}.txt                                         ----输入文件
+</code></pre>
+
+<p>写脚本的时候可以使用-X来调试shell脚本，&rdquo;-x&rdquo;选项可用来跟踪脚本的执行，是调试shell脚本的强有力工具。“-x”选项使shell在执行脚本的过程中把它实际执行的每一个命令行显示出来，并且在行首显示一个&rdquo;+&ldquo;号。 &ldquo;+&ldquo;号后面显示的是经过了变量替换之后的命令行的内容，有助于分析实际执行的是什么命令。 “-x”选项使用起来简单方便，可以轻松对付大多数的shell调试任务,应把其当作首选的调试手段。
+这边需要看一下解析的文件才能看懂</p>
+
+<pre><code>10.147.0.1:6000 6001
+10.147.0.107:6020 6021
+10.147.0.16:6040 6041
+10.147.0.31:6060 6061
+10.147.0.17:6080 6081
+10.147.0.32:6100 6101
+10.147.0.46:6120 6121
+10.147.0.61:6140 6141
+10.147.0.47:6160 6161
+10.147.0.62:6180 6181
+10.147.0.76:6200 6201
+10.147.0.91:6220 6221
+10.147.0.77:6240 6241
+10.147.0.92:6260 6261
+</code></pre>
+
+<p>这样就可以生成所有redis需要的配置文件并且在对应的主机路径,下面就是启动所有的redis</p>
+
+<pre><code>for x in ${redis[@]}; do ssh $x; done  -------这样可以按循序一台台主机上进行操作，然后没有把握的大批量数据就这样操作，如果又把我可以直接ssh $x -t ``
+find /usr/lib/redis/conf/ -name &quot;*.conf&quot; |  xargs -i /usr/lib/redis/bin/redis-server {}  ----获取的序列可以直接给{}
+</code></pre>
+
+<p>启动好后就要给redis配备集群角色了，先安装ruby，gem,以及redis的gem包</p>
+
+<pre><code>for x in ${redis[@]}; do  ssh $x -t &quot;yum install -y ruby;gem install -l redis-3.2.2.gem&quot;; done
+</code></pre>
+
+<p>然后生成tb脚本</p>
+
+<p>首先上面的文件处理成ip:port</p>
+
+<pre><code>awk '{
+
+for(i=2;i&lt;=NF;i++){
+    if (i!=NF){
+        printf(&quot;%s:%s &quot;,$1,$i)
+    }else{
+        printf(&quot;%s:%s \n&quot;,$1,$i)}
+}
+
+}' REDIS_W_DICT_NAT.txt &gt; REDIS_W_DICT_NAT_cluster.txt
+</code></pre>
+
+<p>然后生成shell脚本createsh.sh来生成对应的ruby脚本</p>
+
+<pre><code>#!/bin/bash
+
+fileName=$1                                                                         ----正常获取启动参数
+masterList=`awk '{for(i=1;i&lt;=NF;i++){                                               ----按行循环，如果这一列是奇数则取奇数位，偶数则取偶数位，最终获取所有的主的ip和port
+    if(NR%2!=0){
+        if(i%2!=0){
+            printf(&quot;\&quot;%s\&quot;,&quot;,$i)
+        }
+    }else{
+        if(i%2==0){
+            printf(&quot;\&quot;%s\&quot;,&quot;,$i)
+        }
+    }
+    }
+}' $fileName`
+
+
+masterListForStr=`echo $masterList | tr -s ',' ' ' | tr -d '&quot;'`                     ----将重复的空格和逗号都删除，并删除引号
+masterList=`echo [${masterList%,}]`                                                     
+
+
+num=1
+master=&quot;&quot;
+slave=&quot;&quot;
+cxx1=(`sed -n '1'p $fileName`)                                                      ----p是打印对应的行，这个就是获取第一行
+cxx2=(`sed -n '2'p $fileName`)
+cxx3=(`sed -n '3'p $fileName`)
+cxx4=(`sed -n '4'p $fileName`)
+cxx5=(`sed -n '5'p $fileName`)
+cxx6=(`sed -n '6'p $fileName`)
+cxx7=(`sed -n '7'p $fileName`)
+cxx8=(`sed -n '8'p $fileName`)
+cxx9=(`sed -n '9'p $fileName`)
+cxx10=(`sed -n '10'p $fileName`)
+cxx11=(`sed -n '11'p $fileName`)
+cxx12=(`sed -n '12'p $fileName`)
+cxx13=(`sed -n '13'p $fileName`)
+cxx14=(`sed -n '14'p $fileName`)
+
+lineCount=`awk 'END{print NF}' $fileName`                                           ----end是指处理完所有的执行，这边就是获取一行有多少个数据
+
+num=0
+num2=1
+while [ $num -lt $lineCount ]
+do
+    eval str1='$'{cxx1[${num}]}                                                     ----存在变量的变量需要用eval，获取第一列的所有数据
+    eval str2='$'{cxx2[${num}]}
+    eval str3='$'{cxx3[${num}]}
+    eval str4='$'{cxx4[${num}]}
+    eval str5='$'{cxx5[${num}]}
+    eval str6='$'{cxx6[${num}]}
+    eval str7='$'{cxx7[${num}]}
+    eval str8='$'{cxx8[${num}]}
+    eval str9='$'{cxx9[${num}]}
+    eval str10='$'{cxx10[${num}]}
+    eval str11='$'{cxx11[${num}]}
+    eval str12='$'{cxx12[${num}]}
+    eval str13='$'{cxx13[${num}]}
+    eval str14='$'{cxx14[${num}]}
+
+    res=`expr $num2 % 2`                                                            ----执行算数用expr
+    if [ &quot;X$res&quot; = &quot;X1&quot; ];then                                                      ----奇数重上往下，偶数重下往上，生成上下key/value结构，json格式
+        str=&quot;$str,\&quot;${str1}\&quot;:\&quot;${str2}\&quot;,\&quot;${str3}\&quot;:\&quot;${str4}\&quot;,\&quot;${str5}\&quot;:\&quot;${str6}\&quot;,\&quot;${str7}\&quot;:\&quot;${str8}\&quot;,\&quot;${str9}\&quot;:\&quot;${str10}\&quot;,\&quot;${str11}\&quot;:\&quot;${str12}\&quot;,\&quot;${str13}\&quot;:\&quot;${str14}\&quot;&quot;
+    else
+        str=&quot;$str,\&quot;${str14}\&quot;:\&quot;${str13}\&quot;,\&quot;${str12}\&quot;:\&quot;${str11}\&quot;,\&quot;${str10}\&quot;:\&quot;${str9}\&quot;,\&quot;${str8}\&quot;:\&quot;${str7}\&quot;,\&quot;${str6}\&quot;:\&quot;${str5}\&quot;,\&quot;${str4}\&quot;:\&quot;${str3}\&quot;,\&quot;${str2}\&quot;:\&quot;${str1}\&quot;&quot;
+    fi  
+
+    ((num = num + 1))
+    ((num2 = num2 + 1))
+done
+
+#echo $master
+str=`echo $str | cut -c 2-`                                                         ----删除第一个逗号
+str=`echo &quot;{$str}&quot;`
+
+slaveListForStr=`/usr/bin/python &lt;&lt;EOF                                              ----开始结束,将python嵌入到shel中，输出字符直接给一个变量
+
+allDict=$str                                                                        ----将json格式到字符串给python中到数组，类似于c++中到vector
+masterList=$masterList
+slaveStr=&quot;&quot;
+for master in masterList:
+    slaveStr=slaveStr + &quot; &quot; + allDict[master]                                       ----进行匹配
+    print slaveStr
+
+
+EOF`
+echo &quot;/root/redis-3.2.8/src/redis-trib.rb create --replicas 1 &quot;$masterListForStr$slaveListForStr
+</code></pre>
+
+<p>然后生成redis官方的tb脚本</p>
+
+<pre><code>/root/redis-3.2.8/src/redis-trib.rb create --replicas 1 ip:port                 -------这边是先都是主后面都是备，一一对应，这个脚本有自己均衡m/s的功能，不一定会按着对应分配master和slave，但是正常情况下都是对应的。
+</code></pre>
+
+<p>由此可见shell的自动化脚本确实很强大，可以解决很多问题。</p>
+
+<h2 id="test结构">test结构</h2>
+
+<p>if test condition-true 这种形式和 if[condition-true]这种形式是等价的</p>
+
+<p>有一个专用命令&rdquo;[&ldquo;(左中括号,特殊字符).这个命令与 test 命令等价。在版本 2.02 的 Bash 中,推出了一个新的[[&hellip;]]扩展 test 命令.因为这种表现形式可能对某些语 言的程序员来说更加熟悉.注意&rdquo;[[&ldquo;是一个关键字,并不是一个命令.</p>
+
+<p>Bash 把[[ $a -lt $b ]]看作一个单独的元素,并且返回一个退出码.</p>
+
+<pre><code>[-f filename]相当于判断文件是否存在
+
+[-d dir]        判断目录是否存在
+
+[ -n string ]  –n 字符串 字符串的长度非零
+
+[ -z string ]  字符串的长度零
+
+[ -a FILE ] 如果 FILE 存在则为真。
+
+[ -b FILE ] 如果 FILE 存在且是一个块特殊文件则为真。
+
+[ -c FILE ] 如果 FILE 存在且是一个字特殊文件则为真。
+
+[ -d FILE ] 如果 FILE 存在且是一个目录则为真。
+
+[ -e FILE ] 如果 FILE 存在则为真。
+
+[ -f FILE ] 如果 FILE 存在且是一个普通文件则为真。
+
+[ -g FILE ] 如果 FILE 存在且已经设置了SGID则为真。
+
+[ -h FILE ] 如果 FILE 存在且是一个符号连接则为真。
+
+[ -k FILE ] 如果 FILE 存在且已经设置了粘制位则为真。
+
+[ -p FILE ] 如果 FILE 存在且是一个名字管道(F如果O)则为真。
+
+[ -r FILE ] 如果 FILE 存在且是可读的则为真。
+
+[ -s FILE ] 如果 FILE 存在且大小不为0则为真。
+
+[ -t FD ] 如果文件描述符 FD 打开且指向一个终端则为真。
+
+[ -u FILE ] 如果 FILE 存在且设置了SUID (set user ID)则为真。
+
+[ -w FILE ] 如果 FILE 如果 FILE 存在且是可写的则为真。
+
+[ -x FILE ] 如果 FILE 存在且是可执行的则为真。
+
+[ -O FILE ] 如果 FILE 存在且属有效用户ID则为真。
+
+[ -G FILE ] 如果 FILE 存在且属有效用户组则为真。
+
+[ -L FILE ] 如果 FILE 存在且是一个符号连接则为真。
+
+[ -N FILE ] 如果 FILE 存在 and has been mod如果ied since it was last read则为真。
+
+[ -S FILE ] 如果 FILE 存在且是一个套接字则为真。
+</code></pre>
+
+<h2 id="shell内建变量">shell内建变量</h2>
+
+<pre><code>$BASH
+这个变量将指向 Bash 的二进制执行文件的位置.
+
+$BASH_ENV
+这个环境变量将指向一个 Bash 启动文件,这个启动文件将在调用一个脚本时被读取.
+
+$BASH_SUBSHELL
+这个变量将提醒 subshell 的层次,这是一个在 version3 才被添加到 Bash 中的新特性.
+
+$BASH_VERSINFO[n]
+记录 Bash 安装信息的一个 6 元素的数组.与下边的$BASH_VERSION 很像
+
+$DIRSTACK
+在目录栈中最上边的值
+
+$EDITOR
+脚本调用的默认编辑器,一般是 vi 或者是 emacs.
+
+$EUID
+&quot;effective&quot;用户 ID 号.
+
+$FUNCNAME 当前函数的名字.
+
+$GLOBIGNORE
+一个文件名的模式匹配列表
+
+$GROUPS
+当前用户属于的组.
+
+$HOME
+用户的 home 目录
+
+$HOSTNAME
+hostname 命令将在一个 init 脚本中,在启动的时候分配一个系统名字. gethostname()函数将用来设置这个$HOSTNAME 内部变量
+
+$HOSTTYPE
+主机类型
+
+$IFS 内部域分隔符.
+
+$IGNOREEOF
+忽略 EOF
+
+$LC_COLLATE
+常在.bashrc 或/etc/profile 中设置,这个变量用来在文件名扩展和模式匹配校对顺序. 如果$LC_COLLATE 被错误的设置,那么将会在 filename globbing 中引起错误的结果.
+
+$LC_CTYPE
+这个内部变量用来控制 globbing 和模式匹配的字符串解释.
+
+$LINENO
+这个变量记录它所在的 shell 脚本中它所在行的行号.这个变量一般用于调试目的.
+
+$MACHTYPE
+系统类型
+
+$OLDPWD你所在的之前的目录
+
+$OSTYPE 操作系统类型.
+
+$PATH
+指向 Bash 外部命令所在的位置
+
+$PIPESTATUS
+数组变量将保存最后一个运行的前台管道的退出码
+
+$PPID
+一个进程的$PPID 就是它的父进程的进程
+
+$PROMPT_COMMAND 这个变量保存一个在主提示符($PS1)显示之前需要执行的命令
+
+$PS1  2  3  4 提示符
+
+$PWD 工作目录(你当前所在的目录). 与 pwd 内建命令作用相同.
+
+$SHELLOPTS
+这个变量里保存 shell 允许的选项,这个变量是只读
+
+$SHLVL
+Shell 层次
+
+$TMOUT
+如果$TMOUT 环境变量被设置为一个非零的时间值,那么在过了这个指定的时间之后, shell 提示符将会超时,这会引起一个 logout.
+
+$UID
+用户 ID 号.
+当前用户的 id 号,在/etc/passwd 中记录.
+这个值不会因为用户使用了 su 命令而改变.$UID 是只读变量,不容易在命令行或者是脚 本中被修改,并且和内建的 id 命令很相像.
+
+$SECONDS 这个脚本已经运行的时间(单位为秒).
+
+$RANDOM: 产生随机整数
+</code></pre>
+
+<h2 id="字符串">字符串</h2>
+
+<p>1.字符串取值</p>
+
+<pre><code>${parameter}
+与$parameter 相同,就是 parameter 的值.
+${parameter-default},${parameter:-default} 如果 parameter 没被 set,那么就使用 default.
+${parameter=default},${parameter:=default} 如果 parameter 未设置,那么就设置为 default.
+${parameter+alt_value},${parameter:+alt_value} 如果 parameter 被 set 了,那就使用 alt_value,否则就使用 null 字符串.
+${parameter?err_msg}, ${parameter:?err_msg} 如果 parameter 被 set,那就是用 set 的值,否则 print err_msg.
+</code></pre>
+
+<p>2.字符串操作</p>
+
+<pre><code>${#string}  $string的长度
+
+截取
+${string:position} 在 string 中从位置$position 开始提取子串.如果$string 为&quot;*&quot;或&quot;@&quot;,那么将提取从位置$position开始的位置参数
+${string:position:length} 在 string 中从位置$position 开始提取$length 长度的子串.
+
+也可以使用命令expr
+expr substr $string $position $length
+在 string 中从位置$position 开始提取$length 长度的子串.
+
+反向截取
+echo ${string:-4}     # 以${parameter:-default}方式,默认是提取完整地字符串.
+echo ${string:(-4)}
+
+
+删除
+${string#substring} 从$string 的左边截掉第一个匹配的$substring
+${string##substring} 从$string 的左边截掉最后一个个匹配的$substring
+${string%substring} 从$string 的右边截掉第一个匹配的$substring
+${string%%substring} 从$string 的右边截掉最后一个匹配的$substrin
+
+
+
+替换
+${string/substring/replacement} 使用$replacement 来替换第一个匹配的$substring.
+${string//substring/replacement} 使用$replacement 来替换所有匹配的$substring.
+${string/#substring/replacement} 如果$substring 匹配$string 的开头部分,那么就用$replacement 来替换$substring.
+${string/%substring/replacement} 如果$substring 匹配$string 的结尾部分,那么就用$replacement 来替换$substring.
+</code></pre>
+
+<p>在shell中，通过awk,sed,expr 等都可以实现，字符串上述操作。下面我们进行性能比较。</p>
+
+<pre><code>[chengmo@localhost ~]$ test='c:/windows/boot.ini'
+[chengmo@localhost ~]$ time for i in $(seq 10000);do a=${#test};done;
+
+real    0m0.173s
+user    0m0.139s
+sys     0m0.004s
+
+[chengmo@localhost ~]$ time for i in $(seq 10000);do a=$(expr length $test);done;
+
+real    0m9.734s
+user    0m1.628s
+</code></pre>
+
+<h2 id="内建命名">内建命名</h2>
+
+<p>I/O</p>
+
+<pre><code>echo
+打印(到 stdout)一个表达式或变量
+</code></pre>
+
+<h2 id="expr">expr</h2>
+
+<p>expr 用于在UNIX/LINUX下求表达式变量的值，一般用于整数值，也可用于字符串。</p>
+
+<pre><code>expr 表达式
+
+表达式说明:
+
+用空格隔开每个项；
+用 / (反斜杠) 放在 shell 特定的字符前面；
+对包含空格和其他特殊字符的字符串要用引号括起来
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>1、计算字串长度
+&gt; expr length “this is a test”
+ 14
+
+2、抓取字串
+&gt; expr substr “this is a test” 3 5
+is is
+
+3、抓取第一个字符数字串出现的位置
+&gt; expr index &quot;sarasara&quot;  a
+ 2
+
+4、整数运算
+ &gt; expr 14 % 9
+ 5
+</code></pre>
+
+<h2 id="增量备份和全量备份">增量备份和全量备份</h2>
+
+<h3 id="rsync备份">rsync备份</h3>
+
+<p>rsync由于本身的特性，在第一次rsync备份后，以后每次都只是传内容有改变的部分，而不是全部传。所以，rsync在做镜像方面是很不错的，只传增量，节省带宽、时间。</p>
+
+<p>常规本地rsync备份命令可以是：</p>
+
+<pre><code>rsync -az --delete SRC DST
+其中：
+-z 压缩
+-a 简单理解就是保持一致性
+--delete 严格保证DST内容与SRC一致，即DST中SRC没有的文件会被删除掉   （--delete-before表示在进行同步之前，先将目标目录全部删除，然后再进行同步操作）
+</code></pre>
+
+<p>实例如下：</p>
+
+<pre><code>[root@promesdevapp02 ~]# mkdir test1
+[root@promesdevapp02 ~]# mkdir test2
+[root@promesdevapp02 ~]# cd test1/
+[root@promesdevapp02 test1]# ll
+total 0
+[root@promesdevapp02 test1]# echo &quot;a1&quot; &gt; a1.txt
+[root@promesdevapp02 test1]# echo &quot;a2&quot; &gt; a2.txt
+[root@promesdevapp02 test1]# ll
+total 8
+-rw-r--r-- 1 root root 3 Dec 11 10:58 a1.txt
+-rw-r--r-- 1 root root 3 Dec 11 10:58 a2.txt
+[root@promesdevapp02 test1]# cd ../test2/
+[root@promesdevapp02 test2]# ll
+total 0
+[root@promesdevapp02 test2]# cd ..
+[root@promesdevapp02 ~]# rsync -az --delete test1 test2/
+[root@promesdevapp02 ~]# ls test1
+a1.txt  a2.txt
+[root@promesdevapp02 ~]# ls test2
+test1
+[root@promesdevapp02 ~]# ls test2/test1/
+a1.txt  a2.txt
+[root@promesdevapp02 ~]# cd test1/
+[root@promesdevapp02 test1]# echo &quot;a3&quot; &gt; a3.txt
+[root@promesdevapp02 test1]# cd ..
+[root@promesdevapp02 ~]# rsync -az --delete test1 test2/
+[root@promesdevapp02 ~]# ls test2/test1/
+a1.txt  a2.txt  a3.txt
+</code></pre>
+
+<p>注意：</p>
+
+<p>&ndash;delete参数要放在源目录和目标目录前，并且两个目录结构一定要一致！不能使用./*。</p>
+
+<p>如果目录结构不一致，则不会删除目标目录中的目录。如上，/opt/wang目录由于目录结构不一致，故它是多余的但不删除。</p>
+
+<p>现在进行增量备份，rsync在第一次同步后，后面就只同步内容有改变的部分</p>
+
+<p>rsync使用&ndash;delete参数，在做增量方式的全备份可以说是最佳选择。但这样只有一个副本，也就是说如果你想查以前某个时间段的数据，是没法查到的。</p>
+
+<h3 id="tar打包备份">tar打包备份</h3>
+
+<p>tar的备份就是把文件打包起来，保存到其他地方，可以满足查档要求，也即上面说到的。
+再配合crontab，就可以实现定时增量备份</p>
+
+<p>下面说说tar的三种增量备份方式</p>
+
+<p>第一种方式</p>
+
+<pre><code>tar -g snapshot方法
+利用tar -g参数，在第一次备份时候生成时间戳文件，里面包含指定备份目录下的所有文件的一个时间戳，下次增量备份，tar会利用时间戳文件去比较，只有那些内容在这段时间有修改的文件，才会被打包。
+</code></pre>
+
+<p>实例说明</p>
+
+<pre><code>[root@linux-node3 mnt]# ls
+[root@linux-node3 mnt]# mkdir test
+[root@linux-node3 mnt]# echo &quot;123&quot; &gt; test/test1
+[root@linux-node3 mnt]# echo &quot;123123&quot; &gt; test/test2
+[root@linux-node3 mnt]# mkdir test/aaa
+[root@linux-node3 mnt]# ls test/
+aaa  test1  test2
+</code></pre>
+
+<p>先执行完整备份</p>
+
+<pre><code>[root@linux-node3 mnt]# tar -g snapshot -zcf backup_full.tar.gz test
+[root@linux-node3 mnt]# ls
+aaa  backup_full.tar.gz  snapshot  test
+[root@linux-node3 mnt]# cat snapshot
+GNU tar-1.23-2
+1490172505723210801014901724572030064696476940641test/aaa014901724572030064696476940639testDaaaYtest1Ytest2
+</code></pre>
+
+<p>接下来进行差异和增量备份操作</p>
+
+<pre><code>增加数据
+[root@linux-node3 mnt]# echo &quot;aaaaa&quot; &gt;&gt; test/test1
+[root@linux-node3 mnt]# echo &quot;aaaaa11111&quot; &gt;&gt; test/test3
+[root@linux-node3 mnt]# ls test/
+aaa  test1  test2  test3
+
+执行第一次的增量备份 (注意tarball档名)
+[root@linux-node3 mnt]# tar -g snapshot -zcf backup_incremental_1.tar.gz test
+[root@linux-node3 mnt]# ls
+aaa  backup_full.tar.gz  backup_incremental_1.tar.gz  snapshot  test
+[root@linux-node3 mnt]# cat snapshot
+GNU tar-1.23-2
+1490172606339019504014901724572030064696476940641test/aaa014901725622320064796476940639testDaaaYtest1Ntest2Ytest3
+</code></pre>
+
+<p>再增加差异数据</p>
+
+<pre><code>[root@linux-node3 mnt]# echo &quot;77777&quot; &gt; test/test1
+[root@linux-node3 mnt]# echo &quot;6666&quot; &gt;&gt; test/test2
+[root@linux-node3 mnt]# touch test/aaaa
+[root@linux-node3 mnt]# ls test/
+aaa  aaaa  test1  test2  test3
+
+执行第二次的增量备份
+[root@linux-node3 mnt]# tar -g snapshot -zcf backup_incremental_2.tar.gz test
+[root@linux-node3 mnt]# ls
+aaa  backup_full.tar.gz  backup_incremental_2.tar.gz  backup_incremental_1.tar.gz  snapshot  test
+[root@linux-node3 mnt]# cat snapshot
+GNU tar-1.23-2
+149017272274896944014901724572030064696476940641test/aaa014901726931200065246476940639testDaaaYaaaaYtest1Ytest2Ntest3
+</code></pre>
+
+<p>现在进行测试，删除测试数据test</p>
+
+<pre><code>[root@linux-node3 mnt]# rm -rf test/
+[root@linux-node3 mnt]# ls
+aaa  backup_full.tar.gz  backup_incremental_2.tar.gz  backup_incremental_1.tar.gz  snapshot
+</code></pre>
+
+<p>开始进行数据还原</p>
+
+<p>恢复第一次全备份的数据</p>
+
+<pre><code>[root@linux-node3 mnt]# tar zxf backup_full.tar.gz
+[root@linux-node3 mnt]# ls
+aaa  backup_full.tar.gz  backup_incremental_2.tar.gz  backup_incremental_1.tar.gz  snapshot  test
+[root@linux-node3 mnt]# ls test/
+aaa  test1  test2
+[root@linux-node3 mnt]# cat test/test1
+123
+</code></pre>
+
+<p>恢复第一次增量备份的数据</p>
+
+<pre><code>[root@linux-node3 mnt]# tar zxf backup_incremental_1.tar.gz
+[root@linux-node3 mnt]# ls test/
+aaa  test1  test2  test3
+[root@linux-node3 mnt]# cat test/test1
+123
+aaaaa
+[root@linux-node3 mnt]# cat test/test3
+aaaaa11111
+</code></pre>
+
+<p>恢复第二次增量备份的数据</p>
+
+<pre><code>[root@linux-node3 mnt]# tar zxf backup_incremental_2.tar.gz
+[root@linux-node3 mnt]# ls test/
+aaa  aaaa  test1  test2  test3
+[root@linux-node3 mnt]# cat test/test1
+77777
+[root@linux-node3 mnt]# cat test/test2
+123123
+6666
+</code></pre>
+
+<p>最后可以结合crontab实现定时增量备份，第一次手动进行全备份，生成snapshot时间戳文件，后面写增量备份脚本</p>
+
+<pre><code>[root@linux-node3 ~]# vim  backup_incremental.sh
+#!/bin/bash
+DATE=`date +%Y%m%d%H%M%S`
+/bin/tar -g /mnt/snapshot -zcf /mnt/backup_incremental_$DATE.tar.gz /mnt/test
+</code></pre>
+
+<p>进行定时增量备份操作</p>
+
+<pre><code>[root@linux-node3 ~]# crontab -e
+#每小时进行一次增量备份
+0 * * * * /bin/bash -x /root/backup_incremental.sh &gt; /dev/null 2&gt;&amp;1
+</code></pre>
+
+<p>snapshot作为时间戳文件，它记录备份目录里面每个文件的一个当前修改时间，只要下次备份时候，再利用-g ~/snapshot指定上次生成的时间戳文件就可以实现增量备份！</p>
+
+<p>可能出现下面两种问题：</p>
+
+<p>1.snapshot时间戳文件是每次增量备份完成时候更新的，如果在两次备份间隔间，由于io问题，上次备份没完成，第二次增量备份就开始的话，
+就有可能出现，第二次增量备份并不是一个备份间隔有修改过的文件，而是两次；如果IO问题一直存在，就会一直累积备份，最后系统超负载，性能变得极差</p>
+
+<p>2.上次备份失败（意外终止）
+这样的情况，要看是在什么时候终止，因为tar命令在增量备份时候会先扫一遍文件，比较修改时间，因此，有可能备份进程意外终止后，导致时间戳文件清空，下次增量备份就变成全备了，严重影响备份策略！</p>
+
+<p>第二种方式：</p>
+
+<pre><code>tar -g tarinfo增量备份方法
+只需要指定-g参数，tarinfo文件则是用来记录备份的一些信息
+</code></pre>
+
+<p>1）创建备份测试目录wang</p>
+
+<pre><code>[root@zabbix-server opt]# pwd
+/opt
+[root@zabbix-server opt]# echo &quot;1111&quot; &gt; wang/1.txt
+[root@zabbix-server opt]# echo &quot;2222&quot; &gt; wang/2.txt
+[root@zabbix-server opt]# echo &quot;3333&quot; &gt; wang/3.txtwang
+[root@zabbix-server opt]# ls wang/
+1.txt  2.txt  3.txt
+</code></pre>
+
+<p>2）进行完整备份</p>
+
+<pre><code>[root@zabbix-server opt]# tar -g tarinfo -czf backup-full.tar.gz wang/
+[root@zabbix-server opt]# ls
+backup-full.tar.gz  tarinfo  wang
+</code></pre>
+
+<p>3）新增文件</p>
+
+<pre><code>[root@zabbix-server opt]# echo &quot;4444&quot; &gt; wang/4.txt
+[root@zabbix-server opt]# echo &quot;12121&quot; &gt;&gt; wang/1.txt
+</code></pre>
+
+<p>4）进行增量备份</p>
+
+<pre><code>[root@zabbix-server opt]# tar -g tarinfo -czf backup-incre1.tar.gz wang/
+[root@zabbix-server opt]# ls
+backup-full.tar.gz  backup-incre1.tar.gz  tarinfo  wang
+[root@zabbix-server opt]# cat tarinfo
+GNU tar-1.23-2
+1508989798794775692015089897819623314720538519682wangY1.txtN2.txtN3.txtY4.txt
+</code></pre>
+
+<p>5）删除wang目录，进行恢复（先全量恢复，再增量恢复）</p>
+
+<pre><code>[root@zabbix-server opt]# rm -rf wang
+[root@zabbix-server opt]# ls
+backup-full.tar.gz  backup-incre1.tar.gz  tarinfo
+[root@zabbix-server opt]# tar -zvxf backup-full.tar.gz
+wang/
+wang/1.txt
+wang/2.txt
+wang/3.txt
+[root@zabbix-server opt]# ls wang/
+1.txt  2.txt  3.txt
+[root@zabbix-server opt]# cat wang/1.txt
+1111
+[root@zabbix-server opt]# tar -zvxf backup-incre1.tar.gz
+wang/
+wang/1.txt
+wang/4.txt
+[root@zabbix-server opt]# ls wang/
+1.txt  2.txt  3.txt  4.txt
+[root@zabbix-server opt]# cat wang/1.txt
+1111
+12121
+</code></pre>
+
+<p>第三种方式：</p>
+
+<p>还是觉得tar -g snapshot最大的问题就是不可控，而且稳定性较差，出现备份重叠时候很难处理好。
+因此，可以利用find+tar来做增量备份的想法。利用find命令找出最近修改的文件名列表，然后再利用tar打包</p>
+
+<p>实例如下：</p>
+
+<pre><code>[root@linux-node3 ~]# ls /mnt/
+test
+[root@linux-node3 ~]# ls /mnt/test/
+aaa  aaaa  test1  test2  test3
+</code></pre>
+
+<p>备份/mnt/test目录下30分钟以内修改的文件</p>
+
+<p>先使用find命令列出最近有修改的文件名列表，保存到文件</p>
+
+<pre><code>[root@linux-node3 ~]# find /mnt/test -mmin -30 -type f &gt;&gt; /mnt/listfile
+[root@linux-node3 ~]# ls /mnt/
+listfile  test
+[root@linux-node3 ~]# cat /mnt/listfile
+/mnt/test/test2
+/mnt/test/aaaa
+/mnt/test/test1
+</code></pre>
+
+<p>然后使用tar命令对文件列表列出的文件名进行打包备份</p>
+
+<pre><code>[root@linux-node3 ~]# tar -zcf test.tgz -T /mnt/listfile
+tar: Removing leading `/' from member names
+[root@linux-node3 ~]# ls /mnt
+listfile        test.tgz            test
+</code></pre>
+
+<p>同理备份/mnt/test目录下1天之内修改的数据</p>
+
+<pre><code>[root@linux-node3 ~]# find /mnt/test  -mtime -1 -type f &gt;&gt; /mnt/listfile2
+[root@linux-node3 ~]# tar -zcf test2.tgz -T /mnt/listfile2
+</code></pre>
+
+<p>这样恢复的时候，需要恢复到哪个阶段的数据，就利用这个阶段备份的打包文件进行恢复即可！</p>
+
+<p>这种方式来做增量备份，即使某个时间段机器性能很差，备份重叠，也不会影响到各自的备份进程。
+此外，find命令生成的文件list，还可以方便以后查档，直接对list搜索指定文件，不用去tar查看。</p>
+
+<h2 id="起停脚本">起停脚本</h2>
+
+<p>可以使用netstat来查看进程，排除一下其他误关闭的操作，netstat一样有进程号，如果有把握就用ps</p>
+
+<pre><code>ssh 10.32.33.100 -t &quot;netstat -anp | grep -Ew \&quot;0.0.0.0:6381|0.0.0.0:6382\&quot; | awk '{for(i=1;i&lt;=NF;i++){if(\$i~/redis-server/){print \$i}}}' | cut -d \&quot;/\&quot; -f 1 | xargs kill -9&quot;
+</code></pre>
+
+<p>使用ssh的shell命令的时候，如果启动的进程需要一定的时间，就需要sleep，否则启动不起来，比如redis</p>
+
+<pre><code>ssh 10.32.33.100 -t &quot;redis-server /disk01/cachecloud/conf/redis-cluster-6381.conf;sleep 1;redis-server /disk01/cachecloud/conf/redis-cluster-6382.conf;sleep 1&quot;
+</code></pre>
+
+<h2 id="crotab定时任务">crotab定时任务</h2>
+
+<p>crontab -e    定时一个任务，在这个任务中编辑对应的执行时间</p>
+
+<p>12 12 12 * * /usr/bin/bash filename.sh &gt;&gt; /tmp/mysql.log 2&gt;&amp;1</p>
+
+<p>2&gt;$1  标准输出和标准输入都写到日志中，这边将脚本执行的日志进行重定向到/tmp/mysql.log，同时将标准输出和标准输入都写到这个文件中</p>
+
+<h2 id="top">top</h2>
+
+<p>使用方式</p>
+
+<pre><code>top [-dpqcCSsi] [n]
+
+d 指定每两次屏幕信息刷新之间的时间间隔。当然用户可以使用s交互命令来改变之。
+
+p 通过指定监控进程ID来仅仅监控某个进程的状态。    -p&lt;进程号&gt; 指定进程
+
+q 该选项将使top没有任何延迟的进行刷新。如果调用程序有超级用户权限，那么top将以尽可能高的优先级运行。
+
+S 指定累计模式，    -S 累积模式
+
+s 使top命令在安全模式中运行。这将去除交互命令所带来的潜在危险。    -s 保密模式
+
+i 使top不显示任何闲置或者僵死进程。    -i 忽略失效过程
+
+c 显示整个命令行而不只是显示命令名，    -c 显示完整的治命令
+
+-b 批处理
+-I&lt;时间&gt; 设置间隔时间
+-u&lt;用户名&gt; 指定用户名、
+-n&lt;次数&gt; 循环显示的次数
+
+这些参数也可以在top界面操作。
+</code></pre>
+
+<p>常用操作</p>
+
+<pre><code>top   //每隔5秒显式所有进程的资源占用情况
+top -d 2  //每隔2秒显式所有进程的资源占用情况
+top -c  //每隔5秒显式进程的资源占用情况，并显示进程的命令行参数(默认只有进程名)
+top -p 12345 -p 6789//每隔5秒显示pid是12345和pid是6789的两个进程的资源占用情况
+top -d 2 -c -p 123456 //每隔2秒显示pid是12345的进程的资源使用情况，并显式该进程启动的命令行参数
+top -Hp pid 查看所有线程
+</code></pre>
+
+<p>统计信息区</p>
+
+<p>前五行是当前系统情况整体的统计信息区。下面我们看每一行信息的具体意义。</p>
+
+<p>第一行，任务队列信息，同 uptime 命令的执行结果，具体参数说明情况如下：</p>
+
+<pre><code>14:06:23 — 当前系统时间
+
+up 70 days, 16:44 — 系统已经运行了70天16小时44分钟（在这期间系统没有重启过的吆！）
+
+2 users — 当前有2个用户登录系统
+
+load average: 1.15, 1.42, 1.44 — load average后面的三个数分别是1分钟、5分钟、15分钟的负载情况。
+
+load average数据是每隔5秒钟检查一次活跃的进程数，然后按特定算法计算出的数值。如果这个数除以逻辑CPU的数量，结果高于5的时候就表明系统在超负荷运转了。
+</code></pre>
+
+<p>第二行，Tasks — 任务（进程），具体信息说明如下：</p>
+
+<pre><code>系统现在共有206个进程，其中处于运行中的有1个，205个在休眠（sleep），stoped状态的有0个，zombie状态（僵尸）的有0个。
+</code></pre>
+
+<p>第三行，cpu状态信息，具体属性说明如下：</p>
+
+<pre><code>5.9%us — 用户空间占用CPU的百分比。
+
+3.4% sy — 内核空间占用CPU的百分比。
+
+0.0% ni — 改变过优先级的进程占用CPU的百分比
+
+90.4% id — 空闲CPU百分比
+
+0.0% wa — IO等待占用CPU的百分比
+
+0.0% hi — 硬中断（Hardware IRQ）占用CPU的百分比
+
+0.2% si — 软中断（Software Interrupts）占用CPU的百分比
+
+备注：在这里CPU的使用比率和windows概念不同，需要理解linux系统用户空间和内核空间的相关知识！
+</code></pre>
+
+<p>第四行,内存状态，具体信息如下：</p>
+
+<pre><code>32949016k total — 物理内存总量（32GB）
+
+14411180k used — 使用中的内存总量（14GB）
+
+18537836k free — 空闲内存总量（18GB）
+
+169884k buffers — 缓存的内存量 （169M）
+</code></pre>
+
+<p>第五行，swap交换分区信息，具体信息说明如下：</p>
+
+<pre><code>32764556k total — 交换区总量（32GB）
+
+0k used — 使用的交换区总量（0K）
+
+32764556k free — 空闲交换区总量（32GB）
+
+3612636k cached — 缓冲的交换区总量（3.6GB）
+</code></pre>
+
+<p>备注：</p>
+
+<p>第四行中使用中的内存总量（used）指的是现在系统内核控制的内存数，空闲内存总量（free）是内核还未纳入其管控范围的数量。纳入内核管理的内存不见得都在使用中，还包括过去使用过的现在可以被重复利用的内存，内核并不把这些可被重新使用的内存交还到free中去，因此在linux上free内存会越来越少，但不用为此担心。</p>
+
+<p>如果出于习惯去计算可用内存数，这里有个近似的计算公式：第四行的free + 第四行的buffers + 第五行的cached，按这个公式此台服务器的可用内存：18537836k +169884k +3612636k = 22GB左右。</p>
+
+<p>对于内存监控，在top里我们要时刻监控第五行swap交换分区的used，如果这个数值在不断的变化，说明内核在不断进行内存和swap的数据交换，这是真正的内存不够用了。</p>
+
+<p>第六行，空行。</p>
+
+<p>第七行以下：各进程（任务）的状态监控，项目列信息说明如下：</p>
+
+<pre><code>PID — 进程id
+
+USER — 进程所有者
+
+PR — 进程优先级
+
+NI — nice值。负值表示高优先级，正值表示低优先级
+
+VIRT — 进程使用的虚拟内存总量，单位kb。VIRT=SWAP+RES
+
+RES — 进程使用的、未被换出的物理内存大小，单位kb。RES=CODE+DATA
+
+SHR — 共享内存大小，单位kb
+
+S — 进程状态。D=不可中断的睡眠状态 R=运行 S=睡眠 T=跟踪/停止 Z=僵尸进程
+
+%CPU — 上次更新到现在的CPU时间占用百分比
+
+%MEM — 进程使用的物理内存百分比
+
+TIME+ — 进程使用的CPU时间总计，单位1/100秒
+
+COMMAND — 进程名称（命令名/命令行）
+</code></pre>
+
+<p>其他使用技巧：</p>
+
+<p>1.多U多核CPU监控</p>
+
+<pre><code>在top基本视图中，按键盘数字“1”，可监控每个逻辑CPU的状况：
+</code></pre>
+
+<p>2.高亮显示当前运行进程</p>
+
+<pre><code>敲击键盘“b”（打开/关闭加亮效果）
+</code></pre>
+
+<p>3.进程字段排序</p>
+
+<pre><code>默认进入top时，各进程是按照CPU的占用量来排序的，在下图中进程ID为28894的java进程排在第一（cpu占用142%），进程ID为574的java进程排在第二（cpu占用16%）
+</code></pre>
+
+<p>4.通过”shift + &gt;”或”shift + &lt;”可以向右或左改变排序列</p>
+
+<pre><code>下图是按一次”shift + &gt;”的效果图,视图现在已经按照%MEM来排序。
+</code></pre>
+
+<p>按进程的内存使用率排序</p>
+
+<pre><code>运行top命令后，键入大写M。
+
+有两种途径：
+
+a) 打开大写键盘的情况下，直接按M键
+
+b) 未打开大写键盘的情况下，Shift+M键
+</code></pre>
+
+<p>按进程的CPU使用率排序</p>
+
+<pre><code>运行top命令后，键入大写P。
+
+有两种途径：
+
+a) 打开大写键盘的情况下，直接按P键
+
+b) 未打开大写键盘的情况下，Shift+P键
+</code></pre>
+
+<h2 id="cpu使用率原理">cpu使用率原理</h2>
+
+<p>查看/proc/stat 文件内容</p>
+
+<pre><code>cat /proc/stat
+
+cpu  1411 1322 3070 1193539 2790 0 268 0 0 0
+cpu0 472 658 787 297933 695 0 19 0 0 0
+cpu1 314 157 728 299238 170 0 1 0 0 0
+cpu2 322 441 1069 296914 1727 0 246 0 0 0
+cpu3 302 66 485 299452 197 0 1 0 0 0
+intr 299813 52 967 0 0 0 0 3 0 1 0 0 0 17600 0 32507 3000 0 21 3016 4453 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 414 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ctxt 501394
+btime 1436591724
+processes 3538
+procs_running 1
+procs_blocked 0
+softirq 179345 0 45443 1877 2019 34083 0 979 20793 80 74071
+root@gino-virtual-machine:/home/gino# cat /proc/stat 
+cpu  1587 1322 3203 1270155 2790 0 269 0 0 0
+cpu0 558 658 838 317027 695 0 19 0 0 0
+cpu1 360 157 776 318377 170 0 1 0 0 0
+cpu2 344 441 1091 316110 1727 0 246 0 0 0
+cpu3 324 66 496 318641 197 0 1 0 0 0
+intr 318396 52 1009 0 0 0 0 3 0 1 0 0 0 21956 0 32538 3188 0 21 3026 4453 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 443 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ctxt 534481
+btime 1436591724
+processes 3540
+procs_running 1
+procs_blocked 0
+softirq 185287 0 47431 1917 2028 34208 0 1020 21961 87 76635
+</code></pre>
+
+<p>说明：</p>
+
+<pre><code>有以上信息可以得出 cpu是4核的，cpu这项对应信息如下
+
+cpu     user    nice    system  idle    iowait  irq softirq steal   guest   guest_nice
+user:用户态的CPU时间
+nice：低优先级程序所占用的用户态的cpu时间。
+system：系统态的CPU时间
+idle：CPU空闲的时间（不包含IO等待）
+iowait：等待IO响应的时间
+irq：处理硬件中断的时间
+softirq：处理软中断的时间
+steal:其他系统所花的时间（个人理解是针对虚拟机）
+guest：运行时间为客户操作系统下的虚拟CPU控制（个人理解是访客控制CPU的时间）
+guest_nice：低优先级程序所占用的用户态的cpu时间。（访客的）
+
+
+intr 这行展示系统中断的信息，第一个为自系统启动依赖，发生的所有中断的次数；然后每个数对应一个特定的中断自系统启动以来所发生的次数。
+ctxt 这行展示自系统启动以来CPU发生的上下文交互的次数
+btime 这行展示从系统启动到现在为止的时间（以UTC时间开始计算，单位为秒）
+processes 这行展示自系统启动以来所创建的任务的个数
+procs_runnig 这行显示当前运行队列的任务数目
+procs_blocked 这行显示当前被阻塞的任务数目
+spftirq 这行显示软中断的情况
+</code></pre>
+
+<p>可见，cpu的数据记录是时间，这边需要理解一下cpu的使用，要么使用，要么不使用，使用的时候可能有多种用户态，所以计算cpu的使用率，就是看cpu再这段时间中使用了多长时间，就是这个概念。</p>
+
+<p>所以cpu使用率计算公式：</p>
+
+<pre><code>（idle2-idle1）／时间2-时间1
+</code></pre>
+
+<h2 id="ifconfig-netstat">ifconfig&amp;&amp;netstat</h2>
+
+<p>安装</p>
+
+<pre><code>yum install net-tools
+</code></pre>
+
+<p>显示本机的ip，这只是一个工具，可以去看对应的网卡配置文件/etc/sysconfig/network-scripts/</p>
+
+<p>可以查看对应的网卡的ip</p>
+
+<p>drop是指丢包，inet是指ip</p>
+
+<h2 id="curl">curl</h2>
+
+<p>url访问命令，默认将输出打印到标准输出中(STDOUT)中，可用于下载单个文件。</p>
+
+<pre><code>-o：将文件保存为命令行中指定的文件名的文件中
+-O：使用URL中默认的文件名保存文件到本地
+</code></pre>
+
+<p>在访问需要授权的页面时，可通过-u选项提供用户名和密码进行授权</p>
+
+<pre><code>1 curl -u username:password URL
+</code></pre>
+
+<p>CURL同样支持FTP下载，若在url中指定的是某个文件路径而非具体的某个要下载的文件名，CURL则会列出该目录下的所有文件名而并非下载该目录下的所有文件</p>
+
+<p>列出public_html下的所有文件夹和文件</p>
+
+<pre><code>curl -u ftpuser:ftppass -O ftp://ftp_server/public_html/
+</code></pre>
+
+<p>-x 选项可以为CURL添加代理功能，指定代理主机和端口</p>
+
+<pre><code>curl -x proxysever.test.com:3128 http://google.co.in
+</code></pre>
+
+<p>默认curl使用GET方式请求数据，这种方式下直接通过URL传递数据
+可以通过 &ndash;data/-d 方式指定使用POST方式传递数据</p>
+
+<p>GET</p>
+
+<pre><code>curl -u username https://api.github.com/user?access_token=XXXXXXXXXX
+</code></pre>
+
+<p>POST</p>
+
+<pre><code>curl -u username --data &quot;param1=value1&amp;param2=value&quot; https://api.github.com
+</code></pre>
+
+<p>也可以指定一个文件，将该文件中的内容当作数据传递给服务器端</p>
+
+<pre><code>curl --data @filename https://github.api.com/authorizations
+</code></pre>
+
+<p>除了使用GET和POST协议外，还可以通过 -X 选项指定其它协议，如：</p>
+
+<pre><code>curl -I -X DELETE https://api.github.cim
+</code></pre>
+
+<p>下面举一个比较全面的例子</p>
+
+<pre><code>curl 'http://172.32.148.172/api/users/3/createproject/1' -X PUT -H 'Origin: http://172.32.148.172' -H 'Accept-Encoding: gzip, deflate' -H 'Accept-Language: zh-CN,zh;q=0.8,en;q=0.6' -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36' -H 'Content-Type: application/json' -H 'Accept: application/json' -H 'Referer: http://172.32.148.172/harbor/projects' -H 'Cookie: beegosessionID=423211d6d927d19c26b036df0f50db9b' -H 'Connection: keep-alive' --compressed
+</code></pre>
+
+<p>跳过密码验证</p>
+
+<pre><code>curl https://test.yourdomain.com:8088 --insecure
+</code></pre>
+
+<p>linux 下使用 curl 访问带多参数，GET掉参数解决方案</p>
+
+<p>url 为 <a href="http://mywebsite.com/index.php?a=1&amp;b=2&amp;c=3">http://mywebsite.com/index.php?a=1&amp;b=2&amp;c=3</a></p>
+
+<p>web形式下访问url地址，使用 $_GET是可以获取到所有的参数</p>
+
+<pre><code>curl  -s  http://mywebsite.com/index.php?a=1&amp;b=2&amp;c=3
+</code></pre>
+
+<p>然而在linux下，上面的例子 $_GET只能获取到参数 a</p>
+
+<p>由于url中有&amp;其他参数获取不到，在linux系统中 &amp;会使进程系统后台运行,必须对 &amp;进行下转义才能 $_GET获取到所有参数</p>
+
+<pre><code>curl  -s  http://mywebsite.com/index.php?a=1\&amp;b=2\&amp;c=3
+</code></pre>
+
+<p>当然，最简单的方法 用双引号把整个url引起来就ok了</p>
+
+<pre><code>curl  -s  &quot;http://mywebsite.com/index.php?a=1&amp;b=2&amp;c=3&quot;
+</code></pre>
+
+<p>curl 中 post 传参数的方法</p>
+
+<pre><code>curl  -d  'name=1&amp;pagination=2'demoapp.sinap.com/worker.php
+</code></pre>
+
+<p>这样 demoapp.sinap.com 站点中的 worker.php 脚本，就能得到 $_POST[&lsquo;name&rsquo;] 和 $_POST[&ldquo;pagination] 对应的值</p>
+
+<p>curl获得网站信息的方法（ -s 表示静默  &ndash;head 表示取得head信息 ）</p>
+
+<pre><code>curl  -s  --head  www.sina.com
+</code></pre>
+
+<h2 id="base64工具">base64工具</h2>
+
+<pre><code>echo xxx | bath64 -d
+</code></pre>
+
+<h2 id="vmstat">vmstat</h2>
+
+<p>虚拟内存统计</p>
+
+<p>vmstat命令是最常见的Linux/Unix监控工具，可以展现给定时间间隔的服务器的状态值,包括服务器的CPU使用率，内存使用，虚拟内存交换情况,IO读写情况。</p>
+
+<pre><code>[root@promessitapp40 transfer]# vmstat
+procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----
+ r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st
+ 1  0      0 670864      0 4500280    0    0     0     2    1    1  0  0 100  0  0
+</code></pre>
+
+<h2 id="cp">cp</h2>
+
+<p>原因：</p>
+
+<p>cp命令被系统设置了别名，相当于cp=‘cp -i’。</p>
+
+<p>强制复制</p>
+
+<p>方式一</p>
+
+<pre><code>使用原生的cp命令
+
+/bin/cp -rf xxxx
+</code></pre>
+
+<p>方式二</p>
+
+<pre><code>取消cp命令别名
+
+unalias cp
+
+去掉 cp 命令的别名,这时你再用 cp -rf 复制文件时,就不会要求确认啦.
+
+复制完成后恢复别名
+
+alias cp='cp -i'
+</code></pre>
+
+<h2 id="dirname">dirname</h2>
+
+<p>dirname命令去除文件名中的非目录部分，仅显示与目录有关的内容，可以用于显示脚本运行的绝对路径dirname $0</p>
+
+<h2 id="set-e">set -e</h2>
+
+<p>set -e。这句语句告诉bash如果任何语句的执行结果不是true则应该退出。这样的好处是防止错误像滚雪球般变大导致一个致命的错误</p>
+
+<h2 id="source-c-sh或者-c-sh">source c.sh或者. ./c.sh</h2>
+
+<p>执行的时候是./c.sh来执行的，这样执行的话终端会产生一个子shell（类似于C语言调用函数），子shell去执行我的脚本，在子shell中已经切换了目录了，但是子shell一旦执行完，马上退出，子shell中的变量和操作全部都收回。回到终端根本就看不到这个过程的变化。
+而使用这个命令这时候就是直接在终端的shell执行脚本了，没有生成子shell，执行的结果就是输出历史命令，并且切换了目录。</p>
+
+<h2 id="sz-rz">sz,rz</h2>
+
+<p>yum安装</p>
+
+<pre><code>yum install lrzsz
+</code></pre>
+
+<p>使用</p>
+
+<pre><code>sz命令发送文件到本地：
+# sz filename
+rz命令本地上传文件到服务器：
+# rz
+执行该命令后，在弹出框中选择要上传的文件即可。
+</code></pre>
+
+<h2 id="ss">ss</h2>
+
+<p>ss命令用来显示处于活动状态的套接字信息。ss命令可以用来获取socket统计信息，它可以显示和netstat类似的内容。但ss的优势在于它能够显示更多更详细的有关TCP和连接状态的信息，而且比netstat更快速更高效</p>
+
+<pre><code>-h：显示帮助信息；
+-V：显示指令版本信息；
+-n：不解析服务名称，以数字方式显示；
+-a：显示所有的套接字；
+-l：显示处于监听状态的套接字；
+-o：显示计时器信息；
+-m：显示套接字的内存使用情况；
+-p：显示使用套接字的进程信息；
+-i：显示内部的TCP信息；
+-4：只显示ipv4的套接字；
+-6：只显示ipv6的套接字；
+-t：只显示tcp套接字；
+-u：只显示udp套接字；
+-d：只显示DCCP套接字；
+-w：仅显示RAW套接字；
+-x：仅显示UNIX域套接字。
+-s：打印统计概要，显示 Sockets 摘要
+</code></pre>
+
+<h2 id="toc_30">&gt;&gt;</h2>
+
+<pre><code>echo h &gt;&gt; test.log 追加
+echo h &gt; test.log  覆盖
+</code></pre>
+
+<h2 id="type">type</h2>
+
+<p>type命令用来显示指定命令的类型，判断给出的指令是内部指令还是外部指令。</p>
+
+<p>命令类型：</p>
+
+<pre><code>alias：别名。
+keyword：关键字，Shell保留字。
+function：函数，Shell函数。
+builtin：内建命令，Shell内建命令。
+file：文件，磁盘文件，外部命令。
+unfound：没有找到。
+</code></pre>
+
+<h2 id="tcpdump">tcpdump</h2>
+
+<p>tcpdump命令是一款sniffer工具，它可以打印所有经过网络接口的数据包的头信息，也可以使用-w选项将数据包保存到文件中，方便以后分析。</p>
+
+<p>语法</p>
+
+<pre><code>tcpdump(选项)
+</code></pre>
+
+<p>选项</p>
+
+<pre><code>-a：尝试将网络和广播地址转换成名称；
+-c&lt;数据包数目&gt;：收到指定的数据包数目后，就停止进行倾倒操作；
+-d：把编译过的数据包编码转换成可阅读的格式，并倾倒到标准输出；
+-dd：把编译过的数据包编码转换成C语言的格式，并倾倒到标准输出；
+-ddd：把编译过的数据包编码转换成十进制数字的格式，并倾倒到标准输出；
+-e：在每列倾倒资料上显示连接层级的文件头；
+-f：用数字显示网际网络地址；
+-F&lt;表达文件&gt;：指定内含表达方式的文件；
+-i&lt;网络界面&gt;：使用指定的网络截面送出数据包；
+-l：使用标准输出列的缓冲区；
+-n：不把主机的网络地址转换成名字；
+-N：不列出域名；
+-O：不将数据包编码最佳化；
+-p：不让网络界面进入混杂模式；
+-q ：快速输出，仅列出少数的传输协议信息；
+-r&lt;数据包文件&gt;：从指定的文件读取数据包数据；
+-s&lt;数据包大小&gt;：设置每个数据包的大小；
+-S：用绝对而非相对数值列出TCP关联数；
+-t：在每列倾倒资料上不显示时间戳记；
+-tt： 在每列倾倒资料上显示未经格式化的时间戳记；
+-T&lt;数据包类型&gt;：强制将表达方式所指定的数据包转译成设置的数据包类型；
+-v：详细显示指令执行过程；
+-vv：更详细显示指令执行过程；
+-x：用十六进制字码列出数据包资料；
+-w&lt;数据包文件&gt;：把数据包数据写入指定的文件。
+</code></pre>
+
+<p>实例</p>
+
+<ol>
+<li><p>直接启动tcpdump将监视第一个网络接口上所有流过的数据包</p>
+
+<pre><code>tcpdump
+</code></pre></li>
+
+<li><p>监视指定网络接口的数据包</p>
+
+<pre><code>tcpdump -i eth1
+</code></pre></li>
+</ol>
+
+<p>如果不指定网卡，默认tcpdump只会监视第一个网络接口，一般是eth0，下面的例子都没有指定网络接口。</p>
+
+<ol>
+<li>监视指定主机的数据包</li>
+</ol>
+
+<p>打印所有进入或离开sundown的数据包。</p>
+
+<pre><code>    tcpdump host sundown
+</code></pre>
+
+<p>也可以指定ip,例如截获所有210.27.48.1 的主机收到的和发出的所有的数据包</p>
+
+<ol>
+<li>监视指定主机和端口的数据包</li>
+</ol>
+
+<p>如果想要获取主机210.27.48.1接收或发出的telnet包，使用如下命令</p>
+
+<pre><code>    tcpdump tcp port 23 and host 210.27.48.1
+</code></pre>
+
+<p>对本机的udp 123 端口进行监视 123 为ntp的服务端口</p>
+
+<pre><code>    tcpdump udp port 123
+</code></pre>
+
+<ol>
+<li><p>使用tcpdump抓取HTTP包</p>
+
+<pre><code>tcpdump  -XvvennSs 0 -i eth0 tcp[20:2]=0x4745 or tcp[20:2]=0x4854
+</code></pre></li>
+</ol>
+
+<p>0x4745 为&rdquo;GET&rdquo;前两个字母&rdquo;GE&rdquo;,0x4854 为&rdquo;HTTP&rdquo;前两个字母&rdquo;HT&rdquo;。</p>
+
+<p>tcpdump 对截获的数据并没有进行彻底解码，数据包内的大部分内容是使用十六进制的形式直接打印输出的。显然这不利于分析网络故障，通常的解决办法是先使用带-w参数的tcpdump 截获数据并保存到文件中，然后再使用其他程序(如Wireshark)进行解码分析。当然也应该定义过滤规则，以避免捕获的数据包填满整个硬盘。</p>
+
+<h2 id="watch">watch</h2>
+
+<p>watch的基本用法是：</p>
+
+<pre><code>$ watch [options]  command
+</code></pre>
+
+<p>最常用的参数是 -n， 后面指定是每多少秒来执行一次命令。</p>
+
+<p>监视显存：我们设置为每 10s 显示一次显存的情况：</p>
+
+<pre><code>$ watch -n 10 nvidia-smi
+</code></pre>
+
+<p>复合命令</p>
+
+<pre><code>watch -n 1 -d 'pstree|grep http'
+</code></pre>
+
+<h2 id="清空文件内容">清空文件内容</h2>
+
+<p>1。清空或者让一个文件成为空白的最简单方式，是像下面那样，通过 shell 重定向 null （不存在的事物）到该文件：</p>
+
+<pre><code>&gt; access.log
+</code></pre>
+
+<p>2.下面我们将使用 : 符号，它是 shell 的一个内置命令，等同于 true 命令，它可被用来作为一个 no-op（即不进行任何操作）。另一种清空文件的方法是将 : 或者 true 内置命令的输出重定向到文件中，具体如下：</p>
+
+<pre><code> : &gt; access.log
+ true &gt; access.log
+</code></pre>
+
+<p>3.使用 cat/cp/dd 实用工具及 /dev/null 设备来清空文件</p>
+
+<p>在 Linux 中， null 设备基本上被用来丢弃某个进程不再需要的输出流，或者作为某个输入流的空白文件，这些通常可以利用重定向机制来达到，所以 /dev/null 设备文件是一个特殊的文件，它将清空送到它这里来的所有输入，而它的输出则可被视为一个空文件。另外，你可以通过使用 cat命令 显示 /dev/null 的内容然后重定向输出到某个文件，以此来达到清空该文件的目的。</p>
+
+<pre><code>    cat /dev/null &gt; access.log
+
+    cp /dev/null access.log
+</code></pre>
+
+<p>而下面的命令中， if 代表输入文件，of 代表输出文件。</p>
+
+<pre><code>    dd if=/dev/null of=access.log
+</code></pre>
+
+<p>4.使用 echo 命令清空文件</p>
+
+<p>在这里，你可以使用 echo命令 将空字符串的内容重定向到文件中，具体如下：</p>
+
+<pre><code># echo &quot;&quot; &gt; access.log
+</code></pre>
+
+<p>或者</p>
+
+<pre><code># echo &gt; access.log
+</code></pre>
+
+<p>5.使用 truncate 命令来清空文件内容</p>
+
+<p>truncate 可被用来将一个文件缩小或者扩展到某个给定的大小。
+你可以利用它和 -s 参数来特别指定文件的大小。要清空文件的内容，则在下面的命令中将文件的大小设定为 0:</p>
+
+<pre><code># truncate -s 0 access.log
+</code></pre>
+
+<h2 id="shell-127">shell 127</h2>
+
+<p>Value 127 is returned by /bin/sh when the given command is not found within your PATH system variable and it is not a built-in shell command.</p>
+
+<h2 id="echo">echo</h2>
+
+<p>echo命令如何输出换行效果呢？</p>
+
+<p>启用echo 命令的反斜杠转义选项 -e     enable interpretation of backslash escapes，使用\n 实现换行。</p>
+
+<p>echo $?     打印终止状态（进程）</p>
+
+<h2 id="ps">ps</h2>
+
+<p>ps的参数太多了，不用全部记住，常用的就两种ps -ef 和ps aux。两者是因为系统不同（system v和BSD）而产生的，现在基本通用了，就是输出有点差异</p>
+
+<p>ps -ef 是用标准的格式显示进程的、其格式如下</p>
+
+<p>其中各列的内容意思如下</p>
+
+<pre><code>UID    //用户ID、但输出的是用户名
+PID    //进程的ID
+PPID    //父进程ID
+C      //进程占用CPU的百分比
+STIME  //进程启动到现在的时间
+TTY    //该进程在那个终端上运行，若与终端无关，则显示? 若为pts/0等，则表示由网络连接主机进程。
+CMD    //命令的名称和参数
+</code></pre>
+
+<p>ps aux 是用BSD的格式来显示</p>
+
+<p>同ps -ef 不同的有列有</p>
+
+<pre><code>USER      //用户名
+%CPU      //进程占用的CPU百分比
+%MEM      //占用内存的百分比
+VSZ      //该进程使用的虚拟內存量（KB）
+RSS      //该进程占用的固定內存量（KB）（驻留中页的数量）
+STAT      //进程的状态
+START    //该进程被触发启动时间
+TIME      //该进程实际使用CPU运行的时间
+</code></pre>
+
+<p>其中STAT状态位常见的状态字符有</p>
+
+<pre><code>D      //无法中断的休眠状态（通常 IO 的进程）；
+R      //正在运行可中在队列中可过行的；
+S      //处于休眠状态；
+T      //停止或被追踪；
+W      //进入内存交换 （从内核2.6开始无效）；
+X      //死掉的进程 （基本很少见）；
+Z      //僵尸进程；
+&lt;      //优先级高的进程
+N      //优先级较低的进程
+L      //有些页被锁进内存；
+s      //进程的领导者（在它之下有子进程）；
+l      //多线程，克隆线程（使用 CLONE_THREAD, 类似 NPTL pthreads）；
++      //位于后台的进程组；
+</code></pre>
+
+<h2 id="记一次脚本执行冲突的问题">记一次脚本执行冲突的问题：</h2>
+
+<p>\s 匹配任何空白字符，包括空格、制表符、换页符等等。等价于[ \f\n\r\t\v]。</p>
+
+<p>在ps -ef | grep &lsquo;mycat\s&rsquo; 可以有效的阻止自身ps出来的grep进程，类似于我们经常使用的grep -v grep</p>
+
+<p>但是同样是ps -ef | grep &lsquo;mycat\s&rsquo;两个进程去同时去执行，就会出现一个ps到另外一个ps的进程，导致输出出错，还是建议使用grep -v grep 或者使用不同的关键字查询，以后在脚本被多个系统执行时注意</p>
+
+<p>还有一种解决这种问题的方法，思路都是在ps的时候过滤掉grep，这个方法是指定ps哪些类型的进程，比如使用下面的命令，指定java进程就可以了。</p>
+
+<pre><code>-C by command name
+</code></pre>
+
+<p>解决使用-C，指定启动命令</p>
+
+<h2 id="find">find</h2>
+
+<p>linux中查找/目录下大于10M且小于100M的文件</p>
+
+<pre><code>find / -type f -size +10M -a -size -100M
+</code></pre>
+
+<h2 id="nano">nano</h2>
+
+<p>nano是一个字符终端的文本编辑器，有点像DOS下的editor程序。它比vi/vim要简单得多，比较适合Linux初学者使用。某些Linux发行版的默认编辑器就是nano。</p>
+
+<h2 id="性能监控常规操作">性能监控常规操作</h2>
+
+<p>对于每个系统管理员或网络管理员来说，每天要监控和调试 Linux 系统性能问题都是非常困难的工作。我已经有5年 Linux 管理员的工作经历，知道如何监控系统使其保持正常运行。为此，我们编写了对于 Linux/Unix 系统管理员非常有用的并且最常用的20个命令行系统监视工具。这些命令可以在所有版本的 Linux 下使用去监控和查找系统性能的实际原因。这些监控命令足够你选择适合你的监控场景。</p>
+
+<p>1.top — Linux 系统进程监控</p>
+
+<p>top 命令是性能监控程序，它可以在很多 Linux/Unix 版本下使用，并且它也是 Linux 系统管理员经常使用的监控系统性能的工具。Top 命令可以定期显示所有正在运行和实际运行并且更新到列表中，它显示出 CPU 的使用、内存的使用、交换内存、缓存大小、缓冲区大小、过程控制、用户和更多命令。它也会显示内存和 CPU 使用率过高的正在运行的进程。当我们对 Linux 系统需要去监控和采取正确的行动时，top 命令对于系统管理员是非常有用的。让我们看下 top 命令的实际操作。</p>
+
+<p>2.vmstat — 虚拟内存统计</p>
+
+<p>vmstat 命令是用于显示虚拟内存、内核线程、磁盘、系统进程、I/O 模块、中断、CPU 活跃状态等更多信息。在默认的情况下，Linux 系统是没有 vmstat 这个命令的，如果你要使用它，必须安装一个包名叫 sysstat 的程序包。命令格式常用用法如下：</p>
+
+<pre><code># vmstat
+procs -----------memory---------- ---swap-- -----io---- --system-- -----cpu-----
+r b swpd free inact active si so bi bo in cs us sy id wa st
+1 0 0 810420 97380 70628 0 0 115 4 89 79 1 6 90 3 0
+</code></pre>
+
+<p>3.lsof — 打开文件列表</p>
+
+<p>lsof 命令对于很多 Linux/Unix 系统都可以使用，主要以列表的形式显示打开的文件和进程。</p>
+
+<p>打开的文件主要包括磁盘文件、网络套接字、管道、设备和进程。使用这个命令的主要原因是一个一个盘不能卸载并且显示文件正在使用或者打开的错误信息。这个命令很容易看出哪些文件正在使用。这个命令最常用的格式：</p>
+
+<pre><code># lsof
+COMMAND PID USER FD TYPE DEVICE SIZE NODE NAME
+init 1 root cwd DIR 104,2 4096 2 /
+init 1 root rtd DIR 104,2 4096 2 /
+init 1 root txt REG 104,2 38652 17710339 /sbin/init
+init 1 root mem REG 104,2 129900 196453 /lib/ld-2.5.so
+init 1 root mem REG 104,2 1693812 196454 /lib/libc-2.5.so
+init 1 root mem REG 104,2 20668 196479 /lib/libdl-2.5.so
+init 1 root mem REG 104,2 245376 196419 /lib/libsepol.so.1
+init 1 root mem REG 104,2 93508 196431 /lib/libselinux.so.1
+init 1 root 10u FIFO 0,17 953 /dev/initctl
+</code></pre>
+
+<p>4.tcpdump — 网络数据包分析器</p>
+
+<p>tcpdump 是一种使用最广泛的命令行网络数据包分析器或数据包嗅探程序，主要用于捕获和过滤 TCP/IP 包收到或者转移在一个网络的特定借口信息。它也提供了一个选项参数去保存将捕获的包在一个文件中用于以后分析使用，tcpdump 几乎在所有的 Linux 版本中都是可用的。</p>
+
+<pre><code># tcpdump -i eth0
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), capture size 96 bytes
+22:08:59.617628 IP tecmint.com.ssh &gt; 115.113.134.3.static-mumbai.vsnl.net.in.28472: P 2532133365:2532133481(116) ack 3561562349 win 9648
+22:09:07.653466 IP tecmint.com.ssh &gt; 115.113.134.3.static-mumbai.vsnl.net.in.28472: P 116:232(116) ack 1 win 9648
+22:08:59.617916 IP 115.113.134.3.static-mumbai.vsnl.net.in.28472 &gt; tecmint.com.ssh: . ack 116 win 64347
+5.netstat — 网络统计
+</code></pre>
+
+<p>netstat 命令是一个监控网络数据包传入和传出的统计界面的命令行工具。它对于许多系统管理员去监控网络性能和解决网络相关问题是一个非常有用的工具。</p>
+
+<p>6.htop — 进程监控</p>
+
+<p>htop 是一个更加先进的交互式的实时监控工具。htop 与 top 命令非常相似，但是他有一些非常丰富的功能，如用户友好界面管理进程、快捷键、横向和纵向进程等更多的。htop 是一个第三方工具并不包括在 Linux 系统中，你需要使用包管理工具进行安装。</p>
+
+<p>7.iotop — 监控 Linux 磁盘 I/O</p>
+
+<p>iotop 也是和 top 和 htop 命令相似，但是它会有一个报告功能去监控和显示实时的磁盘 I/O 输入和输出的程序进程。这个工具对于查找精确的高的磁盘读/写过程是非常有用的。</p>
+
+<p>8.iostat — 输入/输出统计</p>
+
+<p>iostat 是收集和展示系统输入和输出存储设备统计的简单工具。这个工具通常用于查找存储设备性能问题，包括设备、本地磁盘、例如 NFS 远程磁盘。</p>
+
+<pre><code># iostat
+Linux 2.6.18-238.9.1.el5 (tecmint.com) 09/13/2012
+avg-cpu: %user %nice %system %iowait %steal %idle
+2.60 3.65 1.04 4.29 0.00 88.42
+Device: tps Blk_read/s Blk_wrtn/s Blk_read Blk_wrtn
+cciss/c0d0 17.79 545.80 256.52 855159769 401914750
+cciss/c0d0p1 0.00 0.00 0.00 5459 3518
+cciss/c0d0p2 16.45 533.97 245.18 836631746 384153384
+cciss/c0d0p3 0.63 5.58 3.97 8737650 6215544
+cciss/c0d0p4 0.00 0.00 0.00 8 0
+cciss/c0d0p5 0.63 3.79 5.03 5936778 7882528
+cciss/c0d0p6 0.08 2.46 2.34 3847771 3659776
+</code></pre>
+
+<p>9.IPTraf —实时IP局域网监控</p>
+
+<p>IPTraf 是一个基于开源的 Linux 系统实时网络(IP 网络)监测的工具。它能收集到各种各样的信息，如通过网络对 IP 流量监测，包括 TCP 标志信息、ICMP 详细细节、TCP/UDP 流量故障、TCP 连接的数据包和拜恩计数。并且它还收集 TCP，UDP，ICMP，IP，非 IP，IP 校验错误，界面活性等一般信息和详细信息的接口统计数据。</p>
+
+<p>10.Psacct 或者 Acct — 监视用户活动</p>
+
+<p>Psacct 或者 Acct 是用于监测每个用户对系统的活跃状态的一个非常有用的工具。在后台有两个守护进程在运行，一个是密切关注系统上每个用户的整体活动，另一个进程关注有哪些资源被它们消耗。</p>
+
+<p>这个工具对于系统管理员是非常有用的去跟踪每个用户的活动，可以知道用户正在做什么，发出了什么样的命令，占用了多少资源，多长时间活跃在系统上。</p>
+
+<p>11.Monit — 程序和服务监测</p>
+
+<p>这是一个免费的开源的基于 Web 程序的自动监控和管理系统进程、程序、文件、目录、权限、校验文件系统。它监控的服务包括 Apache、MYSQL、Mail、FTP、Nginx 等等。系统状态是可以从命令行或者自己的网络接口来查看。</p>
+
+<p>12.NetHogs — 监视每个进程的网络带宽</p>
+
+<p>NetHogs 是一个开源的漂亮的小程序(类似于 Linux 上面的 top 命令)，在您的系统上保持每个进程的网络活动状态。它也保持了一个程序或者应用实时的网络流量带宽使用情况。</p>
+
+<p>13.iftop — 网络带宽监控</p>
+
+<p>iftop 是另一个基于终端的开源的系统监测工具，主要功能是通过你自己系统上的网络接口显示一个经常更新的网络带宽利用率的列表(即源主机和目的主机)。iftop监控的是网络的使用情况，而 top 监控的是 CPU 的使用情况。iftop 监视一个选定的接口并且显示两台主机之间当前宽带的使用情况。</p>
+
+<p>14.Monitorix — 系统和网络监控</p>
+
+<p>Monitorix 是一个尽可能多的在 Linux/Unix 上一个轻量级监控工具，主要设计是监控正在运行的系统和网络资源。它有一个内置的 HTTP web 服务去定期收集系统和网络信息并显示成图片。它可以监视系统的平均负载使用、内存的分配、磁盘驱动器、系统服务、网络端口、邮件统计(Sendmail、Postfix、Dovecot 等等)、MYSQL 数据库等等更多的服务。它的主要目的是监控整个系统的性能，并且有助于监测故障、瓶颈、异常活动等状况。</p>
+
+<p>15.Arpwatch — 以太网活动监控器</p>
+
+<p>Arpwatch是一种用来监视 Linux 网络的以太网的网络流量的地址解析(网络地址转换)的一个程序。它一直随着网络时间戳的变化监视以太网流量和产生日志的 IP 和 MAC 地址对。当一个 IP 地址或 MAC 地址对发生变化的时候，它会发送电子邮件通知管理员。</p>
+
+<p>并且，它在检测 ARP 攻击是非常有用的。</p>
+
+<p>16.Suricata — 网络安全监控</p>
+
+<p>Suricata 是一个高性能的开源的网络安全与入侵检测与预防 Linux、FreeBSD、Windows 等操作系统的监控工具。它是一个非营利基金 OISF(Open Information Security Foundation)拥有的。</p>
+
+<p>17.VnStat PHP — 监测网络带宽</p>
+
+<p>VnStat PHP 是一个 Web 前端应用最流行的社交工具叫“vnstat”。 VnStat PHP 使用了很好的图形模式监控网络流量的使用情况。它显示了每时、每天、每月的总结报告中的网络流量使用情况。</p>
+
+<p>18.Nagios — 网络/服务器监控</p>
+
+<p>Nagios 是一个领先的开源的强大的监控系统，网络/系统管理员在他们影响主要业务流程之前识别和解决服务器相关的问题。Nagios 可以监控远程 Linux、Windows、开关、单窗口的路由器和打印机。它能显示你的网络和服务器关键的告警，有利于在错误反生之前帮助你解决问题。</p>
+
+<p>19.Nmon — 监控Linux系统性能</p>
+
+<p>Nmon(即奈吉尔性能监视器)工具用来监视 Linux 系统的所有资源包括：CPU、内存、磁盘使用率、网络上的进程、NFS、内核等等。这个工具有两个模式：即在线模式和捕捉模式。在线模式适用于实时监控，捕捉模式用于存储输出为 CSV 格式后的处理。</p>
+
+<p>20.Collectl — 一体化性能检测工具</p>
+
+<p>Collectl 是另一个功能强大的基于命令行的监控工具，它可用于收集有关系统资源的信息，包括 CPU 使用率、内存、网络、节点、进程、NFS、TCP 套接等等。</p>
+
+<h2 id="查看进程资源情况">查看进程资源情况</h2>
+
+<h4 id="内存和cpu">内存和cpu</h4>
+
+<ol>
+<li><p>ps -aux | grep XXX.    可以直接查看内存和cpu的使用率，启动时间，这个也可以统计进程数，来看僵死进程z</p>
+
+<pre><code>ps aux | sort -k3nr |head -n 10         上面显示按照按照消耗cpu前10排序的进程。
+
+ps aux | sort -k4nr |head -n 10      上面显示按照按照消耗内存前10排序的进程。
+</code></pre></li>
+
+<li><p>top -p xxx.       可以动态直接查看资源情况，命令然后界面输入大写的P，进程按照CPU消耗动态排序</p>
+
+<pre><code>top -Hp xxx。    这个可以看到对应的线程情况，每个线程资源情况和
+</code></pre></li>
+
+<li><p>cat /proc/xxx/status.    查看这个文件一样的</p></li>
+</ol>
+
+<h4 id="io">io</h4>
+
+<p>Linux查看某个进程的磁盘IO读写情况</p>
+
+<p>1、Linux下没有原生的查看IO的软件，只能额外装。</p>
+
+<p>2、如果使用vmstat或者cat /proc/$PID/io，这些看的都太复杂了。</p>
+
+<p>下面是安装的比较直观的软件：</p>
+
+<p>1、iostat</p>
+
+<p>这个只能计算总的IO，没有单独某个进程的。</p>
+
+<p>安装：</p>
+
+<pre><code>#Ubuntu
+sudo apt-get install sysstat
+#CentOS
+sudo yum install sysstat
+
+ -c 仅显示CPU统计信息.与-d选项互斥.
+ -d 仅显示磁盘统计信息.与-c选项互斥.
+ -k 以K为单位显示每秒的磁盘请求数,默认单位块.
+ -p device | ALL
+  与-x选项互斥,用于显示块设备及系统分区的统计信息.也可以在-p后指定一个设备名,如:
+  # iostat -p hda
+  或显示所有设备
+  # iostat -p ALL
+ -t    在输出数据时,打印搜集数据的时间.
+ -V    打印版本号和帮助信息.
+ -x    输出扩展信息.
+</code></pre>
+
+<p>2、iotop</p>
+
+<p>这个可以针对单个进程进行查看。</p>
+
+<pre><code>sudo iotop -p $PID -d 1
+</code></pre>
+
+<p>安装：</p>
+
+<pre><code>#Ubuntu
+sudo apt-get install iotop
+#CentOS
+sudo yum install iotop
+
+
+--version #显示版本号
+-h, --help #显示帮助信息
+-o, --only #显示进程或者线程实际上正在做的I/O，而不是全部的，可以随时切换按o
+-b, --batch #运行在非交互式的模式
+-n NUM, --iter=NUM #在非交互式模式下，设置显示的次数，
+-d SEC, --delay=SEC #设置显示的间隔秒数，支持非整数值
+-p PID, --pid=PID #只显示指定PID的信息
+-u USER, --user=USER #显示指定的用户的进程的信息
+-P, --processes #只显示进程，一般为显示所有的线程
+-a, --accumulated #显示从iotop启动后每个线程完成了的IO总数
+-k, --kilobytes #以千字节显示
+-t, --time #在每一行前添加一个当前的时间
+-q, --quiet #suppress some lines of header (implies --batch). This option can be specified up to three times to remove header lines.
+-q column names are only printed on the first iteration,
+-qq column names are never printed,
+-qqq the I/O summary is never printed.
+</code></pre>
+
+<p>可用的命令（在运行iotop命令后按相应键位）：</p>
+
+<p>使用left和right改变排序（方向键改变排序列），还可使用以下命令：</p>
+
+<pre><code>r：反向排序，
+o：切换至选项--only，
+p：切换至--processes选项，
+a：切换至--accumulated选项
+q：退出
+i：改变线程的优先级
+</code></pre>
+
+<p>3、pidstat</p>
+
+<p>和iotop效果一致，不过这个可以监控内存。</p>
+
+<pre><code>sudo pidstat -p $PID -d 1
+</code></pre>
+
+<p>安装：</p>
+
+<pre><code>#Ubuntu
+sudo apt-get install sysstat
+#CentOS
+sudo yum install sysstat
+</code></pre>
+
+<h4 id="网络">网络</h4>
+
+<pre><code>iptraf-ng eth0
+</code></pre>
+
+<p>iptraf-ng和iptraf命令系统一般默认不安装，使用之前需要通过yum -y intall iptraf安装</p>
+
+<h4 id="端口">端口</h4>
+
+<pre><code>1. netstat -anp | grep xxxx.    查看端口
+
+2. ss -s
+</code></pre>
+
+<h2 id="查看开机时间">查看开机时间</h2>
+
+<ol>
+<li><p>uptime</p>
+
+<pre><code>chunyindeMacBook-Pro:jcy chunyinjiang$ uptime
+19:30  up 15 days, 23:33, 11 users, load averages: 1.92 1.95 1.95
+</code></pre></li>
+
+<li><p>查看/proc/uptime</p>
+
+<pre><code>[root@promesdevapp02 ~]#  cat /proc/uptime
+708099.09 5658112.54
+</code></pre></li>
+</ol>
+
+<p>这个就比较抽象了</p>
+
+<ol>
+<li>w命令查看（显示目前登入系统的用户信息。）</li>
+</ol>
+
+<p>up后表示系统到目前运行了多久时间。反过来推算系统重启时间</p>
+
+<pre><code>[root@promesdevapp02 ~]# w
+ 19:31:41 up 8 days,  4:42,  1 user,  load average: 0.07, 0.03, 0.00
+USER     TTY      FROM              LOGIN@   IDLE   JCPU   PCPU WHAT
+root     pts/0    10.49.173.42     19:30    0.00s  0.00s  0.00s w
+</code></pre>
+
+<ol>
+<li><p>TOP命令查看</p></li>
+
+<li><p>last reboot</p>
+
+<pre><code>[root@promesdevapp02 ~]# last reboot
+reboot   system boot  2.6.32-279.19.1. Thu Feb 28 14:49 - 19:33 (8+04:43)
+reboot   system boot  2.6.32-279.19.1. Wed Jun 20 10:08 - 19:33 (261+09:24)
+
+wtmp begins Wed Jun 20 10:08:47 2018
+</code></pre></li>
+
+<li><p>who 命令查看</p>
+
+<pre><code>  who -b 查看最后一次系统启动的时间。
+
+  who -r 查看当前系统运行时间
+</code></pre></li>
+</ol>
+
+<h2 id="变量-1">变量</h2>
+
+<ol>
+<li>永久环境变量</li>
+</ol>
+
+<p>保存在~/.bashrc，当我们开启一个shell进程的时候， 永久环境变量会自动导入到当前的shell中来（为当前shell设置了一个临时的环境变量），可以unset掉</p>
+
+<ol>
+<li>零时环境变量</li>
+</ol>
+
+<p>export x</p>
+
+<p>当前shell的临时环境变量， 能被自己及其子进程(子shell进程, 子脚本进程或者子C程序进程)访问， 但不能被其它shell访问(相互独立)。 对了， 我们上面已经讨论过了， 临时的环境变量可以被unset掉。在实际大型的软件开发中， 编译大工程， 经常需要用到临时环境变量。</p>
+
+<ol>
+<li>普通变量</li>
+</ol>
+
+<p>a=(a b c)</p>
+
+<p>shell中的普通变量很简单， 仅能被当前shell访问， 不能被其子进程访问， 更不能被其它shell访问。</p>
+
+<h2 id="ssh">ssh</h2>
+
+<pre><code>ssh -p port user@ip
+
+使用代理
+ssh -o &quot;ProxyCommand nc -X 5 -x 10.49.3.59:2333 %h %p&quot; -p 26137 root@198.181.36.46
+</code></pre>
+
+<h3 id="免密">免密</h3>
+
+<pre><code>这边主要讲一下免密码登录，好多次都需要查找一番，决定记下来
+
+A机器生成ssh的私钥和公钥
+
+    ssh-keygen -t rsa
+
+就会生成对应的私钥和公钥文件。将公钥文件id_rsa.pub上传到机器B上，注意这边最好不要直接复制容易乱码导致ssh免密码登录失败
+
+    scp id_rsa.pub user@ip:pwd
+
+然后就是将公钥放到B机器上的这个文件中authorized_keys
+
+    cat id_rsa.pub &gt;&gt; authorized_keys
+    chmod 600 authorized_keys
+
+这样就可以了，同样使用于mac系统。
+
+这边设计一个非root用户设置免密码登录的权限问题，权限太大也不行，家目录为755，.ssh的权限700， authorized_keys的权限600， 就够了，发现无法免密码登录就去查看日志/var/log/secure就知道了。
+</code></pre>
+
+<h2 id="tar">tar</h2>
+
+<pre><code>-c: 建立压缩档案
+-x：解压
+-t：查看内容
+-r：向压缩归档文件末尾追加文件
+-u：更新原压缩包中的文件
+</code></pre>
+
+<p>这五个是独立的命令，压缩解压都要用到其中一个，可以和别的命令连用但只能用其中一个。下面的参数是根据需要在压缩或解压档案时可选的。</p>
+
+<pre><code>-z：有gzip属性的
+-j：有bz2属性的
+-Z：有compress属性的
+-v：显示所有过程
+-O：将文件解开到标准输出
+</code></pre>
+
+<p>下面的参数-f是必须的</p>
+
+<p>-f: 使用档案名字，切记，这个参数是最后一个参数，后面只能接档案名。</p>
+
+<pre><code>tar -cf all.tar *.jpg
+</code></pre>
+
+<p>这条命令是将所有.jpg的文件打成一个名为all.tar的包。-c是表示产生新的包，-f指定包的文件名。</p>
+
+<pre><code>tar -rf all.tar *.gif
+</code></pre>
+
+<p>这条命令是将所有.gif的文件增加到all.tar的包里面去。-r是表示增加文件的意思。</p>
+
+<pre><code>tar -uf all.tar logo.gif
+</code></pre>
+
+<p>这条命令是更新原来tar包all.tar中logo.gif文件，-u是表示更新文件的意思。</p>
+
+<pre><code>tar -tf all.tar
+</code></pre>
+
+<p>这条命令是列出all.tar包中所有文件，-t是列出文件的意思</p>
+
+<pre><code>tar -xf all.tar
+</code></pre>
+
+<p>这条命令是解出all.tar包中所有文件，-t是解开的意思</p>
+
+<p>压缩</p>
+
+<pre><code>tar -cvf jpg.tar \*.jpg //将目录里所有jpg文件打包成tar.jpg
+
+tar -czf jpg.tar.gz \*.jpg   //将目录里所有jpg文件打包成jpg.tar后，并且将其用gzip压缩，生成一个gzip压缩过的包，命名为jpg.tar.gz
+
+tar -cjf jpg.tar.bz2 \*.jpg //将目录里所有jpg文件打包成jpg.tar后，并且将其用bzip2压缩，生成一个bzip2压缩过的包，命名为jpg.tar.bz2
+
+tar -cZf jpg.tar.Z \*.jpg   //将目录里所有jpg文件打包成jpg.tar后，并且将其用compress压缩，生成一个umcompress压缩过的包，命名为jpg.tar.Z
+
+rar a jpg.rar \*.jpg //rar格式的压缩，需要先下载rar for linux
+
+zip jpg.zip \*.jpg //zip格式的压缩，需要先下载zip for linux
+</code></pre>
+
+<p>解压</p>
+
+<pre><code> tar -xvf file.tar //解压 tar包
+
+ tar -xzvf file.tar.gz //解压tar.gz
+
+ tar -xjvf file.tar.bz2   //解压 tar.bz2
+
+ tar -xZvf file.tar.Z   //解压tar.Z
+
+ unrar e file.rar //解压rar
+
+ unzip file.zip //解压zip
+</code></pre>
+
+<p>总结</p>
+
+<p>1、*.tar 用 tar -xvf 解压</p>
+
+<p>2、*.gz 用 gzip -d或者gunzip 解压</p>
+
+<p>3、<em>.tar.gz和</em>.tgz 用 tar -xzf 解压</p>
+
+<p>4、*.bz2 用 bzip2 -d或者用bunzip2 解压</p>
+
+<p>5、*.tar.bz2用tar -xjf 解压</p>
+
+<p>6、*.Z 用 uncompress 解压</p>
+
+<p>7、*.tar.Z 用tar -xZf 解压</p>
+
+<p>8、*.rar 用 unrar e解压</p>
+
+<p>9、*.zip 用 unzip 解压</p>
+
+<p>在tar中使用绝对路径需要增加-P,否则会报错tar: Removing leading &lsquo;/&rsquo; from member names</p>
+
+<p>比如</p>
+
+<pre><code>tar -zcvPf ${logpath%*/}/${table}${backtime}.tar.gz ${logpath%*/}/${backtime}.sql &gt; /dev/null
+</code></pre>
+
+<h2 id="grep">grep</h2>
+
+<p>Grep 命令</p>
+
+<pre><code>grep “XXX” 文件名（*）
+</code></pre>
+
+<p>根据字符串来在后面的文件（多个文件）中查找并打印出相关内容</p>
+
+<p>1、 参数：</p>
+
+<pre><code>-I ：忽略大小写 
+-c ：打印匹配的行数 
+-l ：从多个文件中查找包含匹配项 
+-v ：查找不包含匹配项的行 
+-n：打印包含匹配项的行和行标,cat也有这个作用 
+-E:相当于egrep，深度匹配，多重匹配，比如egrep &quot;a|b&quot; filenamea|b
+</code></pre>
+
+<p>2、RE（正则表达式）</p>
+
+<pre><code>\ 忽略正则表达式中特殊字符的原有含义 
+^ 匹配正则表达式的开始行 
+$ 匹配正则表达式的结束行 
+\&lt; 从匹配正则表达式的行开始 
+\&gt; 到匹配正则表达式的行结束 
+[ ] 单个字符；如[A] 即A符合要求 
+[ - ] 范围 ；如[A-Z]即A，B，C一直到Z都符合要求 
+. 所有的单个字符 
+* 所有字符，长度可以为0 
+</code></pre>
+
+<p>常用</p>
+
+<ol>
+<li><p>去除空行</p>
+
+<pre><code>cat file | grep -v ^$
+</code></pre></li>
+
+<li><p>去除注释</p>
+
+<pre><code>cat file | grep -v ^#
+</code></pre></li>
+</ol>
+
+<h3 id="find-grep">find&amp;grep</h3>
+
+<p>查找当前目录下所有cpp文件中含有getUserProduct的地方</p>
+
+<pre><code>find ./ -name &quot;*.cpp&quot; -print | xargs grep getUserProduct    -----xargs也是一种承接，一般不用于cp，mv，和-exec差不多
+grep -n &quot;sCrmOrgId&quot; $(find . -name &quot;*.cpp&quot;)
+
+find . -maxdepth 1 -type f -name &quot;&quot; -mtime -1 -exec rm -rf {} \      ----maxdepth 1 目录深度，这个就是一级，-type f表示只是找文件，-mtime -1当前一天的文件，表示多长时间的文件，-表示多少天以内的，+表示多少天以前的，比如三十天以前的-mtime +30 。-exec rm -rf {} \ 执行命令，{}表示前面的结果，最后又一个\是格式
+find . -maxdepth 1 -type f -name &quot;&quot; -mtime +30 -exec cp  {} /tmp \
+
+find . -size +50M 大于五十M的
+</code></pre>
+
+<h2 id="du">du</h2>
+
+<pre><code>du -ks * |sort -n    按大小排序
+</code></pre>
+
+<h2 id="sudo">sudo</h2>
+
+<p>编辑/etc/sudoers文件。也就是输入命令&rdquo;vim /etc/sudoers&rdquo;,进入编辑模式，找到这一 行：&rdquo;root ALL=(ALL) ALL&rdquo;在起下面添加&rdquo;xxx ALL=(ALL) ALL&rdquo;(这里的xxx是你的用户名)，然后保存退出。可以让普通 用户执行以下只有root用户执行的操作。避免总是用su - 用户切换</p>
+
+<h3 id="目录">目录</h3>
+
+<pre><code>linux根目录下各文件夹的作用
+
+ /bin 二进制可执行命令   
+ /dev 设备特殊文件   
+ /etc 系统管理和配置文件   
+ /etc/rc.d 启动的配置文件和脚本   
+ /home 用户主目录的基点，比如用户user的主目录就是/home/user，可以用~user表示   
+ /lib 标准程序设计库，又叫动态链接共享库，作用类似windows里的.dll文件   
+ /sbin 系统管理命令，这里存放的是系统管理员使用的管理程序   
+ /tmp 公用的临时文件存储点   
+ /root 系统管理员的主目录（呵呵，特权阶级）   
+ /mnt 系统提供这个目录是让用户临时挂载其他的文件系统。   
+ /lost+found 这个目录平时是空的，系统非正常关机而留下“无家可归”的文件（windows下叫什么.chk）就在这里   
+ /proc 虚拟的目录，是系统内存的映射。可直接访问这个目录来获取系统信息。   
+ /var 某些大文件的溢出区，比方说各种服务的日志文件   
+ /usr 最庞大的目录，要用到的应用程序和文件几乎都在这个目录。其中包含：    
+ /usr/x11r6 存放x window的目录   
+ /usr/bin 众多的应用程序   
+ /usr/sbin 超级用户的一些管理程序   
+ /usr/doc linux文档   
+ /usr/include linux下开发和编译应用程序所需要的头文件   
+ /usr/lib 常用的动态链接库和软件包的配置文件   
+ /usr/man 帮助文档   
+ /usr/src 源代码，linux内核的源代码就放在/usr/src/linux里   
+ /usr/local/bin 本地增加的命令   
+ /usr/local/lib 本地增加的库根文件系统
+ : /opt 主机额外安装软件所摆放的目录。
+</code></pre>
+
+<h3 id="scp">scp</h3>
+
+<pre><code>scp （-r（目录））文件 用户名@主机名：目录
+</code></pre>
+
+<h3 id="whereis-which">whereis&amp;which</h3>
+
+<pre><code>whereis  软件名   --&gt;查看软件安装路径
+
+which  软件名     --&gt;软件软件的运行路径
+</code></pre>
+
+<h2 id="lsof">lsof</h2>
+
+<p>lsof(list open files 列出打开的文件描述符)是一个列出当前系统打开文件的工具</p>
+
+<pre><code>lsof -i port
+lsof -i :8083  查看端口属于哪个程序？端口被哪个进程占用
+
+lsof abc.txt 显示开启文件abc.txt的进程
+lsof -c abc 显示abc进程现在打开的文件
+lsof -c -p 1234 列出进程号为1234的进程所打开的文件
+lsof -g gid 显示归属gid的进程情况
+lsof +d /usr/local/ 显示目录下被进程开启的文件
+lsof +D /usr/local/ 同上，但是会搜索目录下的目录，时间较长
+lsof -d 4 显示使用fd为4的进程
+lsof -i 用以显示符合条件的进程情况
+lsof -i[46] [protocol][@hostname|hostaddr][:service|port]   46 --&gt; IPv4 or IPv6   protocol --&gt; TCP or UDP   hostname --&gt; Internet host name   hostaddr --&gt; IPv4地址   service --&gt; /etc/service中的 service name (可以不止一个)   port --&gt; 端口号 (可以不止一个)
+lsof -N     列出所有网络文件系统
+
+lsof -p pid显示当前进程打开的fd
+lsof -p 123,456,789   列出多个进程号对应的文件信息
+lsof -p ^1              列出除了某个进程号，其他进程号所打开的文件信息
+
+
+lsof -n    显示ip不用别名
+lsof -n |grep pid显示与这个进程相关的fd，包括其线程的。
+</code></pre>
+
+<p>相关列信息</p>
+
+<pre><code>COMMAND：进程的名称
+PID：进程标识符
+TID：线程id
+USER：进程所有者
+FD：文件描述符，应用程序通过文件描述符识别该文件。如cwd、txt等
+TYPE：文件类型，如DIR、REG等
+DEVICE：指定磁盘的名称
+SIZE：文件的大小
+NODE：索引节点（文件在磁盘上的标识）
+NAME：打开文件的确切名称
+
+其中FD 列中的文件描述符cwd 值表示应用程序的当前工作目录，这是该应用程序启动的目录，除非它本身对这个目录进行更改。
+
+txt 类型的文件是程序代码，如应用程序二进制文件本身或共享库，如上列表中显示的 /sbin/init 程序。
+
+其次数值表示应用程序的文件描述符，这是打开该文件时返回的一个整数。如上的最后一行文件/dev/initctl，其文件描述符为 10。
+
+u 表示该文件被打开并处于读取/写入模式，而不是只读 ® 或只写 (w) 模式。同时还有大写 的W 表示该应用程序具有对整个文件的写锁。该文件描述符用于确保每次只能打开一个应用程序实例。
+
+初始打开每个应用程序时，都具有三个文件描述符，从 0 到 2，分别表示标准输入、输出和错误流。所以大多数应用程序所打开的文件的 FD 都是从 3 开始。
+
+与 FD 列相比，Type 列则比较直观。文件和目录分别称为 REG 和 DIR。而CHR 和 BLK，分别表示字符和块设备；或者 UNIX、FIFO 和 IPv4，分别表示 UNIX 域套接字、先进先出 (FIFO) 队列和网际协议 (IP) 套接字。
+</code></pre>
+
+<p>lsof常用参数lsof 常见的用法是查找应用程序打开的文件的名称和数目。可用于查找出某个特定应用程序将日志数据记录到何处，或者正在跟踪某个问题。</p>
+
+<p>比如查看22端口的运行情况</p>
+
+<pre><code>lsof -i :22
+</code></pre>
+
+<p>可以用于恢复已经删除的数据，文件被删除，但是正在对其读写的进程还是会继续对其进行操作，保存在/proc下面对应的进程号下面的文件描述符中，我们可以通过这个来恢复删除的文件</p>
+
+<p>先看有木有进程占用</p>
+
+<pre><code>lsof | grep 文件名
+</code></pre>
+
+<p>然后将这个文件追加到原来的文件中去</p>
+
+<pre><code>cat /proc/进程id/fd/fid &gt;&gt; 原来文件名
+</code></pre>
+
+<p>还可以用于查看指定进程的连接情况，先获取进程id</p>
+
+<pre><code>ps -ef|grep frps
+</code></pre>
+
+<p>然后根据id来查看</p>
+
+<pre><code>lsof -p 4721 -nP | grep TCP
+</code></pre>
+
+<p>lsof 的 -nP 参数用于将 ip 地址和端口号显示为正常的数值类型，否则可能会用别名表示。就可以看出来多少连接多少监听</p>
+
+<p>查看filebeat采集文件删除被占用的数量，忽略错误</p>
+
+<pre><code>lsof -w | grep deleted ｜ grep filebeat | wc -l
+</code></pre>
+
+<h2 id="telnet-ping">telnet&amp;ping</h2>
+
+<p>ping  网络层协议，是发送一个包给目标主机，目标主机接收到包再返回一个响应的包，测试网络是否通</p>
+
+<p>ping命令的一般格式为：</p>
+
+<pre><code>ping [-dfnqrRv][-c 发送次数][-i 间隔秒数][-I (大写i)网络界面][-l (小写L)前置载入][-p 范本样式] [-s  数据包大小][-t 存活数值][主机名或IP地址]
+</code></pre>
+
+<p>参数说明：</p>
+
+<pre><code>【-c count】指定要被发送(或接收)的回送信号请求的数目，由Count变量指出。
+
+【-w timeout】 这个选项仅和-c 选项一起才能起作用。它使 ping  命令以最长的超时时间去等待应答(发送最后一个信息包后)。默认超时时间为4000ms(4s)
+
+【-d】使用Socket的SO_DEBUG功能。
+
+【-D】这个选项引起 ICMP ECHO_REPLY 信息包向标准输出的十六进制转储。
+
+【-f】   指定flood-ping选项。-f标志“倾倒”或输出信息包，在它们回来时或每秒100次，选择较快一个。每一次发送ECHO_REQUEST，都打印 一个句号，而每接收到一个ECHO_REPLY信号，就打印一个退格。这就提供了一种对多少信息包被丢弃的信息的快速显示。仅仅root用户可以使用这个 选项。
+
+注：这在网络上将非常困难，必须小心使用。Flood ping命令仅仅root用户可 以使用。-f标志与-i Wait标志不兼容.
+
+【-n】只输出数值。
+
+【-r】忽略路由表，直接将数据包送到远端主机上。通常是查看本机的网络接口是否有问题。
+
+【-R】记录路由过程。-R标志包括ECHO_REQUEST信息包中的 RECORD_ROUTE选项，并且显示返回信息包上的路由缓冲。
+
+【-v】 详细显示指令的执行过程。
+
+【-i wait】在每个信息包发送之间等待被Wait变量指定的时间(秒数)。缺省值是在每个信息包发送之间等待1秒。这个选项与-f标志不兼容。
+
+【-Ia.b.c.d】指定被a.b.c.d标明的接口将被用于向外的IPv4多点广播。-I标志是大写的i。
+
+【-lPreload】在进入正常行为模式(每秒1个)前尽快发送Preload变量指定数量的信息包。-l标志是小写的L。
+
+【 -L】对多点广播ping命令禁用本地回送。
+
+【-pPattern】指定用多达16个“填充”字节去填充你发送的信息包。这有利于诊断网络上依赖数据的问题。例如“-p ff”全部用1填充信息包。
+
+【-q】不显示任何传送封包的信息，只显示最后的结果。
+
+【-spacketsize】 指定发送的数据字节数，预设值是56，加上8字节的ICMP头，一共是64ICMP数据字节。
+
+【-Shostname/IP   addr】将IP地址用作发出的ping信息包中的源地址。在具有不止一个IP地址的主机上，可以使用-S标志来强制源地址为除了软件包在其上发送的接口 的IP地址外的任何地址。如果IP地址不是以下机器接口地址之一，则返  回错误并且不进行任何发送。
+
+【-ttll】 设置存活数值TTL的大小。
+
+【-ointerface】指出interface将被用于向外的IPv6多点广播。接口以“en0”，“tr0”等的形式指定。
+</code></pre>
+
+<p>使用举例：</p>
+
+<p>(1)指定要被发送(或接收)的回送信号请求的数目：</p>
+
+<pre><code>#ping -c 5 172.17.0.254 (请求5次)
+</code></pre>
+
+<p>(2)信息包被丢弃的信息的快速显示:</p>
+
+<pre><code>#ping -f 172.17.0.254
+</code></pre>
+
+<p>(3)在每个信息包发送之间等待被Wait变量指定的时间(秒数):</p>
+
+<pre><code>#ping -i 2 172.17.0.254 (间隔2s)
+</code></pre>
+
+<p>telnet  ，ftp都是应用层的类似tcp的协议，但是都是明文密码登陆远程主机，而ssh也是，但是它比较安全，是密文发送的。</p>
+
+<pre><code>yum -y install telnet-server
+
+yum -y install telnet
+</code></pre>
+
+<p>1．命令格式：</p>
+
+<pre><code>telnet[参数][主机]
+</code></pre>
+
+<p>2．命令功能：</p>
+
+<pre><code>执行telnet指令开启终端机阶段作业，并登入远端主机。
+</code></pre>
+
+<p>3．命令参数：</p>
+
+<pre><code>-8 允许使用8位字符资料，包括输入与输出。
+
+-a 尝试自动登入远端系统。
+
+-b&lt;主机别名&gt; 使用别名指定远端主机名称。
+
+-c 不读取用户专属目录里的.telnetrc文件。
+
+-d 启动排错模式。
+
+-e&lt;脱离字符&gt; 设置脱离字符。
+
+-E 滤除脱离字符。
+
+-f 此参数的效果和指定&quot;-F&quot;参数相同。
+
+-F 使用Kerberos V5认证时，加上此参数可把本地主机的认证数据上传到远端主机。
+
+-k&lt;域名&gt; 使用Kerberos认证时，加上此参数让远端主机采用指定的领域名，而非该主机的域名。
+
+-K 不自动登入远端主机。
+
+-l&lt;用户名称&gt; 指定要登入远端主机的用户名称。
+
+-L 允许输出8位字符资料。
+
+-n&lt;记录文件&gt; 指定文件记录相关信息。
+
+-r 使用类似rlogin指令的用户界面。
+
+-S&lt;服务类型&gt; 设置telnet连线所需的IP TOS信息。
+
+-x 假设主机有支持数据加密的功能，就使用它。
+
+-X&lt;认证形态&gt; 关闭指定的认证形态。
+</code></pre>
+
+<p>4．使用实例：</p>
+
+<p>实例1：远程服务器无法访问</p>
+
+<p>命令：</p>
+
+<pre><code>telnet 192.168.120.206（默认23端口）
+</code></pre>
+
+<p>输出：</p>
+
+<pre><code>[root@localhost ~]# telnet 192.168.120.209
+Trying 192.168.120.209...
+telnet: connect to address 192.168.120.209: No route to host
+telnet: Unable to connect to remote host: No route to host
+[root@localhost ~]#
+</code></pre>
+
+<h2 id="usermod">usermod</h2>
+
+<pre><code>usermod -d /disk01/svn/jiangchunyin jiangchunyin  改变家目录
+</code></pre>
+
+<h2 id="useradd-passwd">useradd&amp;passwd</h2>
+
+<pre><code>&gt;useradd –d /usr/sam -m sam
+</code></pre>
+
+<p>此命令创建了一个用户sam，其中-d和-m选项用来为登录名sam产生一个主目录/usr/sam（/usr为默认的用户主目录所在的父目录）。</p>
+
+<p>假设当前用户是sam，则下面的命令修改该用户自己的口令：</p>
+
+<pre><code>&gt;passwd
+
+Old password:******
+
+New password:*******
+
+Re-enter new password:*******
+</code></pre>
+
+<p>如果是超级用户，可以用下列形式指定任何用户的口令：</p>
+
+<pre><code>&gt;passwd sam
+
+New password:*******
+
+Re-enter new password:*******
+</code></pre>
+
+<h2 id="cat">cat</h2>
+
+<p>不看注释</p>
+
+<pre><code>cat filename | grep -v &quot;^#&quot;
+</code></pre>
+
+<p>cat -A filename      &mdash;-show all,用于查看是否有乱码</p>
+
+<h2 id="命令行和界面模式">命令行和界面模式</h2>
+
+<pre><code>vi /etc/inittab
+</code></pre>
+
+<p>对于centos6和7都是这个文件，但是表现方式不一样，重点都是run level是3则是命令行模式运行。5则是界面模式运行，前提是你安装了图型界面。</p>
+
+<h2 id="网络设置">网络设置</h2>
+
+<p>centos 7在/etc/sysconfig/metwork-script/下面的的ifcfg-不是lo的文件，设置其静态ip</p>
+
+<pre><code>BOOTPROTO=&quot;static&quot;
+IPADDR=192.168.56.102 #静态IP  
+GATEWAY=192.168.0.1 #默认网关  
+NETMASK=255.255.255.0 #子网掩码  
+DNS1=114.114.114.114 #DNS 配置  
+</code></pre>
+
+<p>然后重启network</p>
+
+<pre><code>systemctl restart network
+ifconfig
+</code></pre>
+
+<p>就可以看到成功设置ip了，然后最好把开始启动设置ONBOOT=&ldquo;yes&rdquo;</p>
+
+<h2 id="tr">tr</h2>
+
+<p>tr命令可以对来自标准输入的字符进行替换、压缩和删除。它可以将一组字符变成另一组字符，经常用来编写优美的单行命令，作用很强大。</p>
+
+<pre><code>-c或——complerment：取代所有不属于第一字符集的字符；
+-d或——delete：删除所有属于第一字符集的字符；
+-s或--squeeze-repeats：把连续重复的字符以单独一个字符表示；
+-t或--truncate-set1：先删除第一字符集较第二字符集多出的字符。
+</code></pre>
+
+<p>实例：</p>
+
+<p>大小写转化</p>
+
+<pre><code>echo &quot;HELLO WORLD&quot; | tr 'A-Z' 'a-z'
+hello world
+</code></pre>
+
+<p>删除数字，是可以用范围的。</p>
+
+<pre><code>echo &quot;hello 123 world 456&quot; | tr -d '0-9' 
+hello world 
+</code></pre>
+
+<p>将制表符转换为空格</p>
+
+<pre><code>cat text | tr '\t' ' '
+</code></pre>
+
+<h2 id="sort">sort</h2>
+
+<pre><code>cat finenema | sort ----排序
+
+sort -nr    重大到小排序
+</code></pre>
+
+<h2 id="find-1">find</h2>
+
+<pre><code>-type：根据不同的文件类型筛选
+f普通文件
+d目录文件
+l符号链接文件
+b块设备 文件
+c字符设备文件
+p管道文件
+s套接字文件
+
+处理动作：
+
+    -print：输出至标准输出；默认的动作；
+    -ls：类似于对查找到的文件执行“ls -l”命令，输出文件的详细信息；
+    -delete：删除查找到的文件；
+    -fls /PATH/TO/SOMEFILE：把查找到的所有文件的长格式信息保存至指定文件中；
+    -ok COMMAND {} \; ：对查找到的每个文件执行由COMMAND表示的命令；每次操作都由用户进行确认；
+    -exec COMMAND {} \; ：对查找到的每个文件执行由COMMAND表示的命令；
+</code></pre>
+
+<h2 id="cut">cut</h2>
+
+<pre><code>cut 命令从文件的每一行剪切字节、字符和字段并将这些字节、字符和字段写至标准输出。
+如果不指定 File 参数，cut 命令将读取标准输入。必须指定 -b、-c 或 -f 标志之一。
+
+主要参数
+-b ：以字节为单位进行分割。这些字节位置将忽略多字节字符边界，除非也指定了 -n 标志。
+-c ：以字符为单位进行分割。
+-d ：自定义分隔符，默认为制表符。
+-f  ：与-d一起使用，指定显示哪个区域。
+-n ：取消分割多字节字符。仅和 -b 标志一起使用。如果字符的最后一个字节落在由 -b 标志的 List 参数指示的&lt;br /&gt;范围之内，该字符将被写出；否则，该字符将被排除。
+</code></pre>
+
+<p>举个例子吧，当你执行ps命令时，会输出类似如下的内容：</p>
+
+<pre><code>[rocrocket@rocrocket programming]$ who
+rocrocket :0           2009-01-08 11:07
+rocrocket pts/0        2009-01-08 11:23 (:0.0)
+rocrocket pts/1        2009-01-08 14:15 (:0.0)
+</code></pre>
+
+<p>如果我们想提取每一行的第3个字节，就这样：</p>
+
+<pre><code>[rocrocket@rocrocket programming]$ who|cut -b 3
+c
+c
+c
+</code></pre>
+
+<h3 id="dirname和basename">dirname和basename</h3>
+
+<p>dirname命令可以取给定路径的目录部分（strip non-directory suffix from file name）。这个命令很少直接在shell命令行中使用，我一般把它用在shell脚本中，用于取得脚本文件所在目录，然后将当前目录切换过去。</p>
+
+<p>basename命令则用于获取文件名</p>
+
+<pre><code>[root@qzt196 ~]# dirname /usr/bin/sort 
+/usr/bin
+[root@qzt196 ~]# dirname stdio.h 
+.
+
+[root@qzt196 ~]# dirname /usr/bin 
+/usr
+[root@qzt196 ~]# dirname /usr/bin/ 
+/usr
+</code></pre>
+
+<h3 id="uid">UID</h3>
+
+<p>shell 的 uid/gid 則是根据 /etc/passwd 的第 3 与第 4 两位决定.</p>
+
+<pre><code>root 0 0
+</code></pre>
+
+<h2 id="sh">sh</h2>
+
+<pre><code>sh -n filename.sh    检查脚本是否正确
+
+sh -x filename.sh    查看脚本执行的步骤
+</code></pre>
+
+<h2 id="与">&amp;&amp;与；</h2>
+
+<p>命令联合的时候</p>
+
+<pre><code>&amp;&amp; 前面语句执行成功才能继续执行后面的，否则退出
+
+；前面的语句成功与否后面都会继续执行
+</code></pre>
+
+<h2 id="date">date</h2>
+
+<pre><code>date -s 20170413  可以直接这样改变系统时间。
+</code></pre>
+
+<p>常用输出时间</p>
+
+<p>输出天</p>
+
+<pre><code>date +%Y%m%d
+</code></pre>
+
+<p>输出秒</p>
+
+<pre><code>date &quot;+%Y-%m-%d %H:%M:%S&quot;
+</code></pre>
+
+<h2 id="hostname">hostname</h2>
+
+<p>查看主机名，也可以直接改主机名，hostname name ,等同于修改/proc/sys/kernel/hostname文件。</p>
+
+<h2 id="ipcs">ipcs</h2>
+
+<p>ipcs用法</p>
+
+<pre><code>ipcs -a  是默认的输出信息 打印出当前系统中所有的进程间通信方式的信息
+
+ipcs -m  打印出使用共享内存进行进程间通信的信息
+
+ipcs -q   打印出使用消息队列进行进程间通信的信息
+
+ipcs -s  打印出使用信号进行进程间通信的信息
+
+ipcs -t   输出信息的详细变化时间
+
+ipcs -p  输出ipc方式的进程ID
+
+
+ipcs -c  输出ipc方式的创建者/拥有者
+</code></pre>
+
+<p>ipcrm用法</p>
+
+<pre><code>ipcrm -M shmkey  移除用shmkey创建的共享内存段
+
+ipcrm -m shmid    移除用shmid标识的共享内存段
+
+ipcrm -Q msgkey  移除用msqkey创建的消息队列
+
+ipcrm -q msqid  移除用msqid标识的消息队列
+
+ipcrm -S semkey  移除用semkey创建的信号
+
+ipcrm -s semid  移除用semid标识的信号
+</code></pre>
+
+<h2 id="netstat">netstat</h2>
+
+<p>netstat 不加参数持续输出</p>
+
+<pre><code>-a (all)显示所有选项，默认不显示LISTEN相关
+-t (tcp)仅显示tcp相关选项
+-u (udp)仅显示udp相关选项
+-n 拒绝显示别名，能显示数字的全部转化成数字。加速输出,正常都加上
+-l 仅列出有在 Listen (监听) 的服務状态
+
+-p 显示建立相关链接的程序名
+-r 显示路由信息，路由表
+-e 显示扩展信息，例如uid等
+-s 按各个协议进行统计
+-c 每隔一个固定时间，执行该netstat命令。
+</code></pre>
+
+<p>查看某个进程暂用的连接</p>
+
+<pre><code>netstat -nap | grep pid
+</code></pre>
+
+<p>查看连接某服务端口最多的的IP地址</p>
+
+<pre><code> netstat -nat | grep &quot;192.168.1.15:22&quot; |awk '{print $5}'|awk -F: '{print $1}'|sort|uniq -c|sort -nr|head -20
+</code></pre>
+
+<p>netstat -tln 查看端口使用情况，而netstat -tln | grep 8083 则是只查看端口8083的使用情况</p>
+
+<h3 id="sysctl">sysctl</h3>
+
+<p>linux内核通过/proc虚拟文件系统向用户导出内核信息，用户也可以通过/proc文件系统或通过sysctl命令动态配置内核。比如，如果我们想启动NAT，除了加载模块、配置防火墙外，还需要启动内核转发功能。我们有三种方法：</p>
+
+<p>1.直接写/proc文件系统</p>
+
+<pre><code>echo 1 &gt; /proc/sys/net/ipv4/ip_forward
+</code></pre>
+
+<p>2.利用sysctl命令</p>
+
+<pre><code>sysctl -w net.ipv4.ip_forward=1
+</code></pre>
+
+<p>sysctl -a可以查看内核所有导出的变量</p>
+
+<p>3.编辑/etc/sysctl.conf</p>
+
+<p>添加如下一行，这样系统每次启动后，该变量的值就是1</p>
+
+<pre><code>net.ipv4.ip_forward = 1
+</code></pre>
+
+<p>sysctl参数</p>
+
+<pre><code>-w   临时改变某个指定参数的值，如         sysctl -w net.ipv4.ip_forward=1
+
+-a   显示所有的系统参数
+
+-p   从指定的文件加载系统参数
+</code></pre>
+
+<p>关于/etc/sysctl.conf的详解</p>
+
+<pre><code>解释一下sysctl.conf文件中参数的意义：
+
+file-max：这个参数表示进程可以同时打开的最大句柄数，这个参数直接限制最大并发连接数。
+tcp_tw_reuse：这个参数设置为1,表示允许将TIME-WAIT状态的socket重新用于新的TCP链接。这个对服务器来说很有意义，因为服务器上总会有大量TIME-WAIT状态的连接。
+tcp_keepalive_time：这个参数表示当keepalive启用时，TCP发送keepalive消息的频度。默认是7200 seconds，意思是如果某个TCP连接在idle 2小时后，内核才发起probe。若将其设置得小一点，可以更快地清理无效的连接。
+tcp_fin_timeout：这个参数表示当服务器主动关闭连接时，socket保持在FIN-WAIT-2状态的最大时间。
+tcp_max_tw_buckets：这个参数表示操作系统允许TIME_WAIT套接字数量的最大值，如果超过这个数字，TIME_WAIT套接字将立刻被清除并打印警告信息。默认是i180000,过多TIME_WAIT套接字会使Web服务器变慢。
+tcp_max_syn_backlog：这个参数表示TCP三次握手建立阶段接受WYN请求队列的最大长度，默认1024,将其设置大一些可以使出现Nginx繁忙来不及accept新连接的情况时，Linux不至于丢失客户端发起的连接请求。
+ip_local_port_range：这个参数定义了在UDP和TCP连接中本地端口的取值范围。
+net.ipv4.tcp_rmem：这个参数定义了TCP接受缓存（用于TCP接收滑动窗口）的最小值，默认值，最大值。
+net.ipv4.tcp_wmem：这个参数定义了TCP发送缓存（用于TCP发送滑动窗口）的最小值，默认值，最大值。
+netdev_max_backlog：当网卡接收数据包的速度大于内核处理的速度时，会有一个队列保存这些数据包。这个参数表示该队列的最大值。
+rmem_default：这个参数表示内核套接字接收缓存区默认的大小。
+wmem_default：这个参数表示内核套接字发送缓存区默认的大小。
+rmem_max：这个参数表示内核套接字接收缓存区默认的最大大小。
+wmem_max：这个参数表示内核套接字发送缓存区默认的最大大小。
+
+
+1、减少处于FIN-WAIT-2连接状态的时间，使系统可以处理更多的连接。
+net.ipv4.tcp_fin_timeout = 2
+如果套接字由本端要求关闭，这个参数决定了它保持在FIN-WAIT-2状态的时间。
+对端可以出错并永远不关闭连接，甚至意外当机，缺省值是60秒。
+2.2 内核的通常值是180秒，你可以按这个设置，但要记住的是，即使你的机器是一个轻载的WEB服务器，也有因为大量的死套接字而内存溢出的风险，FIN-WAIT-2的危险性比FIN-WAIT-1要小，因为它最多只能吃掉1.5K内存，但是它们的生存期长些。
+
+2、以下两参数可解决生产场景中大量连接的Web（cache）服务器中TIME_WAIT过多问题。
+net.ipv4.tcp_tw_reuse = 1
+表示开启重用。允许将TIME-WAIT sockets重新用于新的 TCP 连接，默认为 0 表示关闭。
+
+3、打开TIME-WAIT套接字重用及回收功能。
+net.ipv4.tcp_tw_recycle = 1
+表示开启TCP连接中TIME-WAIT sockets的快速收回功能，默认为 0 ，表示关闭。
+
+4、当keepalive起用的时候，TCP发送keepalive消息的频度，缺省是2小时，改为20分钟。
+net.ipv4.tcp_keepalive_time = 600
+
+5、允许系统打开的端口范围
+net.ipv4.ip_local_port_range = 4000    65000
+表示用于向外连接的端口范围。缺省情况下很小：32768到61000，改为4000到65000。
+
+6、提高系统支持的最大SYN半连接数(默认1024)
+net.ipv4.tcp_max_syn_backlog = 16384
+表示SYN队列的长度，默认为1024，加大队列长度为16384，可以容纳最多等待连接的网络连接数。
+[root@centos5 ~]# cat /proc/sys/net/ipv4/tcp_max_syn_backlog 
+1024
+
+7、系统同时保持TIME_WAIT套接字的最大数量
+net.ipv4.tcp_max_tw_buckets = 360000
+表示系统同时保持TIME_WAIT套接字的最大数量，如果超过这个数字，TIME_WAIT套接字将立刻被清除并打印警告信息。默认为180000，改为 5000。
+对于Apache、Nginx等服务器，上几行的参数可以很好地减少TIME_WAIT套接字数量，但是对于Squid，效果却不大。此项参数可以控制TIME_WAIT套接字的最大数量，避免Squid服务器被大量的TIME_WAIT套接字拖死。
+
+8、路由缓存刷新频率，当一个路由失败后多长时间跳到另一个路由，默认是300。
+net.ipv4.route.gc_timeout = 100
+
+9、在内核放弃建立连接之前发送SYN包的数量。
+net.ipv4.tcp_syn_retries = 1
+
+10、减少系统SYN连接重试次数（默认是5）
+net.ipv4.tcp_synack_retries = 1
+为了打开对端的连接，内核需要发送一个SYN并附带一个回应前面一个SYN的ACK。
+也就是所谓三次握手中的第二次握手。这个设置决定了内核放弃连接之前发送SYN+ACK包的数量。
+
+11、设置系统对最大跟踪的TCP连接数的限制(CentOS 5.6无此参数)
+net.ipv4.ip_conntrack_max = 25000000
+</code></pre>
+
+<h2 id="iptables">iptables</h2>
+
+<p>查看当前规则</p>
+
+<pre><code>iptables -L -n
+</code></pre>
+
+<p>添加指定端口到防火墙</p>
+
+<pre><code>iptables -I INPUT -p 协议 --dport 端口号 -j ACCEPT
+iptables -I INPUT -p udp --dport 161 -j ACCEPT
+</code></pre>
+
+<p>清除iptables规则</p>
+
+<pre><code>iptables -F
+iptables -X
+iptables -Z
+iptables -F -t nat
+
+service iptables save
+</code></pre>
+
+<h2 id="tail和head">tail和head</h2>
+
+<p>显示前几行</p>
+
+<pre><code>head -n number  filename
+</code></pre>
+
+<p>显示后几行</p>
+
+<pre><code>tail -n number filename
+</code></pre>
+
+<p>tail的-f参数可以不断刷新文件</p>
+
+<h2 id="dig">dig</h2>
+
+<p>dns解析的命令</p>
+
+<pre><code>dig google.com
+</code></pre>
+
+<h2 id="进程内部当前运行着多少线程">进程内部当前运行着多少线程</h2>
+
+<p>1.根据进程号进行查询：</p>
+
+<pre><code>pstree -p 进程号
+
+top -Hp 进程号
+</code></pre>
+
+<p>2.根据进程名字进行查询：</p>
+
+<pre><code>pstree -p `ps -e | grep server | awk '{print $1}'`
+
+pstree -p `ps -e | grep server | awk '{print $1}'` | wc -l
+</code></pre>
+
+<h2 id="ss-1">ss</h2>
+
+<p>ss命令用于显示socket状态. 他可以显示PACKET sockets, TCP sockets, UDP sockets, DCCP sockets, RAW sockets, Unix domain sockets等等统计. 它比其他工具展示等多tcp和state信息. 它是一个非常实用、快速、有效的跟踪IP连接和sockets的新工具.SS命令可以提供如下信息：</p>
+
+<pre><code>所有的TCP sockets
+所有的UDP sockets
+所有ssh/ftp/ttp/https持久连接
+所有连接到Xserver的本地进程
+使用state（例如：connected, synchronized, SYN-RECV, SYN-SENT,TIME-WAIT）、地址、端口过滤
+所有的state FIN-WAIT-1 tcpsocket连接以及更多
+</code></pre>
+
+<p>使用</p>
+
+<pre><code>ss -l 显示本地打开的所有端口
+ss -pl 显示每个进程具体打开的socket
+ss -t -a 显示所有tcp socket
+ss -u -a 显示所有的UDP Socekt
+ss -o state established '( dport = :smtp or sport = :smtp )' 显示所有已建立的SMTP连接
+ss -o state established '( dport = :http or sport = :http )' 显示所有已建立的HTTP连接
+ss -x src /tmp/.X11-unix/* 找出所有连接X服务器的进程
+ss -s 列出当前socket详细信息:
+</code></pre>
+
+<p>我们就可以开始观察连接的创建进度</p>
+
+<pre><code>watch ss -s
+</code></pre>
+
+<p>1.命令格式:</p>
+
+<pre><code>ss [参数]
+
+ss [参数] [过滤]
+</code></pre>
+
+<p>2.命令功能：</p>
+
+<p>ss(Socket Statistics的缩写)命令可以用来获取 socket统计信息，此命令输出的结果类似于 netstat输出的内容，但它能显示更多更详细的 TCP连接状态的信息，且比 netstat 更快速高效。它使用了 TCP协议栈中 tcp_diag（是一个用于分析统计的模块），能直接从获得第一手内核信息，这就使得 ss命令快捷高效。在没有 tcp_diag，ss也可以正常运行。</p>
+
+<p>3.命令参数：</p>
+
+<pre><code>-h, --help  帮助信息
+
+-V, --version   程序版本信息
+
+-n, --numeric   不解析服务名称
+
+-r, --resolve        解析主机名
+
+-a, --all   显示所有套接字（sockets）
+
+-l, --listening 显示监听状态的套接字（sockets）
+
+-o, --options        显示计时器信息
+
+-e, --extended       显示详细的套接字（sockets）信息
+
+-m, --memory         显示套接字（socket）的内存使用情况
+
+-p, --processes 显示使用套接字（socket）的进程
+
+-i, --info  显示 TCP内部信息
+
+-s, --summary   显示套接字（socket）使用概况
+
+-4, --ipv4           仅显示IPv4的套接字（sockets）
+
+-6, --ipv6           仅显示IPv6的套接字（sockets）
+
+-0, --packet            显示 PACKET 套接字（socket）
+
+-t, --tcp   仅显示 TCP套接字（sockets）
+
+-u, --udp   仅显示 UCP套接字（sockets）
+
+-d, --dccp  仅显示 DCCP套接字（sockets）
+
+-w, --raw   仅显示 RAW套接字（sockets）
+
+-x, --unix  仅显示 Unix套接字（sockets）
+
+-f, --family=FAMILY  显示 FAMILY类型的套接字（sockets），FAMILY可选，支持  unix, inet, inet6, link, netlink
+
+-A, --query=QUERY, --socket=QUERY
+
+      QUERY := {all|inet|tcp|udp|raw|unix|packet|netlink}[,QUERY]
+
+-D, --diag=FILE     将原始TCP套接字（sockets）信息转储到文件
+
+ -F, --filter=FILE   从文件中都去过滤器信息
+
+FILTER := [ state TCP-STATE ] [ EXPRESSION ]
+</code></pre>
+
+<h2 id="tee">tee</h2>
+
+<p>tee指令会从标准输入设备读取数据，将其内容输出到标准输出设备，同时保存成文件。</p>
+
+<p>参数：</p>
+
+<pre><code>-a或--append 　附加到既有文件的后面，而非覆盖它．
+-i-i或--ignore-interrupts 　忽略中断信号。
+--help 　在线帮助。
+--version 　显示版本信息。
+</code></pre>
+
+<h2 id="hostnamectl">hostnamectl</h2>
+
+<pre><code>hostnamectl --static set-hostname opt5
+</code></pre>
+
+<p>hostname是Linux系统下的一个内核参数，它保存在/proc/sys/kernel/hostname下，但是它的值是Linux启动时从rc.sysinit读取的。</p>
+
+<p>Hostname is a kernel parameter which stores hostname of the system. Its location is&rdquo;/proc/sys/kernel/hostname&rdquo; The value for this parameter is loaded to kernel by rc.sysinit file during the boot process.</p>
+
+<p>而/etc/rc.d/rc.sysinit中HOSTNAME的取值来自与/etc/sysconfig/network下的HOSTNAME，代码如下所示，至此，我们可以彻底明白了。</p>
+
+<h2 id="安装wget">安装wget</h2>
+
+<p>yum install wget</p>
+
+<p>不验证证书</p>
+
+<pre><code>$ wget 'https://x.x.x.x/get_ips' --no-check-certificate
+
+
+$ curl 'https://x.x.x.x/get_ips' -k
+</code></pre>
+
+<h2 id="ulimit">ulimit</h2>
+
+<pre><code>#用户单进程的最大文件数，用户登录时生效
+echo '* soft nofile 1048576' &gt;&gt; /etc/security/limits.conf 
+echo '* hard nofile 1048576' &gt;&gt; /etc/security/limits.conf 
+ulimit -n 1048576 #用户单进程的最大文件数 当前会话生效
+</code></pre>
+
+<p>当出现component=tsdb msg=&ldquo;compaction failed&rdquo; err=&ldquo;persist head block: open chunk writer: open /data/01DP0DW74RS1Z574XZ97R8GER5.tmp/chunks: too many open files&rdquo;这个错误的时候就需要去修改对应的最大文件句柄数。</p>
+
+<h2 id="由于修改错了-etc-profile文件-导致所有命令都失效">由于修改错了/etc/profile文件，导致所有命令都失效.</h2>
+
+<p>解决办法如下:</p>
+
+<pre><code>/bin/vi /etc/profile
+</code></pre>
+
+<p>改回正确版本，保存.</p>
+
+<p>logout注销重启</p>
+
+<p>再登陆进去，尝试一下ls vi命令就好了。</p>
+
+<h2 id="ethtool">ethtool</h2>
+
+<pre><code>[root@ctumppre1 ~]# ethtool eth0
+Settings for eth0:
+    Supported ports: [ TP ]
+    Supported link modes:   10baseT/Half 10baseT/Full
+                            100baseT/Half 100baseT/Full
+                            1000baseT/Full
+    Supported pause frame use: Symmetric
+    Supports auto-negotiation: Yes
+    Advertised link modes:  10baseT/Half 10baseT/Full
+                            100baseT/Half 100baseT/Full
+                            1000baseT/Full
+    Advertised pause frame use: Symmetric
+    Advertised auto-negotiation: Yes
+    Speed: 1000Mb/s
+    Duplex: Full
+    Port: Twisted Pair
+    PHYAD: 1
+    Transceiver: internal
+    Auto-negotiation: on
+    MDI-X: Unknown
+    Supports Wake-on: pumbg
+    Wake-on: g
+    Current message level: 0x00000007 (7)
+                   drv probe link
+    Link detected: yes
+</code></pre>
+
+<p>查看网卡速度。</p>
+
+<h2 id="去掉最后一个">去掉最后一个／</h2>
+
+<pre><code>[root@localhost ~]# stra=/home/zz
+[root@localhost ~]# strb=/home/zz/
+[root@localhost ~]# echo ${stra%*/}
+/home/zz
+[root@localhost ~]# echo ${strb%*/}
+/home/zz
+</code></pre>
+
+<h2 id="rsync">rsync</h2>
+
+<p>rsync配置</p>
+
+<p>rsync主要有以下三个配置文件rsyncd.conf(主配置文件)、rsyncd.secrets(密码文件)、rsyncd.motd(rysnc服务器信息)。</p>
+
+<p>关于这几个文件的配置大家可以参考官方网站或者其他介绍rsync的网站，下面介绍服务器端和客户端如何开启</p>
+
+<p>服务端开启:</p>
+
+<pre><code>#/usr/bin/rsync --daemon --config=/etc/rsyncd/rsyncd.conf
+</code></pre>
+
+<p>&ndash;daemon参数方式，是让rsync以服务器模式运行。把rsync加入开机启动</p>
+
+<pre><code>echo 'rsync --daemon' &gt;&gt; /etc/rc.d/rc.local
+</code></pre>
+
+<p>设置rsync密码</p>
+
+<pre><code>echo '你的用户名:你的密码' &gt; /etc/rsyncd.secrets chmod 600 /etc/rsyncd.secrets
+</code></pre>
+
+<p>客户端同步:</p>
+
+<p>客户端可以通过如下命令同步服务器上的文件:</p>
+
+<pre><code>rsync -avzP --delete --password-file=rsyncd.secrets 用户名@192.168.145.5::www /var/rsync/ 这条命令，简要的说明一下几个要点:
+
+1. -avzP是啥，读者可以使用--help查看
+2. --delete 是为了比如A上删除了一个文件，同步的时候，B会自动删除相对应的文件
+3. --password-file 客户端中/etc/rsyncd.secrets设置的密码，要和服务端的 /etc/rsyncd.secrets 中的密码一样， 4. 这条命令中的&quot;用户名&quot;为服务端的 /etc/rsyncd.secrets中的用户名
+5. 这条命令中的 192.168.0.100 为服务端的IP地址
+6. ::www，注意是2个 : 号，www为服务端的配置文件 /etc/rsyncd.conf 中的[www]，意思是根据服务端上的/etc/rsyncd. 为了让同步实时性，可以设置crontab，保持rsync每分钟同步，当然用户也可以根据文件的重要程度设置不同的同步
+</code></pre>
+
+<h2 id="touch">touch</h2>
+
+<p>1.创建文件 touch file</p>
+
+<p>2.touch -r tm liunx-2.6.30.4（要改的文件名）//就是把Linux-2.6.30.4文件的时间改为tm文件的时间</p>
+
+<pre><code>touch [-acfm]
+[-r reference-file] [--file=reference-file]
+[-t MMDDhhmm[[CC]YY][.ss]]
+[-d time] [--date=time] [--time={atime,access,use,mtime,modify}]
+[--no-create] [--help] [--version]
+file1 [file2 ...]
+</code></pre>
+
+<p>说明参数：</p>
+
+<pre><code>a 改变档案的读取时间记录。
+m 改变档案的修改时间记录。
+c 假如目的档案不存在，不会建立新的档案。与 --no-create 的效果一样。
+f 不使用，是为了与其他 unix 系统的相容性而保留。
+r 使用参考档的时间记录，与 --file 的效果一样。
+d 设定时间与日期，可以使用各种不同的格式。
+t 设定档案的时间记录，格式与 date 指令相同。
+--no-create 不会建立新档案。
+--help 列出指令格式。
+--version 列出版本讯息。
+</code></pre>
+
+<p>范例：</p>
+
+<p>将 file 的时间记录改为 5 月 6 日 18 点 3 分，公元两千年。</p>
+
+<p>时间的格式可以参考 date 指令，至少需输入 MMDDHHmm ，就是月日时与分。</p>
+
+<pre><code>touch -c -t 05061803 file
+touch -c -t 050618032000 file
+</code></pre>
+
+<p>时间可以使用 am, pm 或是 24 小时的格式，日期可以使用其他格式如 6 May 2000。</p>
+
+<p>touch -d 和 date -s 的用法相同。如果没有指定日期，默认为系统日期</p>
+
+<pre><code>touch -d 18:03 file
+touch -d &quot;18:03&quot; file
+touch -d &quot;6:03pm&quot; file
+</code></pre>
+
+<p>如果没有指定时间，默认为 00:00:00</p>
+
+<pre><code>touch -d 20000506 file
+touch -d &quot;05/06/2000&quot; file
+touch -d &quot;20000506&quot; filetouch -d &quot;6:03pm 05/06/2000&quot; file
+touch -d &quot;20000506 18:03&quot; file
+touch -d &quot;20000506 18:03:00&quot; file
+</code></pre>
+
+<h2 id="file-time">file time</h2>
+
+<p>在windows下，一个文件有：创建时间、修改时间、访问时间。</p>
+
+<p>在Linux下，一个文件有：状态改动时间、修改时间、访问时间。</p>
+
+<p>通过stat filename可以看到文件的信息</p>
+
+<pre><code>Access　　访问时间（access time）　　atime
+
+Modify　　修改时间（modifytime）　　mtime
+
+Change　　状态改动时间（change time）　　ctime
+
+ls -lc filename  # 列出文件的ctime
+ls -lu filename  # 列出文件的atime
+ls -l filename   # 列出文件的mtime
+</code></pre>
+
+<p>访问时间：读一次文件的内容，atime就会更新</p>
+
+<p>修改时间：文件内容做后一次被修改的时间</p>
+
+<p>状态改动时间：文件的i节点最后一次被修改的时间，通过chmod、chown修改文件属性时，ctime会更新</p>
+
+<pre><code>字段           说明                  例子           ls(-l)
+ st_atime  文件数据的最后存取时间       read            -u
+ st_mtime  文件数据的最后修改时间       write           缺省
+ st_ctime  文件数据的最后更改时间       chown,chmod     -c
+</code></pre>
+
+<p>命令可以直接使用上一个touch来修改，一般ctime是改变不了的。</p>
+
+<p>未完待续。。。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/linux/tool/shell/">https://kingjcy.github.io/post/linux/tool/shell/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/shell/">
+                            <i class="fa fa-tags"></i>
+                            shell
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/tool/">
+                            <i class="fa fa-tags"></i>
+                            tool
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/linux/">
+                            <i class="fa fa-tags"></i>
+                            linux
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/tool/vpn/">工具系列---- Vpn</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年12月12日)</span></li><li id="li-rels"><a href="/post/linux/tool/yum/">Yum</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2015年12月10日)</span></li><li id="li-rels"><a href="/post/tool/vi-vim/">Vi Vim</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2015年11月22日)</span></li><li id="li-rels"><a href="/post/tool/gitandgithub/">工具系列(一)：git和github的使用总结</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2014年11月18日)</span></li><li id="li-rels"><a href="/post/tool/hugo-blog-build/">用hugo&#43;github构建自己的blog</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2014年08月29日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/linux/c&#43;&#43;/tool/gdb/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/standard/regular-expression/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li><a href="#场景">场景</a></li>
+<li><a href="#shell基本语法">shell基本语法</a></li>
+</ul></li>
+<li><a href="#shell常用命令">shell常用命令</a>
+<ul>
+<li><a href="#awk">awk</a></li>
+<li><a href="#空格">空格</a></li>
+<li><a href="#sed">sed</a></li>
+<li><a href="#变量">$变量</a>
+<ul>
+<li><a href="#多台服务器">多台服务器</a></li>
+</ul></li>
+<li><a href="#test结构">test结构</a></li>
+<li><a href="#shell内建变量">shell内建变量</a></li>
+<li><a href="#字符串">字符串</a></li>
+<li><a href="#内建命名">内建命名</a></li>
+<li><a href="#expr">expr</a></li>
+<li><a href="#增量备份和全量备份">增量备份和全量备份</a>
+<ul>
+<li><a href="#rsync备份">rsync备份</a></li>
+<li><a href="#tar打包备份">tar打包备份</a></li>
+</ul></li>
+<li><a href="#起停脚本">起停脚本</a></li>
+<li><a href="#crotab定时任务">crotab定时任务</a></li>
+<li><a href="#top">top</a></li>
+<li><a href="#cpu使用率原理">cpu使用率原理</a></li>
+<li><a href="#ifconfig-netstat">ifconfig&amp;&amp;netstat</a></li>
+<li><a href="#curl">curl</a></li>
+<li><a href="#base64工具">base64工具</a></li>
+<li><a href="#vmstat">vmstat</a></li>
+<li><a href="#cp">cp</a></li>
+<li><a href="#dirname">dirname</a></li>
+<li><a href="#set-e">set -e</a></li>
+<li><a href="#source-c-sh或者-c-sh">source c.sh或者. ./c.sh</a></li>
+<li><a href="#sz-rz">sz,rz</a></li>
+<li><a href="#ss">ss</a></li>
+<li><a href="#toc_30">&gt;&gt;</a></li>
+<li><a href="#type">type</a></li>
+<li><a href="#tcpdump">tcpdump</a></li>
+<li><a href="#watch">watch</a></li>
+<li><a href="#清空文件内容">清空文件内容</a></li>
+<li><a href="#shell-127">shell 127</a></li>
+<li><a href="#echo">echo</a></li>
+<li><a href="#ps">ps</a></li>
+<li><a href="#记一次脚本执行冲突的问题">记一次脚本执行冲突的问题：</a></li>
+<li><a href="#find">find</a></li>
+<li><a href="#nano">nano</a></li>
+<li><a href="#性能监控常规操作">性能监控常规操作</a></li>
+<li><a href="#查看进程资源情况">查看进程资源情况</a>
+<ul>
+<li>
+<ul>
+<li><a href="#内存和cpu">内存和cpu</a></li>
+<li><a href="#io">io</a></li>
+<li><a href="#网络">网络</a></li>
+<li><a href="#端口">端口</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#查看开机时间">查看开机时间</a></li>
+<li><a href="#变量-1">变量</a></li>
+<li><a href="#ssh">ssh</a>
+<ul>
+<li><a href="#免密">免密</a></li>
+</ul></li>
+<li><a href="#tar">tar</a></li>
+<li><a href="#grep">grep</a>
+<ul>
+<li><a href="#find-grep">find&amp;grep</a></li>
+</ul></li>
+<li><a href="#du">du</a></li>
+<li><a href="#sudo">sudo</a>
+<ul>
+<li><a href="#目录">目录</a></li>
+<li><a href="#scp">scp</a></li>
+<li><a href="#whereis-which">whereis&amp;which</a></li>
+</ul></li>
+<li><a href="#lsof">lsof</a></li>
+<li><a href="#telnet-ping">telnet&amp;ping</a></li>
+<li><a href="#usermod">usermod</a></li>
+<li><a href="#useradd-passwd">useradd&amp;passwd</a></li>
+<li><a href="#cat">cat</a></li>
+<li><a href="#命令行和界面模式">命令行和界面模式</a></li>
+<li><a href="#网络设置">网络设置</a></li>
+<li><a href="#tr">tr</a></li>
+<li><a href="#sort">sort</a></li>
+<li><a href="#find-1">find</a></li>
+<li><a href="#cut">cut</a>
+<ul>
+<li><a href="#dirname和basename">dirname和basename</a></li>
+<li><a href="#uid">UID</a></li>
+</ul></li>
+<li><a href="#sh">sh</a></li>
+<li><a href="#与">&amp;&amp;与；</a></li>
+<li><a href="#date">date</a></li>
+<li><a href="#hostname">hostname</a></li>
+<li><a href="#ipcs">ipcs</a></li>
+<li><a href="#netstat">netstat</a>
+<ul>
+<li><a href="#sysctl">sysctl</a></li>
+</ul></li>
+<li><a href="#iptables">iptables</a></li>
+<li><a href="#tail和head">tail和head</a></li>
+<li><a href="#dig">dig</a></li>
+<li><a href="#进程内部当前运行着多少线程">进程内部当前运行着多少线程</a></li>
+<li><a href="#ss-1">ss</a></li>
+<li><a href="#tee">tee</a></li>
+<li><a href="#hostnamectl">hostnamectl</a></li>
+<li><a href="#安装wget">安装wget</a></li>
+<li><a href="#ulimit">ulimit</a></li>
+<li><a href="#由于修改错了-etc-profile文件-导致所有命令都失效">由于修改错了/etc/profile文件，导致所有命令都失效.</a></li>
+<li><a href="#ethtool">ethtool</a></li>
+<li><a href="#去掉最后一个">去掉最后一个／</a></li>
+<li><a href="#rsync">rsync</a></li>
+<li><a href="#touch">touch</a></li>
+<li><a href="#file-time">file time</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

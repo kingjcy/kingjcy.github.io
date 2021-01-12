@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Product Problem on kingjcy blog</title>
+    <link>https://kingjcy.github.io/tags/product-problem/</link>
+    <description>Recent content in Product Problem on kingjcy blog</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>zh-CN</language>
+    <copyright>Copyright (c) 2020. All rights reserved.</copyright>
+    <lastBuildDate>Mon, 02 Mar 2020 19:22:14 +0800</lastBuildDate>
+    
+	<atom:link href="https://kingjcy.github.io/tags/product-problem/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+    <item>
+      <title>生产问题排查解决系列---- filebeat resource leak</title>
+      <link>https://kingjcy.github.io/post/product/filebeat_leak/</link>
+      <pubDate>Mon, 02 Mar 2020 19:22:14 +0800</pubDate>
+      
+      <guid>https://kingjcy.github.io/post/product/filebeat_leak/</guid>
+      <description>第一阶段 现象 内存持续增加不释放，应该是内存泄漏
+分析  查看日志,有一个error一直在报错  找到对应的日志在代码中的位置
+在这边只是检查文件的状态，难道是这个返回的时候，资源没有释放导致的？于是打开采集组件的debug日志和开启pprof来看filebeat运行的资源使用情况，查看pprof的时候发现果然goroutine泄漏了，达到了16W。然后主要看泄漏的地方
+这个图上面的协程数由于没有保留，就用来这个，其实第一个达到8W，下面都是4W左右。
+在/go/src/github.com/elastic/beats/filebeat/channel/util.go的这边有好几万的协程在运行。我们来看代码
+再来看看上一层的代码调用返回后是不是导致这个goroutine没有释放，还真的是这块没有调用close
+查看官方确实存在着这个问题issue
+在7.5的版本中进行了修复，于是对filebeat进行升级，然后进行多kafka的改造。完成修复。
+第二阶段 现象 升级后，好景不长，在filebeat组件运行的三天内突然出现cpu和内存使用持续增长并且过度使用资源的情况。如下图
+分析  查看日志,有一个error一直在报错  还是这个报错，难道这个bug没有修复，在测试环境是测试OK，确实在新代码中也会close
+如果状态不对return，是会调用
+defer cleanupIfNeeded(out.Close) defer cleanupIfNeeded(stateOut.Close)  并不会导致这个的协程泄漏。这个问题其实就是第一阶段的内存泄漏问题，已经修复，那么问题来了。为什么还会有大量的goroutine泄漏。
+只能在源码中找答案了，但是一整套的采集流程都走下来，发现都没有泄漏的场景。
+没办法，打开debug日志，来一行行追踪。
+最初的想法是肯定是哪边的状态检查不通过，导致的goroutine的泄漏。
+因为有很多的特殊情况，日志采集是处于已经采集的状态的，还真找到了一种特殊情况
+这种特殊情况和我们的容器的发布使用场景有关：我们的发布使用的原地重启的方式，并不会删除pod，而是重启container
+再去看log-polit的机制，发现pod的原地重启的情况下，会对同一个日志文件进行重新生成，这个时候历史日志不删除，就会出现一个不同文件名但是内容完全相同的的配置文件
+这个时候就有一个新的文件进行重新加载，开一个采集器去采集日志，但是我们在记录中这个日志已经采集了，并不会真正的去采集，所以整个流程并木有闭环，所以很多地方开启的goroutine并没获取关闭的信号
+而且这个采集器还会定时去检查，检查的过程中也会造成这种情况。
+修复方案：
+1、在这情况下，调用close关闭相关的资源，但是不能保障所有的情况，如果其他类似特殊情况的话，还是会出现问题。pass 2、在重载哪边做去重的机制，使用hash算法，如果一直的不进行重新加载 3、在服务发现机制那边做去重，但是我们是基于docker事件的，如果需要去重，改造的工作量特别大，可以做长期的计划  综上所述，采用的方案二进行临时修复，方案三作为长期规划。</description>
+    </item>
+    
+    <item>
+      <title>生产问题排查解决系列---- filebeat resource optimization</title>
+      <link>https://kingjcy.github.io/post/product/filebeat_optimization/</link>
+      <pubDate>Mon, 02 Mar 2020 19:22:14 +0800</pubDate>
+      
+      <guid>https://kingjcy.github.io/post/product/filebeat_optimization/</guid>
+      <description>现象 目前我们日志收集组件使用的是filebeat6.6.1，在某业务上线以后，发生了日志收集延迟的问题，最差的情况，延迟两天以上。严重影响了下游数据分析项目。
+分析该业务日志之后，发现该业务日志量大，但是单日志filed非常少。
+分析  看日志没有什么问题
+ 查看pprof的信息
+  使用命令行
+go tool pprof http://0.0.0.0:6060/debug/pprof/profile Showing top 10 nodes out of 197 flat flat% sum% cum cum% 21.45s 13.42% 13.42% 70.09s 43.85% runtime.gcDrain 15.49s 9.69% 23.11% 39.83s 24.92% runtime.scanobject 11.38s 7.12% 30.23% 11.38s 7.12% runtime.futex 7.86s 4.92% 35.15% 16.30s 10.20% runtime.greyobject 7.82s 4.89% 40.04% 7.82s 4.89% runtime.markBits.isMarked (inline) 5.59s 3.50% 43.53% 5.59s 3.50% runtime.(*lfstack).pop 5.51s 3.45% 46.98% 6.05s 3.78% runtime.</description>
+    </item>
+    
+  </channel>
+</rss>

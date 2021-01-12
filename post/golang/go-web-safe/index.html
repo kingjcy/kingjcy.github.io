@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="企图利用Web应用漏洞的攻击者，对于Web程序安全这个话题都给予了越来越多的关注。特别是最近CSDN密码泄露事件，更是让我们对Web安全这个话题更加重视，所有人都谈密码色变，都开始检测自己的系统是否存在漏洞。那么我们作为一名Go程序的开发者，一定也需要知道我们的应用程序随时会成为众多攻击者的目标，并提前做好防范的准备。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Golang web系列---- Safe - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Golang web系列---- Safe
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年11月10日 
+                </div>
+                <h1 class="post-title">Golang web系列---- Safe</h1>
+            </header>
+
+            <div class="post-content">
+                <p>企图利用Web应用漏洞的攻击者，对于Web程序安全这个话题都给予了越来越多的关注。特别是最近CSDN密码泄露事件，更是让我们对Web安全这个话题更加重视，所有人都谈密码色变，都开始检测自己的系统是否存在漏洞。那么我们作为一名Go程序的开发者，一定也需要知道我们的应用程序随时会成为众多攻击者的目标，并提前做好防范的准备。</p>
+
+<h2 id="关于安全验证">关于安全验证</h2>
+
+<ol>
+<li>token</li>
+</ol>
+
+<p>背景</p>
+
+<p>Token是在客户端频繁向服务端请求数据，服务端频繁的去数据库查询用户名和密码并进行对比，判断用户名和密码正确与否，并作出相应提示，在这样的背景下，Token便应运而生。</p>
+
+<p>定义</p>
+
+<p>Token是服务端生成的一串字符串，以作客户端进行请求的一个令牌，当第一次登录后，服务器生成一个Token便将此Token返回给客户端，以后客户端只需带上这个Token前来请求数据即可，无需再次带上用户名和密码。</p>
+
+<p>目的</p>
+
+<p>Token的目的是为了减轻服务器的压力，减少频繁的查询数据库，使服务器更加健壮。</p>
+
+<p>使用</p>
+
+<ol>
+<li><p>用设备号/设备mac地址作为Token（推荐）</p></li>
+
+<li><p>用session值作为Token</p></li>
+
+<li><p>最简单的token组成:uid(用户唯一的身份标识)、time(当前时间的时间戳)、sign(签名，由token的前几位+盐以哈希算法压缩成一定长的十六进制字符串，可以防止恶意第三方拼接token请求服务器)。还可以把不变的参数也放进token，避免多次查库</p></li>
+</ol>
+
+<p>实例</p>
+
+<pre><code>package main
+
+import (
+    &quot;crypto/md5&quot;
+    &quot;fmt&quot;
+    &quot;io&quot;
+    &quot;strconv&quot;
+    &quot;time&quot;
+)
+
+func main() {
+
+    crutime := time.Now().Unix()
+    fmt.Println(&quot;crutime--&gt;&quot;, crutime)
+
+    h := md5.New()
+    fmt.Println(&quot;h--&gt;&quot;, h)
+
+    fmt.Println(&quot;strconv.FormatInt(crutime, 10)--&gt;&quot;, strconv.FormatInt(crutime, 10))
+    io.WriteString(h, strconv.FormatInt(crutime, 10))
+
+    fmt.Println(&quot;h--&gt;&quot;, h)
+
+    token := fmt.Sprintf(&quot;%x&quot;, h.Sum(nil))
+    fmt.Println(&quot;token---&gt;&quot;, token)
+
+    fmt.Println(len(&quot;8e1a188743c6077110da3c9778183031&quot;))
+}
+</code></pre>
+
+<ol>
+<li>session会话（服务器机制）</li>
+</ol>
+
+<p>session的中文翻译是“会话”，当用户打开某个web应用时，第一次便与web服务器产生一次session。服务器生成session，session存储着用户信息，并保存在了服务器上，并发送一个http响应到客户端，这个响应头，其中就包含Set-Cookie头部。该头部包含了sessionId。下次访问的时候，根据sessionid获取session信息，也就是用户信息，用户离开网站后session会被销毁。这种用户信息存储方式相对cookie来说更安全，可是session有一个缺陷：如果web服务器做了负载均衡，那么下一个操作请求到了另一台服务器的时候session会丢失。（session复制可以解决这个问题，session缓存）</p>
+
+<p>session存放位置可以是</p>
+
+<pre><code>内存
+cookie本身
+redis 或 memcached 等缓存中
+数据库中。（线上来说，缓存的方案比较常见，存数据库的话，查询效率相比前三者都太低，不推荐
+</code></pre>
+
+<p>目前Go标准包 没有为session提供任何支持</p>
+
+<p>这边自己实现一个session管理机制来加深对session的理解</p>
+
+<ol>
+<li><p>我们抽象出一个Provider接口，用以表征session管理器底层存储结构。</p>
+
+<p>type Provider interface {
+    SessionInit(sid string) (Session, error)
+    SessionRead(sid string) (Session, error)
+    SessionDestroy(sid string) error
+    SessionGC(maxLifeTime int64)
+}</p></li>
+</ol>
+
+<p>SessionInit函数实现Session的初始化，操作成功则返回此新的Session变量
+SSessionRead函数返回sid所代表的Session变量，如果不存在，那么将以sid为参数调用SessionInit函数创 建并返回一个新的Session变量
+SessionDestroy函数用来销毁sid对应的Session变量
+SessionGC根据maxLifeTime来删除过期的数据</p>
+
+<ol>
+<li><p>定义session的基本操作接口</p>
+
+<p>type Session interface {
+    Set(key, value interface{}) error //set session value
+    Get(key interface{}) interface{} //get session value
+    Delete(key interface{}) error //delete session value
+    SessionID() string //back current sessionID
+}</p></li>
+
+<li><p>注册session</p></li>
+</ol>
+
+<p>var provides = make(map[string]Provide)</p>
+
+<p>// Register makes a session provide available by the provided name.
+// If Register is called twice with the same name or if driver is nil, // it panics.
+    func Register(name string, provide Provide) {
+        if driver == nil {
+            panic(&ldquo;session: Register provide is nil&rdquo;)
+        }
+        if _, dup := provides[name]; dup {
+            panic(&ldquo;session: Register called twice for provide &ldquo; + name)
+        }
+        provides[name] = provide
+    }</p>
+
+<ol>
+<li><p>定义一个全局的session管理器</p>
+
+<p>type Manager struct {
+    cookieName string  //private cookiename
+    lock sync.Mutex  // protects session
+    provider Provider
+    maxlifetime int64
+}</p>
+
+<p>func NewManager(provideName, cookieName string, maxlifetime int64) (*Manager, error) {
+    provider, ok := provides[provideName]
+    if !ok {
+        return nil, fmt.Errorf(&ldquo;session: unknown provide %q (forgotten import?)&ldquo;, provideName)
+    }
+    return &amp;Manager{provider: provider, cookieName: cookieName, maxlifetime: maxlifetime}, nil
+}</p></li>
+
+<li><p>sessionid</p>
+
+<p>func (manager *Manager) sessionId() string {
+    b := make([]byte, 32)
+    if _, err := io.ReadFull(rand.Reader, b); err != nil {
+        return &ldquo;&rdquo;
+    }
+    return base64.URLEncoding.EncodeToString(b)
+}</p></li>
+
+<li><p>session创建</p>
+
+<p>func (manager *Manager) SessionStart(w http.ResponseWriter, r *http.Request) (session Session) {
+    manager.lock.Lock()
+    defer manager.lock.Unlock()</p>
+
+<pre><code>cookie, err := r.Cookie(manager.cookieName)
+if err != nil || cookie.Value == &quot;&quot; {
+    sid := manager.sessionId()
+    session, _ = manager.provider.SessionInit(sid)
+    cookie := http.Cookie{Name: manager.cookieName, Value: url.QueryEscape(sid), Path: &quot;/&quot;, Ht http.SetCookie(w, &amp;cookie)
+} else {
+    sid, _ := url.QueryUnescape(cookie.Value)
+    session, _ = manager.provider.SessionRead(sid)
+}
+return
+</code></pre>
+
+<p>}</p></li>
+</ol>
+
+<p>我们用前面login操作来演示session的运用:</p>
+
+<pre><code>var globalSessions *session.Manager //然后在init函数中初始化
+func init() {
+    globalSessions = NewManager(&quot;memory&quot;,&quot;gosessionid&quot;,3600)
+}
+
+
+
+func login(w http.ResponseWriter, r *http.Request) {
+    sess := globalSessions.SessionStart(w, r) r.ParseForm()
+    if r.Method == &quot;GET&quot; {
+        t, _ := template.ParseFiles(&quot;login.gtpl&quot;) w.Header().Set(&quot;Content-Type&quot;, &quot;text/html&quot;) t.Execute(w, sess.Get(&quot;username&quot;))
+    } else {
+        sess.Set(&quot;username&quot;, r.Form[&quot;username&quot;]) http.Redirect(w, r, &quot;/&quot;, 302)
+    }
+}
+</code></pre>
+
+<ol>
+<li><p>接口实现</p>
+
+<p>package memory</p>
+
+<p>import (
+    &ldquo;container/list&rdquo;
+    &ldquo;github.com/astaxie/session&rdquo;
+    &ldquo;sync&rdquo;
+    &ldquo;time&rdquo;
+)</p>
+
+<p>var pder = &amp;Provider{list: list.New()}</p>
+
+<p>type SessionStore struct {
+    sid string
+    timeAccessed time.Time
+    value map[interface{}]interface{} //session里面存储的值
+}
+func (st *SessionStore) Set(key, value interface{}) error { st.value[key] = value
+    pder.SessionUpdate(st.sid)
+    return nil
+}
+func (st *SessionStore) Get(key interface{}) interface{} { pder.SessionUpdate(st.sid)
+    if v, ok := st.value[key]; ok {
+        return v } else {
+        return nil }
+    return nil }
+func (st *SessionStore) Delete(key interface{}) error { delete(st.value, key)
+    pder.SessionUpdate(st.sid)
+    return nil
+}
+func (st *SessionStore) SessionID() string { return st.sid
+}</p>
+
+<p>type Provider struct {
+    lock sync.Mutex //用来锁 sessions map[string]*list.Element //用来存储在内存 list *list.List //用来做gc
+}
+func (pder *Provider) SessionInit(sid string) (session.Session, error) { pder.lock.Lock()
+    defer pder.lock.Unlock()
+    v := make(map[interface{}]interface{}, 0)
+    newsess := &amp;SessionStore{sid: sid, timeAccessed: time.Now(), value: v} element := pder.list.PushBack(newsess)
+    pder.sessions[sid] = element
+    return newsess, nil
+}
+func (pder *Provider) SessionRead(sid string) (session.Session, error) { if element, ok := pder.sessions[sid]; ok {
+    return element.Value.(*SessionStore), nil } else {
+    sess, err := pder.SessionInit(sid)
+    return sess, err }
+    //session id唯一标示 //最后访问时间
+    145
+    return nil, nil }
+func (pder *Provider) SessionDestroy(sid string) error { if element, ok := pder.sessions[sid]; ok {
+    delete(pder.sessions, sid) pder.list.Remove(element) return nil
+}
+    return nil }
+func (pder *Provider) SessionGC(maxlifetime int64) { pder.lock.Lock()
+    defer pder.lock.Unlock()
+    for {
+        element := pder.list.Back() if element == nil {
+            break }
+        if (element.Value.(*SessionStore).timeAccessed.Unix() + maxlifetime) &lt; time.Now().Unix() { pder.list.Remove(element)
+            delete(pder.sessions, element.Value.(*SessionStore).sid)
+        } else { break
+        } }
+}
+func (pder *Provider) SessionUpdate(sid string) error { pder.lock.Lock()
+    defer pder.lock.Unlock()
+    if element, ok := pder.sessions[sid]; ok {
+        element.Value.(*SessionStore).timeAccessed = time.Now() pder.list.MoveToFront(element)
+        return nil
+    }
+    return nil
+}
+func init() {
+    pder.sessions = make(map[string]*list.Element, 0) session.Register(&ldquo;memory&rdquo;, pder)
+}</p></li>
+</ol>
+
+<p>上面这个代码实现了一个内存存储的session机制。通过init函数注册到session管理器中。这样就可以方便的调用 了。我们如何来调用该引擎呢?请看下面的代码</p>
+
+<pre><code>import (
+&quot;github.com/astaxie/session&quot;
+_ &quot;github.com/astaxie/session/providers/memory&quot;
+)
+</code></pre>
+
+<p>当import的时候已经执行了memory函数里面的init函数，这样就已经注册到session管理器中，我们就可以使用了， 通过如下方式就可以初始化一个session管理器:</p>
+
+<pre><code>var globalSessions *session.Manager
+//然后在init函数中初始化 func init() {
+globalSessions, _ = session.NewManager(&quot;memory&quot;, &quot;gosessionid&quot;, 3600)
+go globalSessions.GC() }
+</code></pre>
+
+<p>7.session使用</p>
+
+<p>设置、读取和删除</p>
+
+<p>SessionStart函数返回的是一个满足Session接口的变量，那么我们该如何用他来对session数据进行操作呢? 上面的例子中的代码session.Get(&ldquo;uid&rdquo;)已经展示了基本的读取数据的操作，现在我们再来看一下详细的操作:</p>
+
+<pre><code>func count(w http.ResponseWriter, r *http.Request) {
+    sess := globalSessions.SessionStart(w, r)
+    createtime := sess.Get(&quot;createtime&quot;)
+    if createtime == nil {
+        sess.Set(&quot;createtime&quot;, time.Now().Unix())
+    } else if (createtime.(int64) + 360) &lt; (time.Now().Unix()) {
+        globalSessions.SessionDestroy(w, r)
+        sess = globalSessions.SessionStart(w, r) }
+        ct := sess.Get(&quot;countnum&quot;) if ct == nil {
+        sess.Set(&quot;countnum&quot;, 1) } else {
+        sess.Set(&quot;countnum&quot;, (ct.(int) + 1)) }
+        t, _ := template.ParseFiles(&quot;count.gtpl&quot;) w.Header().Set(&quot;Content-Type&quot;, &quot;text/html&quot;) t.Execute(w, sess.Get(&quot;countnum&quot;))
+}
+</code></pre>
+
+<p>通过上面的例子可以看到，Session的操作和操作key/value数据库类似:Set、Get、Delete等操作</p>
+
+<p>因为Session有过期的概念，所以我们定义了GC操作，当访问过期时间满足GC的触发条件后将会引起GC，但是当我们 进行了任意一个session操作，都会对Session实体进行更新，都会触发对最后访问时间的修改，这样当GC的时候就不会误删除还在使用的Session实体。</p>
+
+<p>session重置</p>
+
+<p>我们知道，Web应用中有用户退出这个操作，那么当用户退出应用的时候，我们需要对该用户的session数据进行销毁 操作，上面的代码已经演示了如何使用session重置操作，下面这个函数就是实现了这个功能:</p>
+
+<pre><code>//Destroy sessionid
+func (manager *Manager) SessionDestroy(w http.ResponseWriter, r *http.Request){
+    cookie, err := r.Cookie(manager.cookieName)
+    if err != nil || cookie.Value == &quot;&quot; {
+        return
+    } else {
+        manager.lock.Lock()
+    }
+    defer manager.lock.Unlock()
+    manager.provider.SessionDestroy(cookie.Value)
+    expiration := time.Now()
+    cookie := http.Cookie{Name: manager.cookieName, Path: &quot;/&quot;, HttpOnly: true, Expires: expira http.SetCookie(w, &amp;cookie)
+}
+</code></pre>
+
+<p>session销毁 我们来看一下Session管理器如何来管理销毁,只要我们在Main启动的时候启动:</p>
+
+<pre><code>func init() {
+    go globalSessions.GC()
+}
+
+func (manager *Manager) GC() {
+    manager.lock.Lock()
+    defer manager.lock.Unlock()
+    manager.provider.SessionGC(manager.maxlifetime) time.AfterFunc(time.Duration(manager.maxlifetime), func() { manager.GC() })
+}
+</code></pre>
+
+<p>我们可以看到GC充分利用了time包中的定时器功能，当超时maxLifeTime之后调用GC函数，这样就可以保证maxLifeTime时间内的session都是可用的，类似的方案也可以用于统计在线用户数之类的。</p>
+
+<p>session预防劫持的方法：1。使用token。2，不断生成新的sessionid</p>
+
+<ol>
+<li>cookie（客户端机制）</li>
+</ol>
+
+<p>cookie是保存在本地终端的数据。cookie由服务器生成，发送给浏览器，浏览器把cookie以kv形式保存到浏览器某个目录下的文本文件内，下一次请求同一网站时会把该cookie发送给服务器。由于cookie是存在客户端上的，所以浏览器加入了一些限制确保cookie不会被恶意使用，同时不会占据太多磁盘空间，所以每个域的cookie数量是有限的。</p>
+
+<p>cookie的组成有：名称(key)、值(value)、有效域(domain)、路径(域的路径，一般设置为全局:&rdquo;\&ldquo;)、失效时间、安全标志(指定后，cookie只有在使用SSL连接时才发送到服务器(https))。</p>
+
+<p>Cookie时效性：目前有些 Cookie 是临时的，有些则是持续的。临时的 Cookie 只在浏览器上保存一段规定的时间，一旦超过规定的时间，该 Cookie 就会被系统清除。Cookie总是保存在客户端中，按在客户端中的存储位置，可分为内存Cookie和硬盘Cookie。内存Cookie由浏览器维护，保存在内存中，浏览器关闭后就消失了，其存在时间是短暂的。硬盘Cookie保存在硬盘里，有一个过期时间，除非用户手工清理或到了过期时间，硬盘Cookie不会被删除，其存在时间是长期的。</p>
+
+<p>Cookie使用限制：Cookie 必须在 HTML 文件的内容输出之前设置；不同的浏览器 (Netscape Navigator、Internet Explorer) 对 Cookie 的处理不一致，使用时一定要考虑；客户端用户如果设置禁止 Cookie，则 Cookie 不能建立。 并且在客户端，一个浏览器能创建的 Cookie 数量最多为 300 个，并且每个不能超过 4KB，每个 Web 站点能设置的 Cookie 总数不能超过 20 个。</p>
+
+<p>go相关实现</p>
+
+<p>Go设置cookie
+Go语言中通过net/http包中的SetCookie来设置:</p>
+
+<pre><code>http.SetCookie(w ResponseWriter, cookie *Cookie)
+</code></pre>
+
+<p>w表示需要写入的response，cookie是一个struct，让我们来看一下cookie对象是怎么样的</p>
+
+<pre><code>type Cookie struct {
+    Name string
+    Value string
+    Path  string
+    Domain string
+    Expires time.Time
+    RawExpires string
+
+    RawExpires string
+    // MaxAge=0 means
+    // MaxAge&lt;0 means
+    // MaxAge&gt;0 means no 'Max-Age' attribute specified.delete cookie now, equivalently 'Max-Age: 0' Max-Age attribute present and given in seconds
+    MaxAge int
+    Secure  bool
+    HttpOnly bool
+    Raw string
+    Unparsed []string // Raw text of unparsed attribute-value pairs
+}
+</code></pre>
+
+<p>我们来看一个例子，如何设置cookie</p>
+
+<pre><code>expiration := *time.LocalTime()
+expiration.Year += 1
+cookie := http.Cookie{Name: &quot;username&quot;, Value: &quot;astaxie&quot;, Expires: expiration}
+http.SetCookie(w, &amp;cookie)
+</code></pre>
+
+<p>Go读取cookie 上面的例子演示了如何设置cookie数据，我们这里来演示一下如何读取cookie</p>
+
+<pre><code>cookie, _ := r.Cookie(&quot;username&quot;)
+fmt.Fprint(w, cookie)
+</code></pre>
+
+<p>还有另外一种读取方式</p>
+
+<pre><code>for _, cookie := range r.Cookies() {
+    fmt.Fprint(w, cookie.Name)
+}
+</code></pre>
+
+<p>可以看到通过request获取cookie非常方便。</p>
+
+<p>三者之间的关系（其实cookie和session是对应的）</p>
+
+<p>为什么会有cookie又有session：</p>
+
+<p>原因一：因为如果我们把所有信息全都存在cookie，cookie有很容易被用户在浏览器看到或者在js脚本修改，cookie存储数据大小也受限，太大传输效率就低了，所以我们把一些敏感或者量大的数据存在session里。只要传输sessionid就可以了。然后根据sessionid来查找在服务器上的session信息，也就是用户信息。</p>
+
+<p>原因二：将两者信息进行匹配验证，即浏览器(cookie)和服务器端(session)之间的验证。</p>
+
+<p>为什么需要这两者的合作？</p>
+
+<p>HTTP是一种无状态无连接的协议，即请求是不知道是谁请求，需要在这两者之间做一层身份的识别。就如原本是去商场用现金交易，付款后就不知道用户是谁了，但后来变成线上支付，加了一层身份识别，我们就可以对用户进行追踪了。</p>
+
+<p>所以正常验证流程</p>
+
+<pre><code>客户端访问时，使用用户名和密码通过了验证。
+服务端将客户端信息进行处理加密(签名，专业术语叫信息摘要算法)，包含一些用户角色，登陆时间等
+把记录这些信息的ID（session_id）发送给客户端
+客户端收到ID（session_id）后存储在cookie中
+下次客户端重新访问服务端时，带上cookie信息
+服务端验证cookie里面的信息，如果能找到对应的记录，则用户通过了验证
+</code></pre>
+
+<p>以上我们讲到我们采用 session_id 去匹配用户验证用户完成一次API请求，但每次请求都要去做匹配。一种新的请求机制是token认证</p>
+
+<p>上面这种模式的问题在于，扩展性（scaling）不好。单机当然没有问题，如果是服务器集群，或者是跨域的服务导向架构，就要求 session 数据共享，每台服务器都能够读取 session。</p>
+
+<p>举例来说，A 网站和 B 网站是同一家公司的关联服务。现在要求，用户只要在其中一个网站登录，再访问另一个网站就会自动登录，请问怎么实现？</p>
+
+<p>一种解决方案是 session 数据持久化，写入数据库或别的持久层。各种服务收到请求后，都向持久层请求数据。这种方案的优点是架构清晰，缺点是工程量比较大。另外，持久层万一挂了，就会单点失败。</p>
+
+<p>另一种方案是服务器索性不保存 session 数据了，所有数据都保存在客户端，每次请求都发回服务器。JWT 就是这种方案的一个代表。</p>
+
+<p>所以说token是sesion的另一种用法，使用token就不用session了。</p>
+
+<p>下面简介jwt（json web token），常用的</p>
+
+<p>JWT 的原理是，服务器认证以后，生成一个 JSON 对象，发回给用户，就像下面这样。</p>
+
+<pre><code>{
+  &quot;姓名&quot;: &quot;张三&quot;,
+  &quot;角色&quot;: &quot;管理员&quot;,
+  &quot;到期时间&quot;: &quot;2018年7月1日0点0分&quot;
+}
+</code></pre>
+
+<p>以后，用户与服务端通信的时候，都要发回这个 JSON 对象。服务器完全只靠这个对象认定用户身份。为了防止用户篡改数据，服务器在生成这个对象的时候，会加上签名，生成密文。</p>
+
+<p>服务器就不保存任何 session 数据了，也就是说，服务器变成无状态了，从而比较容易实现扩展。</p>
+
+<p>golang实战</p>
+
+<p>json web token 简称 jwt 是一种轻量级的规范，常用与用户认证</p>
+
+<p>大致由 3 部分构成:</p>
+
+<pre><code>Header (头部)
+Payload (载荷)
+Signature (签名)
+用.拼接
+Token = Header + '.' + Payload + '.' + Signature
+</code></pre>
+
+<p>Header</p>
+
+<p>用来表明签名的加密算法 token 类型等.</p>
+
+<pre><code>{
+    &quot;typ&quot;: &quot;JWT&quot;,
+    &quot;alg&quot;: &quot;HS256&quot;lag
+}
+</code></pre>
+
+<p>以上 json 转为 base64 生成 header</p>
+
+<p>Payload</p>
+
+<p>Payload 记录你需要的信息. 其中应该包含 Claims</p>
+
+<pre><code>Claims
+Audience string `json:&quot;aud,omitempty&quot;`
+ExpiresAt int64 `json:&quot;exp,omitempty&quot;`
+Id string `json:&quot;jti,omitempty&quot;`
+IssuedAt int64 `json:&quot;iat,omitempty&quot;`
+Issuer string `json:&quot;iss,omitempty&quot;`
+NotBefore int64 `json:&quot;nbf,omitempty&quot;`
+Subject string `json:&quot;sub,omitempty&quot;`
+</code></pre>
+
+<ol>
+<li>aud 标识token的接收者.</li>
+<li>exp 过期时间.通常与Unix UTC时间做对比过期后token无效</li>
+<li>jti 是自定义的id号</li>
+<li>iat 签名发行时间.</li>
+<li>iss 是签名的发行者.</li>
+<li>nbf 这条token信息生效时间.这个值可以不设置,但是设定后,一定要大于当前Unix UTC,否则token将会延迟生效.</li>
+<li>sub 签名面向的用户</li>
+</ol>
+
+<p>Signature</p>
+
+<p>通过 header 生明的加密方法生成 签名.</p>
+
+<p>JWT 包下载</p>
+
+<pre><code>go get github.com/dgrijalva/jwt-go
+</code></pre>
+
+<p>简单使用</p>
+
+<p>生成 Token</p>
+
+<p>Payload 结构体</p>
+
+<pre><code>type jwtCustomClaims struct {
+   jwt.StandardClaims
+
+   // 追加自己需要的信息
+   Uid uint `json:&quot;uid&quot;`
+   Admin bool `json:&quot;admin&quot;`
+}
+</code></pre>
+
+<p>编写生成 token 的函数</p>
+
+<pre><code>/**
+ * 生成 token
+ * SecretKey 是一个 const 常量
+ */
+func CreateToken(SecretKey []byte, issuer string, Uid uint, isAdmin bool) (tokenString string, err error) {
+    claims := &amp;jwtCustomClaims{
+       jwt.StandardClaims{
+           ExpiresAt: int64(time.Now().Add(time.Hour * 72).Unix()),
+           Issuer:    issuer,
+       },
+       Uid,
+       isAdmin,
+   }
+   token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+   tokenString, err = token.SignedString(SecretKey)
+   return
+}
+</code></pre>
+
+<p>test 一下</p>
+
+<pre><code>func TestCreateToken(t *testing.T)  {
+   token, _ := CreateToken([]byte(SecretKey), &quot;YDQ&quot;, 2222, true)
+   fmt.Println(token)
+}
+</code></pre>
+
+<p>结果是这样的.</p>
+
+<pre><code>=== RUN   TestCreateToken
+
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE1NDA2MDc2MzYsImlzcyI6IllEUSIsInVpZCI6MjIyMiwiYWRtaW4iOnRydWV9.oaX63ScaDttkhC31bgjvPSr4PjvBb55UanAA_QP5zpc
+--- PASS: TestCreateToken (0.00s)
+PASS
+</code></pre>
+
+<p>解析 Token</p>
+
+<p>解析函数</p>
+
+<pre><code>/**
+ * 解析 token
+ */
+func ParseToken(tokenSrt string, SecretKey []byte) (claims jwt.Claims, err error) {
+   var token *jwt.Token
+   token, err = jwt.Parse(tokenSrt, func(*jwt.Token) (interface{}, error) {
+      return SecretKey, nil
+   })
+   claims = token.Claims
+   return
+}
+</code></pre>
+
+<p>合并到一直测试.</p>
+
+<pre><code>func TestCreateToken(t *testing.T)  {
+   token, _ := CreateToken([]byte(SecretKey), &quot;YDQ&quot;, 2222, true)
+   fmt.Println(token)
+
+   claims, err := ParseToken(token, []byte(SecretKey))
+   if nil != err {
+      fmt.Println(&quot; err :&quot;, err)
+   }
+   fmt.Println(&quot;claims:&quot;, claims)
+   fmt.Println(&quot;claims uid:&quot;, claims.(jwt.MapClaims)[&quot;uid&quot;])
+}
+</code></pre>
+
+<p>结果是这样的.</p>
+
+<pre><code>=== RUN   TestCreateToken
+
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE1NDA2MDgyODgsImlzcyI6IllEUSIsInVpZCI6MjIyMiwiYWRtaW4iOnRydWV9.8wE-_Wx-DHI2GMXJ9KT5JOndst2CCEaUNEIGDy9CUbM
+claims: map[exp:1.540608288e+09 iss:YDQ uid:2222 admin:true]
+claims uid: 2222
+--- PASS: TestCreateToken (0.00s)
+PASS
+</code></pre>
+
+<p>这里要注意, 信息 parse 后与签名信息不一致, 会报 err: signature is invalid</p>
+
+<pre><code>package main
+
+import (
+    &quot;log&quot;
+    &quot;net/http&quot;
+    &quot;github.com/codegangsta/negroni&quot;
+    &quot;encoding/json&quot;
+    &quot;fmt&quot;
+    &quot;strings&quot;
+    &quot;github.com/dgrijalva/jwt-go&quot;
+    &quot;time&quot;
+    &quot;github.com/dgrijalva/jwt-go/request&quot;
+)
+
+/**
+说明：
+客户端通过在request对象header里添加token参数，发送到服务端。
+服务端再拿出token进行比对。
+token的第一次产生是发生在login检查账户存在并且正确之后，为该用户赋予一块令牌（加密字符串）
+并将token放入response的header里。客户端登陆成功后，从response里取出token。并在以后操作request请求。
+都保持在header里添加该段令牌，令牌有效期失效后，只有重新login，才能获取新的令牌。
+*/
+const (
+    //SecretKey = &quot;welcome to wangshubo's blog&quot;
+    SecretKey = &quot;I have login&quot;
+)
+
+func fatal(err error) {
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+
+type UserCredentials struct {
+    Username string `json:&quot;username&quot;`
+    Password string `json:&quot;password&quot;`
+}
+
+type User struct {
+    ID       int    `json:&quot;id&quot;`
+    Name     string `json:&quot;name&quot;`
+    Username string `json:&quot;username&quot;`
+    Password string `json:&quot;password&quot;`
+}
+
+type Response struct {
+    Data string `json:&quot;data&quot;`
+}
+
+type Token struct {
+    Token string `json:&quot;token&quot;`
+}
+
+func StartServer() {
+
+    http.HandleFunc(&quot;/login&quot;, LoginHandler)
+
+    http.Handle(&quot;/resource&quot;, negroni.New(
+        negroni.HandlerFunc(ValidateTokenMiddleware),
+        negroni.Wrap(http.HandlerFunc(ProtectedHandler)),
+    ))
+
+    log.Println(&quot;Now listening...&quot;)
+    http.ListenAndServe(&quot;:8080&quot;, nil)
+}
+
+func main() {
+    StartServer()
+}
+
+func ProtectedHandler(w http.ResponseWriter, r *http.Request) {
+
+    response := Response{&quot;Gained access to protected resource !&quot;}
+    JsonResponse(response, w)
+
+}
+
+//服务端生成token，并放入到response的header
+/**
+JWT由三部份组成：
+* Header:头部 （对应：Header）
+* Claims:声明 (对应：Payload)
+* Signature:签名 (对应：Signature)
+*/
+func LoginHandler(w http.ResponseWriter, r *http.Request) {
+
+    var u *User=new(User)
+
+    var user UserCredentials
+
+    err := json.NewDecoder(r.Body).Decode(&amp;user)
+
+    if err != nil {
+        w.WriteHeader(http.StatusForbidden)
+        fmt.Fprint(w, &quot;Error in request&quot;)
+        return
+    }
+
+    //验证是身份：若用户是someone，则生成token
+    if strings.ToLower(user.Username) != &quot;someone&quot; {
+        if user.Password != &quot;p@ssword&quot; {
+            w.WriteHeader(http.StatusForbidden)
+            fmt.Println(&quot;Error logging in&quot;)
+            fmt.Fprint(w, &quot;Invalid credentials&quot;)
+            return
+        }
+    }
+
+    //1。生成token
+    token := jwt.New(jwt.SigningMethodHS256)
+    claims := make(jwt.MapClaims)
+    //2。添加令牌关键信息
+    //添加令牌期限
+    claims[&quot;exp&quot;] = time.Now().Add(time.Hour * time.Duration(1)).Unix()
+    claims[&quot;iat&quot;] = time.Now().Unix()
+    claims[&quot;id&quot;]=u.ID
+    claims[&quot;userName&quot;]=u.Username
+    claims[&quot;password&quot;]=u.Password
+    token.Claims = claims
+
+    fmt.Println(claims)
+
+    if err != nil {
+        w.WriteHeader(http.StatusInternalServerError)
+        fmt.Fprintln(w, &quot;Error extracting the key&quot;)
+        fatal(err)
+    }
+
+    //获取令牌
+    tokenString, err := token.SignedString([]byte(SecretKey))
+    if err != nil {
+        w.WriteHeader(http.StatusInternalServerError)
+        fmt.Fprintln(w, &quot;Error while signing the token&quot;)
+        fatal(err)
+    }
+
+    //2。将生成的token放入到header
+    response := Token{tokenString}
+    JsonResponse(response, w)
+
+}
+
+//验证Token
+func ValidateTokenMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+    token, err := request.ParseFromRequest(r, request.AuthorizationHeaderExtractor,
+        func(token *jwt.Token) (interface{}, error) {
+            return []byte(SecretKey), nil
+        })
+
+    if err == nil {
+        if token.Valid {
+            next(w, r)
+        } else {
+            w.WriteHeader(http.StatusUnauthorized)
+            fmt.Fprint(w, &quot;Token is not valid&quot;)
+        }
+    } else {
+        w.WriteHeader(http.StatusUnauthorized)
+        fmt.Fprint(w, &quot;Unauthorized access to this resource&quot;)
+    }
+
+}
+
+func JsonResponse(response interface{}, w http.ResponseWriter) {
+    json, err := json.Marshal(response)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    w.WriteHeader(http.StatusOK)
+    w.Header().Set(&quot;Content-Type&quot;, &quot;application/json&quot;)
+    w.Write(json)
+}
+</code></pre>
+
+<p>token认证流程</p>
+
+<p>token 的认证流程与cookie很相似</p>
+
+<pre><code>用户登录，成功后服务器返回Token给客户端。
+客户端收到数据后保存在客户端
+客户端再次访问服务器，将token放入headers中
+服务器端采用filter过滤器校验。校验成功则返回请求数据，校验失败则返回错误码
+</code></pre>
+
+<h2 id="应用和场景">应用和场景</h2>
+
+<h3 id="csrf">csrf</h3>
+
+<p>CSRF(Cross-site request forgery)，中文名称:跨站请求伪造，也被称为:one click attack/sessionriding，缩写为:CSRF/XSRF。</p>
+
+<p>你可以这样简单的理解:攻击者可以盗用你的登陆信息，以你的身份模拟发送各种请求。攻击者只要借助少许的社会工程学的诡计，例如通过QQ等聊天软件发送的链接(有些还伪装成短域名，用户无法分辨)，攻击者就能迫使Web应用的用户去执行攻击者预设的操作。例如，当用户登录网络银行去查看其存款余额，在他没有退出时，就点击了一个QQ好友发来的链接，那么该用户银行帐户中的资金就有可能被转移到攻击者指定的帐户中。</p>
+
+<p>如何预防CSRF</p>
+
+<p>CSRF的防御可以从服务端和客户端两方面着手，防御效果是从服务端着手效果比较好，现在一般的CSRF防御也都在服务端进行。</p>
+
+<p>服务端的预防CSRF攻击的方式方法有多种，但思想上都是差不多的，主要从以下2个方面入手:</p>
+
+<pre><code>1、正确使用GET,POST和Cookie;
+2、在非GET请求中增加伪随机数;
+</code></pre>
+
+<p>我们上一章介绍过REST方式的Web应用，一般而言，普通的Web应用都是以GET、POST为主，还有一种请求是Cookie方式。我们一般都是按照如下方式设计应用:</p>
+
+<pre><code>1、GET常用在查看，列举，展示等不需要改变资源属性的时候;
+2、POST常用在下达订单，改变一个资源的属性或者做其他一些事情;
+</code></pre>
+
+<p>接下来我就以Go语言来举例说明，如何限制对资源的访问方法:</p>
+
+<pre><code>mux.Get(&quot;/user/:uid&quot;, getuser) mux.Post(&quot;/user/:uid&quot;, modifyuser)
+</code></pre>
+
+<p>这样处理后，因为我们限定了修改只能使用POST，当GET方式请求时就拒绝响应，所以GET方式的CSRF攻击就可以防止了，但这样就能全部解决问题了吗?当然不是，因为POST也是可以模拟的。</p>
+
+<p>因此我们需要实施第二步，在非GET方式的请求中增加随机数，这个大概有三种方式来进行:</p>
+
+<ol>
+<li>为每个用户生成一个唯一的cookie token，所有表单都包含同一个伪随机值，这种方案最简单，因为攻击者不能获得第三方的Cookie(理论上)，所以表单中的数据也就构造失败，但是由于用户的Cookie很容易由于网站的XSS漏洞而被盗取，所以这个方案必须要在没有XSS的情况下才安全。</li>
+<li>每个请求使用验证码，这个方案是完美的，因为要多次输入验证码，所以用户友好性很差，所以不适合实际运用。</li>
+<li>不同的表单包含一个不同的伪随机值.</li>
+</ol>
+
+<h3 id="xss">xss</h3>
+
+<p>XSS攻击:跨站脚本攻击(Cross-Site Scripting)，为了不和层叠样式表(Cascading Style Sheets, CSS)的缩写混淆，故将跨站脚本攻击缩写为XSS。XSS是一种常见的web安全漏洞，它允许攻击者将恶意代码植入到提供给其它用户使用的页面中。不同于大多数攻击(一般只涉及攻击者和受害者)，XSS涉及到三方，即攻击者、客户端与Web应用。XSS的攻击目标是为了盗取存储在客户端的cookie或者其他网站用于识别客户端身份的敏感信息。一旦获取到合法用户的信息后，攻击者甚至可以假冒合法用户与网站进行交互。</p>
+
+<p>XSS目前主要的手段和目的如下:</p>
+
+<pre><code>盗用cookie，获取敏感信息。
+利用植入Flash，通过crossdomain权限设置进一步获取更高权限;或者利用Java等得到类似的操作。
+利用iframe、frame、XMLHttpRequest或上述Flash等方式，以(被攻击者)用户的身份执行一些管理动作，或执行一些如:发微博、加好友、发私信等常规操作，前段时间新浪微博就遭遇过一次XSS。
+利用可被攻击的域受到其他域信任的特点，以受信任来源的身份请求一些平时不允许的操作，如进行不当的投票活动。
+</code></pre>
+
+<p>如何预防XSS</p>
+
+<pre><code>答案很简单，坚决不要相信用户的任何输入，并过滤掉输入中的所有特殊字符。这样就能消灭绝大部分的XSS攻击。
+</code></pre>
+
+<p>目前防御XSS主要有如下几种方式:</p>
+
+<ol>
+<li>过滤特殊字符</li>
+</ol>
+
+<p>避免XSS的方法之一主要是将用户所提供的内容进行过滤，Go语言提供了HTML的过滤函数:</p>
+
+<pre><code>text/template包下面的HTMLEscapeString、JSEscapeString等函数
+</code></pre>
+
+<ol>
+<li><p>使用HTTP头指定类型</p>
+
+<p>w.Header().Set(&ldquo;Content-Type&rdquo;,&ldquo;text/javascript&rdquo;)</p></li>
+</ol>
+
+<p>这样就可以让浏览器解析javascript代码，而不会是html输出。</p>
+
+<h3 id="避免sql注入">避免sql注入</h3>
+
+<p>SQL注入攻击(SQL Injection)，简称注入攻击，是Web开发中最常见的一种安全漏洞。可以用它来从数据库获取敏感信息，或者利用数据库的特性执行添加用户，导出文件等一系列恶意操作，甚至有可能获取数据库乃至系统用户最高权限。</p>
+
+<p>SQL注入攻击的危害这么大，那么该如何来防治呢?下面这些建议或许对防治SQL注入有一定的帮助。</p>
+
+<ol>
+<li>严格限制Web应用的数据库的操作权限，给此用户提供仅仅能够满足其工作的最低权限，从而最大限度的减少注入攻击对数据库的危害。</li>
+<li>检查输入的数据是否具有所期望的数据格式，严格限制变量的类型，例如使用regexp包进行一些匹配处理，或者使用strconv包对字符串转化成其他基本类型的数据进行判断。</li>
+<li>对进入数据库的特殊字符(&lsquo;&rdquo;\尖括号&amp;*;等)进行转义处理，或编码转换。Go 的text/template包里面的 HTMLEscapeString函数可以对字符串进行转义处理。</li>
+<li>所有的查询语句建议使用数据库提供的参数化查询接口，参数化的语句使用参数而不是将用户输入变量嵌入到SQL语句中，即不要直接拼接SQL语句。例如使用database/sql里面的查询函数Prepare和Query，或者Exec(query string, args &hellip;interface{})。</li>
+<li>在应用发布之前建议使用专业的SQL注入检测工具进行检测，以及时修补被发现的SQL注入漏洞。网上有很多这方面的开源工具，例如sqlmap、SQLninja等。</li>
+<li>避免网站打印出SQL错误信息，比如类型错误、字段不匹配等，把代码里的SQL语句暴露出来，以防止攻击者利用这些错误信息进行SQL注入。</li>
+</ol>
+
+<h2 id="密码存储">密码存储</h2>
+
+<ol>
+<li>普通方案</li>
+</ol>
+
+<p>目前用的最多的密码存储方案是将明文密码做单向哈希后存储，单向哈希算法有一个特征:无法通过哈希后的摘要(digest)恢复原始数据，这也是“单向”二字的来源。常用的单向哈希算法包括SHA-256, SHA-1, MD5等。</p>
+
+<ol>
+<li>进阶方案
+通过上面介绍我们知道黑客可以用rainbow table来破解哈希后的密码，很大程度上是因为加密时使用的哈希算法 是公开的。如果黑客不知道加密的哈希算法是什么，那他也就无从下手了。</li>
+</ol>
+
+<p>一个直接的解决办法是，自己设计一个哈希算法。然而，一个好的哈希算法是很难设计的——既要避免碰撞，又不能有明显的规律，做到这两点要比想象中的要困难很多。因此实际应用中更多的是利用已有的哈希算法进行多次哈希。但是单纯的多次哈希，依然阻挡不住黑客。两次 MD5、三次 MD5之类的方法，我们能想到，黑客自然也能想到。特别是对于一些开源代码，这样哈希更是相当于直接把算法告诉了黑客。</p>
+
+<p>没有攻不破的盾，但也没有折不断的矛。现在安全性比较好的网站，都会用一种叫做“加盐”的方式来存储密码，也就是常说的 “salt”。他们通常的做法是，先将用户输入的密码进行一次MD5(或其它哈希算法)加密;将得到的MD5 值前后加上一些只有管理员自己知道的随机串，再进行一次MD5加密。这个随机串中可以包括某些固定的串，也可以包括用户名(用来保证每个用户加密使用的密钥都不一样)。</p>
+
+<ol>
+<li>专家方案</li>
+</ol>
+
+<p>上面的进阶方案在几年前也许是足够安全的方案，因为攻击者没有足够的资源建立这么多的rainbow table。 但 是，时至今日，因为并行计算能力的提升，这种攻击已经完全可行。怎么解决这个问题呢?只要时间与资源允许，没有破译不了的密码，所以方案是:故意增加密码计算所需耗费的资源和时间，使得任何人都不可获得足够的资源建立所需的rainbow table。 这类方案有一个特点，算法中都有个因子，用于指明计算密码摘要所需要的资源和时间，也就是计算强度。计算强度越大，攻击者建立rainbow table越困难，以至于不可继续。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-web-safe/">https://kingjcy.github.io/post/golang/go-web-safe/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/web/">
+                            <i class="fa fa-tags"></i>
+                            web
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/safe/">
+                            <i class="fa fa-tags"></i>
+                            safe
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/web/html/">Html Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月28日)</span></li><li id="li-rels"><a href="/post/web/css/">Css Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月28日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-crypto-tls/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-rate/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li><a href="#关于安全验证">关于安全验证</a></li>
+<li><a href="#应用和场景">应用和场景</a>
+<ul>
+<li><a href="#csrf">csrf</a></li>
+<li><a href="#xss">xss</a></li>
+<li><a href="#避免sql注入">避免sql注入</a></li>
+</ul></li>
+<li><a href="#密码存储">密码存储</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

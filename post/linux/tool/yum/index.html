@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="软件包的管理使我们安装软件更加简单高效，经常在linux上使用的rpm和yum。这边做一个简单的备忘。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Yum - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Yum
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2015年12月10日 
+                </div>
+                <h1 class="post-title">Yum</h1>
+            </header>
+
+            <div class="post-content">
+                <p>软件包的管理使我们安装软件更加简单高效，经常在linux上使用的rpm和yum。这边做一个简单的备忘。</p>
+
+<h1 id="yum">yum</h1>
+
+<p>yum是yellow dog uodater,modifies的简称，是一种基于rpm包管理工具的软件包管理工具，能够重制定的服务器下载rpm包并安装，并且解决依赖包的获取和安装，能够完成软件的安装，卸载，查找。</p>
+
+<blockquote>
+<h2 id="语法">语法</h2>
+</blockquote>
+
+<pre><code>yum [options] [command] [package ...]
+</code></pre>
+
+<p>[options]</p>
+
+<pre><code>-y 在安装过程中都选择yes
+-q 不显示安装的过程
+</code></pre>
+
+<p>[command]</p>
+
+<pre><code>install  安装，不带制定的包名就会全部安装，切记！
+localinstall   安装本地包，可以直接用于*.rpm来安装所有的本地包
+remove   卸载
+erase    卸载
+update   升级，这个经常不带包名来升级所有的包
+list     显示可用包 
+list installed  显示已经安装的包
+clean all  清除缓存
+makecache  加载缓存,这边只是缓存，在安装过程中可以提高速度。
+</code></pre>
+
+<p>[package]就是我们需要安装的包名。</p>
+
+<p>只下载rpm包，不安装</p>
+
+<pre><code>sudo yum install --downloadonly --downloaddir=/tmp &lt;package-name&gt;
+</code></pre>
+
+<blockquote>
+<h2 id="yum配置文件">yum配置文件</h2>
+</blockquote>
+
+<pre><code>cat /etc/yum.conf
+</code></pre>
+
+<p>这边有两个配置cachedir=XXX这个一般是存储安装包的地方，但是一般安装包是不保留的，要保留包需要修改配置keepcache=1.</p>
+
+<blockquote>
+<h2 id="yum源">yum源</h2>
+</blockquote>
+
+<p>yum源就是yum下载软件包的指定的地方，yum源有的可以直接用yum安装，但是最主要的就是repo文件，一般所有的yum源文件都在/etc/yum.repo.d/下面，一般修改yum源后会使用yum makecache 来包源的安装包缓存下来加快安装速度。</p>
+
+<p>文件结构</p>
+
+<pre><code>[serverid]    ----唯一的源标志
+name=Some name for this server  ----对这个源的描述
+baseurl=url://path/to/repository/    ------源的url， 目前http:// ftp:// file://三种
+mirrorlist=     -----一般禁用，是镜像服务器地址列表
+gpgcheck=1        ------是否进行gpg校验，一般在线需要校验，确保安全性，本地的就不需要校验了
+enabled=0       --------启用或者禁用此源
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-5   ----导入每个reposity的GPG key，用于gpg校验的，rpm --import 重网站下载下的一个关于key的txt文件。
+</code></pre>
+
+<p>已经很形象了展示源的使用，下面介绍几种常用的方式</p>
+
+<ol>
+<li><p>本地源</p>
+
+<p>就是指将rpm包下载下来或者自己把源码打包成rpm，放在本地的目录下，然后用createrepo命令把这些包加载为yum的仓库。</p>
+
+<pre><code>createrepo path
+</code></pre>
+
+<p>然后在在源文件中加上repo文件,比如vi /etc/yum.repos.d/inkscope_repo.repo</p>
+
+<pre><code>[local]
+name=My inkScope Repo
+baseurl=file:///home/cephdev/inkscope
+enabled=1
+gpgcheck=0
+</code></pre>
+
+<p>这就会使用/home/cephdev/inkscope的安装包，这个就是用baseurl的file://格式</p>
+
+<p>下载rpm包的时候一般可以用wget或者curl，当然也可以直接重网页上下载。也可以用yum   &ndash;downloadonly &ndash;downloaddir=DLDIR来下载</p></li>
+</ol>
+
+<blockquote>
+<p>补充</p>
+</blockquote>
+
+<ul>
+<li><p>wget 是一个重网上下载文件的工具，支持HTTP，HTTPS和FTP协议。</p>
+
+<p>wget [option] url</p>
+
+<p>它支持很多参数，常用的是-c也就是continue的意思，下载未完成的文件，-b转入后台运作，-t设置连接次数。</p></li>
+
+<li><p>curl是一个支持上传和下载的文件传输工具，正常使用它curl url来在stdout上打印出网站的html来测试这个url是否通，实际上就是下载来这个网站的html文件。</p>
+
+<p>curl [option] url</p>
+
+<p>它也是支持很多参数的，常用的有-c（continue），下载到指定文件 -o XX等等。</p></li>
+
+<li><p>这边讲到了打包成rpm包，也顺便讲一下怎么打包。这边就需要用到rpmbuild命令。</p></li>
+</ul>
+
+<p>rpm和dpkg分别是Linux操作系统的两大底层的包管理工具，其他的yum，apt-*等这些底层依旧是用的这两个工具，但是他们顺带解决了包之间的依赖关系，所有比较好用，但是很多东西需要自己来解决依赖关系就需要了解这两个底层的工具，同时如果一个项目开源就应该提供对应的rpm包，才算完整，（这边啰嗦一下，一般开源的项目安装，一个是编译源码安装，二个就是rpm包安装，甚至更好的提供yum源更加便于安装，我们可以使用所有的rpm包安装自己的本地源，三就是官方提供编译好的可执行文件直接下载使用，加入系统服务什么的都是可以操作的），所以应该学会rpm打包。</p>
+
+<p>rpmbuild工具在4.4版本之前默认的路径是/usr/src/redhat，只能root用户使用，而在之后的版本中放到了$HOME/rpmbuild,开始提倡用非root用户了,这个目录是在/usr/lib/rpm/macros这个文件里的一个叫做%_topdir的宏变量来定义，可以在用户家目录下建立一个名为.rpmmacros的隐藏文件重新定义%_topdir.</p>
+
+<p>在%_topdir目录下一般需要建立6个目录，可以直接通过rpmbuild spec文件名进行创建：</p>
+
+<pre><code>目录名 说明  macros中的宏名
+BUILD   编译rpm包的临时目录 %_builddir
+BUILDROOT   编译后生成的软件临时安装目录  %_buildrootdir
+RPMS    最终生成的可安装rpm包的所在目录   %_rpmdir
+SOURCES 所有源代码和补丁文件的存放目录 %_sourcedir
+SPECS   存放SPEC文件的目录(重要) %_specdir
+SRPMS   软件最终的rpm源码格式存放路径(暂时忽略掉，别挂在心上)
+</code></pre>
+
+<p>所以将源码打成tar包放到对应的SOURCES目录,然后将打包规则文件放到对应的SPEC目录下面，使用rpmbuild命令在SPEC下来进行打包</p>
+
+<p>可以安装rpmdev工具（yum install -y rpmdev*）来创建spec文件的模板rpmdev-newspec -o Name-version.spec</p>
+
+<p>spec文件是rpm打包的关键，SPEC文件的核心是它定义了一些“阶段”(%prep、%build、%install和%clean)，当rpmbuild执行时它首先会去解析SPEC文件，然后依次执行每个“阶段”里的指令。</p>
+
+<p>spec头的关键字</p>
+
+<pre><code>Name:用来定义软件包的名称，后面可以使用%{name}的方式引用，不能包含空格，且必须唯一
+Summary: 软件包的内容概要，只能用一句话来概括
+Version: 软件的实际版本号，具体命令需跟源包一致，后面可以使用%{
+version}使用，不允许出现连字符'-'，会被认为非法字符
+Release: 发布序列号，具体命令需跟源包一致，后面可以使用%{release}使用，一般是一个整数，也是rpm包版本信息的一部分
+License: 软件授权方式，通常就是GPL
+Source0: 源代码包，可以带多个用Source1、Source2等源，后面也可以用%{source1}、%{source2}引用
+buildroot在rpmbuild在制作rpm包的时候，会把编译生成的二进制文件和库文件先安装到一个临时目录，然后再结合spec文件从这个临时目录中提取文件 ，压缩生成rpm文件，这个临时目录就是buildroot所标示的目录BuildRoot: 这个是安装或编译时使用的“虚拟目录”，考虑到多用户的环境，一般定义为：%{_tmppath}/%{name}-%{version}-%{release}-root该参数非常重要，因为在生成rpm的过程中，执行make install时就会把软件安装到上述的路径中，在打包的时候，同样依赖“虚拟目录”为“根目录”进行操作。后面可使用$RPM_BUILD_ROOT 方式引用。也可见name，version，release三个必填参数比较重要。
+URL: 软件的主页
+Vendor: 发行商或打包组织的信息，例如RedFlag Co,Ltd
+Disstribution: 发行版标识
+Group: 软件分组，建议使用标准分组
+-----------------------------------------
+软件包所属类别，具体类别有：
+Amusements/Games （娱乐/游戏）
+Amusements/Graphics（娱乐/图形）
+Applications/Archiving （应用/文档）
+Applications/Communications（应用/通讯）
+Applications/Databases （应用/数据库）
+Applications/Editors （应用/编辑器）
+Applications/Emulators （应用/仿真器）
+Applications/Engineering （应用/工程）
+Applications/File （应用/文件）
+Applications/Internet （应用/因特网）
+Applications/Multimedia（应用/多媒体）
+Applications/Productivity （应用/产品）
+Applications/Publishing（应用/印刷）
+Applications/System（应用/系统）
+Applications/Text （应用/文本）
+Development/Debuggers （开发/调试器）
+Development/Languages （开发/语言）
+Development/Libraries （开发/函数库）
+Development/System （开发/系统）
+Development/Tools （开发/工具）
+Documentation （文档）
+System Environment/Base（系统环境/基础）
+System Environment/Daemons （系统环境/守护）
+System Environment/Kernel （系统环境/内核）
+System Environment/Libraries （系统环境/函数库）
+System Environment/Shells （系统环境/接口）
+User Interface/Desktops（用户界面/桌面）
+User Interface/X （用户界面/X窗口）
+User Interface/X Hardware Support （用户界面/X硬件支持）
+----------------------------------------------------
+Patch: 补丁源码，可使用Patch1、Patch2等标识多个补丁，使用%patch0或%{patch0}引用
+prefix主要用于定义可重新定义安装位置的包，也就是在安装时可以通过--prefix来定义包的安装路径
+Prefix: %{_prefix} 这个主要是为了解决今后安装rpm包时，并不一定把软件安装到rpm中打包的目录的情况。这样，必须在这里定义该标识，并在编写%install脚本的时候引用，才能实现rpm安装时重新指定位置的功能
+Prefix: %{sysconfdir} 这个原因和上面的一样，但由于%{_prefix}指/usr，而对于其他的文件，例如/etc下的配置文件，则需要用%{_sysconfdir}标识
+BuildRequires:  在本机编译rpm包时需要的辅助工具，以逗号分隔。假如，要求编译myapp时，gcc的版本至少为4.4.2，则可以写成gcc &gt;=4.2.2。还有其他依赖的话则以逗号分别继续写道后面。
+Requires: 该rpm包所依赖的软件包名称，可以用&gt;=或&lt;=表示大于或小于某一特定版本，“&gt;=”号两边需用空格隔开，而不同软件名称也用空格分开
+Conflicts: 该包与哪些软件包冲突
+Provides: 该包提供了什么，通常是包名或者虚拟包名
+Packager: 打包者的信息，可以是名字或者邮件地址
+%dscription 软件的详细说明，描述信息可以有多行，如果提供的描述信息是以空格开始的，则该信息单独显示在一行，如果信息前没有空格，则认为描述信息是一个段落
+</code></pre>
+
+<p>spec的主体</p>
+
+<p>关键的阶段</p>
+
+<pre><code>阶段    动作
+%prep    将%_sourcedir目录下的源代码解压到%_builddir目录下。如果有补丁的需要在这个阶段进行打补丁的操作
+%build    在%_builddir目录下执行源码包的编译。一般是执行./configure和make指令
+%install    将需要打包到rpm软件包里的文件从%_builddir下拷贝%_buildrootdir目录下。当用户最终用rpm -ivh name-version.rpm安装软件包时，这些文件会安装到用户系统中相应的目录里
+制作rpm包    这个阶段是自动完成的，所以在SPEC文件里面是看不到的，这个阶段会将%_buildroot目录的相关文件制作成rpm软件包最终放到%_rpmdir目录里
+%clean    编译后的清理工作，这里可以执行make clean以及清空%_buildroot目录等
+</code></pre>
+
+<p>具体讲解</p>
+
+<pre><code>%prep 预处理脚本，
+%setup -n %{name}-%{version} 把源码包解压并放好，可根据你的源码的名字格式，来确认解压后名字的格式，否则可能导致install的时候找不到对应的目录，正常使用%setup -q就可以解压在SOURCES目录下的tar包了。
+◎补充一下
+%setup 不加任何选项，仅将软件包打开。
+%setup -n newdir 将软件包解压在newdir目录。
+%setup -c 解压缩之前先产生目录。
+%setup -b num 将第num个source文件解压缩。
+%setup -T 不使用default的解压缩操作。
+%setup -T -b 0 将第0个源代码文件解压缩。
+%setup -q 指不显示输出（quietly）
+%setup -c -n newdir 指定目录名称newdir，并在此目录产生rpm套件。
+%patch 最简单的补丁方式，自动指定patch level。
+%patch 0 使用第0个补丁文件，相当于%patch ?p 0。
+%patch -s 不显示打补丁时的信息。
+%patch -T 将所有打补丁时产生的输出文件删除。
+
+%build 开始构建包
+在BUILD目录下的对应的解压文件中进行编译，常见写法：
+    %configure
+    make %{?_smp_mflags} OPTIMIZE=&quot;%{optflags}
+    都是一些优化参数，定义在/usr/lib/rpm/marcros中
+
+%install 开始把软件安装到虚拟的根目录中
+这个阶段就是执行make install操作。这个阶段会在%_buildrootdir目录里建好目录结构，然后将需要打包到rpm软件包里的文件从%_builddir里拷贝到%_buildrootdir里对应的目录里
+rm -rf $RPM_BUILD_ROOT
+make DESTDIR=$RPM_BUILD_ROOT install
+其中$RPM_BUILD_ROOT也可以换成我们前面定义的BuildRoot变量，不过要写成%{buildroot}才可以，必须全部用小写，不然要报错。
+
+
+%clean 清理临时文件
+[ &quot;$RPM_BUILD_ROOT&quot; != &quot;/&quot; ] &amp;&amp; rm -rf &quot;$RPM_BUILD_ROOT&quot;,一般清空RPM_BUILD_ROOT目录下的文件
+
+%pre rpm安装前执行的脚本
+%post rpm安装后执行的脚本
+%preun rpm卸载前执行的脚本
+%postun rpm卸载后执行的脚本
+
+%files 定义那些文件或目录会放入rpm中
+%deffattr (-,root,root) 指定包装文件的属性，分别是(mode,owner,group)，-表示默认值，对文本文件是0644，可执行文件是0755
+%exclude 列出不想打包到rpm中的文件,如果%exclude指定的文件不存在，也会出错的
+
+%changelog 变更日志 %files 定义那些文件或目录会放入rpm中
+* date +&quot;%a %b %d %Y&quot; 修改人 邮箱 本次版本x.y.z-p
+- 本次变更修改了那些内容&quot;&quot;
+</code></pre>
+
+<p>spec中常用的宏</p>
+
+<pre><code>RPM_BUILD_DIR:    $HOME/rpmbuild/BUILD
+RPM_BUILD_ROOT:   HOME/rpmbuild/BUILDROOT
+%{_sysconfdir}:   /etc
+%{_sbindir}：     /usr/sbin
+%{_bindir}:       /usr/bin
+%{_datadir}:      /usr/share
+%{_mandir}:       /usr/share/man
+%{_libdir}:       /usr/lib64
+%{_prefix}:       /usr
+%{_localstatedir}:   /usr/var
+</code></pre>
+
+<p>最后使用rpmbuild命令进行rpm打包</p>
+
+<pre><code>rpmbuild {-ba|-bb|-bp|-bc|-bi|-bl|-bs} [rpmbuild-options] SPECFILE ...   这个是针对spec文件的打包
+
+rpmbuild {-ta|-tb|-tp|-tc|-ti|-tl|-ts} [rpmbuild-options] TARBALL ...               tar包
+
+rpmbuild {--rebuild|--recompile} SOURCEPKG ...                                      源码
+
+对上面的参数做一个诠释
+
+第一个参数：b spec文件 t tar包
+
+第二个参数：p 准备 a 编译打包成*.rpm和src.rpm  b编译只打包为*.rpm c 准备和编译 i 编译安装 l 检查文件是否安全 s编译只打包为src.rpm 
+
+对于 --rpmbuild 编译成rpm包，--recompile 编译
+
+一般正对spec文件都是使用rpmbuild -ba spec文件
+</code></pre>
+
+<p>实例：</p>
+
+<pre><code>rpmbuild -bb libmad-0.15.1b.spec
+</code></pre>
+
+<p>有些安装包提供了打包的spec，比如apache下载httpd-2.4.20.tar.bz2这个包，就可以直接用rpm进行打包</p>
+
+<pre><code>rpmbuild -tb httpd-2.4.20.tar.bz2
+</code></pre>
+
+<p>这边对apache打rpm包做一个实例操作</p>
+
+<ol>
+<li><p>直接执行rpmbuild -tb httpd-2.4.20.tar.bz2会发现缺少很多的rpm包，大部分直接可以用yum install来安装，有两个包有点问题</p></li>
+
+<li><p>fedora18的源已经没有了，但是我们可以从fedoraproject的archive源中找到它<a href="https://archive.fedoraproject.org/pub/archive/fedora/linux/releases/18/Everything/source/SRPMS/d/">https://archive.fedoraproject.org/pub/archive/fedora/linux/releases/18/Everything/source/SRPMS/d/</a>  是一个src.rpm包，则编译</p>
+
+<p>$ rpmbuild &ndash;rebuild &ndash;clean distcache-1.4.5-23.src.rpm</p></li>
+</ol>
+
+<p>然后就可以在$HOME/rpmbuild/RPMS中找到对应的安装包，可以用yum localinstall *.rpm安装</p>
+
+<p>2.apr全称是Apache Portable Runtime，是httpd跨平台运行的基础。CentOS7源中提供的是1.4.x的版本，虽然httpd 2.4.20要求的apr版本是大于1.4.0即可，但是我发现在使用小于1.5.0版本的apr时，包含1.5.0都不行，所以需要手动下载包</p>
+
+<pre><code>rpmbuild -tb apr-1.5.2.tar.bz2
+</code></pre>
+
+<p>然后就可以打包了。</p>
+
+<p>针对上面的src.rpm包的处理方式</p>
+
+<ol>
+<li><p>就是使用rpmbuild &ndash;rebuild &ndash;clean distcache-1.4.5-23.src.rpm来直接打包</p></li>
+
+<li><p>rpm –ivh setarch-1.3-1.src.rpm   执行rpm安装命令然后就可以到对应的目录下编辑spec文件，然后就可以按着上面的进行编译安装</p></li>
+
+<li><p>本地源也可以做成http和ftp的模式，也就是我们说的内部源，可以提供局域网使用</p></li>
+</ol>
+
+<p>一般我们不使用ftp模式，因为防火墙等原因会造成很多的坑，所以一般采用http的模式，http一般是使用apache服务来实现。</p>
+
+<p>因为使用的是apache的服务，所以需要在http.conf里面配置的路径下面新建文件夹，将我们获取的rpm包放进去。</p>
+
+<p>然后对当前路径使用createrepo命令来进行仓库管理，就可以使用<a href="http://ip/路径来访问获取这个目录下面的包了，将这个url配置到repo文件中的baseurl就完成了http模式的部署，内网都可以使用这个源来安装上面有的软件了。">http://ip/路径来访问获取这个目录下面的包了，将这个url配置到repo文件中的baseurl就完成了http模式的部署，内网都可以使用这个源来安装上面有的软件了。</a></p>
+
+<p>这边有一个路径下禁止访问的问题，需要关闭防火墙firewalld（centos7,更加强大，拥有图形化界面）,iptables（centos6）,setenforce(这个也是关闭防火墙,是selinux的，不同概念，需要开机就关闭就修改配置文件/etc/selinux/config),问题就解决了。其实大部分访问不了，而内部可以curl的就考虑防火墙。</p>
+
+<ol>
+<li>网络源，就是把第三方提供的源url配置好就可以在线安装了，例如epel源。</li>
+</ol>
+
+<p>常用源：</p>
+
+<ol>
+<li><p>epel源</p>
+
+<p>wget <a href="http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm">http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm</a>
+rpm -ivh epel-release-6-8.noarch.rpm</p></li>
+</ol>
+
+<h1 id="rpm">rpm</h1>
+
+<p>rpm（rpm package manager）是red hat linux发行专门用来管理rpm包的管理工具。</p>
+
+<pre><code>rpm [option][rpmpackage]
+</code></pre>
+
+<p>[option]</p>
+
+<pre><code>-a：查询所有套件； 
+-b&lt;完成阶段&gt;&lt;套件档&gt;+或-t &lt;完成阶段&gt;&lt;套件档&gt;+：设置包装套件的完成阶段，并指定套件档的文件名称； 
+-c：只列出组态配置文件，本参数需配合&quot;-l&quot;参数使用； 
+-d：只列出文本文件，本参数需配合&quot;-l&quot;参数使用； 
+-e&lt;套件档&gt;或--erase&lt;套件档&gt;：删除指定的套件； 
+-f&lt;文件&gt;+：查询拥有指定文件的套件； 
+-h或--hash：套件安装时列出标记； 
+-i：显示套件的相关信息； 
+-i&lt;套件档&gt;或--install&lt;套件档&gt;：安装指定的套件档； 
+-l：显示套件的文件列表； -p&lt;套件档&gt;+：查询指定的RPM套件档； 
+-q：使用询问模式，当遇到任何问题时，rpm指令会先询问用户； 
+-R：显示套件的关联性信息； 
+-s：显示文件状态，本参数需配合&quot;-l&quot;参数使用； 
+-U&lt;套件档&gt;或--upgrade&lt;套件档&gt;：升级指定的套件档； 
+-v：显示指令执行过程； 
+-vv：详细显示指令执行过程，便于排错。
+--nodeps 忽略依赖关系
+--force 强制安装
+</code></pre>
+
+<p>常用的一些选项</p>
+
+<ul>
+<li>rpm -qa后面不接参数用于查看系统中已经安装的所有的rpm包</li>
+<li>rpm -q rpm包名用于查看系统中是否安装了该软件包，如果安装了，系统会显示完整的包名；如果没有安装，系统会提示&rdquo;package bas is not installed&rdquo;。</li>
+<li>rpm -qi rpm包名用于查看系统中已经安装的rpm包的完整信息，包括该包的版本信息，安装时间和大小等。</li>
+<li>rpm -ql rpm包名用于查看该软件包都安装到了那些位置。</li>
+<li>rpm -qf 文件名用于查看某个文件使用那个rpm包安装的。</li>
+<li>rpm -ivh 包名用于安装rpm软件包，i代表安装、v代表可视化安装、h代表安装的时候显示进度。</li>
+<li>rpm &ndash;force -irpm包用于强制安装rpm软件包，&ndash;force参数用于安装存在依存关系的rpm包。不过一般我们并不怎做，解决依存关系的较好的方法是使用#rpm -i 命令一起安装。</li>
+<li>rpm -e rpm包名用于删除rpm软件包。rpm -e &ndash;nodeps 包名用于删除存在依存关系的软件包，该命令可以将和该包存在依存关系的所有的软件包统统删除。</li>
+</ul>
+
+<p>rpm的大体使用也就这样，至于rpm打包已经在上面说过了，rpm需要下载后才能使用这个工具，但是在本地的安装包操作上还是比较强大的。</p>
+
+<p>在CentOS 6.3 x86_64下安装php-mcrypt的时候出现了问题：Error: Cannot retrieve metalink for repository: epel. Please verify its path and try again，需要安装epel源。</p>
+
+<p>解决方法： 一句话：把/etc/yum.repos.d/epel.repo，文件第3行注释去掉，把第四行注释掉。</p>
+
+<p>修改DNS,到/etc/resolv.conf下添加一下：</p>
+
+<p>nameserver 8.8.8.8
+search localdomain</p>
+
+<p>然后重启network服务：service network restart</p>
+
+<p>这个/etc/resolv.conf文件无法修改的话，就需要去修改/etc/sysconfig/network-scripts/ifcfg-enp0s3</p>
+
+<p>最后还是不行，可以使用ISO安装文件作为内部yum源使用，也是基本的源，基本源包含了centos安装的，阿里的，163的，epel源也有这些。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/linux/tool/yum/">https://kingjcy.github.io/post/linux/tool/yum/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/yum/">
+                            <i class="fa fa-tags"></i>
+                            yum
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/rpm/">
+                            <i class="fa fa-tags"></i>
+                            rpm
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/tool/">
+                            <i class="fa fa-tags"></i>
+                            tool
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/tool/vpn/">工具系列---- Vpn</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年12月12日)</span></li><li id="li-rels"><a href="/post/tool/vi-vim/">Vi Vim</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2015年11月22日)</span></li><li id="li-rels"><a href="/post/linux/tool/shell/">linux工具系列---- Shell</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2015年03月12日)</span></li><li id="li-rels"><a href="/post/tool/gitandgithub/">工具系列(一)：git和github的使用总结</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2014年11月18日)</span></li><li id="li-rels"><a href="/post/tool/hugo-blog-build/">用hugo&#43;github构建自己的blog</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2014年08月29日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/linux/tool/linux-mount/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/tool/vi-vim/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#yum">yum</a>
+<ul>
+<li><a href="#语法">语法</a></li>
+<li><a href="#yum配置文件">yum配置文件</a></li>
+<li><a href="#yum源">yum源</a></li>
+</ul></li>
+<li><a href="#rpm">rpm</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

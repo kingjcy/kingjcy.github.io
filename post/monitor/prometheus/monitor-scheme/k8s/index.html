@@ -1,0 +1,1617 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="一个完整的监控体系包括：采集数据、分析存储数据、展示数据、告警以及自动化处理、监控工具自身的安全机制.
+
+使用prometheus进行kubernetes的容器监控。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控架构系列---- K8s监控方案 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控架构系列---- K8s监控方案
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年05月12日 
+                </div>
+                <h1 class="post-title">监控架构系列---- K8s监控方案</h1>
+            </header>
+
+            <div class="post-content">
+                <p>一个完整的监控体系包括：采集数据、分析存储数据、展示数据、告警以及自动化处理、监控工具自身的安全机制.</p>
+
+<p>使用prometheus进行kubernetes的容器监控。</p>
+
+<h1 id="物理部署promehteus监控k8s">物理部署promehteus监控K8s</h1>
+
+<p>架构图</p>
+
+<p><img src="/media/monitor/prometheus/monitor-scheme/20180512.png" alt="" /></p>
+
+<p>这是一张开始设计的架构图（后面都是通过consul进行服务注册和发现），后来在prometheus这一块的使用做了很多的优化，所以后端部署基本和基础设施监控是一样的，可以参考基础设施监控篇</p>
+
+<p>这边主要讲一下k8s的监控方面,其实后面和kvm采集使用了同一套的监控架构，只不过部署了不同的探针，部署在k8s的pod中。</p>
+
+<h2 id="部署组件">部署组件</h2>
+
+<ol>
+<li><p>prometheus</p>
+
+<p>使用文件服务发现，将k8s中暴露出来的信息注册到consul中，然后使用consul-template生成json文件，peomtheus根据json文件去采集对应的数据。</p></li>
+
+<li><p>Kube-state-metrics</p>
+
+<p>将Kube-state-metrics使用镜像在k8s中运行，运行在master节点上，可以获取到kube相关的所有指标，也就是具体的各种资源对象的状态指标。</p>
+
+<p>对应的ymal文件</p>
+
+<pre><code>---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-state-metrics
+rules:
+- apiGroups: [&quot;&quot;]
+  resources:
+  - configmaps
+  - secrets
+  - nodes
+  - pods
+  - services
+  - resourcequotas
+  - replicationcontrollers
+  - limitranges
+  - persistentvolumeclaims
+  - persistentvolumes
+  - namespaces
+  - endpoints
+  verbs: [&quot;list&quot;, &quot;watch&quot;]
+- apiGroups: [&quot;extensions&quot;]
+  resources:
+  - daemonsets
+  - deployments
+  - replicasets
+  verbs: [&quot;list&quot;, &quot;watch&quot;]
+- apiGroups: [&quot;apps&quot;]
+  resources:
+  - statefulsets
+  verbs: [&quot;list&quot;, &quot;watch&quot;]
+- apiGroups: [&quot;batch&quot;]
+  resources:
+  - cronjobs
+  - jobs
+  verbs: [&quot;list&quot;, &quot;watch&quot;]
+- apiGroups: [&quot;autoscaling&quot;]
+  resources:
+  - horizontalpodautoscalers
+  verbs: [&quot;list&quot;, &quot;watch&quot;]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-state-metrics
+subjects:
+- kind: ServiceAccount
+  name: kube-state-metrics
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: kube-system
+  name: kube-state-metrics-resizer
+rules:
+- apiGroups: [&quot;&quot;]
+  resources:
+  - pods
+  verbs: [&quot;get&quot;]
+- apiGroups: [&quot;extensions&quot;]
+  resources:
+  - deployments
+  resourceNames: [&quot;kube-state-metrics&quot;]
+  verbs: [&quot;get&quot;, &quot;update&quot;]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kube-state-metrics
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kube-state-metrics-resizer
+subjects:
+- kind: ServiceAccount
+  name: kube-state-metrics
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-state-metrics
+  namespace: kube-system
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: kube-state-metrics
+  namespace: kube-system
+spec:
+  template:
+    metadata:
+      labels:
+        k8s-app: kube-state-metrics
+    spec:
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+      serviceAccountName: kube-state-metrics
+      hostNetwork: true
+      nodeSelector:
+        node-role.kubernetes.io/master.node: &quot;&quot;
+      containers:
+      - name: kube-state-metrics
+        image: xgharborsit01.sncloud.com/sncloud/kube-state-metrics:1.4.0
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 200m
+            memory: 128Mi
+        env:
+        - name: KUBERNETES_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: KUBERNETES_SERVICE_HOST
+          value: 10.243.129.252
+        - name: KUBERNETES_SERVICE_PORT
+          value: &quot;6443&quot;
+        volumeMounts:
+        - mountPath: /opt/kube-state-metrics/logs
+          subPath: kube-state-metrics
+          name: k8slog
+        ports:
+        - name: http-metrics
+          containerPort: 10241
+        - name: telemetry
+          containerPort: 10242
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 10241
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+      volumes:
+      - hostPath:
+          path: /var/run/docker.sock
+        name: docker-sock
+      - hostPath:
+          path: /k8s_log
+        name: k8slog
+</code></pre></li>
+
+<li><p>Node-exporter</p>
+
+<p>Node-exporter也是使用镜像运行在k8s的每个节点上，用于获取k8s部署节点的物理机器资源信息，并不能获取对应的k8s集群的信息。</p>
+
+<p>对应的yaml文件</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: kube-system
+spec:
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+      name: node-exporter
+      namespace: kube-system
+    spec:
+      containers:
+      - image: xgharborsit01.sncloud.com:443/sncloud/node_exporter:0.16.0
+        imagePullPolicy: IfNotPresent
+        name: node-exporter
+        resources:
+          limits:
+            memory: 256Mi
+            cpu: 200m
+          requests:
+            memory: 128Mi
+            cpu: 100m
+        env:
+        - name: KUBERNETES_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        ports:
+        - containerPort: 9100
+          hostPort: 9100
+          name: scrape
+        volumeMounts:
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+        - mountPath: /opt/node-exporter/logs
+          subPath: node-exporter
+          name: k8slog
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - hostPath:
+            path: /k8s_log
+            type: &quot;&quot;
+          name: k8slog
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+</code></pre></li>
+
+<li><p>cadvisor-proxy</p>
+
+<p>cadvisor-proxy对cadvisor的指标进行过滤处理。这个组件也是部署在k8s上运行。</p>
+
+<p>对应的ymal部署文件</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: cadvisor-proxy
+  namespace: kube-system
+spec:
+  template:
+    metadata:
+      labels:
+        app: cadvisor-proxy
+    spec:
+      hostNetwork: true
+      containers:
+      - name: proxy
+        image: xgharborsit01.sncloud.com:443/sncloud/cadvisor-proxy:1.0.0
+        imagePullPolicy: Always
+        args:
+        - --log.path=/opt/cadvisor-proxy/logs
+        resources:
+          limits:
+            memory: 100Mi
+            cpu: 500m
+          requests:
+            memory: 100Mi
+            cpu: 100m
+        volumeMounts:
+        - mountPath: /var/run/docker.sock
+          name: docker-sock
+          readOnly: true
+        - mountPath: /opt/cadvisor-proxy/logs
+          subPath: cadvisor-proxy
+          name: k8slog
+        env:
+        - name: HOST_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+      volumes:
+      - hostPath:
+          path: /var/run/docker.sock
+        name: docker-sock
+      - hostPath:
+          path: /k8s_log
+        name: k8slog
+</code></pre></li>
+
+<li><p>各种应用的exporter</p>
+
+<p>这边监控应用都是将对应的探针和对应的应用一起打在一个镜像里，也就是一个容器运行了两个程序，直接获取对应的指标。下面会具体说明sidecar和这种模式的相关差异使用</p></li>
+</ol>
+
+<h2 id="集群监控">集群监控</h2>
+
+<p>k8s的集群的监控主要分为三个方面，当然还有一些k8s扩展使用的组件都是由对应的监控的</p>
+
+<blockquote>
+<p>k8s的物理机监控</p>
+</blockquote>
+
+<p>架构图</p>
+
+<p><img src="/media/monitor/prometheus/monitor-scheme/20180512-1.png" alt="" /></p>
+
+<p>可见，就是使用了prometheus的node-exporter来获取数据的。Node-exporter会部署在每一个节点上，获取当前物理机的指标，当k8s的node节点数多的时候需要分组进行采集，并且k8s使用的网络支持固定ip，所以直接采用将ip：port注册到consul中，然后prometheus获取注册信息直接采集数据，物理机监控主要是使用node_exporter探针来获取物理机的cpu，内存，磁盘空间和i/o等指标。</p>
+
+<p>目前node_exporter采用的是k8s部署的方式，先将node-exporter打成镜像，部署在k8s pod上</p>
+
+<p>物理监控我们必须要关心一下我们常用的指标</p>
+
+<ul>
+<li><p>物理机层面</p>
+
+<p>cpu的使用率／已经使用／总量／request</p>
+
+<pre><code>使用率：1- avg(irate(node_cpu_seconds_total{mode=&quot;idle&quot;,ip=~&quot;$node&quot;,cluster_name=~&quot;$cluster&quot;}[2m]))
+
+已经使用：(count(node_cpu_seconds_total{mode=&quot;system&quot;,ip=~&quot;$node&quot;,cluster_name=~&quot;$cluster&quot;})-sum(irate(node_cpu_seconds_total{mode=&quot;idle&quot;,ip=~&quot;$node&quot;,cluster_name=~&quot;$cluster&quot;}[5m])))
+
+总量：count(node_cpu_seconds_total{mode=&quot;system&quot;,ip=~&quot;$node&quot;,cluster_name=~&quot;$cluster&quot;})
+</code></pre>
+
+<p>指标可以直接查看对应的grafana的json文件，这边就不一一列举了</p>
+
+<p>memory的使用率／已经使用／总量／request</p>
+
+<p>disk和disk io</p></li>
+</ul>
+
+<blockquote>
+<p>k8s本身指标的监控</p>
+</blockquote>
+
+<p>主要是k8s自身使用的组件的指标监控</p>
+
+<p>架构图</p>
+
+<p><img src="/media/monitor/prometheus/monitor-scheme/20180512-2.png" alt="" /></p>
+
+<p>可见都是通过k8s自身组件来暴露指标给prometheus进行采集的。后来并没有通过k8s的sd来做，而是直接将集群的机器的IP：port注册到consul中去给prometheus拉去探测。</p>
+
+<p>这边有一个不同的地方，就是每个pod的性能情况都是通过cadvisor统一获取，不需要对每一个pod进行按着探针来监控，pod的注册也是为了业务监控的需要，和自身的监控指标并木有关系。</p>
+
+<p>在k8s中安装kube-state-metrics组件用来采集kubernetes的各种组件状态信息。</p>
+
+<p>Kubernetes集群上Pod, DaemonSet, Deployment, Job, CronJob等各种资源对象的状态需要监控数据可以被cadvisor采集。cadvisor集成在kubelet中，不需要单独部署。</p>
+
+<p>Heapster是一个收集者，将每个Node上的cAdvisor的数据进行汇总，然后导到InfluxDB。Heapster的前提是使用cAdvisor采集每个node上主机和容器资源的使用情况，再将所有node上的数据进行聚合，这样不仅可以看到Kubernetes集群的资源情况，还可以分别查看每个node/namespace及每个node/namespace下pod的资源情况。这样就可以从cluster，node，pod的各个层面提供详细的资源使用情况。但是可以直接使用promql来计算出这个聚合的数据，我们加了集群名作为标志，所以这边就不需要单独部署这个组件了。</p>
+
+<p>下面是一些监控的组件的端口</p>
+
+<pre><code>Node需要注册target，包括kubelet, cadvisor集成在kubelet中和kubelet同时暴露出来，但是使用不同的url, node-exporter, (node_list包含master节点和node节点)
+For node in node_list
+
+https://node_ip:10250/metrics
+https://node_ip:10250/metrics/cadvisor使用cadvisor-proxy来过滤，访问10260/metrics
+http://node_ip:9100/metrics
+
+
+kube-scheduler监控
+For node in masters
+http://node_ip:10251/metrics
+
+kube-controller-manager监控
+For node in masters
+http://node_ip:10252/metrics
+
+kube-apiserver监控：需要权限的prometheus带着证书去访问
+https://vip:6443/metrics
+kube-state-metrics监控
+https://vip:10241/metrics
+
+这个vip会把请求转成master上的apiserver或者kube-state-metrics
+
+etcd：需要权限的prometheus带着证书去访问
+https://etcd-ip:2379/metrics
+https://etcd-event-ip:2382/metrics
+</code></pre>
+
+<p>指标都是重上面的组件中要么采集，要么暴露出来的，主要监控项（表达式可以去json文件中去看）</p>
+
+<ul>
+<li><p>pod和container的cpu，memory</p></li>
+
+<li><p>pod的数量和状态</p></li>
+
+<li><p>pod的disk</p></li>
+
+<li><p>etcd等各个组件的状态</p></li>
+</ul>
+
+<blockquote>
+<p>应用的监控</p>
+</blockquote>
+
+<p>主要是对一些中间件的监控，架构设计如下</p>
+
+<p><img src="/media/monitor/prometheus/monitor-scheme/20180512-3.png" alt="" /></p>
+
+<p>K8s内部部署采用单pod单容器多进程的模式，先把镜像打好，然后在启动应用的时候把探针放进去一起启动。</p>
+
+<p>直接通过ip:port来访问探针指标，使用外部的prometheus来采集探针提供的指标，最后在grafana上进行展示。</p>
+
+<p>这边注明一下使用单容器多进程的方式，一开始可供选择有</p>
+
+<ol>
+<li><p>sidecar的模式，单pod双容器</p>
+
+<p>这种模式，探针和应用分离开来，互不影响，便于更新，还在同一个pod下，可以共享网络
+但是这种模式，单独启动了一个容器占用了一部分资源，两个镜像比较麻烦，需要管理。</p>
+
+<p>个人比较推荐sidecar模式。</p></li>
+
+<li><p>单pod单容器多进程模式</p>
+
+<p>这种模式，不能实现解耦，一个应用挂了，监控也跟着挂了，
+但是不占用资源，不用管理。</p></li>
+
+<li><p>多pod单容器模式</p>
+
+<p>这种模式，网络需要打通，还是新建pod浪费资源，目前48C256G的机器没个节点上最多要求不能超过一百个pod。</p></li>
+</ol>
+
+<h2 id="容器的设计模式">容器的设计模式</h2>
+
+<p>这边讲解一些容器的设计模式：</p>
+
+<p><img src="/media/monitor/prometheus/monitor-scheme/20180512-4.png" alt="" /></p>
+
+<p>重这个对比图中可以看出</p>
+
+<p>1)单容器管理模式；</p>
+
+<p>一个pod一个容器的模式，管理简单清晰。直接使用基本命令就可以运行，当然在一个容器中可以运行多个进程，互相协作。</p>
+
+<p>2)单节点多容器模式；</p>
+
+<p>多容器才可以体现k8s的强大，Pod是一个轻量级的节点，同一个Pod中的容器可以共享同一块存储空间和同一个网络地址空间，这使得我们可以实现一些组合多个容器在同一节点工作的模式。</p>
+
+<ol>
+<li><p>挎斗模式（Sidecar pattern）</p>
+
+<p>这种模式主要是利用在同一Pod中的容器可以共享存储空间的能力。比如一个往文件系统中写文件，一个容器重文件系统中读取文件。</p></li>
+
+<li><p>外交官模式(Ambassador pattern)</p>
+
+<p>这种模式主要利用同一Pod中的容器可以共享网络地址空间的特性。比如一个容器开启一个proxy，给外部访问，类似于网关（外交官），然后这个容器来对转发请求到内部其他容器中处理，然后proxy容器和内部其他容器共享内部网络，直接使用localhost访问就好了。</p></li>
+
+<li><p>适配器模式（Adapter pattern）</p>
+
+<p>分布地执行和存储，统一的监控和管理。比如业务逻辑容器的pod中运行一个exporter容器，对外统一暴露指标，适配prometheus。</p></li>
+</ol>
+
+<p>其实这三种只是根据使用不同特性区分了而已，其实就是pod内部共享。</p>
+
+<p>3)多节点多容器模式；</p>
+
+<ol>
+<li>多节点选举模式</li>
+</ol>
+
+<p>多节点选举在分布式系统中是一种重要的模式，特别是对有状态服务来说。在分布式系统中，一般来说，无状态服务，可以随意的水平伸缩，只要把运行业务逻辑的实例复制出去运行就可以，这也就是K8s里ReplicationController和ReplicaSet所做的事情。</p>
+
+<p>　　对于有状态服务，人们也希望能够水平的扩展，但因为每个实例有自己的持久化状态，而这个持久化状态必须要延续它的生命，因此，有状态服务的水平伸缩模式就是状态的分片，其中机制跟数据库的分片是一致的。那么对于一个原生为分布式系统设计的有状态服务，每个实例与分片数据的对应关系，就成为这个有状态服务的全局信息。对于任何服务，多个实例的全局信息都需要一个保存的地方。</p>
+
+<p>　　一个简单的办法是保存在外部的一个代理服务器上，这也就是MariaDB的Galera解决方案的做法，也是所以代理服务器为后端服务器所做的事情。但这种方式的问题在于，系统要依赖外部代理服务器，而代理服务器本身的高可用和水平伸缩还是没有解决的问题。</p>
+
+<p>　　所以对于要原生自己解决高可用和水平伸缩问题的系统，例如Etcd和ElasticSearch，一定要有原生的主控节点选举机制。这样这个分布式系统就不需要依赖外部的系统来维护自己的状态了。对于一个分布式系统，最主要的系统全局信息，就是集群中有哪些节点，Master节点是哪个，每个节点对应哪个分片。主控节点的任务，就是保存和分发这些信息。</p>
+
+<p>　　在K8s集群中，一个微服务实例Pod可以有多个容器。这一特性很好地提高了多节点选举机制的可重用性。它使得我们可以专门开发一个用于选举的容器镜像，在实际部署中，将选举容器和普通应用容器组合起来，应用容器只需要从本地的选举容器读取状态，就可以得到选举结果。这样，使得应用容器可以只关注自身业务逻辑相关的代码。</p>
+
+<p>这就是多节点多容器的选举模式。是一种使用方式。</p>
+
+<ol>
+<li>工作队列模式</li>
+</ol>
+
+<p>分布式系统的一个重要作用是能够充分利用多个物理计算资源的能力，特别是在动态按需调动计算资源完成计算任务。设想如果有大量的需要处理的任务随机的到来，对计算资源需要的容量是不确定地；显然，按照最大可能计算量和最小可能计算量设置计算节点都是不合理的。所以可以启动多个节点多个容器来处理队列中的任务，也是一种使用方式。</p>
+
+<ol>
+<li>分散收集模式</li>
+</ol>
+
+<p>根节点接受到来自客户端的服务请求，将服务请求分配给不同的业务模块分散处理，处理结果收集到根节点，经过一定的汇聚合并运算，产生一个合并的结果交付给客户端。也就是启动多个节点多个容器来协调处理，再通过代理合并返回，也是一种使用方式。</p>
+
+<p>其实可以看见，容器的模式都是来源于物理的使用方式，也是一些常用的架构，只不过环境换成了容器，有了对应的制约和方便管理。</p>
+
+<h2 id="问题处理">问题处理</h2>
+
+<ol>
+<li>支持多k8s集群场景</li>
+</ol>
+
+<p>在prometheus采集的时候对集群打标签，一个集群统一一个标签</p>
+
+<ol>
+<li>应用关联k8s</li>
+</ol>
+
+<p>应用监控时，我们需要知道当前应用是跑在哪个pod上的，这样就需要唯一标志，因为我可以有pod_IP并且在pod创建后podip就固定了，所以可以根据pod ip到cavisor中获取对应的pod name，然后根据pod name来获取对应pod的指标，包括到kube-state-metrics匹配对应的状态指标。</p>
+
+<p>这样就可以实现，用户到应用，应用对应的在哪个pod，pod在哪个node，以及pod的相关信息，这种一层层的监控结构。</p>
+
+<p>后面对探针进行改造，对于每一个暴露出来的指标，加上pod ip和pod name的label，然后以这两个纬度进行监控。</p>
+
+<ol>
+<li>监控视图</li>
+</ol>
+
+<p>就是使用了grafana来展示视图，根据自己需要来画出了一个视图。具体可以参考json文件</p>
+
+<ol>
+<li>告警</li>
+</ol>
+
+<p>主要设置了k8s集群本身的告警，应用告警和vm一样。具体看文档</p>
+
+<h1 id="k8s部署promehteus监控k8s">k8s部署promehteus监控K8s</h1>
+
+<p>探针这一块后端部署都是上面的物理部署一样的，包括cadvisor-proxy，node-exporter，kube-state-metrics等，因为这些本来就是部署在k8s上面的，这这边要解决的就是上面部署在物理机上的组件，包含prometheus，thanos（在k8s中能用吗？需要吗？），grafana，alertmanager，（consul，consul-template）（这个有点类似于etcd，做一致性和服务发现，最好还是物理部署），nginx解决（service功能能否替代？），后台java写的就物理部署吧，其他通信组件基本都是现成的，不需要考虑部署问题，直接使用。</p>
+
+<h2 id="部署prometheus">部署prometheus</h2>
+
+<p>在k8s上部署Prometheus十分简单，只需要下面4个文件：prometheus.rbac.yml, prometheus.config.yml, prometheus.deploy.yml, prometheus.svc.yml。</p>
+
+<p>下面给的例子中将Prometheus部署到kube-system命名空间。</p>
+
+<p>prometheus.rbac.yml定义了Prometheus容器访问k8s apiserver所需的ServiceAccount和ClusterRole及ClusterRoleBinding</p>
+
+<pre><code>apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+- apiGroups: [&quot;&quot;]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: [&quot;get&quot;, &quot;list&quot;, &quot;watch&quot;]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs: [&quot;get&quot;, &quot;list&quot;, &quot;watch&quot;]
+- nonResourceURLs: [&quot;/metrics&quot;]
+  verbs: [&quot;get&quot;]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: prometheus
+  namespace: kube-system
+</code></pre>
+
+<p>prometheus.config.yml configmap中的prometheus的配置文件</p>
+
+<pre><code>apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: kube-system
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval:     15s
+      evaluation_interval: 15s
+    scrape_configs:
+
+    - job_name: 'kubernetes-apiservers'
+      kubernetes_sd_configs:
+      - role: endpoints
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: default;kubernetes;https
+
+    - job_name: 'kubernetes-nodes'
+      kubernetes_sd_configs:
+      - role: node
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics
+
+    - job_name: 'kubernetes-cadvisor'
+      kubernetes_sd_configs:
+      - role: node
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+
+    - job_name: 'kubernetes-service-endpoints'
+      kubernetes_sd_configs:
+      - role: endpoints
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+        action: replace
+        target_label: __scheme__
+        regex: (https?)
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        action: replace
+        target_label: kubernetes_name
+
+    - job_name: 'kubernetes-services'
+      kubernetes_sd_configs:
+      - role: service
+      metrics_path: /probe
+      params:
+        module: [http_2xx]
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_probe]
+        action: keep
+        regex: true
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter.example.com:9115
+      - source_labels: [__param_target]
+        target_label: instance
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        target_label: kubernetes_name
+
+    - job_name: 'kubernetes-ingresses'
+      kubernetes_sd_configs:
+      - role: ingress
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_ingress_annotation_prometheus_io_probe]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_ingress_scheme,__address__,__meta_kubernetes_ingress_path]
+        regex: (.+);(.+);(.+)
+        replacement: ${1}://${2}${3}
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter.example.com:9115
+      - source_labels: [__param_target]
+        target_label: instance
+      - action: labelmap
+        regex: __meta_kubernetes_ingress_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_ingress_name]
+        target_label: kubernetes_name
+
+    - job_name: 'kubernetes-pods'
+      kubernetes_sd_configs:
+      - role: pod
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+</code></pre>
+
+<p>prometheus.deploy.yml定义Prometheus的部署：</p>
+
+<pre><code>---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  labels:
+    name: prometheus-deployment
+  name: prometheus
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - image: harbor.frognew.com/prom/prometheus:2.0.0
+        name: prometheus
+        command:
+        - &quot;/bin/prometheus&quot;
+        args:
+        - &quot;--config.file=/etc/prometheus/prometheus.yml&quot;
+        - &quot;--storage.tsdb.path=/prometheus&quot;
+        - &quot;--storage.tsdb.retention=24h&quot;
+        ports:
+        - containerPort: 9090
+          protocol: TCP
+        volumeMounts:
+        - mountPath: &quot;/prometheus&quot;
+          name: data
+        - mountPath: &quot;/etc/prometheus&quot;
+          name: config-volume
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+          limits:
+            cpu: 500m
+            memory: 2500Mi
+      serviceAccountName: prometheus
+      imagePullSecrets: 
+        - name: regsecret
+      volumes:
+      - name: data
+        emptyDir: {}
+      - name: config-volume
+        configMap:
+          name: prometheus-config  
+</code></pre>
+
+<p>prometheus.svc.yml定义Prometheus的Servic，需要将Prometheus以NodePort, LoadBalancer或使用Ingress暴露到集群外部，这样外部的Prometheus才能访问它：</p>
+
+<pre><code>---
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    app: prometheus
+  name: prometheus
+  namespace: kube-system
+spec:
+  type: NodePort
+  ports:
+  - port: 9090
+    targetPort: 9090
+    nodePort: 30003
+  selector:
+    app: prometheus
+</code></pre>
+
+<p>上面就完成了prometheus在k8s的集群中部署，当然只是部署了prometheus，整体的架构还是可以参考物理架构部署</p>
+
+<h2 id="部署grafana">部署grafana</h2>
+
+<h2 id="在kubernetes上部署kube-state-metrics">在Kubernetes上部署kube-state-metrics</h2>
+
+<p>kube-state-metrics已经给出了在Kubernetes部署的manifest定义文件，直接部署。</p>
+
+<p>将kube-state-metrics部署到Kubernetes上之后，就会发现Kubernetes集群中的Prometheus会在kubernetes-service-endpoints这个job下自动服务发现kube-state-metrics，并开始拉取metrics，当然集群外部的Prometheus也能从集群中的Prometheus拉取到这些数据了。这是因为上2.2中prometheus.config.yml中Prometheus的配置文件job kubernetes-service-endpoints的配置。而部署kube-state-metrics的manifest定义文件kube-state-metrics-service.yaml对kube-state-metricsService的定义包含annotation prometheus.io/scrape: &lsquo;true&rsquo;，因此kube-state-metrics的endpoint可以被Prometheus自动服务发现。</p>
+
+<p>关于kube-state-metrics暴露的所有监控指标可以参考kube-state-metrics的文档kube-state-metrics Documentation。</p>
+
+<p>prometheus自身提供了自动发现kubernetes的监控目标的功能，首先直接上官方的prometheus配置文件：</p>
+
+<pre><code># A scrape configuration for running Prometheus on a Kubernetes cluster.
+# This uses separate scrape configs for cluster components (i.e. API server, node)
+# and services to allow each to use different authentication configs.
+#
+# Kubernetes labels will be added as Prometheus labels on metrics via the
+# `labelmap` relabeling action.
+#
+# If you are using Kubernetes 1.7.2 or earlier, please take note of the comments
+# for the kubernetes-cadvisor job; you will need to edit or remove this job.
+
+# Scrape config for API servers.
+#
+# Kubernetes exposes API servers as endpoints to the default/kubernetes
+# service so this uses `endpoints` role and uses relabelling to only keep
+# the endpoints associated with the default/kubernetes service using the
+# default named port `https`. This works for single API server deployments as
+# well as HA API server deployments.
+scrape_configs:
+- job_name: 'kubernetes-apiservers'
+
+  kubernetes_sd_configs:
+  - role: endpoints
+
+  # Default to scraping over https. If required, just disable this or change to
+  # `http`.
+  scheme: https
+
+  # This TLS &amp; bearer token file config is used to connect to the actual scrape
+  # endpoints for cluster components. This is separate to discovery auth
+  # configuration because discovery &amp; scraping are two separate concerns in
+  # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+  # the cluster. Otherwise, more config options have to be provided within the
+  # &lt;kubernetes_sd_config&gt;.
+  tls_config:
+    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    # If your node certificates are self-signed or use a different CA to the
+    # master CA, then disable certificate verification below. Note that
+    # certificate verification is an integral part of a secure infrastructure
+    # so this should only be disabled in a controlled environment. You can
+    # disable certificate verification by uncommenting the line below.
+    #
+    # insecure_skip_verify: true
+  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+  # Keep only the default/kubernetes service endpoints for the https port. This
+  # will add targets for each API server which Kubernetes adds an endpoint to
+  # the default/kubernetes service.
+  relabel_configs:
+  - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+    action: keep
+    regex: default;kubernetes;https
+
+# Scrape config for nodes (kubelet).
+#
+# Rather than connecting directly to the node, the scrape is proxied though the
+# Kubernetes apiserver.  This means it will work if Prometheus is running out of
+# cluster, or can't connect to nodes for some other reason (e.g. because of
+# firewalling).
+- job_name: 'kubernetes-nodes'
+
+  # Default to scraping over https. If required, just disable this or change to
+  # `http`.
+  scheme: https
+
+  # This TLS &amp; bearer token file config is used to connect to the actual scrape
+  # endpoints for cluster components. This is separate to discovery auth
+  # configuration because discovery &amp; scraping are two separate concerns in
+  # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+  # the cluster. Otherwise, more config options have to be provided within the
+  # &lt;kubernetes_sd_config&gt;.
+  tls_config:
+    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+  kubernetes_sd_configs:
+  - role: node
+
+  relabel_configs:
+  - action: labelmap
+    regex: __meta_kubernetes_node_label_(.+)
+  - target_label: __address__
+    replacement: kubernetes.default.svc:443
+  - source_labels: [__meta_kubernetes_node_name]
+    regex: (.+)
+    target_label: __metrics_path__
+    replacement: /api/v1/nodes/${1}/proxy/metrics
+
+# Scrape config for Kubelet cAdvisor.
+#
+# This is required for Kubernetes 1.7.3 and later, where cAdvisor metrics
+# (those whose names begin with 'container_') have been removed from the
+# Kubelet metrics endpoint.  This job scrapes the cAdvisor endpoint to
+# retrieve those metrics.
+#
+# In Kubernetes 1.7.0-1.7.2, these metrics are only exposed on the cAdvisor
+# HTTP endpoint; use &quot;replacement: /api/v1/nodes/${1}:4194/proxy/metrics&quot;
+# in that case (and ensure cAdvisor's HTTP server hasn't been disabled with
+# the --cadvisor-port=0 Kubelet flag).
+#
+# This job is not necessary and should be removed in Kubernetes 1.6 and
+# earlier versions, or it will cause the metrics to be scraped twice.
+- job_name: 'kubernetes-cadvisor'
+
+  # Default to scraping over https. If required, just disable this or change to
+  # `http`.
+  scheme: https
+
+  # This TLS &amp; bearer token file config is used to connect to the actual scrape
+  # endpoints for cluster components. This is separate to discovery auth
+  # configuration because discovery &amp; scraping are two separate concerns in
+  # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+  # the cluster. Otherwise, more config options have to be provided within the
+  # &lt;kubernetes_sd_config&gt;.
+  tls_config:
+    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+  kubernetes_sd_configs:
+  - role: node
+
+  relabel_configs:
+  - action: labelmap
+    regex: __meta_kubernetes_node_label_(.+)
+  - target_label: __address__
+    replacement: kubernetes.default.svc:443
+  - source_labels: [__meta_kubernetes_node_name]
+    regex: (.+)
+    target_label: __metrics_path__
+    replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+
+# Scrape config for service endpoints.
+#
+# The relabeling allows the actual service scrape endpoint to be configured
+# via the following annotations:
+#
+# * `prometheus.io/scrape`: Only scrape services that have a value of `true`
+# * `prometheus.io/scheme`: If the metrics endpoint is secured then you will need
+# to set this to `https` &amp; most likely set the `tls_config` of the scrape config.
+# * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+# * `prometheus.io/port`: If the metrics are exposed on a different port to the
+# service then set this appropriately.
+- job_name: 'kubernetes-service-endpoints'
+
+  kubernetes_sd_configs:
+  - role: endpoints
+
+  relabel_configs:
+  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+    action: keep
+    regex: true
+  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+    action: replace
+    target_label: __scheme__
+    regex: (https?)
+  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+    action: replace
+    target_label: __metrics_path__
+    regex: (.+)
+  - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+    action: replace
+    target_label: __address__
+    regex: ([^:]+)(?::\d+)?;(\d+)
+    replacement: $1:$2
+  - action: labelmap
+    regex: __meta_kubernetes_service_label_(.+)
+  - source_labels: [__meta_kubernetes_namespace]
+    action: replace
+    target_label: kubernetes_namespace
+  - source_labels: [__meta_kubernetes_service_name]
+    action: replace
+    target_label: kubernetes_name
+
+# Example scrape config for probing services via the Blackbox Exporter.
+#
+# The relabeling allows the actual service scrape endpoint to be configured
+# via the following annotations:
+#
+# * `prometheus.io/probe`: Only probe services that have a value of `true`
+- job_name: 'kubernetes-services'
+
+  metrics_path: /probe
+  params:
+    module: [http_2xx]
+
+  kubernetes_sd_configs:
+  - role: service
+
+  relabel_configs:
+  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_probe]
+    action: keep
+    regex: true
+  - source_labels: [__address__]
+    target_label: __param_target
+  - target_label: __address__
+    replacement: blackbox-exporter.example.com:9115
+  - source_labels: [__param_target]
+    target_label: instance
+  - action: labelmap
+    regex: __meta_kubernetes_service_label_(.+)
+  - source_labels: [__meta_kubernetes_namespace]
+    target_label: kubernetes_namespace
+  - source_labels: [__meta_kubernetes_service_name]
+    target_label: kubernetes_name
+
+# Example scrape config for probing ingresses via the Blackbox Exporter.
+#
+# The relabeling allows the actual ingress scrape endpoint to be configured
+# via the following annotations:
+#
+# * `prometheus.io/probe`: Only probe services that have a value of `true`
+- job_name: 'kubernetes-ingresses'
+
+  metrics_path: /probe
+  params:
+    module: [http_2xx]
+
+  kubernetes_sd_configs:
+    - role: ingress
+
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_ingress_annotation_prometheus_io_probe]
+      action: keep
+      regex: true
+    - source_labels: [__meta_kubernetes_ingress_scheme,__address__,__meta_kubernetes_ingress_path]
+      regex: (.+);(.+);(.+)
+      replacement: ${1}://${2}${3}
+      target_label: __param_target
+    - target_label: __address__
+      replacement: blackbox-exporter.example.com:9115
+    - source_labels: [__param_target]
+      target_label: instance
+    - action: labelmap
+      regex: __meta_kubernetes_ingress_label_(.+)
+    - source_labels: [__meta_kubernetes_namespace]
+      target_label: kubernetes_namespace
+    - source_labels: [__meta_kubernetes_ingress_name]
+      target_label: kubernetes_name
+
+# Example scrape config for pods
+#
+# The relabeling allows the actual pod scrape endpoint to be configured via the
+# following annotations:
+#
+# * `prometheus.io/scrape`: Only scrape pods that have a value of `true`
+# * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+# * `prometheus.io/port`: Scrape the pod on the indicated port instead of the
+# pod's declared ports (default is a port-free target if none are declared).
+- job_name: 'kubernetes-pods'
+
+  kubernetes_sd_configs:
+  - role: pod
+
+  relabel_configs:
+  - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+    action: keep
+    regex: true
+  - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+    action: replace
+    target_label: __metrics_path__
+    regex: (.+)
+  - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+    action: replace
+    regex: ([^:]+)(?::\d+)?;(\d+)
+    replacement: $1:$2
+    target_label: __address__
+  - action: labelmap
+    regex: __meta_kubernetes_pod_label_(.+)
+  - source_labels: [__meta_kubernetes_namespace]
+    action: replace
+    target_label: kubernetes_namespace
+  - source_labels: [__meta_kubernetes_pod_name]
+    action: replace
+    target_label: kubernetes_pod_name
+</code></pre>
+
+<p>当然该配置文件，是在prometheus部署在k8s中生效的,即in-cluster模式。</p>
+
+<p><scrape_config>:定义收集规则。 在一般情况下，一个scrape配置指定一个job。 在高级配置中，这可能会改变。</p>
+
+<p>relabel_configs允许在抓取之前对任何目标及其标签进行修改。</p>
+
+<p>kubernetes-apiservers</p>
+
+<p>该项主要是让prometheus程序可以访问kube-apiserver，进而进行服务发现。看一下服务发现的代码可以看出，主要服务发现：node，service，ingress，pod。</p>
+
+<pre><code>switch d.role {
+case &quot;endpoints&quot;:
+    var wg sync.WaitGroup
+
+    for _, namespace := range namespaces {
+        elw := cache.NewListWatchFromClient(rclient, &quot;endpoints&quot;, namespace, nil)
+        slw := cache.NewListWatchFromClient(rclient, &quot;services&quot;, namespace, nil)
+        plw := cache.NewListWatchFromClient(rclient, &quot;pods&quot;, namespace, nil)
+        eps := NewEndpoints(
+            log.With(d.logger, &quot;role&quot;, &quot;endpoint&quot;),
+            cache.NewSharedInformer(slw, &amp;apiv1.Service{}, resyncPeriod),
+            cache.NewSharedInformer(elw, &amp;apiv1.Endpoints{}, resyncPeriod),
+            cache.NewSharedInformer(plw, &amp;apiv1.Pod{}, resyncPeriod),
+        )
+        go eps.endpointsInf.Run(ctx.Done())
+        go eps.serviceInf.Run(ctx.Done())
+        go eps.podInf.Run(ctx.Done())
+
+        for !eps.serviceInf.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        for !eps.endpointsInf.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        for !eps.podInf.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            eps.Run(ctx, ch)
+        }()
+    }
+    wg.Wait()
+case &quot;pod&quot;:
+    var wg sync.WaitGroup
+    for _, namespace := range namespaces {
+        plw := cache.NewListWatchFromClient(rclient, &quot;pods&quot;, namespace, nil)
+        pod := NewPod(
+            log.With(d.logger, &quot;role&quot;, &quot;pod&quot;),
+            cache.NewSharedInformer(plw, &amp;apiv1.Pod{}, resyncPeriod),
+        )
+        go pod.informer.Run(ctx.Done())
+
+        for !pod.informer.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            pod.Run(ctx, ch)
+        }()
+    }
+    wg.Wait()
+case &quot;service&quot;:
+    var wg sync.WaitGroup
+    for _, namespace := range namespaces {
+        slw := cache.NewListWatchFromClient(rclient, &quot;services&quot;, namespace, nil)
+        svc := NewService(
+            log.With(d.logger, &quot;role&quot;, &quot;service&quot;),
+            cache.NewSharedInformer(slw, &amp;apiv1.Service{}, resyncPeriod),
+        )
+        go svc.informer.Run(ctx.Done())
+
+        for !svc.informer.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            svc.Run(ctx, ch)
+        }()
+    }
+    wg.Wait()
+case &quot;ingress&quot;:
+    var wg sync.WaitGroup
+    for _, namespace := range namespaces {
+        ilw := cache.NewListWatchFromClient(reclient, &quot;ingresses&quot;, namespace, nil)
+        ingress := NewIngress(
+            log.With(d.logger, &quot;role&quot;, &quot;ingress&quot;),
+            cache.NewSharedInformer(ilw, &amp;extensionsv1beta1.Ingress{}, resyncPeriod),
+        )
+        go ingress.informer.Run(ctx.Done())
+
+        for !ingress.informer.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            ingress.Run(ctx, ch)
+        }()
+    }
+    wg.Wait()
+case &quot;node&quot;:
+    nlw := cache.NewListWatchFromClient(rclient, &quot;nodes&quot;, api.NamespaceAll, nil)
+    node := NewNode(
+        log.With(d.logger, &quot;role&quot;, &quot;node&quot;),
+        cache.NewSharedInformer(nlw, &amp;apiv1.Node{}, resyncPeriod),
+    )
+    go node.informer.Run(ctx.Done())
+
+    for !node.informer.HasSynced() {
+        time.Sleep(100 * time.Millisecond)
+    }
+    node.Run(ctx, ch)
+
+default:
+    level.Error(d.logger).Log(&quot;msg&quot;, &quot;unknown Kubernetes discovery kind&quot;, &quot;role&quot;, d.role)
+}
+</code></pre>
+
+<p>kubernetes-nodes</p>
+
+<p>发现node以后，通过/api/v1/nodes/${1}/proxy/metrics来获取node的metrics。</p>
+
+<p>kubernetes-cadvisor</p>
+
+<p>cadvisor已经被集成在kubelet中，所以发现了node就相当于发现了cadvisor。通过 /api/v1/nodes/${1}/proxy/metrics/cadvisor采集容器指标。</p>
+
+<p>kubernetes-services和kubernetes-ingresses</p>
+
+<p>该两种资源监控方式差不多，都是需要安装black-box，然后类似于探针去定时访问，根据返回的http状态码来判定service和ingress的服务可用性。</p>
+
+<p>PS：不过我自己在这里和官方的稍微有点区别，</p>
+
+<pre><code>- target_label: __address__
+  replacement: blackbox-exporter.example.com:9115
+</code></pre>
+
+<p>官方大致是需要我们要创建black-box 的ingress从外部访问，这样从效率和安全性都不是最合适的。所以我一般都是直接内部dns访问。如下</p>
+
+<pre><code>- target_label: __address__
+  replacement: blackbox-exporter.kube-system:9115
+</code></pre>
+
+<p>当然看源码可以发现，并不是所有的service和ingress都会健康监测，如果需要将服务进行健康监测，那么你部署应用的yaml文件加一些注解。例如：</p>
+
+<p>对于service和ingress：</p>
+
+<pre><code>需要加注解：prometheus.io/scrape: 'true'
+
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/scrape: 'true'
+  name: prometheus-node-exporter
+  namespace: kube-system
+  labels:
+    app: prometheus
+    component: node-exporter
+spec:
+  clusterIP: None
+  ports:
+    - name: prometheus-node-exporter
+      port: 9100
+      protocol: TCP
+  selector:
+    app: prometheus
+    component: node-exporter
+  type: ClusterIP
+</code></pre>
+
+<p>kubernetes-pods</p>
+
+<p>对于pod的监测也是需要加注解：</p>
+
+<pre><code>prometheus.io/scrape，为true则会将pod作为监控目标。
+prometheus.io/path，默认为/metrics
+prometheus.io/port , 端口
+</code></pre>
+
+<p>所以看到此处可以看出，该job并不是监控pod的指标，pod已经通过前面的cadvisor采集。此处是对pod中应用的监控。写过exporter的人应该对这个概念非常清楚。通俗讲，就是你pod中的应用提供了prometheus的监控功能，加上对应的注解，那么该应用的metrics会定时被采集走。</p>
+
+<p>kubernetes-service-endpoints</p>
+
+<p>对于服务的终端节点，也需要加注解：</p>
+
+<pre><code>prometheus.io/scrape，为true则会将pod作为监控目标。
+prometheus.io/path，默认为/metrics
+prometheus.io/port , 端口
+prometheus.io/scheme 默认http，如果为了安全设置了https，此处需要改为https
+</code></pre>
+
+<p>这个基本上同上的。采集service-endpoints的metrics。</p>
+
+<p>个人认为：如果某些部署应用只有pod没有service，那么这种情况只能在pod上加注解，通过kubernetes-pods采集metrics。如果有service，那么就无需在pod加注解了，直接在service上加即可。毕竟service-endpoints最终也会落到pod上。</p>
+
+<p>总结</p>
+
+<p>配置项总结</p>
+
+<pre><code>kubernetes-service-endpoints和kubernetes-pods采集应用中metrics，当然并不是所有的都提供了metrics接口。
+kubernetes-ingresses 和kubernetes-services 健康监测服务和ingress健康的状态
+kubernetes-cadvisor 和 kubernetes-nodes，通过发现node，监控node 和容器的cpu等指标
+自动发现源码
+参考client-go和prometheus自动发现k8s，这种监听k8s集群中资源的变化，使用informer实现，不要轮询kube-apiserver接口。
+</code></pre>
+
+<h1 id="物理部署和k8s结合使用方式监控k8s">物理部署和k8s结合使用方式监控k8s</h1>
+
+<h1 id="容器监控面试题">容器监控面试题</h1>
+
+<ol>
+<li><p>容器监控（docker，k8s）最常用采集指标的组件</p>
+
+<p>cadvisor</p></li>
+
+<li><p>使用prometheus来监控k8s的基本架构和组件</p>
+
+<p>k8s自身</p>
+
+<pre><code>1. k8s自身组件kube-apiserver/kube-scheduler/kube-controller-manager/kubelet都是自身暴露端口可供prometheus来采集
+
+    其中kubelet就是集成了cadvisor，其实就是cadvisor再采集k8s各种资源的信息
+
+2. 但是使用这些原生的可能指标聚合方面和相关资源的状态还是会缺失
+
+    所以正常使用组件这些组件来采集
+    1.heapster（现在已经废弃）
+    2。kube-state-metrics，目前我们正在使用，主要是对一些pod的状态，副本数，重启次数等资源状态进行监控
+    3.metrics-server，可以说是heapster的替代品，主要采集一些相关资源的api
+
+3. 然后就是使用prometheus的服务发现来进行采集
+</code></pre></li>
+
+<li><p>k8s应用</p>
+
+<ol>
+<li><p>主要是各个中间件的探针（redis等）</p>
+
+<p>探针安装</p>
+
+<pre><code>1.将探针打再应用镜像里面，直接获取http查询
+2.使用sidecar来给探针单独运行一个容器，共享本地网络采集
+</code></pre></li>
+</ol></li>
+
+<li><p>组件的区别</p></li>
+</ol>
+
+<p>cAdvisor</p>
+
+<pre><code>cAdvisor是Google开源的容器资源监控和性能分析工具，它是专门为容器而生，本身也支持 Docker 容器。
+
+Cadvisor可以直接部署运行在vm或者docker上，监控当前环境下docker运行的容器的资源情况。
+
+在 Kubernetes 中，我们不需要单独去安装，cAdvisor 已经集成在kubelet中，自己暴露指标，作为 kubelet 内置的一部分程序可以直接使用。
+
+
+cAdvisor主要监控数据是容器的资源性能数据，包括CPU使用情况、内存使用情况、网络吞吐量及文件系统使用情况。
+</code></pre>
+
+<p>Kube-state-metrics</p>
+
+<pre><code>kube-state-metrics通过监听 API Server 生成有关资源对象的状态指标，比如 Deployment、Node、Pod，需要注意的是 kube-state-metrics 只是简单提供一个 metrics 数据，并不会存储这些指标数据，所以我们可以使用 Prometheus 来抓取这些数据然后存储。
+
+kube-state-metrics主要监控数据主要是k8s集群有关资源的状态。比如pod的状态，副本数，重启次数等资源状态进行监控。
+</code></pre>
+
+<p>metrics-server</p>
+
+<pre><code>metrics-server 也是一个集群范围内的资源数据聚合工具，是 Heapster 的替代品，Heapster现在已经停止维护和使用，同样的，metrics-server 也只是显示数据，并不提供数据存储服务。
+metrics-server定时从Kubelet的Summary API(类似/ap1/v1/nodes/nodename/stats/summary)采集指标信息。
+
+metrics-server主要监控数据主要是kubelet和集成的cadvisor中暴露的容器和集群节点的资源情况，包括CPU使用情况、内存使用情况、网络吞吐量及文件系统使用情况，以及kubelet对于同期的维护情况。
+</code></pre>
+
+<p>kube-state-metrics 和metrics-server和prometheus</p>
+
+<p>1.kube-state-metrics中监控的数据，metrics-server包括其他组件都无法提供。比如</p>
+
+<pre><code>1.我调度了多少个replicas？现在可用的有几个？
+2.多少个Pod是running/stopped/terminated状态？
+3.Pod重启了多少次？
+4.我有多少job在运行中
+等这一系列资源状态的数据。
+</code></pre>
+
+<p>2.两者其实没有太大的可比性，本质不一样。</p>
+
+<pre><code>Metrics-server是官方废弃heapster项目，新开的一个项目，就是为了将核心资源监控作为一等公民对待，即像pod、service那样直接通过api-server或者client直接访问，不再是安装一个hepater来汇聚且由heapster单独管理。从 Kubernetes1.8 开始，Metrics-server就作为一个 Deployment对象默认部署在由kube-up.sh脚本创建的集群中，这样就可以直接暴露相关聚合的数据。如果形象的说的话，Metrics-server实质上是一个监控系统。
+
+
+kube-state-metrics关注于获取k8s各种资源的最新状态，类似于监控系统中的一个探针。
+
+可见两种着力点的方向不一样。
+</code></pre>
+
+<p>3.Prometheus和Metrics-server</p>
+
+<pre><code>Prometheus监控系统不用Metrics-server
+
+Prometheus监控系统一般不用Metrics-server，因为他们都是自己做指标收集、集成的。可以说Prometheus包含了metric-server的能力，且prometheus更加强大，比如Prometheus可以监控metric-server本身组件的监控状态并适时报警，这里的监控就可以通过kube-state-metrics来实现，如metric-server的pod的运行状态。
+
+当然也可以使用Metrics-server，Metrics-server从 Kubelet、cAdvisor 等获取核心数据，再由prometheus从 metrics-server 获取核心度量，从其他数据源（如 Node Exporter 等）获取非核心度量，再基于它们构建监控告警系统。但是这边新增了一层，在原来的不新增的情况下也是能实现的。所以正常prometheus不使用Metrics-server。
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/prometheus/monitor-scheme/k8s/">https://kingjcy.github.io/post/monitor/prometheus/monitor-scheme/k8s/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/prometheus/exporter/log/grok_exporter/">prometheus探针系列---- Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/log/mtail/">prometheus探针系列---- mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/zabbix/zabbix2tsdb/">Zabbix数据入到tsdb</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月20日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/cluster/victoriametrics/">prometheus集群系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-rpm-build/">K8s系列---- K8s Rpm Build</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月17日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/process_exporter/">Process_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/prometheus-operater/">prometheus系列---- Prometheus Operater</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月12日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/redis_exporter/">Redis_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li><li id="li-rels"><a href="/post/monitor/server/ntp/">Ntp</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年10月15日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/script_exporter/">Script_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年10月09日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/prometheus/prometheus-principle/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/prometheus/monitor-scheme/promes-admin/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#物理部署promehteus监控k8s">物理部署promehteus监控K8s</a>
+<ul>
+<li><a href="#部署组件">部署组件</a></li>
+<li><a href="#集群监控">集群监控</a></li>
+<li><a href="#容器的设计模式">容器的设计模式</a></li>
+<li><a href="#问题处理">问题处理</a></li>
+</ul></li>
+<li><a href="#k8s部署promehteus监控k8s">k8s部署promehteus监控K8s</a>
+<ul>
+<li><a href="#部署prometheus">部署prometheus</a></li>
+<li><a href="#部署grafana">部署grafana</a></li>
+<li><a href="#在kubernetes上部署kube-state-metrics">在Kubernetes上部署kube-state-metrics</a></li>
+</ul></li>
+<li><a href="#物理部署和k8s结合使用方式监控k8s">物理部署和k8s结合使用方式监控k8s</a></li>
+<li><a href="#容器监控面试题">容器监控面试题</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

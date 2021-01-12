@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Memory on kingjcy blog</title>
+    <link>https://kingjcy.github.io/tags/memory/</link>
+    <description>Recent content in Memory on kingjcy blog</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>zh-CN</language>
+    <copyright>Copyright (c) 2020. All rights reserved.</copyright>
+    <lastBuildDate>Fri, 29 Nov 2019 19:29:25 +0800</lastBuildDate>
+    
+	<atom:link href="https://kingjcy.github.io/tags/memory/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+    <item>
+      <title>生产问题排查解决系列----  Memory</title>
+      <link>https://kingjcy.github.io/post/product/memory/</link>
+      <pubDate>Fri, 29 Nov 2019 19:29:25 +0800</pubDate>
+      
+      <guid>https://kingjcy.github.io/post/product/memory/</guid>
+      <description>问题描述 使用prometheus采集ntp的数据，使用脚本探针，每个prometheus实例承载了1.5W的数据采集任务，在运行一段时间后内存会消耗殆尽。
+处理 一阶段处理 在监控视图上查看内存一直升高没有被释放，可能是prometheus自身的问题，但是数据量本来就极小，只有8G的数据，怎么可能沾满32G的内存，带着疑问， 考虑升级prometheus，但是运行一段时间后还是内存满了，这个时候就知道不是promehtus的问题了。
+二阶段处理 果然在top命令中只看到prometheus消耗了13%的内存，那么内存被什么占用了呢，top中没有明显的占用内存的进程，无处下手，开始考虑什么会大量占用内存， 正常内存泄露，大量进程，大量fd等，于是ps看了一下进程，果然出现了问题，sendmail和postdrop是一组16000多，crond 8000多，应该是什么东西执行失败发邮件，然后邮件队列也满了 感觉是什么定时任务执行有问题，一直hang在那，于是查看定时任务，果然/opt/promes/consul-template/consul-template-0.19.5/start-shard-server.sh定时任务的文件不存在，出错一直sendmail，满了落盘 找到了问题所在，于是处理了这个定时进程，果然问题解决了。
+问题描述 分发程序启动后把4G的内存全部占用完了，但是自己写的代码，感觉不会使用太多的内存，排查。
+处理 使用top命令查看此时此刻的各个应用程序占用的内存大小
+ PID USER PR NI VIRT RES SHR S %CPU %MEM TIME+ COMMAND 13080 root 20 0 112848 7080 3844 S 1.7 0.2 1:15.52 transfer  这里其实有两个指标可以查看，virt是虚拟内存，而res是进程实际分配的物理内存。可以看出实际上并没有占用太多的内存，只有百分之零点几。
+一般通过res查看应用内存的物理占用量, 但是你会发现，如果把每个应用程序的res加一起很有可能超过机器总内存，这是因为不同应用程序有可能引用同一个库，此时这个库被缓存，那么这两个应用程序都会将这个库所占用的内存算进去。这时候发现，我们的node服务占用的内存是在正常范围中。
+于是我们又free看了下，发现used占用的内存并不多，但是buffer/cached占用的内存，超过了80%。buffer/cached 是机器帮我们缓存的文件内容，当内存不足时，有一部分缓存是会被机器给释放掉的，也就是说，机器真正的可用内存应该是aviliable = free + buffers + cached - 不可清空的缓存。
+[root@promessitapp122 zabbix-proxy-data]# free total used free shared buff/cache available Mem: 3881308 533916 1282304 165776 2065088 2912576 Swap: 10485756 84568 10401188  所以不会影响业务，不会致使程序挂掉，到此长舒了一口气，可以喝杯茶再解决这个问题了。</description>
+    </item>
+    
+  </channel>
+</rss>

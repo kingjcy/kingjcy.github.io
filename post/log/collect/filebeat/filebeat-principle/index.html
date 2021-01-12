@@ -1,0 +1,1563 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Filebeat 是使用 Golang 实现的轻量型日志采集器，也是 Elasticsearch stack 里面的一员。本质上是一个 agent，可以安装在各个节点上，根据配置读取对应位置的日志，并上报到相应的地方去。
+
+filebeat源码归属于beats项目，而beats项目的设计初衷是为了采集各类的数据，所以beats抽象出了一个libbeat库，基于libbeat我们可以快速的开发实现一个采集的工具，除了filebeat，还有像metricbeat、packetbeat等官方的项目也是在beats工程中。libbeat已经实现了内存缓存队列memqueue、几种output日志发送客户端，数据的过滤处理processor,配置解析、日志打印、事件处理和发送等通用功能，而filebeat只需要实现日志文件的读取等和日志相关的逻辑即可。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="日志采集系列---- Filebeat原理 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    日志采集系列---- Filebeat原理
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年07月08日 
+                </div>
+                <h1 class="post-title">日志采集系列---- Filebeat原理</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Filebeat 是使用 Golang 实现的轻量型日志采集器，也是 Elasticsearch stack 里面的一员。本质上是一个 agent，可以安装在各个节点上，根据配置读取对应位置的日志，并上报到相应的地方去。</p>
+
+<p>filebeat源码归属于beats项目，而beats项目的设计初衷是为了采集各类的数据，所以beats抽象出了一个libbeat库，基于libbeat我们可以快速的开发实现一个采集的工具，除了filebeat，还有像metricbeat、packetbeat等官方的项目也是在beats工程中。libbeat已经实现了内存缓存队列memqueue、几种output日志发送客户端，数据的过滤处理processor,配置解析、日志打印、事件处理和发送等通用功能，而filebeat只需要实现日志文件的读取等和日志相关的逻辑即可。</p>
+
+<h1 id="整体架构">整体架构</h1>
+
+<h2 id="架构图">架构图</h2>
+
+<p>下图是 Filebeat 官方提供的架构图：</p>
+
+<p><img src="/media/log/filebeat/filebeat.png" alt="" /></p>
+
+<h2 id="组件">组件</h2>
+
+<p>除了图中提到的各个组件，整个 filebeat 主要包含以下重要组件：</p>
+
+<p>1.filebeat主要模块</p>
+
+<pre><code>Crawler: 负责管理和启动各个Input,管理所有Input收集数据并发送事件到libbeat的Publisher
+Input: 负责管理和解析输入源的信息，以及为每个文件启动 Harvester。可由配置文件指定输入源信息。
+    Harvester: 负责读取一个文件的数据,对应一个输入源，是收集数据的实际工作者。配置中，一个具体的Input可以包含多个输入源（Harvester）
+module: 简化了一些常见程序日志（比如nginx日志）收集、解析、可视化（kibana dashboard）配置项
+    fileset: module下具体的一种Input定义（比如nginx包括access和error log），包含：1）输入配置；2）es ingest node pipeline定义；3）事件字段定义；4）示例kibana dashboard
+Registrar：管理记录每个文件处理状态，包括偏移量、文件名等信息。当 Filebeat 启动时，会从 Registrar 恢复文件处理状态。
+</code></pre>
+
+<p>2.libbeat主要模块</p>
+
+<pre><code>Pipeline（publisher）: 负责管理缓存、Harvester 的信息写入以及 Output 的消费等，是 Filebeat 最核心的组件。
+    client: 提供Publish接口让filebeat将事件发送到Publisher。在发送到队列之前，内部会先调用processors（包括input 内部的processors和全局processors）进行处理。
+    processor: 事件处理器，可对事件按照配置中的条件进行各种处理（比如删除事件、保留指定字段等）。配置项
+    queue: 事件队列，有memqueue（基于内存）和spool（基于磁盘文件）两种实现。配置项
+    outputs: 事件的输出端，比如ES、Logstash、kafka等。配置项
+    acker: 事件确认回调，在事件发送成功后进行回调
+autodiscover：用于自动发现容器并将其作为输入源
+</code></pre>
+
+<p>filebeat 的整个生命周期，几个组件共同协作，完成了日志从采集到上报的整个过程。</p>
+
+<h2 id="目录组织">目录组织</h2>
+
+<pre><code>├── autodiscover        # 包含filebeat的autodiscover适配器（adapter），当autodiscover发现新容器时创建对应类型的输入
+├── beater              # 包含与libbeat库交互相关的文件
+├── channel             # 包含filebeat输出到pipeline相关的文件
+├── config              # 包含filebeat配置结构和解析函数
+├── crawler             # 包含Crawler结构和相关函数
+├── fileset             # 包含module和fileset相关的结构
+├── harvester           # 包含Harvester接口定义、Reader接口及实现等
+├── input               # 包含所有输入类型的实现（比如: log, stdin, syslog）
+├── inputsource         # 在syslog输入类型中用于读取tcp或udp syslog
+├── module              # 包含各module和fileset配置
+├── modules.d           # 包含各module对应的日志路径配置文件，用于修改默认路径
+├── processor           # 用于从容器日志的事件字段source中提取容器id
+├── prospector          # 包含旧版本的输入结构Prospector，现已被Input取代
+├── registrar           # 包含Registrar结构和方法
+└── util                # 包含beat事件和文件状态的通用结构Data
+└── ...
+</code></pre>
+
+<h1 id="日志采集流程">日志采集流程</h1>
+
+<p>Filebeat 不仅支持普通文本日志的作为输入源，还内置支持了 redis 的慢查询日志、stdin、tcp 和 udp 等作为输入源。</p>
+
+<p>本文只分析下普通文本日志的处理方式，对于普通文本日志，可以按照以下配置方式，指定 log 的输入源信息。</p>
+
+<pre><code>filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /var/log/*.log
+</code></pre>
+
+<p>其中 Input 也可以指定多个, 每个 Input 下的 Log 也可以指定多个。</p>
+
+<p>filebeat 启动时会开启 Crawler，filebeat抽象出一个Crawler的结构体，对于配置中的每条 Input，Crawler 都会启动一个 Input 进行处理，代码如下所示：</p>
+
+<pre><code>func (c *Crawler) Start(...){
+    ...
+    for _, inputConfig := range c.inputConfigs {
+        err := c.startInput(pipeline, inputConfig, r.GetStates())
+        if err != nil {
+            return err
+        }
+    }
+    ...
+}
+</code></pre>
+
+<p>由于指定的 paths 可以配置多个，而且可以是 Glob 类型，因此 Filebeat 将会匹配到多个配置文件。</p>
+
+<p>根据配置获取匹配的日志文件，需要注意的是，这里的匹配方式并非正则，而是采用linux glob的规则，和正则还是有一些区别。</p>
+
+<pre><code>matches, err := filepath.Glob(path)
+</code></pre>
+
+<p>获取到了所有匹配的日志文件之后，会经过一些复杂的过滤，例如如果配置了exclude_files则会忽略这类文件，同时还会查询文件的状态，如果文件的最近一次修改时间大于ignore_older的配置，也会不去采集该文件。</p>
+
+<p>Input 对于每个匹配到的文件，都会开启一个 Harvester 进行逐行读取，每个 Harvester 都工作在自己的的 goroutine 中。</p>
+
+<p>Harvester 的工作流程非常简单，就是逐行读取文件，并更新该文件暂时在 Input 中的文件偏移量（注意，并不是 Registrar 中的偏移量），读取完成（读到文件的EOF末尾）则结束流程。</p>
+
+<p>读取代码</p>
+
+<pre><code>for {
+        message, err := h.reader.Next()
+        if err != nil {
+            switch err {
+            case ErrFileTruncate:
+                logp.Info(&quot;File was truncated. Begin reading file from offset 0: %s&quot;, h.state.Source)
+                h.state.Offset = 0
+                filesTruncated.Add(1)
+            case ErrRemoved:
+                logp.Info(&quot;File was removed: %s. Closing because close_removed is enabled.&quot;, h.state.Source)
+            case ErrRenamed:
+                logp.Info(&quot;File was renamed: %s. Closing because close_renamed is enabled.&quot;, h.state.Source)
+            case ErrClosed:
+                logp.Info(&quot;Reader was closed: %s. Closing.&quot;, h.state.Source)
+            case io.EOF:
+                logp.Info(&quot;End of file reached: %s. Closing because close_eof is enabled.&quot;, h.state.Source)
+            case ErrInactive:
+                logp.Info(&quot;File is inactive: %s. Closing because close_inactive of %v reached.&quot;, h.state.Source, h.config.CloseInactive)
+            default:
+                logp.Err(&quot;Read line error: %v; File: %v&quot;, err, h.state.Source)
+            }
+            return nil
+        }
+        ...
+        if !h.sendEvent(data, forwarder) {
+            return nil
+        }
+}
+</code></pre>
+
+<p>可以看到，reader.Next()方法会不停的读取日志，如果没有返回异常，则发送日志数据到缓存队列中。</p>
+
+<p>返回的异常有几种类型，除了读取到EOF外，还会有例如文件一段时间不活跃等情况发生会使harvester goroutine退出，不再采集该文件，并关闭文件句柄。
+filebeat为了防止占据过多的采集日志文件的文件句柄，默认的close_inactive参数为5min，如果日志文件5min内没有被修改，上面代码会进入ErrInactive的case，之后该harvester goroutine会被关闭。
+这种场景下还需要注意的是，如果某个文件日志采集中被移除了，但是由于此时被filebeat保持着文件句柄，文件占据的磁盘空间会被保留直到harvester goroutine结束。</p>
+
+<p>不同的harvester goroutine采集到的日志数据都会发送至一个全局的队列queue中，queue的实现有两种：基于内存和基于磁盘的队列，目前基于磁盘的队列还是处于alpha阶段，filebeat默认启用的是基于内存的缓存队列。
+每当队列中的数据缓存到一定的大小或者超过了定时的时间（默认1s)，会被注册的client从队列中消费，发送至配置的后端。目前可以设置的client有kafka、elasticsearch、redis等。</p>
+
+<p>同时，我们需要考虑到，日志型的数据其实是在不断增长和变化的：</p>
+
+<pre><code>会有新的日志在不断产生
+可能一个日志文件对应的 Harvester 退出后，又再次有了内容更新。
+</code></pre>
+
+<p>为了解决这两个情况，filebeat 采用了 Input 定时扫描的方式。代码如下，可以看出，Input 扫描的频率是由用户指定的 scan_frequency 配置来决定的 (默认 10s 扫描一次)。</p>
+
+<pre><code>func (p *Runner) Run() {
+    p.input.Run()
+
+    if p.Once {
+        return
+    }
+
+    for {
+        select {
+        case &lt;-p.done:
+            logp.Info(&quot;input ticker stopped&quot;)
+            return
+        case &lt;-time.After(p.config.ScanFrequency): // 定时扫描
+            logp.Debug(&quot;input&quot;, &quot;Run input&quot;)
+            p.input.Run()
+        }
+    }
+}
+</code></pre>
+
+<p>此外，如果用户启动时指定了 &ndash;once 选项，则扫描只会进行一次，就退出了。</p>
+
+<h2 id="日志采集状态监控">日志采集状态监控</h2>
+
+<p>我们之前讲到 Registrar 会记录每个文件的状态，当 Filebeat 启动时，会从 Registrar 恢复文件处理状态。</p>
+
+<p>其实在 filebeat 运行过程中，Input 组件也记录了文件状态。不一样的是，Registrar 是持久化存储，而 Input 中的文件状态仅表示当前文件的读取偏移量，且修改时不会同步到磁盘中。</p>
+
+<p>每次，Filebeat 刚启动时，Input 都会载入 Registrar 中记录的文件状态，作为初始状态。Input 中的状态有两个非常重要：</p>
+
+<pre><code>offset: 代表文件当前读取的 offset，从 Registrar 中初始化。Harvest 读取文件后，会同时修改 offset。
+finished: 代表该文件对应的 Harvester 是否已经结束，Harvester 开始时置为 false，结束时置为 False。
+</code></pre>
+
+<p>对于每次定时扫描到的文件，概括来说，会有三种大的情况：</p>
+
+<pre><code>Input 找不到该文件状态的记录, 说明是新增文件，则开启一个 Harvester，从头开始解析该文件
+如果可以找到文件状态，且 finished 等于 false。这个说明已经有了一个 Harvester 在处理了，这种情况直接忽略就好了。
+如果可以找到文件状态，且 finished 等于 true。说明之前有 Harvester 处理过，但已经处理结束了。
+</code></pre>
+
+<p>对于这种第三种情况，我们需要考虑到一些异常情况，Filebeat 是这么处理的：</p>
+
+<pre><code>如果 offset 大于当前文件大小：说明文件被 Truncate 过，此时按做一个新文件处理，直接从头开始解析该文件
+如果 offset 小于当前文件大小，说明文件内容有新增，则从上次 offset 处继续读即可。
+</code></pre>
+
+<p>对于第二种情况，Filebeat 似乎有一个逻辑上的问题: 如果文件被 Truncate 过，后来又新增了数据，且文件大小也比之前 offset 大，那么 Filebeat 是检查不出来这个问题的。</p>
+
+<h2 id="句柄保持">句柄保持</h2>
+
+<p>Filebeat 甚至可以处理文件名修改的问题。即使一个日志的文件名被修改过，Filebeat 重启后，也能找到该文件，从上次读过的地方继续读。</p>
+
+<p>这是因为 Filebeat 除了在 Registrar 存储了文件名，还存储了文件的唯一标识。对于 Linux 来说，这个文件的唯一标识就是该文件的 inode ID + device ID。</p>
+
+<h2 id="pipeline-的写入">Pipeline 的写入</h2>
+
+<p>至此，我们可以清楚的知道，Filebeat 是如何采集日志文件，同时做到监听日志文件的更新和修改。而日志采集过程，Harvest 会将数据写到 Pipeline 中。我们接下来看下数据是如何写入到 Pipeline 中的。</p>
+
+<p>Haveseter 会将数据写入缓存中，而另一方面 Output 会从缓存将数据读走。整个生产消费的过程都是由 Pipeline 进行调度的，而整个调度过程也非常复杂。</p>
+
+<p>不同的harvester goroutine采集到的日志数据都会发送至一个全局的队列queue中，Filebeat 的缓存queue目前分为 memqueue 和 spool。memqueue 顾名思义就是内存缓存，spool 则是将数据缓存到磁盘中。本文将基于 memqueue 讲解整个调度过程。</p>
+
+<p>我们首先看下 Haveseter 是如何将数据写入缓存中的，如下图所示：</p>
+
+<p><img src="/media/log/filebeat/produce-to-pipeline.png" alt="" /></p>
+
+<p>Harvester 通过 pipeline 提供的 pipelineClient 将数据写入到 pipeline 中，Haveseter 会将读到的数据会包装成一个 Event 结构体，再递交给 pipeline。</p>
+
+<p>在 Filebeat 的实现中，pipelineClient 并不直接操作缓存，而是将 event 先写入一个 events channel 中。</p>
+
+<p>同时，有一个 eventloop 组件，会监听 events channel 的事件到来，等 event 到达时，eventloop 会将其放入缓存中。</p>
+
+<p>当缓存满的时候，eventloop 直接移除对该 channel 的监听。</p>
+
+<p>每次 event ACK 或者取消后，缓存不再满了，则 eventloop 会重新监听 events channel。</p>
+
+<p>重代码再来看一下</p>
+
+<p>在queue的memqueue类型被初始化时，filebeat会根据配置min_event是否大于1创建BufferingEventLoop或者DirectEventLoop，一般默认都是BufferingEventLoop，即带缓冲的队列。</p>
+
+<pre><code>type bufferingEventLoop struct {
+    broker *Broker
+
+    buf        *batchBuffer
+    flushList  flushList
+    eventCount int
+
+    minEvents    int
+    maxEvents    int
+    flushTimeout time.Duration
+
+    // active broker API channels
+    events    chan pushRequest
+    get       chan getRequest
+    pubCancel chan producerCancelRequest
+
+    // ack handling
+    acks        chan int      // ackloop -&gt; eventloop : total number of events ACKed by outputs
+    schedACKS   chan chanList // eventloop -&gt; ackloop : active list of batches to be acked
+    pendingACKs chanList      // ordered list of active batches to be send to the ackloop
+    ackSeq      uint          // ack batch sequence number to validate ordering
+
+    // buffer flush timer state
+    timer *time.Timer
+    idleC &lt;-chan time.Time
+}
+</code></pre>
+
+<p>BufferingEventLoop是一个实现了Broker、带有各种channel的结构，主要用于将日志发送至consumer消费。 BufferingEventLoop的run方法中，同样是一个无限循环，这里可以认为是一个日志事件的调度中心。</p>
+
+<pre><code>for {
+        select {
+        case &lt;-broker.done:
+            return
+        case req := &lt;-l.events: // producer pushing new event
+            l.handleInsert(&amp;req)
+        case req := &lt;-l.get: // consumer asking for next batch
+            l.handleConsumer(&amp;req)
+        case count := &lt;-l.acks:
+            l.handleACK(count)
+        case &lt;-l.idleC:
+            l.idleC = nil
+            l.timer.Stop()
+            if l.buf.length() &gt; 0 {
+                l.flushBuffer()
+            }
+        }
+    }
+</code></pre>
+
+<p>上文中harvester goroutine每次读取到日志数据之后，最终会被发送至bufferingEventLoop中的events chan pushRequest 的channel中，然后触发上面req := &lt;-l.events的case，handleInsert方法会把数据添加至bufferingEventLoop的buf中，buf即memqueue实际缓存日志数据的队列，如果buf长度超过配置的最大值或者bufferingEventLoop中的timer定时器（默认1S）触发了case &lt;-l.idleC，均会调用flushBuffer()方法。
+flushBuffer()又会触发req := &lt;-l.get的case，然后运行handleConsumer方法，该方法中最重要的是这一句代码：</p>
+
+<pre><code>req.resp &lt;- getResponse{ackChan, events}
+</code></pre>
+
+<p>这里获取到了consumer消费者的response channel，然后发送数据给这个channel。真正到这，才会触发consumer对memqueue的消费。所以，其实memqueue并非一直不停的在被consumer消费，而是在memqueue通知consumer的时候才被消费，我们可以理解为一种脉冲式的发送</p>
+
+<p>简单的来说就是，每当队列中的数据缓存到一定的大小或者超过了定时的时间（默认1s)，会被注册的client从队列中消费，发送至配置的后端。</p>
+
+<p>以上是 Pipeline 的写入过程，此时 event 已被写入到了缓存中。</p>
+
+<p>但是 Output 是如何从缓存中拿到 event 数据的？</p>
+
+<h2 id="pipeline-的消费过程">Pipeline 的消费过程</h2>
+
+<p>在filebeat初始化的时候，就已经创建了一个eventConsumer并在loop无限循环方法里试图从Broker中获取日志数据。</p>
+
+<pre><code>for {
+        if !paused &amp;&amp; c.out != nil &amp;&amp; consumer != nil &amp;&amp; batch == nil {
+            out = c.out.workQueue
+            queueBatch, err := consumer.Get(c.out.batchSize)
+            ...
+            batch = newBatch(c.ctx, queueBatch, c.out.timeToLive)
+        }
+        ...
+        select {
+        case &lt;-c.done:
+            return
+        case sig := &lt;-c.sig:
+            handleSignal(sig)
+        case out &lt;- batch:
+            batch = nil
+        }
+    }
+</code></pre>
+
+<p>上面consumer.Get就是消费者consumer从Broker中获取日志数据，然后发送至out的channel中被output client发送，我们看一下Get方法里的核心代码：</p>
+
+<pre><code>select {
+    case c.broker.requests &lt;- getRequest{sz: sz, resp: c.resp}:
+    case &lt;-c.done:
+        return nil, io.EOF
+    }
+
+    // if request has been send, we do have to wait for a response
+    resp := &lt;-c.resp
+    return &amp;batch{
+        consumer: c,
+        events:   resp.buf,
+        ack:      resp.ack,
+        state:    batchActive,
+    }, nil
+</code></pre>
+
+<p>getRequest的结构如下：</p>
+
+<pre><code>type getRequest struct {
+    sz   int              // request sz events from the broker
+    resp chan getResponse // channel to send response to
+}
+</code></pre>
+
+<p>getResponse的结构：</p>
+
+<pre><code>type getResponse struct {
+    ack *ackChan
+    buf []publisher.Event
+}
+</code></pre>
+
+<p>getResponse里包含了日志的数据，而getRequest包含了一个发送至消费者的channel。
+在上文bufferingEventLoop缓冲队列的handleConsumer方法里接收到的参数为getRequest，里面包含了consumer请求的getResponse channel。
+如果handleConsumer不发送数据，consumer.Get方法会一直阻塞在select中，直到flushBuffer，consumer的getResponse channel才会接收到日志数据。</p>
+
+<p>整个消费的过程非常复杂，数据会在多个 channel 之间传递流转，如下图所示：</p>
+
+<p><img src="/media/log/filebeat/consume-from-pipeline.png" alt="" /></p>
+
+<p>首先再介绍两个角色：</p>
+
+<pre><code>consumer： pipeline 在创建的时候，会同时创建一个 consumer。consumer 负责从缓存中取数据
+client worker：负责接收 consumer 传来的数据，并调用 Output 的 Publish 函数进行上报。
+</code></pre>
+
+<p>与 producer 类似，consumer 也不直接操作缓存，而是会向 get channel 中写入消费请求。</p>
+
+<p>consumer 本身是个后台 loop 的过程，这个消费请求会不断进行。</p>
+
+<p>eventloop 监听 get channel, 拿到之后会从缓存中取数据。并将数据写入到 resp channel 中。</p>
+
+<p>consumer 从 resp channel 中拿到 event 数据后，又会将其写入到 workQueue。</p>
+
+<p>workQueue 也是个 channel。client worker 会监听该 channel 上的数据到来，将数据交给 Output client 进行 Publish 上报。</p>
+
+<p>而且，Output 收到的是 Batch Events，即会一次收到一批 Events。BatchSize 由各个 Output 自行决定。</p>
+
+<p>至此，消息已经递交给了 Output 组件。</p>
+
+<h2 id="output">output</h2>
+
+<p>Filebeat 并不依赖于 Elasticsearch，可以单独存在。我们可以单独使用 Filebeat 进行日志的上报和搜集。filebeat 内置了常用的 Output 组件, 例如 kafka、Elasticsearch、redis 等。出于调试考虑，也可以输出到 console 和 file。我们可以利用现有的 Output 组件，将日志进行上报。</p>
+
+<p>当然，我们也可以自定义 Output 组件，让 Filebeat 将日志转发到我们想要的地方。</p>
+
+<p>在创建beats时，会创建一个clientWorker，clientWorker的run方法中，会不停的从consumer发送的channel里读取日志数据，然后调用client.Publish批量发送日志。</p>
+
+<pre><code>func (w *clientWorker) run() {
+    for !w.closed.Load() {
+        for batch := range w.qu {
+            if err := w.client.Publish(batch); err != nil {
+                return
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>libbeats库中包含了kafka、elasticsearch、logstash等几种client，它们均实现了client接口：</p>
+
+<pre><code>type Client interface {
+    Close() error
+    Publish(publisher.Batch) error
+    String() string
+}
+</code></pre>
+
+<p>当然最重要的是实现Publish接口，然后将日志发送出去。</p>
+
+<h1 id="总结">总结</h1>
+
+<p>整个日志数据流转的过程还是表复杂的，在各个channel中进行流转，如下图</p>
+
+<p><img src="/media/log/filebeat/datastream.jpg" alt="" /></p>
+
+<h1 id="ack-机制">Ack 机制</h1>
+
+<p>Filebeat 的可靠性很强，可以保证日志 At least once 的上报，同时也考虑了日志搜集中的各类问题，例如日志断点续读、文件名更改、日志 Truncated 等。</p>
+
+<p>filebeat 之所以可以保证日志可以 at least once 的上报，就是基于其 Ack 机制。</p>
+
+<p>简单来说，Ack 机制就是，当 Output Publish 成功之后会调用 ACK，最终 Registrar 会收到 ACK，并修改偏移量。</p>
+
+<p>而且, Registrar 只会在 Output 调用 batch 的相关信号时，才改变文件偏移量。其中 Batch 对外提供了这些信号：</p>
+
+<pre><code>type Batch interface {
+    Events() []Event
+
+    // signals
+    ACK()
+    Drop()
+    Retry()
+    RetryEvents(events []Event)
+    Cancelled()
+    CancelledEvents(events []Event)
+}
+</code></pre>
+
+<p>Output 在 Publish 之后，无论失败，必须调用这些函数中的其中一个。</p>
+
+<p>以下是 Output Publish 成功后调用 Ack 的流程：</p>
+
+<p><img src="/media/log/filebeat/ack.png" alt="" /></p>
+
+<p>可以看到其中起核心作用的组件是 Ackloop。AckLoop 中有一个 ackChanList，其中每一个 ackChan，对应于转发给 Output 的一个 Batch。
+每次新建一个 Batch，同时会建立一个 ackChan，该 ackChan 会被 append 到 ackChanList 中。</p>
+
+<p>而 AckLoop 每次只监听处于 ackChanList 最头部的 ackChan。</p>
+
+<p>当 Batch 被 Output 调用 Ack 后，AckLoop 会收到对应 ackChan 上的事件，并将其最终转发给 Registrar。同时，ackChanList 将会 pop 头部的 ackChan，继续监听接下来的 Ack 事件。</p>
+
+<p>了解了 Filebeat 的实现原理，我们才有会明白 Filebeat 配置中各个参数对程序的最终影响。同时，由于 FileBeat 是 At least once 的上报，但并不保证 Exactly once, 因此一条数据可能会被上报多次，所以接收端需要自行进行去重过滤。</p>
+
+<p>上面状态的修改，主要是filebeat维护了一个registry文件在本地的磁盘，该registry文件维护了所有已经采集的日志文件的状态。 实际上，每当日志数据发送至后端成功后，会返回ack事件。filebeat启动了一个独立的registry协程负责监听该事件，接收到ack事件后会将日志文件的State状态更新至registry文件中，State中的Offset表示读取到的文件偏移量，所以filebeat会保证Offset记录之前的日志数据肯定被后端的日志存储接收到。</p>
+
+<p>State结构如下所示：</p>
+
+<pre><code>type State struct {
+    Id          string            `json:&quot;-&quot;` // local unique id to make comparison more efficient
+    Finished    bool              `json:&quot;-&quot;` // harvester state
+    Fileinfo    os.FileInfo       `json:&quot;-&quot;` // the file info
+    Source      string            `json:&quot;source&quot;`
+    Offset      int64             `json:&quot;offset&quot;`
+    Timestamp   time.Time         `json:&quot;timestamp&quot;`
+    TTL         time.Duration     `json:&quot;ttl&quot;`
+    Type        string            `json:&quot;type&quot;`
+    Meta        map[string]string `json:&quot;meta&quot;`
+    FileStateOS file.StateOS
+}
+</code></pre>
+
+<p>记录在registry文件中的数据大致如下所示：</p>
+
+<pre><code>[{&quot;source&quot;:&quot;/tmp/aa.log&quot;,&quot;offset&quot;:48,&quot;timestamp&quot;:&quot;2019-07-03T13:54:01.298995+08:00&quot;,&quot;ttl&quot;:-1,&quot;type&quot;:&quot;log&quot;,&quot;meta&quot;:null,&quot;FileStateOS&quot;:{&quot;inode&quot;:7048952,&quot;device&quot;:16777220}}]
+</code></pre>
+
+<p>由于文件可能会被改名或移动，filebeat会根据inode和设备号来标志每个日志文件。</p>
+
+<h2 id="特殊情况">特殊情况</h2>
+
+<p>1.如果filebeat异常重启，每次采集harvester启动的时候都会读取registry文件，从上次记录的状态继续采集，确保不会从头开始重复发送所有的日志文件。
+当然，如果日志发送过程中，还没来得及返回ack，filebeat就挂掉，registry文件肯定不会更新至最新的状态，那么下次采集的时候，这部分的日志就会重复发送，所以这意味着filebeat只能保证at least once，无法保证不重复发送。
+还有一个比较异常的情况是，linux下如果老文件被移除，新文件马上创建，很有可能它们有相同的inode，而由于filebeat根据inode来标志文件记录采集的偏移，会导致registry里记录的其实是被移除的文件State状态，这样新的文件采集却从老的文件Offset开始，从而会遗漏日志数据。
+为了尽量避免inode被复用的情况，同时防止registry文件随着时间增长越来越大，建议使用clean_inactive和clean_remove配置将长时间未更新或者被删除的文件State从registry中移除。</p>
+
+<p>2.在harvester读取日志中，会更新registry的状态处理一些异常场景。例如，如果一个日志文件被清空，filebeat会在下一次Reader.Next方法中返回ErrFileTruncate异常，将inode标志文件的Offset置为0，结束这次harvester，重新启动新的harvester，虽然文件不变，但是registry中的Offset为0，采集会从头开始。</p>
+
+<p>3.如果使用容器部署filebeat，需要将registry文件挂载到宿主机上，否则容器重启后registry文件丢失，会使filebeat从头开始重复采集日志文件。</p>
+
+<h3 id="日志重复">日志重复</h3>
+
+<p>Filebeat对于收集到的数据（即event）的传输保证的是&rdquo;at least once&rdquo;，而不是&rdquo;exactly once&rdquo;，也就是Filebeat传输的数据是有可能有重复的。这里我们讨论一下可能产生重复数据的一些场景，我大概将其分为两类。</p>
+
+<p>第一类：Filebeat重传导致数据重复。重传是因为Filebeat要保证数据至少发送一次，进而避免数据丢失。具体来说就是每条event发送到output后都要等待ack，只有收到ack了才会认为数据发送成功，然后将状态记录到registry。当然实际操作的时候为了高效是批量发送，批量确认的。而造成重传的场景（也就是没有收到ack）非常多，而且很多都不可避免，比如后端不可达、网络传输失败、程序突然挂掉等等。</p>
+
+<p>第二类：配置不当或操作不当导致文件重复收集。Filebeat感知文件有没有被收集过靠的是registry文件里面记录的状态，如果一个文件已经被收集过了，但因为各种原因它的状态从registry文件中被移除了，而恰巧这个文件还在收集范围内，那就会再收集一次。</p>
+
+<p>对于第一类产生的数据重复一般不可避免，而第二类可以避免，但总的来说，Filebeat提供的是at least once的机制，所以我们在使用时要明白数据是可能重复的。如果业务上不能接受数据重复，那就要在Filebeat之后的流程中去重。</p>
+
+<h3 id="数据丢失">数据丢失</h3>
+
+<ol>
+<li><p>inode重用的问题</p></li>
+
+<li><p>如果一个文件达到了限制（比如大小），不是重新创建一个新的文件写，而是将这个文件truncate掉继续复用（当然实际中这种场景好像比较少，但也并非没有），Filebeat下次来检查这个文件是否有变动的时候，这个文件的大小如果大于之前记录的offset，也会发生上面的情况。这个问题在github上面是有issue的，但目前还没有解决，官方回复是Filebeat的整个机制在重构中。</p></li>
+
+<li><p>还有一些其它情况，比如文件数太多，Filebeat的处理能力有限，在还没来得及处理的时候这些文件就被删掉了（比如rotate给老化掉了）也会造成数据丢失。还有就是后端不可用，所以Filebeat还在重试，但源文件被删了，那数据也就丢了。因为Filebeat的重试并非一直发送已经收集到内存里面的event，必要的时候会重新从源文件读，比如程序重启。这些情况的话，只要不限制Filebeat的收集能力，同时保证后端的可用性，网络的可用性，一般问题不大。</p></li>
+</ol>
+
+<h1 id="filebeat自动reload更新">filebeat自动reload更新</h1>
+
+<p>目前filebeat支持reload input配置，module配置，但reload的机制只有定时更新。</p>
+
+<p>在配置中打开reload.enable之后，还可以配置reload.period表示自动reload配置的时间间隔。</p>
+
+<p>filebeat在启动时，会创建一个专门用于reload的协程。对于每个正在运行的harvester，filebeat会将其加入一个全局的Runner列表，每次到了定时的间隔后，会触发一次配置文件的diff判断，如果是需要停止的加入stopRunner列表，然后逐个关闭，新的则加入startRunner列表，启动新的Runner。</p>
+
+<h1 id="filebeat对kubernetes的支持">filebeat对kubernetes的支持</h1>
+
+<p>filebeat官方文档提供了在kubernetes下基于daemonset的部署方式，最主要的一个配置如下所示：</p>
+
+<pre><code>- type: docker
+      containers.ids:
+      - &quot;*&quot;
+      processors:
+        - add_kubernetes_metadata:
+            in_cluster: true
+</code></pre>
+
+<p>即设置输入input为docker类型。由于所有的容器的标准输出日志默认都在节点的/var/lib/docker/containers/<containerId>/*-json.log路径，所以本质上采集的是这类日志文件。</p>
+
+<p>和传统的部署方式有所区别的是，如果服务部署在kubernetes上，我们查看和检索日志的维度不能仅仅局限于节点和服务，还需要有podName，containerName等，所以每条日志我们都需要打标增加kubernetes的元信息才发送至后端。</p>
+
+<p>filebeat会在配置中增加了add_kubernetes_metadata的processor的情况下，启动监听kubernetes的watch服务，监听所有kubernetes pod的变更，然后将归属本节点的pod最新的事件同步至本地的缓存中。</p>
+
+<p>节点上一旦发生容器的销毁创建，/var/lib/docker/containers/下会有目录的变动，filebeat根据路径提取出containerId，再根据containerId从本地的缓存中找到pod信息，从而可以获取到podName、label等数据，并加到日志的元信息fields中。</p>
+
+<p>filebeat还有一个beta版的功能autodiscover，autodiscover的目的是把分散到不同节点上的filebeat配置文件集中管理。目前也支持kubernetes作为provider，本质上还是监听kubernetes事件然后采集docker的标准输出文件。</p>
+
+<p>大致架构如下所示：</p>
+
+<p><img src="/media/log/filebeat/k8slog.jpg" alt="" /></p>
+
+<p>但是在实际生产环境使用中，仅采集容器的标准输出日志还是远远不够，我们往往还需要采集容器挂载出来的自定义日志目录，还需要控制每个服务的日志采集方式以及更多的定制化功能。</p>
+
+<h1 id="性能分析与调优">性能分析与调优</h1>
+
+<p>虽然beats系列主打轻量级，虽然用golang写的filebeat的内存占用确实比较基于jvm的logstash等好太多，但是事实告诉我们其实没那么简单。</p>
+
+<p>正常启动filebeat，一般确实只会占用3、40MB内存，但是在轻舟容器云上偶发性的我们也会发现某些节点上的filebeat容器内存占用超过配置的pod limit限制（一般设置为200MB），并且不停的触发的OOM。</p>
+
+<p>究其原因，一般容器化环境中，特别是裸机上运行的容器个数可能会比较多，导致创建大量的harvester去采集日志。如果没有很好的配置filebeat，会有较大概率导致内存急剧上升。
+当然，filebeat内存占据较大的部分还是memqueue，所有采集到的日志都会先发送至memqueue聚集，再通过output发送出去。每条日志的数据在filebeat中都被组装为event结构，filebeat默认配置的memqueue缓存的event个数为4096，可通过queue.mem.events设置。默认最大的一条日志的event大小限制为10MB，可通过max_bytes设置。4096 * 10MB = 40GB，可以想象，极端场景下，filebeat至少占据40GB的内存。特别是配置了multiline多行模式的情况下，如果multiline配置有误，单个event误采集为上千条日志的数据，很可能导致memqueue占据了大量内存，致使内存爆炸。</p>
+
+<p>所以，合理的配置日志文件的匹配规则，限制单行日志大小，根据实际情况配置memqueue缓存的个数，才能在实际使用中规避filebeat的内存占用过大的问题。</p>
+
+<p>有些文章说filebeat内存消耗很少,不会超过100M, 这简直是不负责任的胡说,假如带着这样的认识把filebeat部署到生产服务器上就等着哭吧.</p>
+
+<p>那怎么样才能避免以上内存灾难呢?</p>
+
+<ol>
+<li>每个日志生产环境生产的日志大小,爆发量都不一样, 要根据自己的日志特点设定合适的event值;什么叫合适,至少能避免内存&gt;200MB的灾难;</li>
+<li>在不知道日志实际情况(单条大小,爆发量), 务必把event设置上,建议128或者256;</li>
+<li>合理的配置日志文件的匹配规则，是否因为通配符的原因，造成同时监控数量巨大的文件，这种情况应该避免用通配符监控无用的文件。</li>
+<li>规范日志，限制单行日志大小，是否文件的单行内容巨大，确定是否需要改造文件内容，或者将其过滤</li>
+<li>限制cpu</li>
+</ol>
+
+<p>上面的一系列操作可以做如下配置</p>
+
+<pre><code>max_procs: 2
+queue:
+  mem:
+    events: 512
+    flush.min_events: 256
+</code></pre>
+
+<p>限制cpu为2core，内存最大为512*10M～=5G</p>
+
+<p>限制cpu的配置</p>
+
+<pre><code>max_procs，限制filebeat的进程数量，其实是内核数，建议手动设为1
+</code></pre>
+
+<p>限制内存的配置</p>
+
+<pre><code>queue.mem.events消息队列的大小，默认值是4096，这个参数在6.0以前的版本是spool-size，通过命令行，在启动时进行配置
+max_message_bytes 单条消息的大小, 默认值是10M
+</code></pre>
+
+<p>filebeat最大的可能占用的内存是max_message_bytes * queue.mem.events = 40G，考虑到这个queue是用于存储encode过的数据，raw数据也是要存储的，所以，在没有对内存进行限制的情况下，最大的内存占用情况是可以达到超过80G。</p>
+
+<h1 id="内存使用过多的情况">内存使用过多的情况</h1>
+
+<blockquote>
+<p>非常频繁的rotate日志</p>
+</blockquote>
+
+<p>对于实时大量产生内容的文件，比如日志，常用的做法往往是将日志文件进行rotate，根据策略的不同，每隔一段时间或者达到固定大小之后，将日志rotate。
+这样，在文件目录下可能会产生大量的日志文件。
+如果我们使用通配符的方式，去监控该目录，则filebeat会启动大量的harvester实例去采集文件。但是，请记住，我这里不是说这样一定会产生内存泄漏，只是在这里观测到了内存泄漏而已，不是说这是造成内存泄漏的原因。</p>
+
+<p>当filebeat运行了几个月之后，占用了超过10个G的内存。</p>
+
+<blockquote>
+<p>因为multiline导致内存占用过多</p>
+</blockquote>
+
+<p>multiline.pattern: &lsquo;<sup class="footnote-ref" id="fnref:space"><a href="#fn:space">1</a></sup>+|^Caused by:|^.+Exception:|^\d+\serror，比如这个配置，认为空格或者制表符开头的line是上一行的附加内容，需要作为多行模式，存储到同一个event当中。当你监控的文件刚巧在文件的每一行带有一个空格时，会错误的匹配多行，造成filebeat解析过后，单条event的行数达到了上千行，大小达到了10M，并且在这过程中使用的是正则表达式，每一条event的处理都会极大的消耗内存。因为大多数的filebeat output是需应答的，buffer这些event必然会大量的消耗内存。</p>
+
+<h1 id="解读日志中的监控数据">解读日志中的监控数据</h1>
+
+<p>其实filebeat的日志，已经包含了很多参数用于实时观测filebeat的资源使用情况，（下面是6.0版本的，6.5版本之后，整个日志格式变了，从kv格式变成了json对象格式）</p>
+
+<p>里面的参数主要分成三个部分：</p>
+
+<pre><code>beat.*，包含memstats.gc_next，memstats.memory_alloc，memstats.memory_total，这个是所有beat组件都有的指标，是filebeat继承来的，主要是内存相关的，我们这里特别关注memstats.memory_alloc，alloc的越多，占用内存越大
+filebeat.*，这部分是filebeat特有的指标，通过event相关的指标，我们知道吞吐，通过harvester，我们知道正在监控多少个文件，未消费event堆积的越多，havester创建的越多，消耗内存越大
+libbeat.*，也是beats组件通用的指标，包含outputs和pipeline等信息。这里要主要当outputs发生阻塞的时候，会直接影响queue里面event的消费，造成内存堆积
+registrar，filebeat将监控文件的状态放在registry文件里面，当监控文件非常多的时候，比如10万个，而且没有合理的设置close_inactive参数，这个文件能达到100M，载入内存后，直接占用内存
+</code></pre>
+
+<p>在6.5之后都是json，但也是kv结构，可以对应查看。</p>
+
+<h1 id="如何对filebeat进行扩展开发">如何对filebeat进行扩展开发</h1>
+
+<p>一般情况下filebeat可满足大部分的日志采集需求，但是仍然避免不了一些特殊的场景需要我们对filebeat进行定制化开发，当然filebeat本身的设计也提供了良好的扩展性。
+beats目前只提供了像elasticsearch、kafka、logstash等几类output客户端，如果我们想要filebeat直接发送至其他后端，需要定制化开发自己的output。同样，如果需要对日志做过滤处理或者增加元信息，也可以自制processor插件。
+无论是增加output还是写个processor，filebeat提供的大体思路基本相同。一般来讲有3种方式：</p>
+
+<p>1.直接fork filebeat，在现有的源码上开发。output或者processor都提供了类似Run、Stop等的接口，只需要实现该类接口，然后在init方法中注册相应的插件初始化方法即可。当然，由于golang中init方法是在import包时才被调用，所以需要在初始化filebeat的代码中手动import。</p>
+
+<p>2.filebeat还提供了基于golang plugin的插件机制，需要把自研的插件编译成.so共享链接库，然后在filebeat启动参数中通过-plugin指定库所在路径。不过实际上一方面golang plugin还不够成熟稳定，一方面自研的插件依然需要依赖相同版本的libbeat库，而且还需要相同的golang版本编译，坑可能更多，不太推荐。</p>
+
+<h1 id="源码解析">源码解析</h1>
+
+<h2 id="启动">启动</h2>
+
+<p>filebeat启动流程图</p>
+
+<p><img src="/media/log/filebeat/f1.jpg" alt="" /></p>
+
+<p>每个 beat 的构建是独立的。从 filebeat 的入口文件filebeat/main.go可以看到，它向libbeat传递了名字、版本和构造函数来构造自身。跟着走到libbeat/beater/beater.go，我们可以看到程序的启动时的主要工作都是在这里完成的，包括命令行参数的处理、通用配置项的解析，以及最为重要的：调用象征一个beat的生命周期的若干方法</p>
+
+<p>我们来看filebeat的启动过程。</p>
+
+<p>1.执行root命令</p>
+
+<p>在filebeat/main.go文件中，main函数调用了cmd.RootCmd.Execute()，而RootCmd则是在cmd/root.go中被init函数初始化，其中就注册了filebeat.go:New函数以创建实现了beater接口的filebeat实例</p>
+
+<p>对于任意一个beats来说，都需要有：1) 实现Beater接口的具体Beater（如Filebeat）; 2) 创建该具体Beater的(New)函数。</p>
+
+<p>beater接口定义（beat/beat.go）：</p>
+
+<pre><code>type Beater interface {
+    // The main event loop. This method should block until signalled to stop by an
+    // invocation of the Stop() method.
+    Run(b *Beat) error
+
+    // Stop is invoked to signal that the Run method should finish its execution.
+    // It will be invoked at most once.
+    Stop()
+}
+</code></pre>
+
+<p>2.初始化和运行Filebeat</p>
+
+<pre><code>创建libbeat/cmd/instance/beat.go:Beat结构
+执行(*Beat).launch方法
+    (*Beat).Init() 初始化Beat：加载beats公共config
+    (*Beat).createBeater
+    registerTemplateLoading: 当输出为es时，注册加载es模板的回调函数
+    pipeline.Load: 创建Pipeline：包含队列、事件处理器、输出等
+    setupMetrics: 安装监控
+    filebeat.New: 解析配置(其中输入配置包括配置文件中的Input和module Input)等
+loadDashboards 加载kibana dashboard
+(*Filebeat).Run: 运行filebeat
+</code></pre>
+
+<p>3.Filebeat运行</p>
+
+<pre><code>设置加载es pipeline的回调函数
+初始化registrar和crawler
+设置事件完成的回调函数
+启动Registrar、启动Crawler、启动Autodiscover
+等待filebeat运行结束
+</code></pre>
+
+<p>代码</p>
+
+<p>main.go</p>
+
+<pre><code>package main
+import (
+    &quot;os&quot;
+    &quot;github.com/elastic/beats/filebeat/cmd&quot;
+)
+func main() {
+    if err := cmd.RootCmd.Execute(); err != nil {
+        os.Exit(1)
+    }
+}
+</code></pre>
+
+<p>进入到filebeat/cmd执行</p>
+
+<pre><code>package cmd
+
+import (
+    &quot;flag&quot;
+
+    &quot;github.com/spf13/pflag&quot;
+
+    &quot;github.com/elastic/beats/filebeat/beater&quot;
+
+    cmd &quot;github.com/elastic/beats/libbeat/cmd&quot;
+)
+
+// Name of this beat
+var Name = &quot;filebeat&quot;
+
+// RootCmd to handle beats cli
+var RootCmd *cmd.BeatsRootCmd
+
+func init() {
+    var runFlags = pflag.NewFlagSet(Name, pflag.ExitOnError)
+    runFlags.AddGoFlag(flag.CommandLine.Lookup(&quot;once&quot;))
+    runFlags.AddGoFlag(flag.CommandLine.Lookup(&quot;modules&quot;))
+
+    RootCmd = cmd.GenRootCmdWithRunFlags(Name, &quot;&quot;, beater.New, runFlags)
+    RootCmd.PersistentFlags().AddGoFlag(flag.CommandLine.Lookup(&quot;M&quot;))
+    RootCmd.TestCmd.Flags().AddGoFlag(flag.CommandLine.Lookup(&quot;modules&quot;))
+    RootCmd.SetupCmd.Flags().AddGoFlag(flag.CommandLine.Lookup(&quot;modules&quot;))
+    RootCmd.AddCommand(cmd.GenModulesCmd(Name, &quot;&quot;, buildModulesManager))
+}
+</code></pre>
+
+<p>RootCmd 在这一句初始化RootCmd = cmd.GenRootCmdWithRunFlags(Name, &ldquo;&rdquo;, beater.New, runFlags)</p>
+
+<p>beater.New跟进去看到是filebeat.go func New(b beat.Beat, rawConfig common.Config) (beat.Beater, error) {&hellip;}</p>
+
+<p>现在进入GenRootCmdWithRunFlags方法，一路跟进去到GenRootCmdWithSettings，真正的初始化是在这个方法里面。</p>
+
+<p>忽略前面的一段初始化值方法，看到RunCmd的初始化在：</p>
+
+<pre><code>rootCmd.RunCmd = genRunCmd(settings, beatCreator, runFlags)
+</code></pre>
+
+<p>进入getRunCmd，看到执行代码</p>
+
+<pre><code>err := instance.Run(settings, beatCreator)
+</code></pre>
+
+<p>跟到\elastic\beats\libbeat\cmd\instance\beat.go的Run方法</p>
+
+<pre><code>b, err := NewBeat(name, idxPrefix, version)
+</code></pre>
+
+<p>这里新建了beat</p>
+
+<p>在方法末尾</p>
+
+<pre><code>return b.launch(settings, bt)
+</code></pre>
+
+<p>调用了启动方法</p>
+
+<p>进入launch，在经过了初始化配置之后</p>
+
+<pre><code>err := b.InitWithSettings(settings)
+</code></pre>
+
+<p>在launch的末尾</p>
+
+<pre><code>return beater.Run(&amp;b.Beat)
+</code></pre>
+
+<p>beat开始启动</p>
+
+<p>因为启动的是filebeat，我们到filebeat.go的Run方法</p>
+
+<pre><code>func (fb *Filebeat) Run(b *beat.Beat) error {
+       var err error
+       config := fb.config
+
+       if !fb.moduleRegistry.Empty() {
+              err = fb.loadModulesPipelines(b)
+              if err != nil {
+                     return err
+              }
+       }
+
+       waitFinished := newSignalWait()
+       waitEvents := newSignalWait()
+
+       // count active events for waiting on shutdown
+       wgEvents := &amp;eventCounter{
+              count: monitoring.NewInt(nil, &quot;filebeat.events.active&quot;),
+              added: monitoring.NewUint(nil, &quot;filebeat.events.added&quot;),
+              done:  monitoring.NewUint(nil, &quot;filebeat.events.done&quot;),
+       }
+       finishedLogger := newFinishedLogger(wgEvents)
+
+       // Setup registrar to persist state
+       registrar, err := registrar.New(config.RegistryFile, config.RegistryFilePermissions, config.RegistryFlush, finishedLogger)
+       if err != nil {
+              logp.Err(&quot;Could not init registrar: %v&quot;, err)
+              return err
+       }
+
+       // Make sure all events that were published in
+       registrarChannel := newRegistrarLogger(registrar)
+
+       err = b.Publisher.SetACKHandler(beat.PipelineACKHandler{
+              ACKEvents: newEventACKer(finishedLogger, registrarChannel).ackEvents,
+       })
+       if err != nil {
+              logp.Err(&quot;Failed to install the registry with the publisher pipeline: %v&quot;, err)
+              return err
+       }
+
+       outDone := make(chan struct{}) // outDone closes down all active pipeline connections
+       crawler, err := crawler.New(
+              channel.NewOutletFactory(outDone, wgEvents).Create,
+              config.Inputs,
+              b.Info.Version,
+              fb.done,
+              *once)
+       if err != nil {
+              logp.Err(&quot;Could not init crawler: %v&quot;, err)
+              return err
+       }
+
+       // The order of starting and stopping is important. Stopping is inverted to the starting order.
+       // The current order is: registrar, publisher, spooler, crawler
+       // That means, crawler is stopped first.
+
+       // Start the registrar
+       err = registrar.Start()
+       if err != nil {
+              return fmt.Errorf(&quot;Could not start registrar: %v&quot;, err)
+       }
+
+       // Stopping registrar will write last state
+       defer registrar.Stop()
+
+       // Stopping publisher (might potentially drop items)
+       defer func() {
+              // Closes first the registrar logger to make sure not more events arrive at the registrar
+              // registrarChannel must be closed first to potentially unblock (pretty unlikely) the publisher
+              registrarChannel.Close()
+              close(outDone) // finally close all active connections to publisher pipeline
+       }()
+
+       // Wait for all events to be processed or timeout
+       defer waitEvents.Wait()
+
+       // Create a ES connection factory for dynamic modules pipeline loading
+       var pipelineLoaderFactory fileset.PipelineLoaderFactory
+       if b.Config.Output.Name() == &quot;elasticsearch&quot; {
+              pipelineLoaderFactory = newPipelineLoaderFactory(b.Config.Output.Config())
+       } else {
+              logp.Warn(pipelinesWarning)
+       }
+
+       if config.OverwritePipelines {
+              logp.Debug(&quot;modules&quot;, &quot;Existing Ingest pipelines will be updated&quot;)
+       }
+
+       err = crawler.Start(b.Publisher, registrar, config.ConfigInput, config.ConfigModules, pipelineLoaderFactory, config.OverwritePipelines)
+       if err != nil {
+              crawler.Stop()
+              return err
+       }
+
+       // If run once, add crawler completion check as alternative to done signal
+       if *once {
+              runOnce := func() {
+                     logp.Info(&quot;Running filebeat once. Waiting for completion ...&quot;)
+                     crawler.WaitForCompletion()
+                     logp.Info(&quot;All data collection completed. Shutting down.&quot;)
+              }
+              waitFinished.Add(runOnce)
+       }
+
+       // Register reloadable list of inputs and modules
+       inputs := cfgfile.NewRunnerList(management.DebugK, crawler.InputsFactory, b.Publisher)
+       reload.Register.MustRegisterList(&quot;filebeat.inputs&quot;, inputs)
+
+       modules := cfgfile.NewRunnerList(management.DebugK, crawler.ModulesFactory, b.Publisher)
+       reload.Register.MustRegisterList(&quot;filebeat.modules&quot;, modules)
+
+       var adiscover *autodiscover.Autodiscover
+       if fb.config.Autodiscover != nil {
+              adapter := fbautodiscover.NewAutodiscoverAdapter(crawler.InputsFactory, crawler.ModulesFactory)
+              adiscover, err = autodiscover.NewAutodiscover(&quot;filebeat&quot;, b.Publisher, adapter, config.Autodiscover)
+              if err != nil {
+                     return err
+              }
+       }
+       adiscover.Start()
+
+       // Add done channel to wait for shutdown signal
+       waitFinished.AddChan(fb.done)
+       waitFinished.Wait()
+
+       // Stop reloadable lists, autodiscover -&gt; Stop crawler -&gt; stop inputs -&gt; stop harvesters
+       // Note: waiting for crawlers to stop here in order to install wgEvents.Wait
+       //       after all events have been enqueued for publishing. Otherwise wgEvents.Wait
+       //       or publisher might panic due to concurrent updates.
+       inputs.Stop()
+       modules.Stop()
+       adiscover.Stop()
+       crawler.Stop()
+
+       timeout := fb.config.ShutdownTimeout
+       // Checks if on shutdown it should wait for all events to be published
+       waitPublished := fb.config.ShutdownTimeout &gt; 0 || *once
+       if waitPublished {
+              // Wait for registrar to finish writing registry
+              waitEvents.Add(withLog(wgEvents.Wait,
+                     &quot;Continue shutdown: All enqueued events being published.&quot;))
+              // Wait for either timeout or all events having been ACKed by outputs.
+              if fb.config.ShutdownTimeout &gt; 0 {
+                     logp.Info(&quot;Shutdown output timer started. Waiting for max %v.&quot;, timeout)
+                     waitEvents.Add(withLog(waitDuration(timeout),
+                            &quot;Continue shutdown: Time out waiting for events being published.&quot;))
+              } else {
+                     waitEvents.AddChan(fb.done)
+              }
+       }
+
+       return nil
+}
+</code></pre>
+
+<p>构造了registrar和crawler，用于监控文件状态变更和数据采集。然后</p>
+
+<pre><code>err = crawler.Start(b.Publisher, registrar, config.ConfigInput, config.ConfigModules, pipelineLoaderFactory, config.OverwritePipelines)
+</code></pre>
+
+<p>crawler开始启动采集数据</p>
+
+<pre><code>for _, inputConfig := range c.inputConfigs {
+       err := c.startInput(pipeline, inputConfig, r.GetStates())
+       if err != nil {
+              return err
+       }
+}
+</code></pre>
+
+<p>crawler的Start方法里面根据每个配置的输入调用一次startInput</p>
+
+<pre><code>func (c *Crawler) startInput(
+       pipeline beat.Pipeline,
+       config *common.Config,
+       states []file.State,
+) error {
+       if !config.Enabled() {
+              return nil
+       }
+
+       connector := channel.ConnectTo(pipeline, c.out)
+       p, err := input.New(config, connector, c.beatDone, states, nil)
+       if err != nil {
+              return fmt.Errorf(&quot;Error in initing input: %s&quot;, err)
+       }
+       p.Once = c.once
+
+       if _, ok := c.inputs[p.ID]; ok {
+              return fmt.Errorf(&quot;Input with same ID already exists: %d&quot;, p.ID)
+       }
+
+       c.inputs[p.ID] = p
+
+       p.Start()
+
+       return nil
+}
+</code></pre>
+
+<p>根据配置的input，构造log/input</p>
+
+<pre><code>func (p *Input) Run() {
+       logp.Debug(&quot;input&quot;, &quot;Start next scan&quot;)
+
+       // TailFiles is like ignore_older = 1ns and only on startup
+       if p.config.TailFiles {
+              ignoreOlder := p.config.IgnoreOlder
+
+              // Overwrite ignore_older for the first scan
+              p.config.IgnoreOlder = 1
+              defer func() {
+                     // Reset ignore_older after first run
+                     p.config.IgnoreOlder = ignoreOlder
+                     // Disable tail_files after the first run
+                     p.config.TailFiles = false
+              }()
+       }
+       p.scan()
+
+       // It is important that a first scan is run before cleanup to make sure all new states are read first
+       if p.config.CleanInactive &gt; 0 || p.config.CleanRemoved {
+              beforeCount := p.states.Count()
+              cleanedStates, pendingClean := p.states.Cleanup()
+              logp.Debug(&quot;input&quot;, &quot;input states cleaned up. Before: %d, After: %d, Pending: %d&quot;,
+                     beforeCount, beforeCount-cleanedStates, pendingClean)
+       }
+
+       // Marking removed files to be cleaned up. Cleanup happens after next scan to make sure all states are updated first
+       if p.config.CleanRemoved {
+              for _, state := range p.states.GetStates() {
+                     // os.Stat will return an error in case the file does not exist
+                     stat, err := os.Stat(state.Source)
+                     if err != nil {
+                            if os.IsNotExist(err) {
+                                   p.removeState(state)
+                                   logp.Debug(&quot;input&quot;, &quot;Remove state for file as file removed: %s&quot;, state.Source)
+                            } else {
+                                   logp.Err(&quot;input state for %s was not removed: %s&quot;, state.Source, err)
+                            }
+                     } else {
+                            // Check if existing source on disk and state are the same. Remove if not the case.
+                            newState := file.NewState(stat, state.Source, p.config.Type, p.meta)
+                            if !newState.FileStateOS.IsSame(state.FileStateOS) {
+                                   p.removeState(state)
+                                   logp.Debug(&quot;input&quot;, &quot;Remove state for file as file removed or renamed: %s&quot;, state.Source)
+                            }
+                     }
+              }
+       }
+}
+</code></pre>
+
+<p>input开始根据配置的输入路径扫描所有符合的文件，并启动harvester</p>
+
+<pre><code>func (p *Input) scan() {
+       var sortInfos []FileSortInfo
+       var files []string
+
+       paths := p.getFiles()
+
+       var err error
+
+       if p.config.ScanSort != &quot;&quot; {
+              sortInfos, err = getSortedFiles(p.config.ScanOrder, p.config.ScanSort, getSortInfos(paths))
+              if err != nil {
+                     logp.Err(&quot;Failed to sort files during scan due to error %s&quot;, err)
+              }
+       }
+
+       if sortInfos == nil {
+              files = getKeys(paths)
+       }
+
+       for i := 0; i &lt; len(paths); i++ {
+
+              var path string
+              var info os.FileInfo
+
+              if sortInfos == nil {
+                     path = files[i]
+                     info = paths[path]
+              } else {
+                     path = sortInfos[i].path
+                     info = sortInfos[i].info
+              }
+
+              select {
+              case &lt;-p.done:
+                     logp.Info(&quot;Scan aborted because input stopped.&quot;)
+                     return
+              default:
+              }
+
+              newState, err := getFileState(path, info, p)
+              if err != nil {
+                     logp.Err(&quot;Skipping file %s due to error %s&quot;, path, err)
+              }
+
+              // Load last state
+              lastState := p.states.FindPrevious(newState)
+
+              // Ignores all files which fall under ignore_older
+              if p.isIgnoreOlder(newState) {
+                     err := p.handleIgnoreOlder(lastState, newState)
+                     if err != nil {
+                            logp.Err(&quot;Updating ignore_older state error: %s&quot;, err)
+                     }
+                     continue
+              }
+
+              // Decides if previous state exists
+              if lastState.IsEmpty() {
+                     logp.Debug(&quot;input&quot;, &quot;Start harvester for new file: %s&quot;, newState.Source)
+                     err := p.startHarvester(newState, 0)
+                     if err == errHarvesterLimit {
+                            logp.Debug(&quot;input&quot;, harvesterErrMsg, newState.Source, err)
+                            continue
+                     }
+                     if err != nil {
+                            logp.Err(harvesterErrMsg, newState.Source, err)
+                     }
+              } else {
+                     p.harvestExistingFile(newState, lastState)
+              }
+       }
+}
+</code></pre>
+
+<p>在harvest的Run看到一个死循环读取message，预处理之后交由forwarder发送到目标输出</p>
+
+<pre><code>message, err := h.reader.Next()
+h.sendEvent(data, forwarder)
+</code></pre>
+
+<p>至此，整个filebeat的启动到发送数据就理完了</p>
+
+<h2 id="配置文件解析">配置文件解析</h2>
+
+<p>在libbeat中实现了通用的配置文件解析，在每次createbeater时候就会进行config。</p>
+
+<p>调用 cfgfile.Load方法解析到cfg对象，进入load方法</p>
+
+<pre><code>func Load(path string, beatOverrides *common.Config) (*common.Config, error) {
+       var config *common.Config
+       var err error
+
+       cfgpath := GetPathConfig()
+
+       if path == &quot;&quot; {
+              list := []string{}
+              for _, cfg := range configfiles.List() {
+                     if !filepath.IsAbs(cfg) {
+                            list = append(list, filepath.Join(cfgpath, cfg))
+                     } else {
+                            list = append(list, cfg)
+                     }
+              }
+              config, err = common.LoadFiles(list...)
+       } else {
+              if !filepath.IsAbs(path) {
+                     path = filepath.Join(cfgpath, path)
+              }
+              config, err = common.LoadFile(path)
+       }
+       if err != nil {
+              return nil, err
+       }
+
+       if beatOverrides != nil {
+              config, err = common.MergeConfigs(
+                     defaults,
+                     beatOverrides,
+                     config,
+                     overwrites,
+              )
+              if err != nil {
+                     return nil, err
+              }
+       } else {
+              config, err = common.MergeConfigs(
+                     defaults,
+                     config,
+                     overwrites,
+              )
+       }
+
+       config.PrintDebugf(&quot;Complete configuration loaded:&quot;)
+       return config, nil
+}
+</code></pre>
+
+<p>如果不输入配置文件，使用configfiles定义文件</p>
+
+<pre><code>configfiles = common.StringArrFlag(nil, &quot;c&quot;, &quot;beat.yml&quot;, &quot;Configuration file, relative to path.config&quot;)
+</code></pre>
+
+<p>如果输入配置文件进入else分支</p>
+
+<pre><code>config, err = common.LoadFile(path)
+</code></pre>
+
+<p>根据配置文件构造config对象，使用的是yaml解析库。</p>
+
+<pre><code>c, err := yaml.NewConfigWithFile(path, configOpts...)
+</code></pre>
+
+<h2 id="pipeline初始化">pipeline初始化</h2>
+
+<h2 id="数据传输">数据传输</h2>
+
+<h2 id="数据发送">数据发送</h2>
+
+<p>启动到最后提到harvest.send方法发送了数据到output，继续跟进去，到err := forwarder.Send(data)</p>
+
+<pre><code>func (f *Forwarder) Send(data *util.Data) error {
+       ok := f.Outlet.OnEvent(data)
+       if !ok {
+              logp.Info(&quot;Input outlet closed&quot;)
+              return errors.New(&quot;input outlet closed&quot;)
+       }
+
+       return nil
+}
+</code></pre>
+
+<p>调用Outlet.OnEvent发送data</p>
+
+<p>点进去发现是一个接口</p>
+
+<pre><code>type Outlet interface {
+       OnEvent(data *util.Data) bool
+}
+</code></pre>
+
+<p>经过调试观察，elastic\beats\filebeat\channel\outlet.go实现了这个接口</p>
+
+<p>forward调用的正是这个outlet</p>
+
+<pre><code>func (o *outlet) OnEvent(d *util.Data) bool {
+       if !o.isOpen.Load() {
+              return false
+       }
+
+       event := d.GetEvent()
+       if d.HasState() {
+              event.Private = d.GetState()
+       }
+
+       if o.wg != nil {
+              o.wg.Add(1)
+       }
+
+       o.client.Publish(event)
+       return o.isOpen.Load()
+}
+</code></pre>
+
+<p>通过client.Publish发送数据，client也是一个接口</p>
+
+<pre><code>type Client interface {
+       Publish(Event)
+       PublishAll([]Event)
+       Close() error
+}
+</code></pre>
+
+<p>调试之后，client使用的是elastic\beats\libbeat\publisher\pipeline\client.go的client对象，publish方法即发送日志的方法，如果需要在发送前改造日志格式，可在这里添加代码，如下面的解析日志代码。</p>
+
+<pre><code>func (c *client) publish(e beat.Event) {
+       var (
+              event   = &amp;e
+              publish = true
+              log     = c.pipeline.logger
+       )
+
+       c.onNewEvent()
+
+       if !c.isOpen.Load() {
+              // client is closing down -&gt; report event as dropped and return
+              c.onDroppedOnPublish(e)
+              return
+       }
+
+       if c.processors != nil {
+              var err error
+
+              event, err = c.processors.Run(event)
+              publish = event != nil
+              if err != nil {
+                     // TODO: introduce dead-letter queue?
+
+                     log.Errorf(&quot;Failed to publish event: %v&quot;, err)
+              }
+       }
+
+       if event != nil {
+              e = *event
+       }
+
+       open := c.acker.addEvent(e, publish)
+       if !open {
+              // client is closing down -&gt; report event as dropped and return
+              c.onDroppedOnPublish(e)
+              return
+       }
+
+       if !publish {
+              c.onFilteredOut(e)
+              return
+       }
+
+       //解析日志
+       error:=ParselogMsg(event)
+       if error!=nil{
+              log.Errorf(&quot;###出现错误&quot;)
+       }
+       //
+
+       e = *event
+       pubEvent := publisher.Event{
+              Content: e,
+              Flags:   c.eventFlags,
+       }
+
+       if c.reportEvents {
+              c.pipeline.waitCloser.inc()
+       }
+
+       var published bool
+       if c.canDrop {
+              published = c.producer.TryPublish(pubEvent)
+       } else {
+              published = c.producer.Publish(pubEvent)
+       }
+
+       if published {
+              c.onPublished()
+       } else {
+              c.onDroppedOnPublish(e)
+              if c.reportEvents {
+                     c.pipeline.waitCloser.dec(1)
+              }
+       }
+}
+</code></pre>
+<div class="footnotes">
+
+<hr />
+
+<ol>
+<li id="fn:space">[:space:] <a class="footnote-return" href="#fnref:space"><sup>[return]</sup></a></li>
+</ol>
+</div>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/log/collect/filebeat/filebeat-principle/">https://kingjcy.github.io/post/log/collect/filebeat/filebeat-principle/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/filebeat/">
+                            <i class="fa fa-tags"></i>
+                            filebeat
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/log/">
+                            <i class="fa fa-tags"></i>
+                            log
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/collect/">
+                            <i class="fa fa-tags"></i>
+                            collect
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/product/filebeat_leak/">生产问题排查解决系列---- filebeat resource leak</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年03月02日)</span></li><li id="li-rels"><a href="/post/product/filebeat_optimization/">生产问题排查解决系列---- filebeat resource optimization</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年03月02日)</span></li><li id="li-rels"><a href="/post/log/collect/filebeat/filebeat/">日志采集系列---- Filebeat</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li><li id="li-rels"><a href="/post/golang/go-log/">golang使用系列---- Log</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年01月31日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/log/collect/filebeat/filebeat/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/server/iptables/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#整体架构">整体架构</a>
+<ul>
+<li><a href="#架构图">架构图</a></li>
+<li><a href="#组件">组件</a></li>
+<li><a href="#目录组织">目录组织</a></li>
+</ul></li>
+<li><a href="#日志采集流程">日志采集流程</a>
+<ul>
+<li><a href="#日志采集状态监控">日志采集状态监控</a></li>
+<li><a href="#句柄保持">句柄保持</a></li>
+<li><a href="#pipeline-的写入">Pipeline 的写入</a></li>
+<li><a href="#pipeline-的消费过程">Pipeline 的消费过程</a></li>
+<li><a href="#output">output</a></li>
+</ul></li>
+<li><a href="#总结">总结</a></li>
+<li><a href="#ack-机制">Ack 机制</a>
+<ul>
+<li><a href="#特殊情况">特殊情况</a>
+<ul>
+<li><a href="#日志重复">日志重复</a></li>
+<li><a href="#数据丢失">数据丢失</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#filebeat自动reload更新">filebeat自动reload更新</a></li>
+<li><a href="#filebeat对kubernetes的支持">filebeat对kubernetes的支持</a></li>
+<li><a href="#性能分析与调优">性能分析与调优</a></li>
+<li><a href="#内存使用过多的情况">内存使用过多的情况</a></li>
+<li><a href="#解读日志中的监控数据">解读日志中的监控数据</a></li>
+<li><a href="#如何对filebeat进行扩展开发">如何对filebeat进行扩展开发</a></li>
+<li><a href="#源码解析">源码解析</a>
+<ul>
+<li><a href="#启动">启动</a></li>
+<li><a href="#配置文件解析">配置文件解析</a></li>
+<li><a href="#pipeline初始化">pipeline初始化</a></li>
+<li><a href="#数据传输">数据传输</a></li>
+<li><a href="#数据发送">数据发送</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

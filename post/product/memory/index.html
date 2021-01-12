@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="问题描述 使用prometheus采集ntp的数据，使用脚本探针，每个prometheus实例承载了1.5W的数据采集任务，在运行一段时间后内存会消耗殆尽。
+处理 一阶段处理 在监控视图上查看内存一直升高没有被释放，可能是prometheus自身的问题，但是数据量本来就极小，只有8G的数据，怎么可能沾满32G的内存，带着疑问， 考虑升级prometheus，但是运行一段时间后还是内存满了，这个时候就知道不是promehtus的问题了。
+二阶段处理 果然在top命令中只看到prometheus消耗了13%的内存，那么内存被什么占用了呢，top中没有明显的占用内存的进程，无处下手，开始考虑什么会大量占用内存， 正常内存泄露，大量进程，大量fd等，于是ps看了一下进程，果然出现了问题，sendmail和postdrop是一组16000多，crond 8000多，应该是什么东西执行失败发邮件，然后邮件队列也满了 感觉是什么定时任务执行有问题，一直hang在那，于是查看定时任务，果然/opt/promes/consul-template/consul-template-0.19.5/start-shard-server.sh定时任务的文件不存在，出错一直sendmail，满了落盘 找到了问题所在，于是处理了这个定时进程，果然问题解决了。
+问题描述 分发程序启动后把4G的内存全部占用完了，但是自己写的代码，感觉不会使用太多的内存，排查。
+处理 使用top命令查看此时此刻的各个应用程序占用的内存大小
+ PID USER PR NI VIRT RES SHR S %CPU %MEM TIME&#43; COMMAND 13080 root 20 0 112848 7080 3844 S 1.7 0.2 1:15.52 transfer  这里其实有两个指标可以查看，virt是虚拟内存，而res是进程实际分配的物理内存。可以看出实际上并没有占用太多的内存，只有百分之零点几。
+一般通过res查看应用内存的物理占用量, 但是你会发现，如果把每个应用程序的res加一起很有可能超过机器总内存，这是因为不同应用程序有可能引用同一个库，此时这个库被缓存，那么这两个应用程序都会将这个库所占用的内存算进去。这时候发现，我们的node服务占用的内存是在正常范围中。
+于是我们又free看了下，发现used占用的内存并不多，但是buffer/cached占用的内存，超过了80%。buffer/cached 是机器帮我们缓存的文件内容，当内存不足时，有一部分缓存是会被机器给释放掉的，也就是说，机器真正的可用内存应该是aviliable = free &#43; buffers &#43; cached - 不可清空的缓存。
+[root@promessitapp122 zabbix-proxy-data]# free total used free shared buff/cache available Mem: 3881308 533916 1282304 165776 2065088 2912576 Swap: 10485756 84568 10401188  所以不会影响业务，不会致使程序挂掉，到此长舒了一口气，可以喝杯茶再解决这个问题了。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="生产问题排查解决系列----  Memory - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    生产问题排查解决系列----  Memory
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年11月29日 
+                </div>
+                <h1 class="post-title">生产问题排查解决系列----  Memory</h1>
+            </header>
+
+            <div class="post-content">
+                
+
+<h1 id="问题描述">问题描述</h1>
+
+<p>使用prometheus采集ntp的数据，使用脚本探针，每个prometheus实例承载了1.5W的数据采集任务，在运行一段时间后内存会消耗殆尽。</p>
+
+<h1 id="处理">处理</h1>
+
+<h2 id="一阶段处理">一阶段处理</h2>
+
+<p>在监控视图上查看内存一直升高没有被释放，可能是prometheus自身的问题，但是数据量本来就极小，只有8G的数据，怎么可能沾满32G的内存，带着疑问，
+考虑升级prometheus，但是运行一段时间后还是内存满了，这个时候就知道不是promehtus的问题了。</p>
+
+<h2 id="二阶段处理">二阶段处理</h2>
+
+<p>果然在top命令中只看到prometheus消耗了13%的内存，那么内存被什么占用了呢，top中没有明显的占用内存的进程，无处下手，开始考虑什么会大量占用内存，
+正常内存泄露，大量进程，大量fd等，于是ps看了一下进程，果然出现了问题，sendmail和postdrop是一组16000多，crond 8000多，应该是什么东西执行失败发邮件，然后邮件队列也满了
+感觉是什么定时任务执行有问题，一直hang在那，于是查看定时任务，果然/opt/promes/consul-template/consul-template-0.19.5/start-shard-server.sh定时任务的文件不存在，出错一直sendmail，满了落盘
+找到了问题所在，于是处理了这个定时进程，果然问题解决了。</p>
+
+<h1 id="问题描述-1">问题描述</h1>
+
+<p>分发程序启动后把4G的内存全部占用完了，但是自己写的代码，感觉不会使用太多的内存，排查。</p>
+
+<h1 id="处理-1">处理</h1>
+
+<p>使用top命令查看此时此刻的各个应用程序占用的内存大小</p>
+
+<pre><code>  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND
+13080 root      20   0  112848   7080   3844 S   1.7  0.2   1:15.52 transfer
+</code></pre>
+
+<p>这里其实有两个指标可以查看，virt是虚拟内存，而res是进程实际分配的物理内存。可以看出实际上并没有占用太多的内存，只有百分之零点几。</p>
+
+<p>一般通过res查看应用内存的物理占用量, 但是你会发现，如果把每个应用程序的res加一起很有可能超过机器总内存，这是因为不同应用程序有可能引用同一个库，此时这个库被缓存，那么这两个应用程序都会将这个库所占用的内存算进去。这时候发现，我们的node服务占用的内存是在正常范围中。</p>
+
+<p>于是我们又free看了下，发现used占用的内存并不多，但是buffer/cached占用的内存，超过了80%。buffer/cached 是机器帮我们缓存的文件内容，当内存不足时，有一部分缓存是会被机器给释放掉的，也就是说，机器真正的可用内存应该是aviliable = free + buffers + cached - 不可清空的缓存。</p>
+
+<pre><code>[root@promessitapp122 zabbix-proxy-data]# free
+              total        used        free      shared  buff/cache   available
+Mem:        3881308      533916     1282304      165776     2065088     2912576
+Swap:      10485756       84568    10401188
+</code></pre>
+
+<p>所以不会影响业务，不会致使程序挂掉，到此长舒了一口气，可以喝杯茶再解决这个问题了。</p>
+
+<p>我们目前已经知道了，是由于我们缓存区内存占用过多的问题，导致了告警，那么其实，想解决这个问题并不难，我们只需要手动释放这一部分缓存的内存就好了。</p>
+
+<pre><code>echo 3 &gt; /proc/sys/vm/drop_caches
+1.清除caches
+2.清除buffer
+3.1，2一起清除
+</code></pre>
+
+<p>但是这并没有真正的解决问题，因为缓存内存过多，大概率是我们代码程序中频繁读取不同的文件，导致系统帮我们缓存下来了。因为无法直接打印出buffers/cached中缓存的内容。</p>
+
+<p>确实我们代码中存在着大量写文件的操作，因为程序是用来传输zabbix数据的，量确实比较大。</p>
+
+<p>再次还没有想到好的方法，有待继续研究，目前先在代码中定时强制GC可以回收一点内存，还可以将上面的shell在代码中定时执行，或者指定crontab任务，都不是好的方法。</p>
+
+<p>GC也不是很好的能解决问题，还是要借助go的性能分析工具pprof，可以看到seelog占用了大量的heap，也就是内存，显然不是上面不断创建没有关闭造成的内存泄露，但是在打印日志的时候，会占用大量的内存，确实这个程序就是通过日志来记录数据的，日志量比较大，所以日志占用缓存也是正常的，我们可以通过清空缓存日志来解决这个问题。</p>
+
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/product/memory/">https://kingjcy.github.io/post/product/memory/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/problems/">
+                            <i class="fa fa-tags"></i>
+                            problems
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/memory/">
+                            <i class="fa fa-tags"></i>
+                            memory
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/product/pings/">生产问题排查解决系列---- Ping</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月29日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/understand/respect/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/zabbix/zabbix2tsdb/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#问题描述">问题描述</a></li>
+<li><a href="#处理">处理</a>
+<ul>
+<li><a href="#一阶段处理">一阶段处理</a></li>
+<li><a href="#二阶段处理">二阶段处理</a></li>
+</ul></li>
+<li><a href="#问题描述-1">问题描述</a></li>
+<li><a href="#处理-1">处理</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="关于信号的使用还是很广泛的，这边对signal进行整理，便于查找">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Signal - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Signal
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2015年03月20日 
+                </div>
+                <h1 class="post-title">Signal</h1>
+            </header>
+
+            <div class="post-content">
+                <p>关于信号的使用还是很广泛的，这边对signal进行整理，便于查找</p>
+
+<p>(Signal ()函数详细介绍 Linux函数)</p>
+
+<p>在<signal.h> 这个头文件中。</p>
+
+<p>signal（参数1，参数2）；</p>
+
+<p>参数1：我们要进行处理的信号。系统的信号我们可以再终端键入 kill -l查看(共64个)。其实这些信号时系统定义的宏。</p>
+
+<p>参数2：我们处理的方式（是系统默认还是忽略还是捕获）。</p>
+
+<p>eg:</p>
+
+<pre><code>signal(SIGINT ,SIG_ING );
+</code></pre>
+
+<p>SIG_ING 代表忽略SIGINT信号，SIGINT信号代表由InterruptKey产生，通常是CTRL +C 或者是DELETE 。发送给所有ForeGround Group的进程。</p>
+
+<pre><code>signal(SIGTERM,cGiSigHandler)
+</code></pre>
+
+<p>/<em>信号捕捉函数singal，当产生SIGTERM信号时触发函数cGiSigHandler</em>/</p>
+
+<p>下面对这个函数对原型和原理进行讲解</p>
+
+<p>void ( <em>signal( int sig, void (</em> handler)( int )))( int );</p>
+
+<pre><code>int (*p)();
+</code></pre>
+
+<p>这是一个函数指针, p所指向的函数是一个不带任何参数, 并且返回值为int的一个函数.</p>
+
+<pre><code>    int (*fun())();
+</code></pre>
+
+<p>这个式子与上面式子的区别在于用fun()代替了p,而fun()是一个函数,所以说就可以看成是fun()这个函数执行之后,它的返回值是一个函数指针,这个函数指针(其实就是上面的p)所指向的函数是一个不带任何参数,并且返回值为int的一个函数.</p>
+
+<p>void (*signal(int signo, void (*handler)(int)))(int);就可以看成是signal()函数(它自己是带两个参数,一个为整型,一个为函数指针的函数),而这个signal()函数的返回值也为一个函数指针,这个函数指针指向一个带一个整型参数,并且返回值为void的一个函数.</p>
+
+<p>在写信号处理函数时对于信号处理的函数也是void sig_fun(int signo);这种类型,恰好与上面signal()函数所返回的函数指针所指向的函数是一样的.void ( *signal() )( int );</p>
+
+<p>signal是一个函数, 它返回一个函数指针, 后者所指向的函数接受一个整型参数 且没有返回值, 仔细看, 是不是siganal( int signo, void (*handler)(int) )的第2个参数了,对了,其实他所返回的就&gt;是 signal的第2个信号处理函数,指向信号处理函数,就可以执行函数了( signal内部时, signal把信号做为参数传递给handler信号处理函数,接着 signal函数返回指针, 并且又指向信号处理函数, 就开始执行它)</p>
+
+<p>那么，signal函数的参数又是如何呢？signal函数接受两个参数：一个整型的信号编号，以及一个指向用户定义的信号处理函数的指针。我们此前已经定义了指向用户定义的信号处理函数的指针sfp：</p>
+
+<pre><code>    void (*sfp)(int);
+</code></pre>
+
+<p>sfp 的类型可以通过将上面的声明中的sfp去掉而得到，即void (*)(int)。此外，signal函数的返回值是一个指向调用前的用户定义信号处理函数的指针，这个指针的类型与sfp指针类型一致。因此，我
+        们可以如下声明signal函数：</p>
+
+<pre><code>    void (*signal(int, void(*)(int)))(int);
+</code></pre>
+
+<p>同样地，使用typedef可以简化上面的函数声明：</p>
+
+<pre><code>    typedef void (*HANDLER)(int);
+    HANDLER signal(int, HANDLER);
+</code></pre>
+
+<p>Signal    Description</p>
+
+<p>SIGABRT    由调用abort函数产生，进程非正常退出</p>
+
+<p>SIGALRM    用alarm函数设置的timer超时或setitimer函数设置的interval timer超时</p>
+
+<p>SIGBUS    某种特定的硬件异常，通常由内存访问引起</p>
+
+<p>SIGCANCEL    由Solaris Thread Library内部使用，通常不会使用</p>
+
+<p>SIGCHLD    进程Terminate或Stop的时候，SIGCHLD会发送给它的父进程。缺省情况下该Signal会被忽略</p>
+
+<p>SIGCONT    当被stop的进程恢复运行的时候，自动发送</p>
+
+<p>SIGEMT    和实现相关的硬件异常</p>
+
+<p>SIGFPE    数学相关的异常，如被0除，浮点溢出，等等</p>
+
+<p>SIGFREEZE    Solaris专用，Hiberate或者Suspended时候发送</p>
+
+<p>SIGHUP    发送给具有Terminal的Controlling Process，当terminal被disconnect时候发送</p>
+
+<p>SIGILL    非法指令异常</p>
+
+<p>SIGINFO    BSD signal。由Status Key产生，通常是CTRL+T。发送给所有Foreground Group的进程</p>
+
+<p>SIGINT    由Interrupt Key产生，通常是CTRL+C或者DELETE。发送给所有ForeGround Group的进程</p>
+
+<p>SIGIO    异步IO事件</p>
+
+<p>SIGIOT    实现相关的硬件异常，一般对应SIGABRT</p>
+
+<p>SIGKILL    无法处理和忽略。中止某个进程</p>
+
+<p>SIGLWP    由Solaris Thread Libray内部使用</p>
+
+<p>SIGPIPE    在reader中止之后写Pipe的时候发送</p>
+
+<p>SIGPOLL    当某个事件发送给Pollable Device的时候发送</p>
+
+<p>SIGPROF    Setitimer指定的Profiling Interval Timer所产生</p>
+
+<p>SIGPWR    和系统相关。和UPS相关。</p>
+
+<p>SIGQUIT    输入Quit Key的时候（CTRL+\）发送给所有Foreground Group的进程</p>
+
+<p>SIGSEGV    非法内存访问</p>
+
+<p>SIGSTKFLT    Linux专用，数学协处理器的栈异常</p>
+
+<p>SIGSTOP    中止进程。无法处理和忽略。</p>
+
+<p>SIGSYS    非法系统调用</p>
+
+<p>SIGTERM    请求中止进程，kill命令缺省发送</p>
+
+<p>SIGTHAW    Solaris专用，从Suspend恢复时候发送</p>
+
+<p>SIGTRAP    实现相关的硬件异常。一般是调试异常</p>
+
+<p>SIGTSTP    Suspend Key，一般是Ctrl+Z。发送给所有Foreground Group的进程</p>
+
+<p>SIGTTIN    当Background Group的进程尝试读取Terminal的时候发送</p>
+
+<p>SIGTTOU    当Background Group的进程尝试写Terminal的时候发送</p>
+
+<p>SIGURG    当out-of-band data接收的时候可能发送</p>
+
+<p>SIGUSR1    用户自定义signal 1</p>
+
+<p>SIGUSR2    用户自定义signal 2</p>
+
+<p>SIGVTALRM    setitimer函数设置的Virtual Interval Timer超时的时候</p>
+
+<p>SIGWAITING    Solaris Thread Library内部实现专用</p>
+
+<p>SIGWINCH    当Terminal的窗口大小改变的时候，发送给Foreground Group的所有进程</p>
+
+<p>SIGXCPU    当CPU时间限制超时的时候</p>
+
+<p>SIGXFSZ    进程超过文件大小限制</p>
+
+<p>SIGXRES    Solaris专用，进程超过资源限制的时候发送)</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/linux/c&#43;&#43;/signal/">https://kingjcy.github.io/post/linux/c&#43;&#43;/signal/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags//">
+                            <i class="fa fa-tags"></i>
+                            
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-unsafe/">Go Unsafe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-text/">Go Text</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-plugin/">Go Plugin</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-mine/">Go Mine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-internal/">Go Internal</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-index/">Go Index</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-image/">Go Image</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-html/">Go Html</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-hash/">Go Hash</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-go/">Go Go</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/language/java/java/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/middleware/network/proxy/nginx/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

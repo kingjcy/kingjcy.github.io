@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="限流器是后台服务中的非常重要的组件，可以用来限制请求速率，保护服务，以免服务过载。限流器的实现方法有很多种，例如滑动窗口法、Token Bucket、Leaky Bucket等。
+
+其实golang标准库中就自带了限流算法的实现，即golang.org/x/time/rate。该限流器是基于Token Bucket(令牌桶)实现的。
+
+令牌桶就是想象有一个固定大小的桶，系统会以恒定速率向桶中放Token，桶满则暂时不放。而用户则从桶中取Token，如果有剩余Token就可以一直取。如果没有剩余Token，则需要等到系统中被放置了Token才行。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Golang使用系列---- Rate - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Golang使用系列---- Rate
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年11月10日 
+                </div>
+                <h1 class="post-title">Golang使用系列---- Rate</h1>
+            </header>
+
+            <div class="post-content">
+                <p>限流器是后台服务中的非常重要的组件，可以用来限制请求速率，保护服务，以免服务过载。限流器的实现方法有很多种，例如滑动窗口法、Token Bucket、Leaky Bucket等。</p>
+
+<p>其实golang标准库中就自带了限流算法的实现，即golang.org/x/time/rate。该限流器是基于Token Bucket(令牌桶)实现的。</p>
+
+<p>令牌桶就是想象有一个固定大小的桶，系统会以恒定速率向桶中放Token，桶满则暂时不放。而用户则从桶中取Token，如果有剩余Token就可以一直取。如果没有剩余Token，则需要等到系统中被放置了Token才行。</p>
+
+<h2 id="基本使用">基本使用</h2>
+
+<p>1.构造一个限流器</p>
+
+<p>我们可以使用以下方法构造一个限流器对象：</p>
+
+<pre><code>limiter := NewLimiter(10, 1);
+</code></pre>
+
+<p>这里有两个参数：</p>
+
+<pre><code>第一个参数是r Limit。代表每秒可以向Token桶中产生多少token。Limit实际上是float64的别名。
+第二个参数是b int。b代表Token桶的容量大小。
+</code></pre>
+
+<p>那么，对于以上例子来说，其构造出的限流器含义为，其令牌桶大小为1, 以每秒10个Token的速率向桶中放置Token。</p>
+
+<p>除了直接指定每秒产生的Token个数外，还可以用Every方法来指定向Token桶中放置Token的间隔，例如：</p>
+
+<pre><code>limit := Every(100 * time.Millisecond);
+limiter := NewLimiter(limit, 1);
+</code></pre>
+
+<p>以上就表示每100ms往桶中放一个Token。本质上也就是一秒钟产生10个。</p>
+
+<p>2.消费</p>
+
+<p>Limiter提供了三类方法供用户消费Token，用户可以每次消费一个Token，也可以一次性消费多个Token。</p>
+
+<p>而每种方法代表了当Token不足时，各自不同的对应手段。</p>
+
+<p>1.Wait/WaitN</p>
+
+<pre><code>func (lim *Limiter) Wait(ctx context.Context) (err error)
+func (lim *Limiter) WaitN(ctx context.Context, n int) (err error)
+</code></pre>
+
+<p>Wait实际上就是WaitN(ctx,1)。</p>
+
+<p>当使用Wait方法消费Token时，如果此时桶内Token数组不足(小于N)，那么Wait方法将会阻塞一段时间，直至Token满足条件。如果充足则直接返回。</p>
+
+<p>这里可以看到，Wait方法有一个context参数。</p>
+
+<p>我们可以设置context的Deadline或者Timeout，来决定此次Wait的最长时间。</p>
+
+<p>2.Allow/AllowN</p>
+
+<pre><code>func (lim *Limiter) Allow() bool
+func (lim *Limiter) AllowN(now time.Time, n int) bool
+</code></pre>
+
+<p>Allow实际上就是AllowN(time.Now(),1)。</p>
+
+<p>AllowN方法表示，截止到某一时刻，目前桶中数目是否至少为n个，满足则返回true，同时从桶中消费n个token。反之返回不消费Token，false。</p>
+
+<p>通常对应这样的线上场景，如果请求速率过快，就直接丢到某些请求。</p>
+
+<p>3.Reserve/ReserveN</p>
+
+<pre><code>func (lim *Limiter) Reserve() *Reservation
+func (lim *Limiter) ReserveN(now time.Time, n int) *Reservation
+</code></pre>
+
+<p>Reserve相当于ReserveN(time.Now(), 1)。</p>
+
+<p>ReserveN的用法就相对来说复杂一些，当调用完成后，无论Token是否充足，都会返回一个Reservation*对象。</p>
+
+<p>你可以调用该对象的Delay()方法，该方法返回了需要等待的时间。如果等待时间为0，则说明不用等待。必须等到等待时间之后，才能进行接下来的工作。或者，如果不想等待，可以调用Cancel()方法，该方法会将Token归还。</p>
+
+<p>举一个简单的例子，我们可以这么使用Reserve方法。</p>
+
+<p>4.总结</p>
+
+<p>rate.Limiter提供了三类方法用来限速</p>
+
+<pre><code>Wait/WaitN 当没有可用或足够的事件时，将阻塞等待 推荐实际程序中使用这个方法
+Allow/AllowN 当没有可用或足够的事件时，返回false
+Reserve/ReserveN 当没有可用或足够的事件时，返回 Reservation，和要等待多久才能获得足够的事件。
+</code></pre>
+
+<p>Wait/WaitN 示例</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;time&quot;
+
+    &quot;golang.org/x/net/context&quot;
+    &quot;golang.org/x/time/rate&quot;
+)
+
+func main() {
+    l := rate.NewLimiter(20, 5)
+    c, _ := context.WithCancel(context.TODO())
+    fmt.Println(l.Limit(), l.Burst())
+    for {
+        l.Wait(c)
+        time.Sleep(200 * time.Millisecond)
+        fmt.Println(time.Now().Format(&quot;2016-01-02 15:04:05.000&quot;))
+    }
+}
+</code></pre>
+
+<p>Allow/AllowN 示例</p>
+
+<pre><code>func main() {
+    l := rate.NewLimiter(1, 3)
+    for {
+        if l.AllowN(time.Now(), 2) {
+            fmt.Println(time.Now().Format(&quot;2016-01-02 15:04:05.000&quot;))
+        } else {
+            time.Sleep(6     * time.Second)
+        }
+    }
+}
+</code></pre>
+
+<p>Reserve/ReserveN 示例</p>
+
+<pre><code>func main() {
+    l := rate.NewLimiter(1, 3)
+    for {
+        r := l.ReserveN(time.Now(), 3)
+        time.Sleep(r.Delay())
+        fmt.Println(time.Now().Format(&quot;2016-01-02 15:04:05.000&quot;))
+    }
+}
+</code></pre>
+
+<p>5.动态调整速率</p>
+
+<p>Limiter支持可以调整速率和桶大小：</p>
+
+<pre><code>SetLimit(Limit) 改变放入Token的速率
+SetBurst(int) 改变Token桶大小
+</code></pre>
+
+<p>有了这两个方法，可以根据现有环境和条件，根据我们的需求，动态的改变Token桶大小和速率。</p>
+
+<p>上面只是基本的原理，具体要实现限流，还是需要实现自己的读写控制。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-rate/">https://kingjcy.github.io/post/golang/go-rate/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/rate/">
+                            <i class="fa fa-tags"></i>
+                            rate
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li><li id="li-rels"><a href="/post/golang/go-threadsafety/">Go Threadsafety</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月04日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-web-safe/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/algorithm/recursion/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li><a href="#基本使用">基本使用</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

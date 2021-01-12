@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="可能大家对 Nginx 都不陌生，Nginx 因为它高效的事件模块赢得了众多人的赞赏，Nginx 的事件驱动机制（I/O多路复用）在 Linux 平台下是使用 epoll 来实现，简单来说，epoll 不同于轮询，它会把哪个连接发送了怎样的 I/O 事件通知到我们，今天来说的基于 Go 实现的 I/O 多路复用库 yamux ，没有使用系统级别的事件驱动机制（如：epoll、kqueue），这得益于 Go 廉价的 goroutine 开销，yamux 依赖底层可靠的连接（tcp、unix domain sockets），在可靠的连接之上提供了面向流 I/O 多路复用，其核心思想是在发送数据的时候增加头部信息，附加一层协议。 在 yamux 中，一条连接称为 session，一个 session 可以开启多个数据流，数据流称为 stream。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Go Yamux - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Go Yamux
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年09月11日 
+                </div>
+                <h1 class="post-title">Go Yamux</h1>
+            </header>
+
+            <div class="post-content">
+                <p>可能大家对 Nginx 都不陌生，Nginx 因为它高效的事件模块赢得了众多人的赞赏，Nginx 的事件驱动机制（I/O多路复用）在 Linux 平台下是使用 epoll 来实现，简单来说，epoll 不同于轮询，它会把哪个连接发送了怎样的 I/O 事件通知到我们，今天来说的基于 Go 实现的 I/O 多路复用库 yamux ，没有使用系统级别的事件驱动机制（如：epoll、kqueue），这得益于 Go 廉价的 goroutine 开销，yamux 依赖底层可靠的连接（tcp、unix domain sockets），在可靠的连接之上提供了面向流 I/O 多路复用，其核心思想是在发送数据的时候增加头部信息，附加一层协议。 在 yamux 中，一条连接称为 session，一个 session 可以开启多个数据流，数据流称为 stream。</p>
+
+<p>yamux 是一个多路复用库。它依赖于底层可靠有序连接。如TCP. 提供基于流的多路利用</p>
+
+<p>设计</p>
+
+<p>定义帧结构
+每一帧数据都需要包含如下的头部：</p>
+
+<pre><code>Version(8 bits)
+Type(8 bits)
+Flags(16 bits)
+StreamID(32 bits)
+Length(32 bits)
+</code></pre>
+
+<p>一共12个字节，所有的字段都采用大端（big endian）传输。接下来我们解释每个字段的意思。</p>
+
+<p>Version 字段</p>
+
+<p>顾名思义就是用来指定版本的，目的是为了向后兼容，现在我们可以把他设为0。</p>
+
+<p>Type 字段</p>
+
+<p>区分消息类型：</p>
+
+<pre><code>0x0 Data - 传输数据
+0x1 Window Update - 更新发送者的接收窗口大小
+0x2 Ping - 测试 RTT。也可以用来做心跳和 keep-alives
+0x3 Go Away - 关闭 session
+</code></pre>
+
+<p>Flag 字段</p>
+
+<p>配合 type 字段提供额外的信息：</p>
+
+<pre><code>0x1 SYN - 开启一个新的 stream。可以在 data 或者 window update 消息中发送，也可以在 ping 消息中发送以表明是带外数据。
+0x2 Ack - 响应 SYN。可以在 data 或者 window update 消息中发送，也可以在 ping 消息中发送以表明是带外数据。
+0x4 FIN - 执行半关闭。可以在 data 或者 window update 消息中发送。
+0x8 RST - 立即 reset 一个 stream，可以在 data 或者 window update 消息中发送。
+</code></pre>
+
+<p>StreamID 字段</p>
+
+<p>用来区分同一个 session 下的不同的 stream（比如说，现在只有一条 tcp 连接，我们需要复用这条连接来产生不同的数据流，那么这个StreamID就是不同数据流的标识）。客户端使用奇数的 ID，服务端使用偶数 ID，0代表了这个 session 本身。 ping 和 go away 消息的 StreamID 为0。</p>
+
+<p>Length 字段</p>
+
+<p>根据不同的消息类型，length 的意义也不一样。</p>
+
+<pre><code>Data - 表示紧跟头部的数据长度（单位：bytes）
+Window update - 更新窗口大小的增量
+Ping - 不透明的值，回显
+Go Away - 包含错误码
+</code></pre>
+
+<p>消息流</p>
+
+<p>*开启一个数据流</p>
+
+<p>要开启一个 stream，发送端首先发送包含新的 StreamID 的 data 或者 window update 帧。同时 flag 字段需要设置为 SYN。 接收端回复包含 StreamID 的 data 或者 window update 帧，同时 flag 字段设置为 ACK 来允许建立这个 stream，如果 flag 字段设置为 RST，表示服务端拒绝这个 stream。 因为我们依赖底层的可靠连接，我们可以在发送完 SYN 之后可以马上发送数据（因为我们的连接肯定已经建立了）而不必等 ACk 响应。这在 RPC 系统中特别适用。 当然，这也会导致我们的数据在发送后连接被拒绝，客户端需要处理这种错误。</p>
+
+<p>*关闭数据流</p>
+
+<p>如果要关闭这个 stream，客户端或者服务端需要发送 data 或者 window update 帧，并且加上 FIN 标志，这将导致数据流进入半关闭状态，直到发送者没有数据发送为止。 一旦双方都关闭了这个连接，数据流才真正关闭。 如果没有错误发生，RST 标志可以用来马上强制关闭 stream。</p>
+
+<p>流控制</p>
+
+<p>yamux 默认为每一个 stream 开启 256KB 的窗口大小，为防止数据流停滞，应该不时的发送更改窗口大小的消息帧，注意：窗口大小只在 data 帧中有意义，发送和接收端只需要追踪 data 帧的数据大小。</p>
+
+<p>session 终止</p>
+
+<p>当 session 被终止时，需要发送 Go Away 帧，length 字段需要设置为以下来提供错误码。 * 0x0 Normal termination * 0x1 Protocol error * 0x2 Internal error</p>
+
+<p>实践</p>
+
+<p>Server</p>
+
+<pre><code>package main
+// 多路复用
+import (
+    &quot;fmt&quot;
+    &quot;github.com/hashicorp/yamux&quot;
+    &quot;net&quot;
+    &quot;time&quot;
+)
+func Recv(stream net.Conn, id int){
+    for {
+        buf := make([]byte, 4)
+        n, err := stream.Read(buf)
+        if err == nil{
+            fmt.Println(&quot;ID:&quot;, id, &quot;, len:&quot;, n, time.Now().Unix(), string(buf))
+        }else{
+            fmt.Println(time.Now().Unix(), err)
+            return
+        }
+    }
+}
+func main()  {
+    // 建立底层复用连接
+    tcpaddr, _ := net.ResolveTCPAddr(&quot;tcp4&quot;, &quot;127.0.0.1:8980&quot;);
+    tcplisten, _ := net.ListenTCP(&quot;tcp&quot;, tcpaddr);
+    conn, _ := tcplisten.Accept()
+    session, _ := yamux.Server(conn, nil)
+    id :=1
+    for {
+        // 建立多个流通路
+        stream, err := session.Accept()
+        if err == nil {
+            fmt.Println(&quot;accept&quot;)
+            id ++
+            go Recv(stream, id)
+        }else{
+            fmt.Println(&quot;session over.&quot;)
+            return
+        }
+    }
+}
+</code></pre>
+
+<p>Client</p>
+
+<pre><code>package main
+import (
+    &quot;github.com/hashicorp/yamux&quot;
+    &quot;net&quot;
+    &quot;time&quot;
+)
+func main()  {
+    // 建立底层复用通道
+    conn, _ := net.Dial(&quot;tcp&quot;, &quot;127.0.0.1:8980&quot;)
+    session, _ := yamux.Client(conn, nil)
+    // 建立应用流通道1
+    stream, _ := session.Open()
+    stream.Write([]byte(&quot;ping&quot; ))
+    stream.Write([]byte(&quot;pnng&quot; ))
+    time.Sleep(1 * time.Second)
+    // 建立应用流通道2
+    stream1, _ := session.Open()
+    stream1.Write([]byte(&quot;pong&quot;))
+    time.Sleep(1 * time.Second)
+    // 清理退出
+    time.Sleep(5 * time.Second)
+    stream.Close()
+    stream1.Close()
+    session.Close()
+    conn.Close()
+}
+</code></pre>
+
+<p>源码解析</p>
+
+<p>前面我们说过 yamux 里面有两个核心的概念：session 和 stream，一个 session 对应于一条 tcp 连接，一个 session 可以催生许多 stream 流，每个数据流 stream 都有 streamID来区分。在建立了 tcp 连接后，服务端和客户端都会执行下面一段代码。</p>
+
+<pre><code>// newSession is used to construct a new session
+func newSession(config *Config, conn io.ReadWriteCloser, client bool) *Session {
+   // 初始化 session
+    s := &amp;Session{
+        config:     config,
+        logger:     log.New(config.LogOutput, &quot;&quot;, log.LstdFlags),
+        conn:       conn,
+        bufRead:    bufio.NewReader(conn),
+        pings:      make(map[uint32]chan struct{}),
+        streams:    make(map[uint32]*Stream),
+        inflight:   make(map[uint32]struct{}),
+        synCh:      make(chan struct{}, config.AcceptBacklog),
+        acceptCh:   make(chan *Stream, config.AcceptBacklog),
+        sendCh:     make(chan sendReady, 64),
+        recvDoneCh: make(chan struct{}),
+        shutdownCh: make(chan struct{}),
+    }
+    if client {
+       // 客户端使用奇数的 streamID
+        s.nextStreamID = 1
+    } else {
+       // 服务端使用偶数
+        s.nextStreamID = 2
+    }
+    // 开启 recv loop，用来接收各个 stream 的数据
+    go s.recv()
+    // 开启 send loop，用来发送各个 stream 的数据
+    go s.send()
+    if config.EnableKeepAlive {
+        go s.keepalive()
+    }
+    return s
+}
+</code></pre>
+
+<p>上面代码在服务端执行 yamux.Server(conn, nil) 及客户端执行 yamux.Client(conn, nil) 后触发，都会生成两个 goroutine 。一个负责发送 stream 的数据，另一个负责接收 stream 的数据，并根据不同的 type 调用不同的处理逻辑</p>
+
+<p>服务端在执行session.Accept()后，会等待客户端调用session.Open()来完成 stream 之间的连接。</p>
+
+<p>客户端 session 初始化一个 stream 设置接收窗口大小后通过 client_send_loop 发送类型为 windowUpdate 及 标识为 SYN 的消息到服务端，此时客户端 stream 的状态为 streamSYNSent， 服务端的 server_recv_loop 根据接收到的消息类型和标识来调用不同的处理函数，如果类型是 windowUpdate 标识为 SYN，那么服务端 session 就会初始化一个 stream，并且设置发送窗口大小，此时服务端 stream 的状态为 streamSYNReceived，然后服务端设置接收窗口大小并通过 server_send_loop 发送类型为 windowUpdate 标识为 ACK 的消息到客户端，此时服务端 stream 状态设为 streamEstablished， 客户端的 client_recv_loop 接收到消息，调整发送窗口大小后设置 stream 状态为streamEstablished，至此，服务端和客户端双方建立了连接，双方都初始化了 stream，如果想再建立连接，还需要走一遍上面的流程，初始化新的 stream，不同的 stream 通过 streamID 区分，这样就能复用连接，同时 recv_loop 根据消息的类型和标识通知stream做不同的逻辑。 建立了连接通道后，双方就能通过 stream 发送数据了，当然 yamux 不止是能发送数据还能在连接之上做控制，比如说发送类型为 goAway 的消息能关闭 session，发送类型为 ping 的消息能测量 RTT。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-yamux/">https://kingjcy.github.io/post/golang/go-yamux/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags//">
+                            <i class="fa fa-tags"></i>
+                            
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-unsafe/">Go Unsafe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-text/">Go Text</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-plugin/">Go Plugin</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-mine/">Go Mine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-internal/">Go Internal</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-index/">Go Index</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-image/">Go Image</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-html/">Go Html</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-hash/">Go Hash</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-go/">Go Go</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-typeassertion/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/programe/programe/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

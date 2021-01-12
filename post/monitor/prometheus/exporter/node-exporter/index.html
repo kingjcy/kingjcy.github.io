@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="node_exporter 主要用于 *NIX 系统监控, 用 Golang 编写:Prometheus exporter for hardware and OS metrics exposed by *NIX kernels, written in Go with pluggable metric collectors.">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Node Exporter - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Node Exporter
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年03月19日 
+                </div>
+                <h1 class="post-title">Node Exporter</h1>
+            </header>
+
+            <div class="post-content">
+                <p>node_exporter 主要用于 *NIX 系统监控, 用 Golang 编写:Prometheus exporter for hardware and OS metrics exposed by *NIX kernels, written in Go with pluggable metric collectors.</p>
+
+<h1 id="源码原理解析">源码原理解析</h1>
+
+<p>node探针进程启动的时候，会调用collector的package，就会初始化所有的collect注册到</p>
+
+<pre><code>factories      = make(map[string]func() (Collector, error))
+collectorState = make(map[string]*bool)
+</code></pre>
+
+<p>这个中，根据初始化中传递的参数，确定采集是否开启，处理函数是什么</p>
+
+<p>然后会创建一个结构题</p>
+
+<pre><code>type nodeCollector struct {
+    Collectors map[string]Collector
+}
+</code></pre>
+
+<p>将开启采集的数据，创建对应的结构体，其实也是一个实现interface的结构，最后存储在这个结构中</p>
+
+<p>然后将这些collector进行注册，启动监听端口和一些其他设置</p>
+
+<p>然后就是调用client_golang中的describe和collect的重写函数</p>
+
+<p>在collect中启动多协程进行每个类型的处理</p>
+
+<p>调用update函数实现数据赋值与采集</p>
+
+<h1 id="开启默认关闭的采集">开启默认关闭的采集</h1>
+
+<p>1.开启ntp采集</p>
+
+<pre><code>./node_exporter --collector.ntp
+</code></pre>
+
+<p>输出相关指标：</p>
+
+<pre><code># HELP node_ntp_leap NTPD leap second indicator, 2 bits.
+# TYPE node_ntp_leap gauge
+node_ntp_leap 3
+# HELP node_ntp_offset_seconds ClockOffset between NTP and local clock.
+# TYPE node_ntp_offset_seconds gauge
+node_ntp_offset_seconds -1.6239e-05
+# HELP node_ntp_reference_timestamp_seconds NTPD ReferenceTime, UNIX timestamp.
+# TYPE node_ntp_reference_timestamp_seconds gauge
+node_ntp_reference_timestamp_seconds 0
+# HELP node_ntp_root_delay_seconds NTPD RootDelay.
+# TYPE node_ntp_root_delay_seconds gauge
+node_ntp_root_delay_seconds 0
+# HELP node_ntp_root_dispersion_seconds NTPD RootDispersion.
+# TYPE node_ntp_root_dispersion_seconds gauge
+node_ntp_root_dispersion_seconds 0.060363769
+# HELP node_ntp_rtt_seconds RTT to NTPD.
+# TYPE node_ntp_rtt_seconds gauge
+node_ntp_rtt_seconds 8.6646e-05
+# HELP node_ntp_sanity NTPD sanity according to RFC5905 heuristics and configured limits.
+# TYPE node_ntp_sanity gauge
+node_ntp_sanity 0
+# HELP node_ntp_stratum NTPD stratum.
+# TYPE node_ntp_stratum gauge
+node_ntp_stratum 0
+</code></pre>
+
+<h1 id="计算表达式">计算表达式</h1>
+
+<ol>
+<li><p>cpu的使用率</p>
+
+<p>avg(irate(node_cpu_seconds_total{ip=&ldquo;$host&rdquo;}[1m]))by (mode)</p></li>
+</ol>
+
+<p>node_cpu_seconds_total采集出来的是cpu使用时间的累加，在linux机器上cpu的使用就是这样记录的，所以可以使用速率的方式来求使用率，GPU貌似不是这样记录的。并不是递增的。因为可能是多核的，所以要使用avg平均出所有核。</p>
+
+<p>pod的cpu使用率</p>
+
+<pre><code>sum(rate(container_cpu_usage_seconds_total{image!=&quot;&quot;, container_name!=&quot;POD&quot;}[5m])) by (pod_name,sn_pod_ip,container_name,namespace) / sum(container_spec_cpu_quota{image!=&quot;&quot;, container_name!=&quot;POD&quot;}/container_spec_cpu_period{image!=&quot;&quot;, container_name!=&quot;POD&quot;}) by (pod_name,sn_pod_ip,container_name,namespace)
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/prometheus/exporter/node-exporter/">https://kingjcy.github.io/post/monitor/prometheus/exporter/node-exporter/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/exporter/">
+                            <i class="fa fa-tags"></i>
+                            exporter
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/node/">
+                            <i class="fa fa-tags"></i>
+                            node
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/prometheus/exporter/log/grok_exporter/">prometheus探针系列---- Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/log/mtail/">prometheus探针系列---- mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/zabbix/zabbix2tsdb/">Zabbix数据入到tsdb</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月20日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/cluster/victoriametrics/">prometheus集群系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/process_exporter/">Process_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/prometheus-operater/">prometheus系列---- Prometheus Operater</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月12日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/redis_exporter/">Redis_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/script_exporter/">Script_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年10月09日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/postgres_exporter/">Postgres_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年08月09日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/cluster/thanos/">Thanos</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月13日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/middleware/mq/activemq/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/database/mysql/mysql-performance-optimization/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#源码原理解析">源码原理解析</a></li>
+<li><a href="#开启默认关闭的采集">开启默认关闭的采集</a></li>
+<li><a href="#计算表达式">计算表达式</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Leak">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:title" content="Leak - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Leak - kingjcy blog
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="posts">
+    
+    
+<article class="post li">
+    <header>
+        <div class="post-date">
+            2020年03月02日
+        </div>
+        <h2 class="post-title">
+            <a href="/post/product/filebeat_leak/">生产问题排查解决系列---- filebeat resource leak</a>
+        </h2>
+    </header>
+    <div class="post-content">
+        第一阶段 现象 内存持续增加不释放，应该是内存泄漏
+分析  查看日志,有一个error一直在报错  找到对应的日志在代码中的位置
+在这边只是检查文件的状态，难道是这个返回的时候，资源没有释放导致的？于是打开采集组件的debug日志和开启pprof来看filebeat运行的资源使用情况，查看pprof的时候发现果然goroutine泄漏了，达到了16W。然后主要看泄漏的地方
+这个图上面的协程数由于没有保留，就用来这个，其实第一个达到8W，下面都是4W左右。
+在/go/src/github.com/elastic/beats/filebeat/channel/util.go的这边有好几万的协程在运行。我们来看代码
+再来看看上一层的代码调用返回后是不是导致这个goroutine没有释放，还真的是这块没有调用close
+查看官方确实存在着这个问题issue
+在7.5的版本中进行了修复，于是对filebeat进行升级，然后进行多kafka的改造。完成修复。
+第二阶段 现象 升级后，好景不长，在filebeat组件运行的三天内突然出现cpu和内存使用持续增长并且过度使用资源的情况。如下图
+分析  查看日志,有一个error一直在报错  还是这个报错，难道这个bug没有修复，在测试环境是测试OK，确实在新代码中也会close
+如果状态不对return，是会调用
+defer cleanupIfNeeded(out.Close) defer cleanupIfNeeded(stateOut.Close)  并不会导致这个的协程泄漏。这个问题其实就是第一阶段的内存泄漏问题，已经修复，那么问题来了。为什么还会有大量的goroutine泄漏。
+只能在源码中找答案了，但是一整套的采集流程都走下来，发现都没有泄漏的场景。
+没办法，打开debug日志，来一行行追踪。
+最初的想法是肯定是哪边的状态检查不通过，导致的goroutine的泄漏。
+因为有很多的特殊情况，日志采集是处于已经采集的状态的，还真找到了一种特殊情况
+这种特殊情况和我们的容器的发布使用场景有关：我们的发布使用的原地重启的方式，并不会删除pod，而是重启container
+再去看log-polit的机制，发现pod的原地重启的情况下，会对同一个日志文件进行重新生成，这个时候历史日志不删除，就会出现一个不同文件名但是内容完全相同的的配置文件
+这个时候就有一个新的文件进行重新加载，开一个采集器去采集日志，但是我们在记录中这个日志已经采集了，并不会真正的去采集，所以整个流程并木有闭环，所以很多地方开启的goroutine并没获取关闭的信号
+而且这个采集器还会定时去检查，检查的过程中也会造成这种情况。
+修复方案：
+1、在这情况下，调用close关闭相关的资源，但是不能保障所有的情况，如果其他类似特殊情况的话，还是会出现问题。pass 2、在重载哪边做去重的机制，使用hash算法，如果一直的不进行重新加载 3、在服务发现机制那边做去重，但是我们是基于docker事件的，如果需要去重，改造的工作量特别大，可以做长期的计划  综上所述，采用的方案二进行临时修复，方案三作为长期规划。
+    </div>
+    </article>
+<hr>
+
+    
+    
+<article class="post li">
+    <header>
+        <div class="post-date">
+            2020年03月02日
+        </div>
+        <h2 class="post-title">
+            <a href="/post/product/filebeat_optimization/">生产问题排查解决系列---- filebeat resource optimization</a>
+        </h2>
+    </header>
+    <div class="post-content">
+        现象 目前我们日志收集组件使用的是filebeat6.6.1，在某业务上线以后，发生了日志收集延迟的问题，最差的情况，延迟两天以上。严重影响了下游数据分析项目。
+分析该业务日志之后，发现该业务日志量大，但是单日志filed非常少。
+分析  看日志没有什么问题
+ 查看pprof的信息
+  使用命令行
+go tool pprof http://0.0.0.0:6060/debug/pprof/profile Showing top 10 nodes out of 197 flat flat% sum% cum cum% 21.45s 13.42% 13.42% 70.09s 43.85% runtime.gcDrain 15.49s 9.69% 23.11% 39.83s 24.92% runtime.scanobject 11.38s 7.12% 30.23% 11.38s 7.12% runtime.futex 7.86s 4.92% 35.15% 16.30s 10.20% runtime.greyobject 7.82s 4.89% 40.04% 7.82s 4.89% runtime.markBits.isMarked (inline) 5.59s 3.50% 43.53% 5.59s 3.50% runtime.(*lfstack).pop 5.51s 3.45% 46.98% 6.05s 3.78% runtime.
+    </div>
+    </article>
+<hr>
+
+    
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

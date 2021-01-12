@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Concurrence on kingjcy blog</title>
+    <link>https://kingjcy.github.io/tags/concurrence/</link>
+    <description>Recent content in Concurrence on kingjcy blog</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>zh-CN</language>
+    <copyright>Copyright (c) 2020. All rights reserved.</copyright>
+    <lastBuildDate>Sun, 09 Apr 2017 19:25:10 +0800</lastBuildDate>
+    
+	<atom:link href="https://kingjcy.github.io/tags/concurrence/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+    <item>
+      <title>架构系列---- 并发</title>
+      <link>https://kingjcy.github.io/post/architecture/concurrence/</link>
+      <pubDate>Sun, 09 Apr 2017 19:25:10 +0800</pubDate>
+      
+      <guid>https://kingjcy.github.io/post/architecture/concurrence/</guid>
+      <description>首先并发中的一些重要概念
+QPS：每秒钟处理的请求数量
+并发度：指在同一个时间点发起的请求数量，比如 12306 统一在下午两点钟放票，100 个人在下午两点钟同时向 12306 发起请求，此时可以认为并发度为 100。
+那么什么才叫高并发呢？
+高并发要根据场景来定义，多高的并发算高并发？对于阿里来说可能几千上万才算高并发，对于普通小公司来说，可能几十上百就算高并发了。
+高并发其实是和响应时间有很大关系的，你能把接口的响应时间做到1ms，你一个线程就能有1000QPS！一个服务怎么也能跑200个线程吧，QPS轻松地达到了20万呐！你看看有几个整天把高并发挂嘴上的能做到20万的QPS？可见响应时间是不那么容易快速响应的。
+前段时间，刚给内部另一个团队提供了一个服务接口，因为依赖底层的分析型数据库的性能，qps也就在二三十，结果线上测试的时候挂了。因为存在batch操作，一次插入5000条数据，响应时间太长了。
+其实高并发的场景多用于web端的请求处理。
+我们就web常见架构，对于百万级的的QPS怎么进行处理
+常见web架构如下
+user--ui---后端---db  Qps如果不是太高，只要简单的使用上面的进行交互就能满足基本需要。但是如果在QPS达到百万级甚至千万级别的，就会在各种交互组件上出现瓶颈。这个时候就是经验的使用和积累，来使用不同的架构来完成这种需求。
+主要
+ 垂直扩展，机器配置升级，这种最原始的方式
+ 水平扩展，这个有很多，实例，进程，线程，协程，数据库。。。
+ 组件优化，这个就需要大量的实践经验，比如减少交互等。
+ 架构完善，这个就需要大量的调优经验，比如使用缓存等。
+  比如我们之前参与的一个web项目的大体实现：
+负载均衡和缓存，可以先按照不同维度，对于请求进行划分，算是多通道，然后肯定是负载均衡，到不同的主机实例，也就是多进程部署，然后进入到了进程中具体处理的时候，使用多线程thread（正常是线程池）并发，也有使用fork出来多进行的进行处理，这边可以在逻辑里进行业务划分，到了这一边就是业务相关逻辑，优化业务，解决哪些很耗时间的操作，for循环什么的，数据库连接次数，最后就是数据库的优化，使用缓存数据库，优化数据库正常先对我们写的sql进行优化，可以看执行计划，然后数据库索引进行优化，然后就是分区，分表，分库的各种切分。当然上面的每个节点都存在高可用的保障。
+其实数据库是很多需求的响应的瓶颈所在，在数据库上花功夫才是重点，一般数据库正常使用情况
+mysql 的合理上限不应该超过500万 oracle。20亿数据。 清单 HBase在50000条数据批量写的性能大概是在2s左右，单个查，5-10ms左右 redis qps 500-2000。 几百G prometheus。 100W。30s 60。200G  今天听朋友说
+京东的架构说了句大并发，大数据下的业务其实还是靠堆机器保证的
+我们现在研究的是如何在堆机器的情况下保证业务的连贯性，容错性，可用性
+java在web并发中使用很多
+java web 高并发
+JVMJEE容器中运行的JVM参数配置参数的正确使用直接关系到整个系统的性能和处理能力，JVM的调优主要是对内存管理方面的调优，优化的方向分为以下4点：
+1.HeapSize 堆的大小，也可以说Java虚拟机使用内存的策略，这点是非常关键的。 2.GarbageCollector 通过配置相关的参数进行Java中的垃圾收集器的4个算法(策略)进行使用。 3.StackSize 栈是JVM的内存指令区,每个线程都有他自己的Stack，Stack的大小限制着线程的数量。 4.DeBug/Log 在JVM中还可以设置对JVM运行时的日志和JVM挂掉后的日志输出，这点非常的关键，根据各类JVM的日志输出才能配置合适的参数。
+JDBC针对MySQL的JDBC的参数在之前的文章中也有介绍过，在单台机器或者集群的环境下合理的使用JDBC中的配置参数对操作数据库也有很大的影响。一些所谓高性能的 Java ORM开源框架也就是打开了很多JDBC中的默认参数： 1.例如：autoReconnect、prepStmtCacheSize、cachePrepStmts、useNewIO、blobSendChunkSize 等， 2.例如集群环境下：roundRobinLoadBalance、failOverReadOnly、autoReconnectForPools、secondsBeforeRetryMaster。
+数据库连接池(DataSource)应用程序与数据库连接频繁的交互会给系统带来瓶颈和大量的开销会影响到系统的性能，JDBC连接池负责分配、管理和释放数据库连接，它允许应用程序重复使用一个现有的数据库连接，而再不是重新建立一个连接，因此应用程序不需要频繁的与数据库开关连接，并且可以释放空闲时间超过最大空闲时间的数据库连接来避免因为没有释放数据库连接而引起的数据库连接遗漏。这项技术能明显提高对数据库操作的性能。
+数据存取数据库服务器的优化和数据的存取，什么类型的数据放在什么地方更好是值得去思考的问题，将来的存储很可能是混用的，Cache，NOSQL，DFS，DataBase 在一个系统中都会有。</description>
+    </item>
+    
+    <item>
+      <title>架构系列---- 并发安全</title>
+      <link>https://kingjcy.github.io/post/architecture/concurrencesafe/</link>
+      <pubDate>Sun, 09 Apr 2017 19:25:10 +0800</pubDate>
+      
+      <guid>https://kingjcy.github.io/post/architecture/concurrencesafe/</guid>
+      <description>&lt;p&gt;并发安全，就是多个并发体在同一段时间内访问同一个共享数据，共享数据能被正确处理。&lt;/p&gt;</description>
+    </item>
+    
+    <item>
+      <title>golang使用系列---- Concurrence</title>
+      <link>https://kingjcy.github.io/post/golang/go-concurrence/</link>
+      <pubDate>Sun, 26 Mar 2017 11:05:34 +0800</pubDate>
+      
+      <guid>https://kingjcy.github.io/post/golang/go-concurrence/</guid>
+      <description>&lt;p&gt;并发编程是我们计算机技术中最常用的一种编程技术。是一种基于多元程序的一种应用&lt;/p&gt;</description>
+    </item>
+    
+  </channel>
+</rss>

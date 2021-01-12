@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="在mysql使用过程中遇到的mysql性能瓶颈，这边和大家分享一下">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="mysql系列---- Mysql Performance Optimization - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    mysql系列---- Mysql Performance Optimization
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年03月16日 
+                </div>
+                <h1 class="post-title">mysql系列---- Mysql Performance Optimization</h1>
+            </header>
+
+            <div class="post-content">
+                <p>在mysql使用过程中遇到的mysql性能瓶颈，这边和大家分享一下</p>
+
+<p>##MySQL对于千万级的大表要怎么优化？</p>
+
+<p>很多人第一反应是各种切分；我给的顺序是:</p>
+
+<pre><code>第一优化你的sql和索引；
+第二加缓存，memcached,redis；
+第三以上都做了后，还是慢，就做主从复制或主主复制，读写分离，可以在应用层做，效率高，也可以用三方工具，第三方工具推荐360的atlas,其它的要么效率不高，要么没人维护；
+第四如果以上都做了还是慢，不要想着去做切分，mysql自带分区表，先试试这个，对你的应用是透明的，无需更改代码,但是sql语句是需要针对分区表做优化的，sql条件中要带上分区条件的列，从而使查询定位到少量的分区上，否则就会扫描全部分区，另外分区表还有一些坑，在这里就不多说了；
+第五如果以上都做了，那就先做垂直拆分，其实就是根据你模块的耦合度，将一个大的系统分为多个小的系统，也就是分布式系统；
+第六才是水平切分，针对数据量大的表，这一步最麻烦，最能考验技术水平，要选择一个合理的sharding key,为了有好的查询效率，表结构也要改动，做一定的冗余，应用也要改，sql中尽量带sharding key，将数据定位到限定的表上去查，而不是扫描全部的表；
+</code></pre>
+
+<p>mysql数据库一般都是按照这个步骤去演化的，成本也是由低到高；</p>
+
+<p>有人也许要说第一步优化sql和索引这还用说吗？的确，大家都知道，但是这个却是很多优化中最重要的一步可以说</p>
+
+<p>但是很多情况下，这一步做的并不到位，甚至有的只做了根据sql去建索引，根本没对sql优化（中枪了没？），除了最简单的增删改查外，想实现一个查询，可以写出很多种查询语句，不同的语句，根据你选择的引擎、表中数据的分布情况、索引情况、数据库优化策略、查询中的锁策略等因素，最终查询的效率相差很大；优化要从整体去考虑，有时你优化一条语句后，其它查询反而效率被降低了，所以要取一个平衡点；即使精通mysql的话，除了纯技术面优化，还要根据业务面去优化sql语句，这样才能达到最优效果；你敢说你的sql和索引已经是最优了吗?再说一下不同引擎的优化，myisam读的效果好，写的效率差，这和它数据存储格式，索引的指针和锁的策略有关的，它的数据是顺序存储的（innodb数据存储方式是聚簇索引），他的索引btree上的节点是一个指向数据物理位置的指针，所以查找起来很快，（innodb索引节点存的则是数据的主键，所以需要根据主键二次查找）；myisam锁是表锁，只有读读之间是并发的，写写之间和读写之间（读和插入之间是可以并发的，去设置concurrent_insert参数，定期执行表优化操作，更新操作就没有办法了）是串行的，所以写起来慢，并且默认的写优先级比读优先级高，高到写操作来了后，可以马上插入到读操作前面去，如果批量写，会导致读请求饿死，所以要设置读写优先级或设置多少写操作后执行读操作的策略;myisam不要使用查询时间太长的sql，如果策略使用不当，也会导致写饿死，所以尽量去拆分查询效率低的sql,innodb一般都是行锁，这个一般指的是sql用到索引的时候，行锁是加在索引上的，不是加在数据记录上的，如果sql没有用到索引，仍然会锁定表,mysql的读写之间是可以并发的，普通的select是不需要锁的，当查询的记录遇到锁时，用的是一致性的非锁定快照读，也就是根据数据库隔离级别策略，会去读被锁定行的快照，其它更新或加锁读语句用的是当前读，读取原始行；因为普通读与写不冲突，所以innodb不会出现读写饿死的情况，又因为在使用索引的时候用的是行锁，锁的粒度小，竞争相同锁的情况就少，就增加了并发处理，所以并发读写的效率还是很优秀的，问题在于索引查询后的根据主键的二次查找导致效率低；ps:很奇怪，为什innodb的索引叶子节点存的是主键而不是像mysism一样存数据的物理地址指针吗？如果存的是物理地址指针不就不需要二次查找了吗，这也是我开始的疑惑，根据mysism和innodb数据存储方式的差异去想，你就会明白了，我就不费口舌了！所以innodb为了避免二次查找可以使用索引覆盖技术，无法使用索引覆盖的，再延伸一下就是基于索引覆盖实现延迟关联；不知道什么是索引覆盖的，建议你无论如何都要弄清楚它是怎么回事！尽你所能去优化你的sql吧！说它成本低，却又是一项费时费力的活，需要在技术与业务都熟悉的情况下，用心去优化才能做到最优，优化后的效果也是立竿见影的！</p>
+
+<p>再说3点</p>
+
+<ol>
+<li>设计合适的索引,基于主键的查找,上亿数据也是很快的;</li>
+<li>反范式化设计,以空间换时间,避免join,有些join操作可以在用代码实现,没必要用数据库来实现;</li>
+<li>buffer,尽量让内存大于数据.</li>
+</ol>
+
+<hr />
+
+<p>MySQL处理达到百万级数据时，如何优化？</p>
+
+<p>1.两种查询引擎查询速度（myIsam 引擎  ）</p>
+
+<pre><code>InnoDB 中不保存表的具体行数，也就是说，执行select count(*) from table时，InnoDB要扫描一遍整个表来计算有多少行。
+MyISAM只要简单的读出保存好的行数即可。
+注意的是，当count(*)语句包含 where条件时，两种表的操作有些不同，InnoDB类型的表用count(*)或者count(主键)，加上where col 条件。其中col列是表的主键之外的其他具有唯一约束索引的列。这样查询时速度会很快。就是可以避免全表扫描。
+总结：
+    mysql 在300万条数据（myisam引擎）情况下使用 count(*) 进行数据总数查询包含条件（正确设置索引）运行时间正常。对于经常进行读取的数据我们建议使用myIsam引擎。
+</code></pre>
+
+<p>2.百万数据下mysql分页问题</p>
+
+<pre><code>在开发过程中我们经常会使用分页，核心技术是使用limit进行数据的读取，在使用limit进行分页的测试过程中，得到以下数据：
+    select * from news order by id desc limit 0,10
+    耗时0.003秒
+    select * from news order by id desc limit 10000,10
+    耗时0.058秒
+    select * from news order by id desc limit 100000,10 
+    耗时0.575秒
+    select * from news order by id desc limit 1000000,10
+    耗时7.28秒
+我们惊讶的发现mysql在数据量大的情况下分页起点越大查询速度越慢，100万条起的查询速度已经需要7秒钟。这是一个我们无法接受的数值！
+改进方案 1
+    select * from news 
+    where id &gt;  (select id from news order by id desc  limit 1000000, 1)
+    order by id desc 
+    limit 0,10
+查询时间 0.365秒，提升效率是非常明显的！！原理是什么呢？？？
+我们使用条件对id进行了筛选，在子查询 (select id from news order by id desc limit 1000000, 1) 中我们只查询了id这一个字段比起select * 或 select 多个字段 节省了大量的查询开销！
+
+改进方案2
+适合id连续的系统，速度极快！
+    select * from news 
+    where id  between 1000000 and 1000010 
+    order by id desc
+不适合带有条件的、id不连续的查询。速度非常快！
+</code></pre>
+
+<p>3.百万数据下mysql条件查询、分页查询的注意事项</p>
+
+<pre><code>接上一节，我们加上查询条件：
+    select id from news 
+    where cate = 1
+    order by id desc 
+    limit 500000 ,10 
+    查询时间 20 秒
+好恐怖的速度！！利用第一节知识进行优化：
+    select * from news
+    where cate = 1 and id &gt; (select id from news where cate = 1 order by id desc limit 500000,1 ) 
+    order by id desc 
+    limit 0,10 
+    查询时间 15 秒
+优化效果不明显，条件带来的影响还是很大！在这样的情况下无论我们怎么去优化sql语句就无法解决运行效率问题。那么换个思路：建立一个索引表，只记录文章的id、分类信息，我们将文章内容这个大字段分割出去。
+    表 news2 [ 文章表 引擎 myisam 字符集 utf-8 ]
+    -------------------------------------------------
+    id  int 11  主键自动增加
+    cate    int 11  索引
+在写入数据时将2张表同步，查询是则可以使用news2 来进行条件查询：
+    select * from news
+    where cate = 1 and id &gt; (select id from news2 where cate = 1 order by id desc limit 500000,1 ) 
+    order by id desc 
+    limit 0,10
+注意条件 id &gt; 后面使用了news2 这张表！
+运行时间 1.23秒，我们可以看到运行时间缩减了近20倍！！数据在10万左右是查询时间可以保持在0.5秒左右，是一个逐步接近我们能够容忍的值！
+但是1秒对于服务器来说依然是一个不能接受的值！！还有什么可以优化的办法吗？？我们尝试了一个伟大的变化：
+将 news2 的存储引擎改变为innodb，执行结果是惊人的！
+    select * from news
+    where cate = 1 and id &gt; (select id from news2 where cate = 1 order by id desc limit 500000,1 ) 
+    order by id desc 
+    limit 0,10
+只需要 0.2秒，非常棒的速度。为什么会有怎么大的差别呢？请观看下一章 mysql存储引擎详解。
+</code></pre>
+
+<p>4.mysql存储引擎 myIsam和innodb的区别</p>
+
+<pre><code>MySQL有多种存储引擎，MyISAM和InnoDB是其中常用的两种。这里介绍关于这两种引擎的一些基本概念（非深入介绍）。
+    MyISAM是MySQL的默认存储引擎，基于传统的ISAM类型，支持全文搜索，但不是事务安全的，而且不支持外键。每张MyISAM表存放在三个文件中：frm 文件存放表格定义；数据文件是MYD (MYData)；索引文件是MYI (MYIndex)。
+    InnoDB是事务型引擎，支持回滚、崩溃恢复能力、多版本并发控制、ACID事务，支持行级锁定（InnoDB表的行锁不是绝对的，如果在执行一个SQL语句时MySQL不能确定要扫描的范围，InnoDB表同样会锁全表，如like操作时的SQL语句），以及提供与Oracle类型一致的不加锁读取方式。InnoDB存储它的表和索引在一个表空间中，表空间可以包含数个文件。
+核心区别
+    MyISAM是非事务安全型的，而InnoDB是事务安全型的。
+    MyISAM锁的粒度是表级，而InnoDB支持行级锁定。
+    MyISAM支持全文类型索引，而InnoDB不支持全文索引。
+    MyISAM相对简单，所以在效率上要优于InnoDB，小型应用可以考虑使用MyISAM。
+    MyISAM表是保存成文件的形式，在跨平台的数据转移中使用MyISAM存储会省去不少的麻烦。
+    InnoDB表比MyISAM表更安全，可以在保证数据不会丢失的情况下，切换非事务表到事务表（alter table tablename type=innodb）。   
+应用场景
+    MyISAM管理非事务表。它提供高速存储和检索，以及全文搜索能力。如果应用中需要执行大量的SELECT查询，那么MyISAM是更好的选择。
+    InnoDB用于事务处理应用程序，具有众多特性，包括ACID事务支持。如果应用中需要执行大量的INSERT或UPDATE操作，则应该使用InnoDB，这样可以提高多用户并发操作的性能。        
+Mysql的存储引擎和索引
+    数据库必须有索引，没有索引则检索过程变成了顺序查找，O(n)的时间复杂度几乎是不能忍受的。我们非常容易想象出一个只有单关键字组成的表如何使用B+树进行索引，只要将关键字存储到树的节点即可。当数据库一条记录里包含多个字段时，一棵B+树就只能存储主键，如果检索的是非主键字段，则主键索引失去作用，又变成顺序查找了。这时应该在第二个要检索的列上建立第二套索引。 这个索引由独立的B+树来组织。有两种常见的方法可以解决多个B+树访问同一套表数据的问题，一种叫做聚簇索引（clustered index ），一种叫做非聚簇索引（secondary index）。这两个名字虽然都叫做索引，但这并不是一种单独的索引类型，而是一种数据存储方式。对于聚簇索引存储来说，行数据和主键B+树存储在一起，辅助键B+树只存储辅助键和主键，主键和非主键B+树几乎是两种类型的树。对于非聚簇索引存储来说，主键B+树在叶子节点存储指向真正数据行的指针，而非主键。        
+    InnoDB使用的是聚簇索引，将主键组织到一棵B+树中，而行数据就储存在叶子节点上，若使用&quot;where id = 14&quot;这样的条件查找主键，则按照B+树的检索算法即可查找到对应的叶节点，之后获得行数据。若对Name列进行条件搜索，则需要两个步骤：第一步在辅助索引B+树中检索Name，到达其叶子节点获取对应的主键。第二步使用主键在主索引B+树种再执行一次B+树检索操作，最终到达叶子节点即可获取整行数据。
+    MyISM使用的是非聚簇索引，非聚簇索引的两棵B+树看上去没什么不同，节点的结构完全一致只是存储的内容不同而已，主键索引B+树的节点存储了主键，辅助键索引B+树存储了辅助键。表数据存储在独立的地方，这两颗B+树的叶子节点都使用一个地址指向真正的表数据，对于表数据来说，这两个键没有任何差别。由于索引树是独立的，通过辅助键检索无需访问主键的索引树。
+    为了更形象说明这两种索引的区别，我们假想一个表如下图存储了4行数据。其中Id作为主索引，Name作为辅助索引。图示清晰的显示了聚簇索引和非聚簇索引的差异。
+
+    我们重点关注聚簇索引，看上去聚簇索引的效率明显要低于非聚簇索引，因为每次使用辅助索引检索都要经过两次B+树查找，这不是多此一举吗？聚簇索引的优势在哪？
+</code></pre>
+
+<p>我们重点关注聚簇索引，看上去聚簇索引的效率明显要低于非聚簇索引，因为每次使用辅助索引检索都要经过两次B+树查找，这不是多此一举吗？聚簇索引的优势在哪？
+            1 由于行数据和叶子节点存储在一起，这样主键和行数据是一起被载入内存的，找到叶子节点就可以立刻将行数据返回了，如果按照主键Id来组织数据，获得数据更快。
+            2 辅助索引使用主键作为&rdquo;指针&rdquo; 而不是使用地址值作为指针的好处是，减少了当出现行移动或者数据页分裂时辅助索引的维护工作，使用主键值当作指针会让辅助索引占用更多的空间，换来的好处是InnoDB在移动行时无须更新辅助索引中的这个&rdquo;指针&rdquo;。也就是说行的位置（实现中通过16K的Page来定位，后面会涉及）会随着数据库里数据的修改而发生变化（前面的B+树节点分裂以及Page的分裂），使用聚簇索引就可以保证不管这个主键B+树的节点如何变化，辅助索引树都不受影响。
+        所以在百万级数据及更大数据情况下，mysql innoDB 的索引表现更加优秀！
+5、MySQL性能优化的一些经验</p>
+
+<pre><code>a.为查询优化你的查询
+    大多数的MySQL服务器都开启了查询缓存。这是提高性能最有效的方法之一，而且这是被MySQL的数据库引擎处理的。当有很多相同的查询被执行了多次的时候，这些查询结果会被放到一个缓存中，这样，后续的相同的查询就不用操作表而直接访问缓存结果了。
+    这里最主要的问题是，对于程序员来说，这个事情是很容易被忽略的。因为，我们某些查询语句会让MySQL不使用缓存。
+    请看下面的示例：
+        // 查询缓存不开启
+        $r = mysql_query(&quot;SELECT username FROM user WHERE     signup_date &gt;= CURDATE()&quot;);
+        // 开启查询缓存
+        $today = date(&quot;Y-m-d&quot;);
+        $r = mysql_query(&quot;SELECT username FROM user WHERE signup_date &gt;= '$today'&quot;);
+    上面两条SQL语句的差别就是 CURDATE() ，MySQL的查询缓存对这个函数不起作用。所以，像 NOW() 和 RAND() 或是其它的诸如此类的SQL函数都不会开启查询缓存，因为这些函数的返回是会不定的易变的。所以，你所需要的就是用一个变量来代替MySQL的函数，从而开启缓存。
+b.学会使用EXPLAIN
+    使用EXPLAIN关键字可以让你知道MySQL是如何处理你的SQL语句的。
+        select id, title, cate from news where cate = 1
+    发现查询缓慢，然后在cate字段上增加索引，则会加快查询
+c.当只要一行数据时使用LIMIT 1
+    当你查询表的有些时候只需要一条数据，请使用 limit 1。
+d.正确的使用索引
+    索引并不一定就是给主键或是唯一的字段。如果在你的表中，有某个字段你总要会经常用来做搜索、拍下、条件，那么，请为其建立索引吧。
+e.不要ORDER BY RAND()
+    效率很低的一种随机查询。
+f.避免SELECT *
+    从数据库里读出越多的数据，那么查询就会变得越慢。并且，如果你的数据库服务器和WEB服务器是两台独立的服务器的话，这还会增加网络传输的负载。必须应该养成一个需要什么就取什么的好的习惯。
+g.使用 ENUM 而不是 VARCHAR
+    ENUM 类型是非常快和紧凑的。在实际上，其保存的是 TINYINT，但其外表上显示为字符串。这样一来，用这个字段来做一些选项列表变得相当的完美。
+    如果你有一个字段，比如“性别”，“国家”，“民族”，“状态”或“部门”，你知道这些字段的取值是有限而且固定的，那么，你应该使用 ENUM 而不是 VARCHAR。
+h.使用 NOT NULL
+    除非你有一个很特别的原因去使用 NULL 值，你应该总是让你的字段保持 NOT NULL。这看起来好像有点争议，请往下看。
+    首先，问问你自己“Empty”和“NULL”有多大的区别（如果是INT，那就是0和NULL）？如果你觉得它们之间没有什么区别，那么你就不要使用NULL。（你知道吗？在 Oracle 里，NULL 和 Empty 的字符串是一样的！)
+    不要以为 NULL 不需要空间，其需要额外的空间，并且，在你进行比较的时候，你的程序会更复杂。 当然，这里并不是说你就不能使用NULL了，现实情况是很复杂的，依然会有些情况下，你需要使用NULL值。
+
+    下面摘自MySQL自己的文档
+        “NULL columns require additional space in the row to record whether their values are NULL. For MyISAM tables, each NULL column takes one bit extra, rounded up to the nearest byte.”
+i.IP地址存成 UNSIGNED INT
+    很多程序员都会创建一个 VARCHAR(15) 字段来存放字符串形式的IP而不是整形的IP。如果你用整形来存放，只需要4个字节，并且你可以有定长的字段。而且，这会为你带来查询上的优势，尤其是当你需要使用这样的WHERE条件：IP between ip1 and ip2。
+    我们必需要使用UNSIGNED INT，因为 IP地址会使用整个32位的无符号整形
+j.固定长度的表会更快
+    如果表中的所有字段都是“固定长度”的，整个表会被认为是 “static” 或 “fixed-length”。 例如，表中没有如下类型的字段： VARCHAR，TEXT，BLOB。只要你包括了其中一个这些字段，那么这个表就不是“固定长度静态表”了，这样，MySQL 引擎会用另一种方法来处理。
+    固定长度的表会提高性能，因为MySQL搜寻得会更快一些，因为这些固定的长度是很容易计算下一个数据的偏移量的，所以读取的自然也会很快。而如果字段不是定长的，那么，每一次要找下一条的话，需要程序找到主键。
+    并且，固定长度的表也更容易被缓存和重建。不过，唯一的副作用是，固定长度的字段会浪费一些空间，因为定长的字段无论你用不用，他都是要分配那么多的空间。
+k.垂直分割
+    “垂直分割”是一种把数据库中的表按列变成几张表的方法，这样可以降低表的复杂度和字段的数目，从而达到优化的目的。需要注意的是，这些被分出去的字段所形成的表，你不会经常性地去Join他们，不然的话，这样的性能会比不分割时还要差，而且，会是极数级的下降。
+l.拆分大的 DELETE 或 INSERT 语句
+    如果在一个在线的网站上去执行一个大的 DELETE 或 INSERT 查询，你需要非常小心，要避免你的操作让你的整个网站停止相应。因为这两个操作是会锁表的，表一锁住了，别的操作都进不来了。
+    Apache 会有很多的子进程或线程。所以，其工作起来相当有效率，而我们的服务器也不希望有太多的子进程，线程和数据库链接，这是极大的占服务器资源的事情，尤其是内存。
+    如果你把你的表锁上一段时间，比如30秒钟，那么对于一个有很高访问量的站点来说，这30秒所积累的访问进程/线程，数据库链接，打开的文件数，可能不仅仅会让你泊WEB服务Crash，还可能会让你的整台服务器马上掛了。
+m.越小的列会越快
+    对于大多数的数据库引擎来说，硬盘操作可能是最重大的瓶颈。所以，把你的数据变得紧凑会对这种情况非常有帮助，因为这减少了对硬盘的访问。
+n.选择正确的存储引擎
+    在 MySQL 中有两个存储引擎 MyISAM 和 InnoDB，每个引擎都有利有弊。
+    MyISAM 适合于一些需要大量查询的应用，但其对于有大量写操作并不是很好。甚至你只是需要update一个字段，整个表都会被锁起来，而别的进程，就算是读进程都无法操作直到读操作完成。另外，MyISAM 对于 SELECT COUNT(*) 这类的计算是超快无比的。
+    InnoDB 的趋势会是一个非常复杂的存储引擎，对于一些小的应用，它会比 MyISAM 还慢。他是它支持“行锁” ，于是在写操作比较多的时候，会更优秀。并且，他还支持更多的高级应用，比如：事务。
+</code></pre>
+
+<p>经测试对一个包含400多万条记录的表执行一条件查询，其查询时间竟然高达40几秒，相信这么高的查询延时，任何用户都会抓狂。因此如何提高sql语句查询效率，显得十分重要。以下是结合网上流传比较广泛的几个查询语句优化方法：</p>
+
+<pre><code>首先，数据量大的时候，应尽量避免全表扫描，应考虑在 where及 order by 涉及的列上建立索引，建索引可以大大加快数据的检索速度。但是，有些情况索引是不会起效的：
+</code></pre>
+
+<p>1、应尽量避免在 where子句中使用!=或&lt;&gt;操作符，否则将引擎放弃使用索引而进行全表扫描。</p>
+
+<p>2、应尽量避免在 where子句中对字段进行 null值判断，否则将导致引擎放弃使用索引而进行全表扫描，如：
+     select id from t where num is null
+     可以在num上设置默认值0，确保表中num列没有null值，然后这样查询：
+     select id from t where num=0</p>
+
+<p>3、尽量避免在 where子句中使用 or来连接条件，否则将导致引擎放弃使用索引而进行全表扫描，如：
+     select id from t where num=10 or num=20
+     可以这样查询：
+     select id from t where num=10
+     union all
+     select id from t where num=20</p>
+
+<p>4、下面的查询也将导致全表扫描：</p>
+
+<pre><code>select id from t where name like ‘%abc%’
+
+若要提高效率，可以考虑全文检索。
+</code></pre>
+
+<p>5、in和 not in也要慎用，否则会导致全表扫描，如：
+     select id from t where num in(1,2,3)
+     对于连续的数值，能用 between就不要用 in了：
+     select id from t where num between 1 and 3</p>
+
+<p>6、如果在 where子句中使用参数，也会导致全表扫描。因为SQL只有在运行时才会解析局部变量，但优化程序不能将访问计划的选择推迟到运行时；它必须在编译时进行选择。然而，如果在编译时建立访问计划，变量的值还是未知的，因而无法作为索引选择的输入项。如下面语句将进行全表扫描：
+     select id from t where num=@num
+     可以改为强制查询使用索引：
+     select id from t with(index(索引名)) where num=@num</p>
+
+<p>7、应尽量避免在 where子句中对字段进行表达式操作，这将导致引擎放弃使用索引而进行全表扫描。如：
+     select id from t where num/2=100
+     应改为:
+     select id from t where num=100*2</p>
+
+<p>8、应尽量避免在where子句中对字段进行函数操作，这将导致引擎放弃使用索引而进行全表扫描。如：
+     select id from t where substring(name,1,3)=’abc’–name以abc开头的id
+     select id from t where datediff(day,createdate,’2005-11-30′)=0–’2005-11-30′生成的id
+     应改为:
+     select id from t where name like ‘abc%’
+     select id from t where createdate&gt;=’2005-11-30′ and createdate&lt;’2005-12-1′</p>
+
+<p>9、不要在 where子句中的“=”左边进行函数、算术运算或其他表达式运算，否则系统将可能无法正确使用索引。</p>
+
+<p>10、在使用索引字段作为条件时，如果该索引是复合索引，那么必须使用到该索引中的第一个字段作为条件时才能保证系统使用该索引，否则该索引将不会被使用，并且应尽可能的让字段顺序与索引顺序相一致。</p>
+
+<p>11、不要写一些没有意义的查询，如需要生成一个空表结构：
+     select col1,col2 into #t from t where 1=0
+     这类代码不会返回任何结果集，但是会消耗系统资源的，应改成这样：
+     create table #t(…)</p>
+
+<p>12、很多时候用 exists代替 in是一个好的选择：
+     select num from a where num in(select num from b)
+     用下面的语句替换：
+     select num from a where exists(select 1 from b where num=a.num)</p>
+
+<p>建索引需要注意的地方：</p>
+
+<p>1、并不是所有索引对查询都有效，SQL是根据表中数据来进行查询优化的，当索引列有大量数据重复时，SQL查询可能不会去利用索引，如一表中有字段 sex，male、female几乎各一半，那么即使在sex上建了索引也对查询效率起不了作用。</p>
+
+<p>2、索引并不是越多越好，索引固然可以提高相应的 select的效率，但同时也降低了 insert及 update的效率，因为 insert或 update时有可能会重建索引，所以怎样建索引需要慎重考虑，视具体情况而定。一个表的索引数最好不要超过6个，若太多则应考虑一些不常使用到的列上建的索引是否有必要。</p>
+
+<p>3、应尽可能的避免更新 clustered索引数据列，因为 clustered索引数据列的顺序就是表记录的物理存储顺序，一旦该列值改变将导致整个表记录的顺序的调整，会耗费相当大的资源。若应用系统需要频繁更新 clustered索引数据列，那么需要考虑是否应将该索引建为 clustered索引。</p>
+
+<p>其他需要注意的地方：</p>
+
+<p>1、尽量使用数字型字段，若只含数值信息的字段尽量不要设计为字符型，这会降低查询和连接的性能，并会增加存储开销。这是因为引擎在处理查询和连接时会逐个比较字符串中每一个字符，而对于数字型而言只需要比较一次就够了。</p>
+
+<p>2、任何地方都不要使用 select * from t，用具体的字段列表代替“*”，不要返回用不到的任何字段。</p>
+
+<p>3、尽量使用表变量来代替临时表。如果表变量包含大量数据，请注意索引非常有限（只有主键索引）。</p>
+
+<p>4、避免频繁创建和删除临时表，以减少系统表资源的消耗。</p>
+
+<p>5、临时表并不是不可使用，适当地使用它们可以使某些例程更有效，例如，当需要重复引用大型表或常用表中的某个数据集时。但是，对于一次性事件，最好使用导出表。</p>
+
+<p>6、在新建临时表时，如果一次性插入数据量很大，那么可以使用 select into代替 create table，避免造成大量 log，以提高速度；如果数据量不大，为了缓和系统表的资源，应先create table，然后insert。</p>
+
+<p>7、如果使用到了临时表，在存储过程的最后务必将所有的临时表显式删除，先 truncate table，然后 drop table，这样可以避免系统表的较长时间锁定。</p>
+
+<p>8、尽量避免使用游标，因为游标的效率较差，如果游标操作的数据超过1万行，那么就应该考虑改写。</p>
+
+<p>9、使用基于游标的方法或临时表方法之前，应先寻找基于集的解决方案来解决问题，基于集的方法通常更有效。</p>
+
+<p>10、与临时表一样，游标并不是不可使用。对小型数据集使用 FAST_FORWARD 游标通常要优于其他逐行处理方法，尤其是在必须引用几个表才能获得所需的数据时。在结果集中包括“合计”的例程通常要比使用游标执行的速度快。如果开发时间允许，基于游标的方法和基于集的方法都可以尝试一下，看哪一种方法的效果更好。</p>
+
+<p>11、在所有的存储过程和触发器的开始处设置 SET NOCOUNT ON，在结束时设置 SET NOCOUNT OFF。无需在执行存储过程和触发器的每个语句后向客户端发送 DONE_IN_PROC消息。</p>
+
+<p>12、尽量避免向客户端返回大数据量，若数据量过大，应该考虑相应需求是否合理。</p>
+
+<p>13、尽量避免大事务操作，提高系统并发能力。</p>
+
+<p>mysql百万级的qps怎么处理&mdash;-MySQL 性能：使用 MySQL 5.7 实现每秒 50 万查询&mdash;这边说的是极限情况下的mysql查询速度（正常本身能支持百万级的qps），可以实现的情况下，才有我们怎么将我们的业务数据缩小的我们的这种极限情况。</p>
+
+<p>读写分离</p>
+
+<p>分布式集群</p>
+
+<p>并发连接数max_connections</p>
+
+<p>缓存数据库</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/database/mysql/mysql-performance-optimization/">https://kingjcy.github.io/post/database/mysql/mysql-performance-optimization/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/mysql/">
+                            <i class="fa fa-tags"></i>
+                            mysql
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/performance/">
+                            <i class="fa fa-tags"></i>
+                            Performance
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/database/mysql/mysql/">mysql系列---- Mysql入门</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月17日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/mysqld-exporter/">Mysqld Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月09日)</span></li><li id="li-rels"><a href="/post/database/mysql/redis-mysql/">mysql系列---- 前置缓存redis</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年01月22日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/prometheus/exporter/node-exporter/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/database/postgresql/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

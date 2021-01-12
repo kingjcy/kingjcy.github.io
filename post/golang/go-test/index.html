@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="go语言的单元测试采用内置的测试框架,通过引入testing包以及go test来提供测试功能。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Golang基础包系列---Test - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Golang基础包系列---Test
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年03月22日 
+                </div>
+                <h1 class="post-title">Golang基础包系列---Test</h1>
+            </header>
+
+            <div class="post-content">
+                <p>go语言的单元测试采用内置的测试框架,通过引入testing包以及go test来提供测试功能。</p>
+
+<h1 id="软件测试">软件测试</h1>
+
+<p>先了解一下软件测试</p>
+
+<ul>
+<li>单元测试</li>
+<li>集成测试</li>
+<li>系统测试</li>
+<li>验收测试</li>
+</ul>
+
+<p>一、单元测试</p>
+
+<p>单元测试是对软件中的最小可验证单元进行检查和验证。比如方法函数的测试。</p>
+
+<p>测试原则</p>
+
+<pre><code>1、尽可能保证测试用例相互独立（测试用例中不能直接调用其他类的方法，而应在测试用例中重写模拟方法）；
+2、此阶段一般由软件的开发人员来实施，用以检验所开发的代码功能符合自己的设计要求。
+</code></pre>
+
+<p>单元测试的好处</p>
+
+<pre><code>1、尽早的发现缺陷；
+2、利于重构；
+3、简化集成；
+4、文档；
+5、用于设计。
+</code></pre>
+
+<p>单元测试的不足</p>
+
+<pre><code>1、不可能覆盖所有的执行路径，所以不可能保证捕捉到所有路径的错误；
+2、每行代码需要3~5行代码进行单元测试，存在投入与产出的平衡。
+</code></pre>
+
+<p>二、集成测试</p>
+
+<p>集成测试是在单元测试的基础上，把软件单元按照软件概要设计规格说明的规格要求，组装成模块、子系统或系统的过程中各部分工作是否达到或实现相应技术指标及要求。</p>
+
+<p>集成测试包括BigBang、自顶向下、自底向上、核心系统集成、高频集成。</p>
+
+<p>三、系统测试</p>
+
+<p>将经过集成测试的软件，作为计算机系统的一部分，与系统中其他部分结合起来，在实际运行环境下进行一系列严格有效的测试，以发现软件潜在的问题，保证系统的正常运行。</p>
+
+<p>集成测试和系统测试之间的比较</p>
+
+<pre><code>1、测试内容：集成测试是测试各个单元模块之间的接口，系统测试是测试整个系统的功能和性能；
+2、测试角度：集成测试偏重于技术的角度进行测试，系统测试是偏重于业务的角度进行测试。
+</code></pre>
+
+<p>四、验收测试</p>
+
+<p>也称交付测试，是针对用户需求、业务流程进行的正式的测试，以确定系统是否满足验收标准，由用户、客户或其他授权机构决定是否接受系统。</p>
+
+<p>验收测试包括alpha测试和beta测试，alpha测试是由开发者进行的软件测试，beta测试是由用户在脱离开发环境下进行的软件测试。</p>
+
+<h1 id="go-test-的使用">go test 的使用</h1>
+
+<h2 id="单元测试">单元测试</h2>
+
+<p>在源代码包目录内，所有以_test.go为后缀名的源文件被go test认定为测试文件，这些文件不包含在go build的代码构建中,而是单独通过 go test来编译，执行。
+前置条件：</p>
+
+<pre><code>1、文件名须以&quot;_test.go&quot;结尾
+
+2、每个测试函数必须导入testing包,方法名须以&quot;Test&quot;打头，Test后面的函数名必须是大写开头，并且形参为 (t *testing.T)
+</code></pre>
+
+<p>当运行go test命令时，go test会遍历所有的*_test.go中符合上述命名规则的函数，然后生成一个临时的main包用于调用相应的测试函数，然后构建并运行、报告测试结果，最后清理测试中生成的临时文件。</p>
+
+<h3 id="情景">情景</h3>
+
+<p>1、测试单个文件，一定要带上被测试的原文件</p>
+
+<pre><code>go test -v  wechat_test.go wechat.go
+-v是显示出详细的测试结果, -cover 显示出执行的测试用例的测试覆盖率。如下
+go test -v -cover=true ./src/utils/slice_test.go ./src/utils/slice.go
+</code></pre>
+
+<p>2、测试单个方法</p>
+
+<pre><code>go test -v wechat_test.go -test.run TestRefreshAccessToken
+</code></pre>
+
+<p>3、当测试整个utils包时，使用命令:</p>
+
+<pre><code>go test -v -cover=true ./src/utils/...
+</code></pre>
+
+<p>4、当测试整个utils包的单个测试用例时，使用命令:</p>
+
+<pre><code>#./src/utils为包utils的路径
+go test -v -cover=true ./src/utils -run TestSuccessStringInSlice
+</code></pre>
+
+<h3 id="工具">工具</h3>
+
+<p>自动生成测试用例的工具gotests，如果有需要使用可以自己了解一下</p>
+
+<h2 id="基准测试">基准测试</h2>
+
+<p>基准测试，是一种测试代码性能的方法，比如你有多种不同的方案，都可以解决问题，那么到底是那种方案性能更好呢？这时候基准测试就派上用场了。</p>
+
+<p>基准测试主要是通过测试CPU和内存的效率问题，来评估被测试代码的性能，进而找到更好的解决方案。比如链接池的数量不是越多越好，那么哪个值才是最优值呢，这就需要配合基准测试不断调优了。</p>
+
+<p>如何编写基准测试</p>
+
+<p>基准测试代码的编写和单元测试非常相似，它也有一定的规则，我们先看一个示例。</p>
+
+<pre><code>itoa_test.go
+
+func BenchmarkSprintf(b *testing.B){
+    num:=10
+    b.ResetTimer()
+    for i:=0;i&lt;b.N;i++{
+        fmt.Sprintf(&quot;%d&quot;,num)
+    }
+}
+</code></pre>
+
+<p>这是一个基准测试的例子，从中我们可以看出以下规则：</p>
+
+<ul>
+<li>基准测试的代码文件必须以_test.go结尾</li>
+<li>基准测试的函数必须以Benchmark开头，必须是可导出的</li>
+<li>基准测试函数必须接受一个指向Benchmark类型的指针作为唯一参数</li>
+<li>基准测试函数不能有返回值</li>
+<li>b.ResetTimer是重置计时器，这样可以避免for循环之前的初始化代码的干扰</li>
+<li>最后的for循环很重要，被测试的代码要放到循环里</li>
+<li>b.N是基准测试框架提供的，表示循环的次数，因为需要反复调用测试的代码，才可以评估性能</li>
+</ul>
+
+<p>下面我们运行下基准测试，看看效果。</p>
+
+<pre><code>➜  hello go test -bench=. -run=none
+BenchmarkSprintf-8      20000000               117 ns/op
+PASS
+ok      flysnow.org/hello       2.474s
+</code></pre>
+
+<p>运行基准测试也要使用go test命令，不过我们要加上-bench=标记，它接受一个表达式作为参数，匹配基准测试的函数，.表示运行所有基准测试。</p>
+
+<p>因为默认情况下 go test 会运行单元测试，为了防止单元测试的输出影响我们查看基准测试的结果，可以使用-run=匹配一个从来没有的单元测试方法，过滤掉单元测试的输出，我们这里使用none，因为我们基本上不会创建这个名字的单元测试方法。</p>
+
+<p>下面着重解释下说出的结果，</p>
+
+<pre><code>函数后面的-8了吗？这个表示运行时对应的GOMAXPROCS的值。接着的20000000表示运行for循环的次数，也就是调用被测试代码的次数，最后的117 ns/op表示每次需要话费117纳秒。
+
+Benchmarkxxx-4 格式为基准测试函数名-GOMAXPROCS，后面的-4代表测试函数运行时对应的CPU核数
+1 表示执行的次数
+xx ns/op 表示每次的执行时间
+xx B/op 表示每次执行分配的总字节数（内存消耗）
+xx allocs/op 表示每次执行发生了多少次内存分配
+</code></pre>
+
+<p>以上是测试时间默认是1秒，也就是1秒的时间，调用两千万次，每次调用花费117纳秒。如果想让测试运行的时间更长，可以通过-benchtime指定，比如3秒。</p>
+
+<pre><code>➜  hello go test -bench=. -benchtime=3s -run=none
+BenchmarkSprintf-8      50000000               109 ns/op
+PASS
+ok      flysnow.org/hello       5.628s
+</code></pre>
+
+<p>可以发现，我们加长了测试时间，测试的次数变多了，但是最终的性能结果：每次执行的时间，并没有太大变化。一般来说这个值最好不要超过3秒，意义不大。</p>
+
+<p>性能对比</p>
+
+<p>上面那个基准测试的例子，其实是一个int类型转为string类型的例子，标准库里还有几种方法，我们看下哪种性能更加。</p>
+
+<pre><code>func BenchmarkSprintf(b *testing.B){
+    num:=10
+    b.ResetTimer()
+    for i:=0;i&lt;b.N;i++{
+        fmt.Sprintf(&quot;%d&quot;,num)
+    }
+}
+
+func BenchmarkFormat(b *testing.B){
+    num:=int64(10)
+    b.ResetTimer()
+    for i:=0;i&lt;b.N;i++{
+        strconv.FormatInt(num,10)
+    }
+}
+
+func BenchmarkItoa(b *testing.B){
+    num:=10
+    b.ResetTimer()
+    for i:=0;i&lt;b.N;i++{
+        strconv.Itoa(num)
+    }
+}
+</code></pre>
+
+<p>运行基准测试，看看结果</p>
+
+<pre><code>➜  hello go test -bench=. -run=none              
+BenchmarkSprintf-8      20000000               117 ns/op
+BenchmarkFormat-8       50000000                33.3 ns/op
+BenchmarkItoa-8         50000000                34.9 ns/op
+PASS
+ok      flysnow.org/hello       5.951s
+</code></pre>
+
+<p>从结果上看strconv.FormatInt函数是最快的，其次是strconv.Itoa，然后是fmt.Sprintf最慢，前两个函数性能达到了最后一个的3倍多。那么最后一个为什么这么慢的，我们再通过-benchmem找到根本原因。</p>
+
+<pre><code>➜  hello go test -bench=. -benchmem -run=none
+BenchmarkSprintf-8      20000000               110 ns/op              16 B/op          2 allocs/op
+BenchmarkFormat-8       50000000                31.0 ns/op             2 B/op          1 allocs/op
+BenchmarkItoa-8         50000000                33.1 ns/op             2 B/op          1 allocs/op
+PASS
+ok      flysnow.org/hello       5.610s
+</code></pre>
+
+<p>-benchmem可以提供每次操作分配内存的次数，以及每次操作分配的字节数。从结果我们可以看到，性能高的两个函数，每次操作都是进行1次内存分配，而最慢的那个要分配2次；性能高的每次操作分配2个字节内存，而慢的那个函数每次需要分配16字节的内存。从这个数据我们就知道它为什么这么慢了，内存分配都占用都太高。</p>
+
+<p>在代码开发中，对于我们要求性能的地方，编写基准测试非常重要，这有助于我们开发出性能更好的代码。不过性能、可用性、复用性等也要有一个相对的取舍，不能为了追求性能而过度优化。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-test/">https://kingjcy.github.io/post/golang/go-test/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/test/">
+                            <i class="fa fa-tags"></i>
+                            test
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/database/sql/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#软件测试">软件测试</a></li>
+<li><a href="#go-test-的使用">go test 的使用</a>
+<ul>
+<li><a href="#单元测试">单元测试</a>
+<ul>
+<li><a href="#情景">情景</a></li>
+<li><a href="#工具">工具</a></li>
+</ul></li>
+<li><a href="#基准测试">基准测试</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

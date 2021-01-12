@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="golang提供了两个标准库用来处理模板text/template和html/template">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="golang使用系列---- Go Template - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    golang使用系列---- Go Template
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年11月12日 
+                </div>
+                <h1 class="post-title">golang使用系列---- Go Template</h1>
+            </header>
+
+            <div class="post-content">
+                <p>golang提供了两个标准库用来处理模板text/template和html/template</p>
+
+<p>前后端分离的Restful架构大行其道，传统的模板技术已经不多见了。实际上只是渲染的地方由后端转移到了前端，模板的渲染技术本质上还是一样的。简而言之就是字串模板和数据的结合。</p>
+
+<p>何为template呢？golang里面的template不要认为和go的语法有什么关系，如果你那样觉得，那你就是too young too simple；template与go的语法其实一点关系也没有，甚至是完全不同的两种编程风格。template就是将我们需求中的那部分固定不变的内容使用写template，然后利用第三方的工具来生成</p>
+
+<h1 id="实例">实例</h1>
+
+<p>我们先关注以下模版的语法</p>
+
+<p>以一个例子开始，<strong>也是我们正常使用template的方法，包括html和text。</strong></p>
+
+<p>以下为test.html文件的内容，里面使用了一个template语法{{.}}。</p>
+
+<pre><code>&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+    &lt;head&gt;
+        &lt;meta http-equiv=&quot;Content-Type&quot; content=&quot;text/html; charset=utf-8&quot;&gt;
+        &lt;title&gt;Go Web&lt;/title&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        {{ . }}
+    &lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+
+<p>以下是test.html同目录下的一个go web程序：</p>
+
+<pre><code>package main
+
+import (
+    &quot;html/template&quot;
+    &quot;net/http&quot;
+)
+
+func tmpl(w http.ResponseWriter, r *http.Request) {
+    t1, err := template.ParseFiles(&quot;test.html&quot;)
+    if err != nil {
+        panic(err)
+    }
+    t1.Execute(w, &quot;hello world&quot;)
+}
+
+func main() {
+    server := http.Server{
+        Addr: &quot;127.0.0.1:8080&quot;,
+    }
+    http.HandleFunc(&quot;/tmpl&quot;, tmpl)
+    server.ListenAndServe()
+}
+</code></pre>
+
+<p>前面的html文件中使用了一个template的语法{{.}}，这部分是需要通过go的template引擎进行解析，然后替换成对应的内容。</p>
+
+<p>在go程序中，handler函数中使用template.ParseFiles(&ldquo;test.html&rdquo;)，它会自动创建一个模板(关联到变量t1上)，并解析一个或多个文本文件(不仅仅是html文件)，解析之后就可以使用Execute(w,&ldquo;hello world&rdquo;)去执行解析后的模板对象，执行过程是合并、替换的过程。例如上面的{{.}}中的.会替换成当前对象&rdquo;hello world&rdquo;，并和其它纯字符串内容进行合并，最后写入w中，也就是发送到浏览器&rdquo;hello world&rdquo;。</p>
+
+<p>这边先不解释这些template包的函数、方法以及更底层的理论知识，先解释template的语法：</p>
+
+<h1 id="语法">语法</h1>
+
+<blockquote>
+<p>关于点&rdquo;.&ldquo;和作用域</p>
+</blockquote>
+
+<p>在写template的时候，会经常用到&rdquo;.&ldquo;。比如{{.}}、{{len .}}、{{.Name}}、{{$x.Name}}等等。</p>
+
+<p>在template中，点&rdquo;.&ldquo;代表当前作用域的当前对象。它类似于java/c++的this关键字，类似于perl/python的self。如果了解perl，它更可以简单地理解为默认变量$_。</p>
+
+<p>例如，前面示例test.html中{{.}}，这个点是顶级作用域范围内的，它代表Execute(w,&ldquo;hello worold&rdquo;)的第二个参数&rdquo;hello world&rdquo;。也就是说它代表这个字符串对象。</p>
+
+<p>再例如，有一个Person struct。</p>
+
+<pre><code>type Person struct {
+    Name string
+    Age  int
+}
+
+func main(){
+    p := Person{&quot;longshuai&quot;,23}
+    tmpl, _ := template.New(&quot;test&quot;).Parse(&quot;Name: {{.Name}}, Age: {{.Age}}&quot;)
+    _ = tmpl.Execute(os.Stdout, p)
+}
+</code></pre>
+
+<p>这里{{.Name}}和{{.Age}}中的点&rdquo;.&ldquo;代表的是顶级作用域的对象p，所以Execute()方法执行的时候，会将{{.Name}}替换成p.Name，同理{{.Age}}替换成p.Age。</p>
+
+<p>但是并非只有一个顶级作用域，range、with、if等内置action都有自己的本地作用域。它们的用法后文解释，这里仅引入它们的作用域来解释&rdquo;.&ldquo;。</p>
+
+<p>例如下面的例子，如果看不懂也没关系，只要从中理解&rdquo;.&ldquo;即可。</p>
+
+<pre><code>package main
+
+import (
+    &quot;os&quot;
+    &quot;text/template&quot;
+)
+
+type Friend struct {
+    Fname string
+}
+type Person struct {
+    UserName string
+    Emails   []string
+    Friends  []*Friend
+}
+
+func main() {
+    f1 := Friend{Fname: &quot;xiaofang&quot;}
+    f2 := Friend{Fname: &quot;wugui&quot;}
+    t := template.New(&quot;test&quot;)
+    t = template.Must(t.Parse(
+        `hello {{.UserName}}!
+        {{ range .Emails }}
+        an email {{ . }}
+        {{- end }}
+        {{ with .Friends }}
+        {{- range . }}
+        my friend name is {{.Fname}}
+        {{- end }}
+        {{ end }}`))
+    p := Person{UserName: &quot;longshuai&quot;,
+        Emails:  []string{&quot;a1@qq.com&quot;, &quot;a2@gmail.com&quot;},
+        Friends: []*Friend{&amp;f1, &amp;f2}}
+    t.Execute(os.Stdout, p)
+}
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>hello longshuai!
+
+an email a1@qq.com
+an email a2@gmail.com
+
+my friend name is xiaofang
+my friend name is wugui
+</code></pre>
+
+<p>这里定义了一个Person结构，它有两个slice结构的字段。在Parse()方法中：</p>
+
+<p>顶级作用域的{{.UserName}}、{{.Emails}}、{{.Friends}}中的点都代表Execute()的第二个参数，也就是Person对象p，它们在执行的时候会分别被替换成p.UserName、p.Emails、p.Friends。
+因为Emails和Friend字段都是可迭代的，在{{range .Emails}}&hellip;{{end}}这一段结构内部an email {{.}}，这个&rdquo;.&ldquo;代表的是range迭代时的每个元素对象，也就是p.Emails这个slice中的每个元素。
+同理，with结构内部{{range .}}的&rdquo;.&ldquo;代表的是p.Friends，也就是各个，再此range中又有一层迭代，此内层{{.Fname}}的点代表Friend结构的实例，分别是&amp;f1和&amp;f2，所以{{.Fname}}代表实例对象的Fname字段。</p>
+
+<p>变量首字母必须大写</p>
+
+<blockquote>
+<p>去除空白</p>
+</blockquote>
+
+<p>template引擎在进行替换的时候，是完全按照文本格式进行替换的。除了需要评估和替换的地方，所有的行分隔符、空格等等空白都原样保留。所以，对于要解析的内容，不要随意缩进、随意换行。</p>
+
+<p>可以在{{符号的后面加上短横线并保留一个或多个空格&rdquo;- &ldquo;来去除它前面的空白(包括换行符、制表符、空格等)，即{{- xxxx。</p>
+
+<p>在}}的前面加上一个或多个空格以及一个短横线&rdquo;-&ldquo;来去除它后面的空白，即xxxx -}}。</p>
+
+<pre><code>例如：
+
+
+{{23}} &lt; {{45}}        -&gt; 23 &lt; 45
+{{23}} &lt; {{- 45}}      -&gt;  23 &lt;45
+{{23 -}} &lt; {{45}}      -&gt;  23&lt; 45
+{{23 -}} &lt; {{- 45}}    -&gt;  23&lt;45
+</code></pre>
+
+<p>其中{{23 -}}中的短横线去除了这个替换结构后面的空格，即}} &lt;中间的空白。同理{{- 45}}的短横线去除了&lt; {{中间的空白。</p>
+
+<p>再看上一节的例子中：</p>
+
+<pre><code>t.Parse(
+`hello {{.UserName}}!
+{{ range .Emails }}
+an email {{ . }}
+{{- end }}
+{{ with .Friends }}
+{{- range . }}
+my friend name is {{.Fname}}
+{{- end }}
+{{ end }}`)
+</code></pre>
+
+<p>注意，上面没有进行缩进。因为缩进的制表符或空格在替换的时候会保留。</p>
+
+<p>第一行和第二行之间输出时会换行输出，不仅如此，range {{.Emails}}自身也占一行，在替换的时候它会被保留为空行。除非range前面没加{{-。由于range的{{- end加上了去除前缀空白，所以每次迭代的时候，每个元素之间都换行输出但却不多一空行，如果这里的end去掉{{-，则每个迭代的元素之间输出的时候都会有空行。同理后面的with和range。</p>
+
+<blockquote>
+<p>注释</p>
+</blockquote>
+
+<p>注释方式：{{/* a comment */}}。</p>
+
+<p>注释后的内容不会被引擎进行替换。但需要注意，注释行在替换的时候也会占用行，所以应该去除前缀和后缀空白，否则会多一空行。</p>
+
+<pre><code>{{- /* a comment without prefix/suffix space */}}
+{{/* a comment without prefix/suffix space */ -}}
+{{- /* a comment without prefix/suffix space */ -}}
+</code></pre>
+
+<p>注意，应该只去除前缀或后缀空白，不要同时都去除，否则会破坏原有的格式。例如：</p>
+
+<pre><code>t.Parse(
+`hello {{.UserName}}!
+{{- /* this line is a comment */}}
+{{ range .Emails }}
+an email {{ . }}
+{{- end }}
+</code></pre>
+
+<blockquote>
+<p>管道pipeline</p>
+</blockquote>
+
+<p>pipeline是指产生数据的操作。比如{{.}}、{{.Name}}、funcname args等。</p>
+
+<p>可以使用管道符号|链接多个命令，用法和unix下的管道类似：|前面的命令将运算结果(或返回值)传递给后一个命令的最后一个位置。</p>
+
+<p>例如：</p>
+
+<pre><code>{{.}} | printf &quot;%s\n&quot; &quot;abcd&quot;
+</code></pre>
+
+<p>{{.}}的结果将传递给printf，且传递的参数位置是&rdquo;abcd&rdquo;之后。</p>
+
+<p>命令可以有超过1个的返回值，这时第二个返回值必须为err类型。</p>
+
+<p>需要注意的是，并非只有使用了|才是pipeline。Go template中，pipeline的概念是传递数据，只要能产生数据的，都是pipeline。这使得某些操作可以作为另一些操作内部的表达式先运行得到结果，就像是Unix下的命令替换一样。</p>
+
+<p>例如，下面的(len &ldquo;output&rdquo;)是pipeline，它整体先运行。</p>
+
+<pre><code>{{println (len &quot;output&quot;)}}
+</code></pre>
+
+<p>下面是Pipeline的几种示例，它们都输出&rdquo;output&rdquo;：</p>
+
+<pre><code>{{`&quot;output&quot;`}}
+{{printf &quot;%q&quot; &quot;output&quot;}}
+{{&quot;output&quot; | printf &quot;%q&quot;}}
+{{printf &quot;%q&quot; (print &quot;out&quot; &quot;put&quot;)}}
+{{&quot;put&quot; | printf &quot;%s%s&quot; &quot;out&quot; | printf &quot;%q&quot;}}
+{{&quot;output&quot; | printf &quot;%s&quot; | printf &quot;%q&quot;}}
+</code></pre>
+
+<blockquote>
+<p>变量</p>
+</blockquote>
+
+<p>可以在template中定义变量：</p>
+
+<pre><code>// 未定义过的变量
+$var := pipeline
+
+// 已定义过的变量
+$var = pipeline
+</code></pre>
+
+<p>例如：</p>
+
+<pre><code>{{- $how_long :=(len &quot;output&quot;)}}
+{{- println $how_long}}   // 输出6
+</code></pre>
+
+<p>再例如：</p>
+
+<pre><code>tx := template.Must(template0.New(&quot;hh&quot;).Parse(
+`{{range $x := . -}}
+{{$y := 333}}
+{{- if (gt $x 33)}}{{println $x $y ($z := 444)}}{{- end}}
+{{- end}}
+`))
+s := []int{11, 22, 33, 44, 55}
+_ = tx.Execute(os.Stdout, s)
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>1
+2
+44 333 444
+55 333 444
+</code></pre>
+
+<p>上面的示例中，使用range迭代slice，每个元素都被赋值给变量$x，每次迭代过程中，都新设置一个变量$y，在内层嵌套的if结构中，可以使用这个两个外层的变量。在if的条件表达式中，使用了一个内置的比较函数gt，如果$x大于33，则为true。在println的参数中还定义了一个$z，之所以能定义，是因为($z := 444)的过程是一个Pipeline，可以先运行。</p>
+
+<p>需要注意三点：</p>
+
+<ol>
+<li>变量有作用域，只要出现end，则当前层次的作用域结束。内层可以访问外层变量，但外层不能访问内层变量。</li>
+<li>有一个特殊变量$，它代表模板的最顶级作用域对象(通俗地理解，是以模板为全局作用域的全局变量)，在Execute()执行的时候进行赋值，且一直不变。例如上面的示例中，$ = [11 22 33 44 55]。再例如，define定义了一个模板t1，则t1中的$作用域只属于这个t1。</li>
+<li>变量不可在模板之间继承。普通变量可能比较容易理解，但对于特殊变量&rdquo;.&ldquo;和&rdquo;$&ldquo;，比较容易搞混。见下面的例子。</li>
+</ol>
+
+<p>例如：</p>
+
+<pre><code>func main() {
+    t1 := template.New(&quot;test1&quot;)
+    tmpl, _ := t1.Parse(
+`
+{{- define &quot;T1&quot;}}ONE {{println .}}{{end}}
+{{- define &quot;T2&quot;}}{{template &quot;T1&quot; $}}{{end}}
+{{- template &quot;T2&quot; . -}}
+`)
+    _ = tmpl.Execute(os.Stdout, &quot;hello world&quot;)
+}
+</code></pre>
+
+<p>上面使用define额外定义了T1和T2两个模板，T2中嵌套了T1。{{template &ldquo;T2&rdquo; .}}的点代表顶级作用域的&rdquo;hello world&rdquo;对象。在T2中使用了特殊变量$，这个$的范围是T2的，不会继承顶级作用域&rdquo;hello world&rdquo;。但因为执行T2的时候，传递的是&rdquo;.&ldquo;，所以这里的$的值仍然是&rdquo;hello world&rdquo;。</p>
+
+<p>不仅$不会在模板之间继承，.也不会在模板之间继承(其它所有变量都不会继承)。实际上，template可以看作是一个函数，它的执行过程是template(&ldquo;T2&rdquo;,.)。如果把上面的$换成&rdquo;.&ldquo;，结果是一样的。如果换成{{template &ldquo;T2&rdquo;}}，则$=nil</p>
+
+<blockquote>
+<p>条件判断</p>
+</blockquote>
+
+<p>有以下几种if条件判断语句，其中第三和第四是等价的。</p>
+
+<pre><code>{{if pipeline}} T1 {{end}}
+{{if pipeline}} T1 {{else}} T0 {{end}}
+{{if pipeline}} T1 {{else if pipeline}} T0 {{end}}
+{{if pipeline}} T1 {{else}}{{if pipeline}} T0 {{end}}{{end}}
+</code></pre>
+
+<p>需要注意的是，pipeline为false的情况是各种数据对象的0值：数值0，指针或接口是nil，数组、slice、map或string则是len为0。</p>
+
+<blockquote>
+<p>range&hellip;end迭代</p>
+</blockquote>
+
+<p>有两种迭代表达式类型：</p>
+
+<pre><code>{{range pipeline}} T1 {{end}}
+{{range pipeline}} T1 {{else}} T0 {{end}}
+</code></pre>
+
+<p>range可以迭代slice、数组、map或channel。迭代的时候，会设置&rdquo;.&ldquo;为当前正在迭代的元素。</p>
+
+<p>对于第一个表达式，当迭代对象的值为0值时，则range直接跳过，就像if一样。对于第二个表达式，则在迭代到0值时执行else语句。</p>
+
+<pre><code>tx := template.Must(template.New(&quot;hh&quot;).Parse(
+`{{range $x := . -}}
+{{println $x}}
+{{- end}}
+`))
+s := []int{11, 22, 33, 44, 55}
+_ = tx.Execute(os.Stdout, s)
+</code></pre>
+
+<p>需注意的是，range的参数部分是pipeline，所以在迭代的过程中是可以进行赋值的。但有两种赋值情况：</p>
+
+<pre><code>{{range $value := .}}
+{{range $key,$value := .}}
+</code></pre>
+
+<p>如果range中只赋值给一个变量，则这个变量是当前正在迭代元素的值。如果赋值给两个变量，则第一个变量是索引值(map/slice是数值，map是key)，第二个变量是当前正在迭代元素的值。</p>
+
+<p>下面是在html中使用range的一个示例。test.html文件内容如下：</p>
+
+<pre><code>&lt;html&gt;
+    &lt;head&gt;
+        &lt;meta http-equiv=&quot;Content-Type&quot; content=&quot;text/html; charset=utf-8&quot;&gt;
+        &lt;title&gt;Go Web&lt;/title&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;ul&gt;
+            {{ range . }}
+                &lt;li&gt;{{ . }}&lt;/li&gt;
+            {{ else }}
+                &lt;li&gt; Nothing to show &lt;/li&gt;
+            {{ end}}
+        &lt;/ul&gt;
+    &lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+
+<p>以下是test.html同目录下的go程序文件：</p>
+
+<pre><code>package main
+
+import (
+    &quot;html/template&quot;
+    &quot;net/http&quot;
+)
+
+func main() {
+    server := http.Server{
+        Addr: &quot;127.0.0.1:8080&quot;,
+    }
+    http.HandleFunc(&quot;/process&quot;, process)
+    server.ListenAndServe()
+}
+
+func process(w http.ResponseWriter, r *http.Request) {
+    t1 := template.Must(template.ParseFiles(&quot;test.html&quot;))
+    s := []string{
+        &quot;星期一&quot;,
+        &quot;星期二&quot;,
+        &quot;星期三&quot;,
+        &quot;星期四&quot;,
+        &quot;星期五&quot;,
+        &quot;星期六&quot;,
+        &quot;星期日&quot;,}
+    t1.Execute(w, s)
+}
+</code></pre>
+
+<blockquote>
+<p>with&hellip;end</p>
+</blockquote>
+
+<p>with用来设置&rdquo;.&ldquo;的值。两种格式：</p>
+
+<pre><code>{{with pipeline}} T1 {{end}}
+{{with pipeline}} T1 {{else}} T0 {{end}}
+</code></pre>
+
+<p>对于第一种格式，当pipeline不为0值的时候，点&rdquo;.&ldquo;设置为pipeline运算的值，否则跳过。对于第二种格式，当pipeline为0值时，执行else语句块，否则&rdquo;.&ldquo;设置为pipeline运算的值，并执行T1。</p>
+
+<p>例如：</p>
+
+<pre><code>{{with &quot;xx&quot;}}{{println .}}{{end}}
+</code></pre>
+
+<p>上面将输出xx，因为&rdquo;.&ldquo;已经设置为&rdquo;xx&rdquo;。</p>
+
+<ol>
+<li>内置函数和自定义函数</li>
+</ol>
+
+<p>template定义了一些内置函数，也支持自定义函数。</p>
+
+<p>以下是内置的函数列表：</p>
+
+<pre><code>and
+    返回第一个为空的参数或最后一个参数。可以有任意多个参数。
+    and x y等价于if x then y else x
+
+not
+    布尔取反。只能一个参数。
+
+or
+    返回第一个不为空的参数或最后一个参数。可以有任意多个参数。
+    &quot;or x y&quot;等价于&quot;if x then x else y&quot;。
+
+print
+printf
+println
+    分别等价于fmt包中的Sprint、Sprintf、Sprintln
+
+len
+    返回参数的length。
+
+index
+    对可索引对象进行索引取值。第一个参数是索引对象，后面的参数是索引位。
+    &quot;index x 1 2 3&quot;代表的是x[1][2][3]。
+    可索引对象包括map、slice、array。
+
+call
+    显式调用函数。第一个参数必须是函数类型，且不是template中的函数，而是外部函数。
+    例如一个struct中的某个字段是func类型的。
+    &quot;call .X.Y 1 2&quot;表示调用dot.X.Y(1, 2)，Y必须是func类型，函数参数是1和2。
+    函数必须只能有一个或2个返回值，如果有第二个返回值，则必须为error类型。
+</code></pre>
+
+<p>除此之外，还内置一些用于比较的函数：</p>
+
+<pre><code>eq arg1 arg2：
+    arg1 == arg2时为true
+ne arg1 arg2：
+    arg1 != arg2时为true
+lt arg1 arg2：
+    arg1 &lt; arg2时为true
+le arg1 arg2：
+    arg1 &lt;= arg2时为true
+gt arg1 arg2：
+    arg1 &gt; arg2时为true
+ge arg1 arg2：
+    arg1 &gt;= 
+</code></pre>
+
+<p>对于eq函数，支持多个参数：</p>
+
+<pre><code>eq arg1 arg2 arg3 arg4...
+</code></pre>
+
+<p>它们都和第一个参数arg1进行比较。它等价于：</p>
+
+<pre><code>arg1==arg2 || arg1==arg3 || arg1==arg4 
+</code></pre>
+
+<p>示例：</p>
+
+<pre><code>{{ if (gt $x 33) }}{{println $x}}{{ end }}
+</code></pre>
+
+<blockquote>
+<p>嵌套template：define和template</p>
+</blockquote>
+
+<p>define可以直接在待解析内容中定义一个模板，这个模板会加入到common结构组中，并关联到关联名称上。</p>
+
+<p>定义了模板之后，可以使用template这个action来执行模板。template有两种格式：</p>
+
+<pre><code>{{template &quot;name&quot;}}
+{{template &quot;name&quot; pipeline}}
+</code></pre>
+
+<p>第一种是直接执行名为name的template，点设置为nil。第二种是点&rdquo;.&ldquo;设置为pipeline的值，并执行名为name的template。可以将template看作是函数：</p>
+
+<pre><code>template(&quot;name)
+template(&quot;name&quot;,pipeline)
+</code></pre>
+
+<p>例如：</p>
+
+<pre><code>func main() {
+    t1 := template.New(&quot;test1&quot;)
+    tmpl, _ := t1.Parse(
+`{{- define &quot;T1&quot;}}ONE {{println .}}{{end}}
+{{- define &quot;T2&quot;}}TWO {{println .}}{{end}}
+{{- define &quot;T3&quot;}}{{template &quot;T1&quot;}}{{template &quot;T2&quot; &quot;haha&quot;}}{{end}}
+{{- template &quot;T3&quot; -}}
+`)
+    _ = tmpl.Execute(os.Stdout, &quot;hello world&quot;)
+}
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>1
+2
+ONE &lt;nil&gt;
+TWO haha
+</code></pre>
+
+<p>上面定义了4个模板，一个是test1，另外三个是使用define来定义的T1、T2、T3，其中t1是test1模板的关联名称。T1、T2、T3和test1共享一个common结构。其中T3中包含了执行T1和T2的语句。最后只要{{template T3}}就可以执行T3，执行T3又会执行T1和T2。也就是实现了嵌套。此外，执行{{template &ldquo;T1&rdquo;}}时，点设置为nil，而{{temlate &ldquo;T2&rdquo; &ldquo;haha&rdquo;}}的点设置为了&rdquo;haha&rdquo;。</p>
+
+<p>注意，模板之间的变量是不会继承的。</p>
+
+<p>下面是html文件中嵌套模板的几个示例。</p>
+
+<p>t1.html文件内容如下：</p>
+
+<pre><code>&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+
+&lt;head&gt;
+    &lt;meta charset=&quot;utf-8&quot;&gt;
+    &lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=9&quot;&gt;
+    &lt;title&gt;Go Web Programming&lt;/title&gt;
+&lt;/head&gt;
+
+&lt;body&gt;
+    &lt;div&gt; This is t1.html before&lt;/div&gt;
+    &lt;div&gt;This is the value of the dot in t1.html - [{{ . }}]&lt;/div&gt;
+    &lt;hr /&gt;
+    {{ template &quot;t2.html&quot; }}
+    &lt;hr /&gt;
+    &lt;div&gt; This is t1.html after&lt;/div&gt;
+&lt;/body&gt;
+
+&lt;/html&gt;
+</code></pre>
+
+<p>因为内部有{{template &ldquo;t2.html&rdquo;}}，且此处没有使用define去定义名为&rdquo;t2.html&rdquo;的模板，所以需要加载解析名为t2.html的文件。t2.html文件内容如下：</p>
+
+<pre><code>&lt;div style=&quot;background-color: yellow;&quot;&gt;
+    This is t2.html&lt;br/&gt;
+    This is the value of the dot in t2.html - [{{ . }}]
+&lt;/div&gt;
+</code></pre>
+
+<p>处理这两个文件的handler函数如下：</p>
+
+<pre><code>func process(w http.ResponseWriter, r *http.Request) {
+    t, _ := template.ParseFiles(&quot;t1.html&quot;, &quot;t2.html&quot;)
+    t.Execute(w, &quot;Hello World!&quot;)
+}
+</code></pre>
+
+<p>上面也可以不额外定义t2.html文件，而是直接在t1.html文件中使用define定义一个模板。修改t1.html文件如下：</p>
+
+<pre><code>&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+
+&lt;head&gt;
+    &lt;meta charset=&quot;utf-8&quot;&gt;
+    &lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=9&quot;&gt;
+    &lt;title&gt;Go Web Programming&lt;/title&gt;
+&lt;/head&gt;
+
+&lt;body&gt;
+    &lt;div&gt; This is t1.html before&lt;/div&gt;
+    &lt;div&gt;This is the value of the dot in t1.html - [{{ . }}]&lt;/div&gt;
+    &lt;hr /&gt;
+    {{ template &quot;t2.html&quot; }}
+    &lt;hr /&gt;
+    &lt;div&gt; This is t1.html after&lt;/div&gt;
+&lt;/body&gt;
+
+&lt;/html&gt;
+
+{{define &quot;t2.html&quot;}}
+&lt;div style=&quot;background-color: yellow;&quot;&gt;
+    This is t2.html&lt;br/&gt;
+    This is the value of the dot in t2.html - [{{ . }}]
+&lt;/div&gt;
+{{end}}
+</code></pre>
+
+<p>然后在handler中，只需解析t1.html一个文件即可。</p>
+
+<pre><code>func process(w http.ResponseWriter, r *http.Request) {
+    t, _ := template.ParseFiles(&quot;t1.html&quot;)
+    t.Execute(w, &quot;Hello World!&quot;)
+}
+</code></pre>
+
+<blockquote>
+<p>block块</p>
+</blockquote>
+
+<pre><code>{{block &quot;name&quot; pipeline}} T1 {{end}}
+    A block is shorthand for defining a template
+        {{define &quot;name&quot;}} T1 {{end}}
+    and then executing it in place
+        {{template &quot;name&quot; pipeline}}
+    The typical use is to define a set of root templates that are
+    then customized by redefining the block templates within.
+</code></pre>
+
+<p>根据官方文档的解释：block等价于define定义一个名为name的模板，并在&rdquo;有需要&rdquo;的地方执行这个模板，执行时将&rdquo;.&ldquo;设置为pipeline的值。</p>
+
+<p>但应该注意，block的第一个动作是执行名为name的模板，如果不存在，则在此处自动定义这个模板，并执行这个临时定义的模板。换句话说，block可以认为是设置一个默认模板。</p>
+
+<p>例如：</p>
+
+<pre><code>{{block &quot;T1&quot; .}} one {{end}}
+</code></pre>
+
+<p>它首先表示{{template &ldquo;T1&rdquo; .}}，也就是说先找到T1模板，如果T1存在，则执行找到的T1，如果没找到T1，则临时定义一个{{define &ldquo;T1&rdquo;}} one {{end}}，并执行它。</p>
+
+<p>下面是正常情况下不使用block的示例。</p>
+
+<p>home.html文件内容如下：</p>
+
+<pre><code>&lt;html&gt;
+    &lt;head&gt;
+        &lt;meta http-equiv=&quot;Content-Type&quot; content=&quot;text/html; charset=utf-8&quot;&gt;
+        &lt;title&gt;Go Web Programming&lt;/title&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        {{ template &quot;content&quot; }}
+    &lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+
+<p>在此文件中指定了要执行一个名为&rdquo;content&rdquo;的模板，但此文件中没有使用define定义该模板，所以需要在其它文件中定义名为content的模板。现在分别在两个文件中定义两个content模板：</p>
+
+<p>red.html文件内容如下：</p>
+
+<pre><code>{{ define &quot;content&quot; }}
+    &lt;h1 style=&quot;color: red;&quot;&gt;Hello World!&lt;/h1&gt;
+{{ end }}
+</code></pre>
+
+<p>blue.html文件内容如下：</p>
+
+<pre><code>{{ define &quot;content&quot; }}
+    &lt;h1 style=&quot;color: blue;&quot;&gt;Hello World!&lt;/h1&gt;
+{{ end }}
+</code></pre>
+
+<p>在handler中，除了解析home.html，还根据需要解析red.html或blue.html：</p>
+
+<pre><code>func process(w http.ResponseWriter, r *http.Request) {
+    rand.Seed(time.Now().Unix())
+    t := template.New(&quot;test&quot;)
+    if rand.Intn(10) &gt; 5 {
+        t, _ = template.ParseFiles(&quot;home.html&quot;, &quot;red.html&quot;)
+    } else {
+        t, _ = template.ParseFiles(&quot;home.html&quot;, &quot;blue.html&quot;)
+    }
+    t.Execute(w,&quot;&quot;)
+}
+</code></pre>
+
+<p>如果使用block，那么可以设置默认的content模板。例如将原本定义在blue.html中的content设置为默认模板。</p>
+
+<p>修改home.html：</p>
+
+<pre><code>&lt;html&gt;
+    &lt;head&gt;
+        &lt;meta http-equiv=&quot;Content-Type&quot; content=&quot;text/html; charset=utf-8&quot;&gt;
+        &lt;title&gt;Go Web Programming&lt;/title&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        {{ block &quot;content&quot; . }}
+            &lt;h1 style=&quot;color: blue;&quot;&gt;Hello World!&lt;/h1&gt;
+        {{ end }}
+    &lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+
+<p>然后修改handler:</p>
+
+<pre><code>func process(w http.ResponseWriter, r *http.Request) {
+    rand.Seed(time.Now().Unix())
+    t := template.New(&quot;test&quot;)
+    if rand.Intn(10) &gt; 5 {
+        t, _ = template.ParseFiles(&quot;home.html&quot;, &quot;red.html&quot;)
+    } else {
+        t, _ = template.ParseFiles(&quot;home.html&quot;)
+    }
+    t.Execute(w,&quot;&quot;)
+}
+</code></pre>
+
+<p>当执行else语句块的时候，发现home.html中要执行名为content的模板，但在ParseFiles()中并没有解析包含content模板的文件。于是执行block定义的content模板。而执行非else语句的时候，因为red.html中定义了content，会直接执行red.html中的content。</p>
+
+<p>block通常设置在顶级的根文件中，例如上面的home.html中。</p>
+
+<blockquote>
+<p>html/template的上下文感知</p>
+</blockquote>
+
+<p>对于html/template包，有一个很好用的功能：上下文感知。text/template没有该功能。</p>
+
+<p>上下文感知具体指的是根据所处环境css、js、html、url的path、url的query，自动进行不同格式的转义。</p>
+
+<p>例如，一个handler函数的代码如下：</p>
+
+<pre><code>func process(w http.ResponseWriter, r *http.Request) {
+    t, _ := template.ParseFiles(&quot;test.html&quot;)
+    content := `I asked: &lt;i&gt;&quot;What's up?&quot;&lt;/i&gt;`
+    t.Execute(w, content)
+}
+</code></pre>
+
+<p>上面content是Execute的第二个参数，它的内容是包含了特殊符号的字符串。</p>
+
+<p>下面是test.html文件的内容：</p>
+
+<pre><code>&lt;html&gt;
+    &lt;head&gt;
+        &lt;meta http-equiv=&quot;Content-Type&quot; content=&quot;text/html; charset=utf-8&quot;&gt;
+        &lt;title&gt;Go Web Programming&lt;/title&gt;
+    &lt;/head&gt;
+    &lt;body&gt;
+        &lt;div&gt;{{ . }}&lt;/div&gt;
+        &lt;div&gt;&lt;a href=&quot;/{{ . }}&quot;&gt;Path&lt;/a&gt;&lt;/div&gt;
+        &lt;div&gt;&lt;a href=&quot;/?q={{ . }}&quot;&gt;Query&lt;/a&gt;&lt;/div&gt;
+        &lt;div&gt;&lt;a onclick=&quot;f('{{ . }}')&quot;&gt;Onclick&lt;/a&gt;&lt;/div&gt;
+    &lt;/body&gt;
+&lt;/html&gt;
+</code></pre>
+
+<p>上面test.html中有4个不同的环境，分别是html环境、url的path环境、url的query环境以及js环境。虽然对象都是{{.}}，但解析执行后的值是不一样的。如果使用curl获取源代码，结果将如下：</p>
+
+<pre><code>&lt;html&gt;
+
+&lt;head&gt;
+    &lt;meta http-equiv=&quot;Content-Type&quot; content=&quot;text/html; charset=utf-8&quot;&gt;
+    &lt;title&gt;Go Web Programming&lt;/title&gt;
+&lt;/head&gt;
+
+&lt;body&gt;
+    &lt;div&gt;I asked: &amp;lt;i&amp;gt;&amp;#34;What&amp;#39;s up?&amp;#34;&amp;lt;/i&amp;gt;&lt;/div&gt;
+    &lt;div&gt;
+        &lt;a href=&quot;/I%20asked:%20%3ci%3e%22What%27s%20up?%22%3c/i%3e&quot;&gt;
+            Path
+        &lt;/a&gt;
+    &lt;/div&gt;
+    &lt;div&gt;
+        &lt;a href=&quot;/?q=I%20asked%3a%20%3ci%3e%22What%27s%20up%3f%22%3c%2fi%3e&quot;&gt;
+            Query
+        &lt;/a&gt;
+    &lt;/div&gt;
+    &lt;div&gt;
+        &lt;a onclick=&quot;f('I asked: \x3ci\x3e\x22What\x27s up?\x22\x3c\/i\x3e')&quot;&gt;
+            Onclick
+        &lt;/a&gt;
+    &lt;/div&gt;
+&lt;/body&gt;
+
+&lt;/html&gt;
+</code></pre>
+
+<blockquote>
+<p>不转义</p>
+</blockquote>
+
+<p>上下文感知的自动转义能让程序更加安全，比如防止XSS攻击(例如在表单中输入带有<script>&hellip;</script>的内容并提交，会使得用户提交的这部分script被执行)。</p>
+
+<p>如果确实不想转义，可以进行类型转换。</p>
+
+<pre><code>type CSS
+type HTML
+type JS
+type URL
+</code></pre>
+
+<p>转换成指定个时候，字符都将是字面意义。</p>
+
+<p>例如：</p>
+
+<pre><code>func process(w http.ResponseWriter, r *http.Request) {
+    t, _ := template.ParseFiles(&quot;tmpl.html&quot;)
+    t.Execute(w, template.HTML(r.FormValue(&quot;comment&quot;)))
+}
+</code></pre>
+
+<h1 id="go-template">go template</h1>
+
+<p>通过上面语法的学习可以知道，golang提供了两个标准库用来处理模板text/template和html/template，分别使用来处理，html和text文本的模版函数，只是使用场景不一样，用法还是一样的。</p>
+
+<h1 id="原理">原理</h1>
+
+<p>模板引擎，则将模板和数据进行渲染的输出格式化后的字符程序。对于go，执行这个流程大概需要三步。</p>
+
+<pre><code>创建模板对象
+加载模板字串
+执行渲染模板
+</code></pre>
+
+<p>其中最后一步就是把加载的字符和数据进行格式化</p>
+
+<p>我们通过一个例子来看一下</p>
+
+<pre><code>package main
+
+import (
+    &quot;html/template&quot;
+    &quot;os&quot;
+)
+
+type Person struct {
+    Name string
+    Age    int
+}
+
+func main() {
+    p := Person{&quot;longshuai&quot;, 23}
+    tmpl, err := template.New(&quot;test&quot;).Parse(&quot;Name: {{.Name}}, Age: {{.Age}}&quot;)
+    if err != nil {
+        panic(err)
+    }
+    err = tmpl.Execute(os.Stdout, p)
+    if err != nil {
+        panic(err)
+    }
+    fmt.Println(tmpl)
+}
+</code></pre>
+
+<p>上面定义了一个Person结构，有两个大写字母开头(意味着这俩字段是导出的)的字段Name和Age。然后main()中创建了Person的实例对象p。</p>
+
+<p>紧接着使用template.New()函数创建了一个空Template实例(对象)，然后通过这个template实例调用Parse()方法，Parse()方法用来解析、评估模板中需要执行的action，其中需要评估的部分都使用{{}}包围，并将评估后(解析后)的结果赋值给tmpl。</p>
+
+<p>最后调用Execute()方法，该方法将数据对象Person的实例p应用到已经解析的tmpl模板，最后将整个应用合并后的结果输出到os.Stdout。</p>
+
+<p>上面的示例很简单，两个注意点：</p>
+
+<pre><code>流程：构建模板对象New()--&gt;解析数据Parse()--&gt;应用合并Execute()
+Parse()解析的对象中包含了{{}}，其中使用了点(.)，{{.Name}}代表Execute()第二个参数p对象的Name字段，同理{{.Age}}
+也就是说，{{.}}代表的是要应用的对象，类似于java/c++中的this，python/perl中的self。
+</code></pre>
+
+<p>更通用地，{{.}}表示的是所处作用域的当前对象，而不仅仅只代表Execute()中的第二个参数对象。例如，本示例中{{.}}代表顶级作用域的对象p，如果Parse()中还有嵌套的作用域range，则{{.}}代表range迭代到的每个元素对象。如果了解perl语言，{{.}}可以理解为默认变量$_。</p>
+
+<blockquote>
+<p>Must操作</p>
+</blockquote>
+
+<p>模板包里面有一个函数Must，它的作用是检测模板是否正确，例如大括号是否匹配，注释是否正确的关闭，变量是 否正确的书写。接下来我们演示一个例子，用Must来判断模板是否正确</p>
+
+<blockquote>
+<p>嵌套模板</p>
+</blockquote>
+
+<p>我们平常开发Web应用的时候，经常会遇到一些模板有些部分是固定不变的，然后可以抽取出来作为一个独立的部
+分，例如一个博客的头部和尾部是不变的，而唯一改变的是中间的内容部分。所以我们可以定义成
+header、content、footer三个部分。</p>
+
+<p>Go语言中通过如下的语法来申明</p>
+
+<pre><code>{{define &quot;子模板名称&quot;}}内容{{end}}
+</code></pre>
+
+<p>通过如下方式来调用:</p>
+
+<pre><code>{{template &quot;子模板名称&quot;}}
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-template/">https://kingjcy.github.io/post/golang/go-template/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/template/">
+                            <i class="fa fa-tags"></i>
+                            template
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/docker/docker/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-strings/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#实例">实例</a></li>
+<li><a href="#语法">语法</a></li>
+<li><a href="#go-template">go template</a></li>
+<li><a href="#原理">原理</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

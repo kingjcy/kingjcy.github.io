@@ -1,0 +1,4294 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="网络编程是go语言使用的一个核心模块。golang的网络封装使用对于底层socket或者上层的http，甚至是web服务都很友好。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Go Net - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Go Net
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年07月11日 
+                </div>
+                <h1 class="post-title">Go Net</h1>
+            </header>
+
+            <div class="post-content">
+                <p>网络编程是go语言使用的一个核心模块。golang的网络封装使用对于底层socket或者上层的http，甚至是web服务都很友好。</p>
+
+<h1 id="net">net</h1>
+
+<p>net包提供了可移植的网络I/O接口，包括TCP/IP、UDP、域名解析和Unix域socket等方式的通信。其中每一种通信方式都使用 xxConn 结构体来表示，诸如IPConn、TCPConn等，这些结构体都实现了Conn接口，Conn接口实现了基本的读、写、关闭、获取远程和本地地址、设置timeout等功能。</p>
+
+<p>conn的接口定义</p>
+
+<pre><code>type Conn interface {
+    // Read从连接中读取数据
+    // Read方法可能会在超过某个固定时间限制后超时返回错误，该错误的Timeout()方法返回真
+    Read(b []byte) (n int, err error)
+    // Write从连接中写入数据
+    // Write方法可能会在超过某个固定时间限制后超时返回错误，该错误的Timeout()方法返回真
+    Write(b []byte) (n int, err error)
+    // Close方法关闭该连接
+    // 并会导致任何阻塞中的Read或Write方法不再阻塞并返回错误
+    Close() error
+    // 返回本地网络地址
+    LocalAddr() Addr
+    // 返回远端网络地址
+    RemoteAddr() Addr
+    // 设定该连接的读写deadline，等价于同时调用SetReadDeadline和SetWriteDeadline
+    // deadline是一个绝对时间，超过该时间后I/O操作就会直接因超时失败返回而不会阻塞
+    // deadline对之后的所有I/O操作都起效，而不仅仅是下一次的读或写操作
+    // 参数t为零值表示不设置期限
+    SetDeadline(t time.Time) error
+    // 设定该连接的读操作deadline，参数t为零值表示不设置期限
+    SetReadDeadline(t time.Time) error
+    // 设定该连接的写操作deadline，参数t为零值表示不设置期限
+    // 即使写入超时，返回值n也可能&gt;0，说明成功写入了部分数据
+    SetWriteDeadline(t time.Time) error
+}
+</code></pre>
+
+<p>然后每种类型都是对应的结构体实现这些接口。</p>
+
+<p>还有一个常用的接口定义PacketConn</p>
+
+<pre><code>type PacketConn interface {
+    // ReadFrom方法从连接读取一个数据包，并将有效信息写入b
+    // ReadFrom方法可能会在超过某个固定时间限制后超时返回错误，该错误的Timeout()方法返回真
+    // 返回写入的字节数和该数据包的来源地址
+    ReadFrom(b []byte) (n int, addr Addr, err error)
+    // WriteTo方法将有效数据b写入一个数据包发送给addr
+    // WriteTo方法可能会在超过某个固定时间限制后超时返回错误，该错误的Timeout()方法返回真
+    // 在面向数据包的连接中，写入超时非常罕见
+    WriteTo(b []byte, addr Addr) (n int, err error)
+    // Close方法关闭该连接
+    // 会导致任何阻塞中的ReadFrom或WriteTo方法不再阻塞并返回错误
+    Close() error
+    // 返回本地网络地址
+    LocalAddr() Addr
+    // 设定该连接的读写deadline
+    SetDeadline(t time.Time) error
+    // 设定该连接的读操作deadline，参数t为零值表示不设置期限
+    // 如果时间到达deadline，读操作就会直接因超时失败返回而不会阻塞
+    SetReadDeadline(t time.Time) error
+    // 设定该连接的写操作deadline，参数t为零值表示不设置期限
+    // 如果时间到达deadline，写操作就会直接因超时失败返回而不会阻塞
+    // 即使写入超时，返回值n也可能&gt;0，说明成功写入了部分数据
+    SetWriteDeadline(t time.Time) error
+}
+</code></pre>
+
+<h2 id="dns域名解析常用">DNS域名解析常用</h2>
+
+<p>IPAddr类型</p>
+
+<p>位于iprawsock.go中在net包的许多函数和方法会返回一个指向IPAddr的指针。这不过只是一个包含IP类型的结构体。</p>
+
+<pre><code>type IPAddr struct {
+    IP   IP
+}
+</code></pre>
+
+<p>这个类型的主要用途是通过IP主机名执行DNS查找。</p>
+
+<pre><code>ResolveIPAddr
+ResolveIPAddr有两个参数第一个参数.必须为&quot;ip&quot;,&quot;ip4&quot;,&quot;ip6&quot;,第二个参数多为要解析的域名.返回一个IPAddr的指针类型
+
+addr, _ := net.ResolveIPAddr(&quot;ip&quot;, &quot;www.baidu.com&quot;)
+fmt.Println(addr)
+</code></pre>
+
+<p>TCPAddr类型</p>
+
+<p>位于tcpsock.go中TCPAddr类型包含一个IP和一个port的结构:</p>
+
+<pre><code>type TCPAddr struct {
+    IP   IP
+    Port int
+}
+</code></pre>
+
+<p>ResolveTCPAddr</p>
+
+<pre><code>func ResolveTCPAddr(net, addr string) (*TCPAddr, os.Error) 
+</code></pre>
+
+<p>该函数用来创建一个TCPAddr,第一个参数为,tcp,tcp4或者tcp6,addr是一个字符串，由主机名或IP地址，以及&rdquo;:&ldquo;后跟随着端口号组成，例如： &ldquo;www.google.com:80&rdquo; 或 &lsquo;127.0.0.1:22&rdquo;。如果地址是一个IPv6地址，由于已经有冒号，主机部分，必须放在方括号内, 例如：&rdquo;[::1]:23&rdquo;. 另一种特殊情况是经常用于服务器, 主机地址为0, 因此，TCP地址实际上就是端口名称, 例如：&rdquo;:80&rdquo; 用来表示HTTP服务器。</p>
+
+<pre><code>addr, _ := net.ResolveTCPAddr(&quot;tcp&quot;, &quot;www.baidu.com:80&quot;)
+fmt.Println(addr)   //220.181.111.147:80
+</code></pre>
+
+<p>UDPAddr类型</p>
+
+<pre><code>type UDPAddr struct {
+    IP   IP
+    Port int
+}
+
+ResolveUDPAddr同样的功能
+</code></pre>
+
+<p>UnixAddr类型</p>
+
+<pre><code>type UnixAddr struct {
+    Name string
+    Net  string
+}
+
+ResolveUnixAddr同样的功能
+</code></pre>
+
+<h2 id="ip">ip</h2>
+
+<p>使用IPConn结构体来表示，它实现了Conn、PacketConn两种接口。使用如下两个函数进行Dial和Listen。</p>
+
+<pre><code>func DialIP(netProto string, laddr, raddr *IPAddr) (*IPConn, error)   
+</code></pre>
+
+<p>DialIP在网络协议netProto上连接本地地址laddr和远端地址raddr，netProto必须是&rdquo;ip&rdquo;、&rdquo;ip4&rdquo;或&rdquo;ip6&rdquo;后跟冒号和协议名或协议号。</p>
+
+<pre><code>func ListenIP(netProto string, laddr *IPAddr) (*IPConn, error)
+</code></pre>
+
+<p>ListenIP创建一个接收目的地是本地地址laddr的IP数据包的网络连接，返回的*IPConn的ReadFrom和WriteTo方法可以用来发送和接收IP数据包。（每个包都可获取来源址或者设置目标地址）</p>
+
+<p>ip.go 中定义了三个类型.分别是IP,IPMask,IPNet</p>
+
+<p>IP类型</p>
+
+<pre><code>type IP []byte
+</code></pre>
+
+<p>IP类型被定义为一个字节数组。 ParseIP(String) 可以将字符窜转换为一个IP类型.</p>
+
+<pre><code>name := &quot;127.0.0.1&quot;
+addr := net.ParseIP(name)
+fmt.Println(addr.IsLoopback())// IsLoopback reports whether ip is a loopback address.
+</code></pre>
+
+<p>IPMask类型</p>
+
+<pre><code>// An IP mask is an IP address.
+type IPMask []byte
+</code></pre>
+
+<p>一个掩码的字符串形式是一个十六进制数，如掩码255.255.0.0为ffff0000。</p>
+
+<pre><code>func IPv4Mask(a, b, c, d byte) IPMask :用一个4字节的IPv4地址来创建一个掩码.
+func CIDRMask(ones, bits int) IPMask : 用ones和bits来创建一个掩码
+</code></pre>
+
+<p>IPNet类型</p>
+
+<pre><code>// An IPNet represents an IP network.
+type IPNet struct {
+    IP   IP     // network number
+    Mask IPMask // network mask
+}
+</code></pre>
+
+<p>由IP类型和IPMask组成一个网段,其字符窜形式是CIDR地址,如:“192.168.100.1/24”或“2001:DB8::/ 48”</p>
+
+<pre><code>func main() {
+    mask := net.IPv4Mask(byte(255), byte(255), byte(255), byte(0))
+    ip := net.ParseIP(&quot;192.168.1.125&quot;).Mask(mask)
+    in := &amp;net.IPNet{ip, mask}
+    fmt.Println(in)         //  192.168.1.0/24
+}
+</code></pre>
+
+<p>这边插播一个经常使用的实例</p>
+
+<p>获取本地IP</p>
+
+<pre><code>package main
+import (
+    &quot;fmt&quot;
+    &quot;net&quot;
+    &quot;os&quot;
+)
+func main() {
+    addrs, err := net.InterfaceAddrs()
+    if err != nil {
+        fmt.Println(err)
+        os.Exit(1)
+    }
+    for _, address := range addrs {
+        // 检查ip地址判断是否回环地址
+        if ipnet, ok := address.(*net.IPNet); ok &amp;&amp; !ipnet.IP.IsLoopback() {
+            if ipnet.IP.To4() != nil {
+                fmt.Println(ipnet.IP.String())
+            }
+        }
+    }
+}
+</code></pre>
+
+<h2 id="tcp">tcp</h2>
+
+<p>使用TCPConn结构体来表示，它实现了Conn接口。</p>
+
+<p>使用DialTCP进行Dial操作：</p>
+
+<pre><code>func DialTCP(net string, laddr, raddr *TCPAddr) (*TCPConn, error)
+</code></pre>
+
+<p>使用 ListenTCP函数进行Listen，产生一个TCPListener结构体，DialTCP在网络协议net上连接本地地址laddr和远端地址raddr。net必须是&rdquo;tcp&rdquo;、&rdquo;tcp4&rdquo;、&rdquo;tcp6&rdquo;；如果laddr不是nil，将使用它作为本地地址，否则自动选择一个本地地址。</p>
+
+<pre><code>func ListenTCP(net string, laddr *TCPAddr) (*TCPListener, error)
+</code></pre>
+
+<p>使用TCPListener的AcceptTCP方法建立通信链路，得到TCPConn。</p>
+
+<h2 id="udp">udp</h2>
+
+<p>使用UDPConn接口体来表示，它实现了Conn、PacketConn两种接口。使用如下两个函数进行Dial和Listen。</p>
+
+<pre><code>func DialUDP(net string, laddr, raddr *UDPAddr) (*UDPConn, error)    
+</code></pre>
+
+<p>DialTCP在网络协议net上连接本地地址laddr和远端地址raddr。net必须是&rdquo;udp&rdquo;、&rdquo;udp4&rdquo;、&rdquo;udp6&rdquo;；如果laddr不是nil，将使用它作为本地地址，否则自动选择一个本地地址。</p>
+
+<pre><code>func ListenUDP(net string, laddr *UDPAddr) (*UDPConn, error)
+</code></pre>
+
+<p>ListenUDP创建一个接收目的地是本地地址laddr的UDP数据包的网络连接。net必须是&rdquo;udp&rdquo;、&rdquo;udp4&rdquo;、&rdquo;udp6&rdquo;；如果laddr端口为0，函数将选择一个当前可用的端口，可以用Listener的Addr方法获得该端口。返回的*UDPConn的ReadFrom和WriteTo方法可以用来发送和接收UDP数据包（每个包都可获得来源地址或设置目标地址）。</p>
+
+<h2 id="unix">unix</h2>
+
+<p>UnixConn实现了Conn、PacketConn两种接口，其中unix又分为SOCK_DGRAM、SOCK_STREAM。</p>
+
+<p>1.对于unix（SOCK_DGRAM），使用如下两个函数进行Dial和Listen。</p>
+
+<pre><code>func DialUnix(net string, laddr, raddr *UnixAddr) (*UnixConn, error)    
+
+func ListenUnixgram(net string, laddr *UnixAddr) (*UnixConn, error)
+</code></pre>
+
+<p>2.对于unix（SOCK_STREAM）</p>
+
+<p>客户端使用DialUnix进行Dial操作</p>
+
+<pre><code>func DialUnix(net string, laddr, raddr *UnixAddr) (*UnixConn, error)   
+</code></pre>
+
+<p>服务端使用ListenUnix函数进行Listen操作，然后使用UnixListener进行AcceptUnix</p>
+
+<pre><code>func ListenUnix(net string, laddr *UnixAddr) (*UnixListener, error)
+</code></pre>
+
+<p>为了使用方便，golang将上面一些重复的操作集中到一个函数中。在参数中制定上面不同协议类型。</p>
+
+<pre><code>func ListenPacket(net, laddr string) (PacketConn, error)　
+</code></pre>
+
+<p>这个函数用于侦听ip、udp、unix（DGRAM）等协议，返回一个PacketConn接口，同样根据侦听的协议不同，这个接口可以包含IPCon、UDPConn、UnixConn等，它们都实现了PacketConn。可以发现与ip、unix（stream）协议不同，直接返回的是xxConn，不是间接的通过Listener进行Accept操作后，才得到一个Conn。</p>
+
+<pre><code>func Listen(net, laddr string) (Listener, error)
+</code></pre>
+
+<p>这个函数用于侦听tcp、unix（stream）等协议，返回一个Listener接口、根据侦听的协议不同，这个接口可以包含TCPListener、UnixListener等，它们都实现了Listener接口，然后通过调用其Accept方法可以得到Conn接口，进行通信。</p>
+
+<pre><code>func Dial(network, address string) (Conn, error)
+</code></pre>
+
+<p>这个函数对于所有的协议都是相同的操作，返回一个Conn接口，根据协议的不同实际上包含IPConn、UDPConn、UnixConn、IPConn，它们都实现了Conn接口</p>
+
+<h2 id="基本c-s功能">基本c/s功能</h2>
+
+<p>在 Unix/Linux 中的 Socket 编程主要通过调用 listen, accept, write read 等函数来实现的. 具体如下图所示:</p>
+
+<p><img src="/media/golang/net/unix_socket.png" alt="" /></p>
+
+<p>服务端listen, accept</p>
+
+<pre><code>func connHandler(c net.Conn) {
+    for {
+        cnt, err := c.Read(buf)
+        c.Write(buf)
+    }
+}
+func main() {
+    server, err := net.Listen(&quot;tcp&quot;, &quot;:1208&quot;)
+    for {
+        conn, err := server.Accept()
+        go connHandler(conn)
+    }
+}
+</code></pre>
+
+<p>直接使用net的listen返回的就是对应协议已经定义好的结构体，比如tcp</p>
+
+<p>type TCPListener struct {
+    fd *netFD
+}</p>
+
+<p>这个结构体实现了listener接口的所有接口，所以可以作为返回值返回。其他协议类型也是一样。</p>
+
+<p>accept后返回的conn是一个存储着连接信息的结构体</p>
+
+<p>// Network file descriptor.
+type netFD struct {
+    pfd poll.FD</p>
+
+<pre><code>// immutable until Close
+family      int
+sotype      int
+isConnected bool // handshake completed or use of association with peer
+net         string
+laddr       Addr
+raddr       Addr
+</code></pre>
+
+<p>}</p>
+
+<p>客户端dial</p>
+
+<pre><code>func connHandler(c net.Conn) {
+    for {
+        c.Write(...)
+        c.Read(...)
+    }
+}
+func main() {
+    conn, err := net.Dial(&quot;tcp&quot;, &quot;localhost:1208&quot;)
+    connHandler(conn)
+}
+</code></pre>
+
+<p>主要函数</p>
+
+<pre><code>func Dial(net, addr string) (Conn, error)
+</code></pre>
+
+<p>其中net参数是网络协议的名字， addr参数是IP地址或域名，而端口号以“:”的形式跟随在地址
+或域名的后面，端口号可选。如果连接成功，返回连接对象，否则返回error。</p>
+
+<p>Dial() 函数支持如下几种网络协议：</p>
+
+<pre><code>&quot;tcp&quot; 、 &quot;tcp4&quot; （仅限IPv4）、 &quot;tcp6&quot; （仅限IPv6）、 &quot;udp&quot; 、 &quot;udp4&quot;（仅限IPv4）、 &quot;udp6&quot;（仅限IPv6）、 &quot;ip&quot; 、 &quot;ip4&quot;（仅限IPv4）和&quot;ip6&quot;（仅限IPv6）。
+</code></pre>
+
+<p>可以直接用相关协议的函数</p>
+
+<pre><code>func DialTCP(net string, laddr, raddr *TCPAddr) (c *TCPConn, err error)
+func DialUDP(net string, laddr, raddr *UDPAddr) (c *UDPConn, err error)
+func DialIP(netProto string, laddr, raddr *IPAddr) (*IPConn, error)
+func DialUnix(net string, laddr, raddr *UnixAddr) (c *UnixConn, err error)
+</code></pre>
+
+<p>一些应用</p>
+
+<p>控制TCP连接</p>
+
+<p>TCP连接有很多控制函数，我们平常用到比较多的有如下几个函数：</p>
+
+<p>func (c *TCPConn) SetTimeout(nsec int64) os.Error
+func (c *TCPConn) SetKeepAlive(keepalive bool) os.Error</p>
+
+<p>第一个函数用来设置超时时间，客户端和服务器端都适用，当超过设置的时间时那么该链接就失效。</p>
+
+<p>第二个函数用来设置客户端是否和服务器端一直保持着连接，即使没有任何的数据发送</p>
+
+<p>从零开始写Socket Server： Socket-Client框架</p>
+
+<p>在golang中，网络协议已经被封装的非常完好了，想要写一个Socket的Server，我们并不用像其他语言那样需要为socket、bind、listen、receive等一系列操作头疼，只要使用Golang中自带的net包即可很方便的完成连接等操作~</p>
+
+<p>在这里，给出一个最最基础的基于Socket的Server的写法：</p>
+
+<pre><code>package main
+import (
+    &quot;fmt&quot;
+    &quot;net&quot;
+    &quot;log&quot;
+    &quot;os&quot;
+)
+
+
+func main() {
+
+//建立socket，监听端口
+    netListen, err := net.Listen(&quot;tcp&quot;, &quot;localhost:1024&quot;)
+    CheckError(err)
+    defer netListen.Close()
+
+    Log(&quot;Waiting for clients&quot;)
+    for {
+        conn, err := netListen.Accept()
+        if err != nil {
+            continue
+        }
+
+        Log(conn.RemoteAddr().String(), &quot; tcp connect success&quot;)
+        handleConnection(conn)
+    }
+}
+//处理连接
+func handleConnection(conn net.Conn) {
+
+    buffer := make([]byte, 2048)
+
+    for {
+
+        n, err := conn.Read(buffer)
+
+        if err != nil {
+            Log(conn.RemoteAddr().String(), &quot; connection error: &quot;, err)
+            return
+        }
+
+
+        Log(conn.RemoteAddr().String(), &quot;receive data string:\n&quot;, string(buffer[:n]))
+
+    }
+
+}
+func Log(v ...interface{}) {
+    log.Println(v...)
+}
+
+func CheckError(err error) {
+    if err != nil {
+        fmt.Fprintf(os.Stderr, &quot;Fatal error: %s&quot;, err.Error())
+        os.Exit(1)
+    }
+}
+</code></pre>
+
+<p>唔，抛除Go语言里面10行代码有5行error的蛋疼之处,你可以看到，Server想要建立并接受一个Socket，其核心流程就是</p>
+
+<pre><code>netListen, err := net.Listen(&quot;tcp&quot;, &quot;localhost:1024&quot;)
+conn, err := netListen.Accept()
+n, err := conn.Read(buffer)
+</code></pre>
+
+<p>这三步，通过Listen、Accept 和Read，我们就成功的绑定了一个端口，并能够读取从该端口传来的内容~</p>
+
+<p>Server写好之后，接下来就是Client方面啦，我手写一个HelloWorld给大家：</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;net&quot;
+    &quot;os&quot;
+)
+
+func sender(conn net.Conn) {
+        words := &quot;hello world!&quot;
+        conn.Write([]byte(words))
+    fmt.Println(&quot;send over&quot;)
+
+}
+
+
+
+func main() {
+    server := &quot;127.0.0.1:1024&quot;
+    tcpAddr, err := net.ResolveTCPAddr(&quot;tcp4&quot;, server)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, &quot;Fatal error: %s&quot;, err.Error())
+        os.Exit(1)
+    }
+
+    conn, err := net.DialTCP(&quot;tcp&quot;, nil, tcpAddr)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, &quot;Fatal error: %s&quot;, err.Error())
+        os.Exit(1)
+    }
+
+
+    fmt.Println(&quot;connect success&quot;)
+    sender(conn)
+
+}
+</code></pre>
+
+<p>可以看到，Client这里的关键在于</p>
+
+<pre><code>tcpAddr, err := net.ResolveTCPAddr(&quot;tcp4&quot;, server)
+
+conn, err := net.DialTCP(&quot;tcp&quot;, nil, tcpAddr)
+</code></pre>
+
+<p>这两步，主要是负责解析端口和连接~</p>
+
+<p>这边插播一个tcp协议的三次握手图</p>
+
+<p><img src="/media/golang/net/tcp_open_close.jpg" alt="" /></p>
+
+<h2 id="net-http">net/http</h2>
+
+<p>web是golang主要编程方向之一，golang来提供net/http包，封装的很完美，可以使我们开始进行web开发。</p>
+
+<p>http包提供了HTTP客户端和服务端的实现。</p>
+
+<ul>
+<li><p>http status</p>
+
+<p>const (
+    StatusContinue           = 100
+    StatusSwitchingProtocols = 101
+    StatusOK                   = 200
+    StatusCreated              = 201
+    StatusAccepted             = 202
+    StatusNonAuthoritativeInfo = 203
+    StatusNoContent            = 204
+    StatusResetContent         = 205
+    StatusPartialContent       = 206
+    StatusMultipleChoices   = 300
+    StatusMovedPermanently  = 301
+    StatusFound             = 302
+    StatusSeeOther          = 303
+    StatusNotModified       = 304
+    StatusUseProxy          = 305
+    StatusTemporaryRedirect = 307
+    StatusBadRequest                   = 400
+    StatusUnauthorized                 = 401
+    StatusPaymentRequired              = 402
+    StatusForbidden                    = 403
+    StatusNotFound                     = 404
+    StatusMethodNotAllowed             = 405
+    StatusNotAcceptable                = 406
+    StatusProxyAuthRequired            = 407
+    StatusRequestTimeout               = 408
+    StatusConflict                     = 409
+    StatusGone                         = 410
+    StatusLengthRequired               = 411
+    StatusPreconditionFailed           = 412
+    StatusRequestEntityTooLarge        = 413
+    StatusRequestURITooLong            = 414
+    StatusUnsupportedMediaType         = 415
+    StatusRequestedRangeNotSatisfiable = 416
+    StatusExpectationFailed            = 417
+    StatusTeapot                       = 418
+    StatusInternalServerError     = 500
+    StatusNotImplemented          = 501
+    StatusBadGateway              = 502
+    StatusServiceUnavailable      = 503
+    StatusGatewayTimeout          = 504
+    StatusHTTPVersionNotSupported = 505
+)</p></li>
+
+<li><p>http header</p></li>
+</ul>
+
+<p>Header代表HTTP头域的键值对。</p>
+
+<pre><code>type Header map[string][]string
+</code></pre>
+
+<p>基本操作</p>
+
+<pre><code>func (h Header) Get(key string) string
+</code></pre>
+
+<p>Get返回键对应的第一个值，如果键不存在会返回&rdquo;&ldquo;。如要获取该键对应的值切片，请直接用规范格式的键访问map。</p>
+
+<pre><code>func (h Header) Set(key, value string)
+</code></pre>
+
+<p>Set添加键值对到h，如键已存在则会用只有新值一个元素的切片取代旧值切片。</p>
+
+<pre><code>func (h Header) Add(key, value string)
+</code></pre>
+
+<p>Add添加键值对到h，如键已存在则会将新的值附加到旧值切片后面。</p>
+
+<pre><code>func (h Header) Del(key string)
+</code></pre>
+
+<p>Del删除键值对。</p>
+
+<pre><code>func (h Header) Write(w io.Writer) error
+</code></pre>
+
+<p>Write以有线格式将头域写入w。</p>
+
+<ul>
+<li>用于http客户端和服务端的结构体</li>
+</ul>
+
+<p>type Request</p>
+
+<pre><code>type Request struct {
+    // Method指定HTTP方法（GET、POST、PUT等）。对客户端，&quot;&quot;代表GET。
+    Method string
+    // URL在服务端表示被请求的URI，在客户端表示要访问的URL。
+    //
+    // 在服务端，URL字段是解析请求行的URI（保存在RequestURI字段）得到的，
+    // 对大多数请求来说，除了Path和RawQuery之外的字段都是空字符串。
+    // （参见RFC 2616, Section 5.1.2）
+    //
+    // 在客户端，URL的Host字段指定了要连接的服务器，
+    // 而Request的Host字段（可选地）指定要发送的HTTP请求的Host头的值。
+    URL *url.URL
+    // 接收到的请求的协议版本。本包生产的Request总是使用HTTP/1.1
+    Proto      string // &quot;HTTP/1.0&quot;
+    ProtoMajor int    // 1
+    ProtoMinor int    // 0
+    // Header字段用来表示HTTP请求的头域。如果头域（多行键值对格式）为：
+    //  accept-encoding: gzip, deflate
+    //  Accept-Language: en-us
+    //  Connection: keep-alive
+    // 则：
+    //  Header = map[string][]string{
+    //      &quot;Accept-Encoding&quot;: {&quot;gzip, deflate&quot;},
+    //      &quot;Accept-Language&quot;: {&quot;en-us&quot;},
+    //      &quot;Connection&quot;: {&quot;keep-alive&quot;},
+    //  }
+    // HTTP规定头域的键名（头名）是大小写敏感的，请求的解析器通过规范化头域的键名来实现这点。
+    // 在客户端的请求，可能会被自动添加或重写Header中的特定的头，参见Request.Write方法。
+    Header Header
+    // Body是请求的主体。
+    //
+    // 在客户端，如果Body是nil表示该请求没有主体买入GET请求。
+    // Client的Transport字段会负责调用Body的Close方法。
+    //
+    // 在服务端，Body字段总是非nil的；但在没有主体时，读取Body会立刻返回EOF。
+    // Server会关闭请求的主体，ServeHTTP处理器不需要关闭Body字段。
+    Body io.ReadCloser
+    // ContentLength记录相关内容的长度。
+    // 如果为-1，表示长度未知，如果&gt;=0，表示可以从Body字段读取ContentLength字节数据。
+    // 在客户端，如果Body非nil而该字段为0，表示不知道Body的长度。
+    ContentLength int64
+    // TransferEncoding按从最外到最里的顺序列出传输编码，空切片表示&quot;identity&quot;编码。
+    // 本字段一般会被忽略。当发送或接受请求时，会自动添加或移除&quot;chunked&quot;传输编码。
+    TransferEncoding []string
+    // Close在服务端指定是否在回复请求后关闭连接，在客户端指定是否在发送请求后关闭连接。
+    Close bool
+    // 在服务端，Host指定URL会在其上寻找资源的主机。
+    // 根据RFC 2616，该值可以是Host头的值，或者URL自身提供的主机名。
+    // Host的格式可以是&quot;host:port&quot;。
+    //
+    // 在客户端，请求的Host字段（可选地）用来重写请求的Host头。
+    // 如过该字段为&quot;&quot;，Request.Write方法会使用URL字段的Host。
+    Host string
+    // Form是解析好的表单数据，包括URL字段的query参数和POST或PUT的表单数据。
+    // 本字段只有在调用ParseForm后才有效。在客户端，会忽略请求中的本字段而使用Body替代。
+    Form url.Values
+    // PostForm是解析好的POST或PUT的表单数据。
+    // 本字段只有在调用ParseForm后才有效。在客户端，会忽略请求中的本字段而使用Body替代。
+    PostForm url.Values
+    // MultipartForm是解析好的多部件表单，包括上传的文件。
+    // 本字段只有在调用ParseMultipartForm后才有效。
+    // 在客户端，会忽略请求中的本字段而使用Body替代。
+    MultipartForm *multipart.Form
+    // Trailer指定了会在请求主体之后发送的额外的头域。
+    //
+    // 在服务端，Trailer字段必须初始化为只有trailer键，所有键都对应nil值。
+    // （客户端会声明哪些trailer会发送）
+    // 在处理器从Body读取时，不能使用本字段。
+    // 在从Body的读取返回EOF后，Trailer字段会被更新完毕并包含非nil的值。
+    // （如果客户端发送了这些键值对），此时才可以访问本字段。
+    //
+    // 在客户端，Trail必须初始化为一个包含将要发送的键值对的映射。（值可以是nil或其终值）
+    // ContentLength字段必须是0或-1，以启用&quot;chunked&quot;传输编码发送请求。
+    // 在开始发送请求后，Trailer可以在读取请求主体期间被修改，
+    // 一旦请求主体返回EOF，调用者就不可再修改Trailer。
+    //
+    // 很少有HTTP客户端、服务端或代理支持HTTP trailer。
+    Trailer Header
+    // RemoteAddr允许HTTP服务器和其他软件记录该请求的来源地址，一般用于日志。
+    // 本字段不是ReadRequest函数填写的，也没有定义格式。
+    // 本包的HTTP服务器会在调用处理器之前设置RemoteAddr为&quot;IP:port&quot;格式的地址。
+    // 客户端会忽略请求中的RemoteAddr字段。
+    RemoteAddr string
+    // RequestURI是被客户端发送到服务端的请求的请求行中未修改的请求URI
+    // （参见RFC 2616, Section 5.1）
+    // 一般应使用URI字段，在客户端设置请求的本字段会导致错误。
+    RequestURI string
+    // TLS字段允许HTTP服务器和其他软件记录接收到该请求的TLS连接的信息
+    // 本字段不是ReadRequest函数填写的。
+    // 对启用了TLS的连接，本包的HTTP服务器会在调用处理器之前设置TLS字段，否则将设TLS为nil。
+    // 客户端会忽略请求中的TLS字段。
+    TLS *tls.ConnectionState
+}
+</code></pre>
+
+<p>Request类型代表一个服务端接受到的或者客户端发送出去的HTTP请求。</p>
+
+<p>Request各字段的意义和用途在服务端和客户端是不同的。除了字段本身上方文档，还可参见Request.Write方法和RoundTripper接口的文档。</p>
+
+<p>type Response struct {
+    Status     string // 例如&rdquo;200 OK&rdquo;
+    StatusCode int    // 例如200
+    Proto      string // 例如&rdquo;HTTP/1.0&rdquo;
+    ProtoMajor int    // 例如1
+    ProtoMinor int    // 例如0
+    // Header保管头域的键值对。
+    // 如果回复中有多个头的键相同，Header中保存为该键对应用逗号分隔串联起来的这些头的值
+    // （参见RFC 2616 Section 4.2）
+    // 被本结构体中的其他字段复制保管的头（如ContentLength）会从Header中删掉。
+    //
+    // Header中的键都是规范化的，参见CanonicalHeaderKey函数
+    Header Header
+    // Body代表回复的主体。
+    // Client类型和Transport类型会保证Body字段总是非nil的，即使回复没有主体或主体长度为0。
+    // 关闭主体是调用者的责任。
+    // 如果服务端采用&rdquo;chunked&rdquo;传输编码发送的回复，Body字段会自动进行解码。
+    Body io.ReadCloser
+    // ContentLength记录相关内容的长度。
+    // 其值为-1表示长度未知（采用chunked传输编码）
+    // 除非对应的Request.Method是&rdquo;HEAD&rdquo;，其值&gt;=0表示可以从Body读取的字节数
+    ContentLength int64
+    // TransferEncoding按从最外到最里的顺序列出传输编码，空切片表示&rdquo;identity&rdquo;编码。
+    TransferEncoding []string
+    // Close记录头域是否指定应在读取完主体后关闭连接。（即Connection头）
+    // 该值是给客户端的建议，Response.Write方法的ReadResponse函数都不会关闭连接。
+    Close bool
+    // Trailer字段保存和头域相同格式的trailer键值对，和Header字段相同类型
+    Trailer Header
+    // Request是用来获取此回复的请求
+    // Request的Body字段是nil（因为已经被用掉了）
+    // 这个字段是被Client类型发出请求并获得回复后填充的
+    Request *Request
+    // TLS包含接收到该回复的TLS连接的信息。 对未加密的回复，本字段为nil。
+    // 返回的指针是被（同一TLS连接接收到的）回复共享的，不应被修改。
+    TLS *tls.ConnectionState
+}</p>
+
+<p>Response代表一个HTTP请求的回复</p>
+
+<p>type ResponseWriter</p>
+
+<pre><code>type ResponseWriter interface {
+    // Header返回一个Header类型值，该值会被WriteHeader方法发送。
+    // 在调用WriteHeader或Write方法后再改变该对象是没有意义的。
+    Header() Header
+    // WriteHeader该方法发送HTTP回复的头域和状态码。
+    // 如果没有被显式调用，第一次调用Write时会触发隐式调用WriteHeader(http.StatusOK)
+    // WriterHeader的显式调用主要用于发送错误码。
+    WriteHeader(int)
+    // Write向连接中写入作为HTTP的一部分回复的数据。
+    // 如果被调用时还未调用WriteHeader，本方法会先调用WriteHeader(http.StatusOK)
+    // 如果Header中没有&quot;Content-Type&quot;键，
+    // 本方法会使用包函数DetectContentType检查数据的前512字节，将返回值作为该键的值。
+    Write([]byte) (int, error)
+}
+</code></pre>
+
+<p>ResponseWriter接口被HTTP处理器用于构造HTTP回复。这个一般用于服务端处理请求</p>
+
+<p>type CloseNotifier interface {
+    // CloseNotify返回一个通道，该通道会在客户端连接丢失时接收到唯一的值
+    CloseNotify() &lt;-chan bool
+}</p>
+
+<p>HTTP处理器ResponseWriter接口参数的下层如果实现了CloseNotifier接口，可以让用户检测下层的连接是否停止。如果客户端在回复准备好之前关闭了连接，该机制可以用于取消服务端耗时较长的操作。</p>
+
+<ul>
+<li>http客户端</li>
+</ul>
+
+<p>首先http包直接提供了Get、Head、Post和PostForm函数发出HTTP/ HTTPS请求。</p>
+
+<pre><code>    resp, err := http.Get(&quot;http://example.com/&quot;)
+    ...
+    resp, err := http.Post(&quot;http://example.com/upload&quot;, &quot;image/jpeg&quot;, &amp;buf)
+    ...
+    resp, err := http.PostForm(&quot;http://example.com/form&quot;,
+        url.Values{&quot;key&quot;: {&quot;Value&quot;}, &quot;id&quot;: {&quot;123&quot;}})
+</code></pre>
+
+<p>程序在使用完回复后必须关闭回复的主体。</p>
+
+<pre><code>    resp, err := http.Get(&quot;http://example.com/&quot;)
+    if err != nil {
+        // handle error
+    }
+    defer resp.Body.Close()
+    body, err := ioutil.ReadAll(resp.Body)
+    // ...
+</code></pre>
+
+<p>还提供客户端对应的完整操作</p>
+
+<pre><code>type Client struct {
+    // Transport指定执行独立、单次HTTP请求的机制。
+    // 如果Transport为nil，则使用DefaultTransport。
+    Transport RoundTripper
+    // CheckRedirect指定处理重定向的策略。
+    // 如果CheckRedirect不为nil，客户端会在执行重定向之前调用本函数字段。
+    // 参数req和via是将要执行的请求和已经执行的请求（切片，越新的请求越靠后）。
+    // 如果CheckRedirect返回一个错误，本类型的Get方法不会发送请求req，
+    // 而是返回之前得到的最后一个回复和该错误。（包装进url.Error类型里）
+    //
+    // 如果CheckRedirect为nil，会采用默认策略：连续10此请求后停止。
+    CheckRedirect func(req *Request, via []*Request) error
+    // Jar指定cookie管理器。
+    // 如果Jar为nil，请求中不会发送cookie，回复中的cookie会被忽略。
+    Jar CookieJar
+    // Timeout指定本类型的值执行请求的时间限制。
+    // 该超时限制包括连接时间、重定向和读取回复主体的时间。
+    // 计时器会在Head、Get、Post或Do方法返回后继续运作并在超时后中断回复主体的读取。
+    //
+    // Timeout为零值表示不设置超时。
+    //
+    // Client实例的Transport字段必须支持CancelRequest方法，
+    // 否则Client会在试图用Head、Get、Post或Do方法执行请求时返回错误。
+    // 本类型的Transport字段默认值（DefaultTransport）支持CancelRequest方法。
+    Timeout time.Duration
+}
+
+
+
+
+
+
+type Client
+func (c *Client) Do(req *Request) (resp *Response, err error)
+func (c *Client) Head(url string) (resp *Response, err error)
+func (c *Client) Get(url string) (resp *Response, err error)
+func (c *Client) Post(url string, bodyType string, body io.Reader) (resp *Response, err error)
+func (c *Client) PostForm(url string, data url.Values) (resp *Response, err error)
+</code></pre>
+
+<p>看下面的使用，首先要管理HTTP客户端的头域、重定向策略和其他设置，创建一个Client：</p>
+
+<pre><code>client := &amp;http.Client{
+    CheckRedirect: redirectPolicyFunc,
+}
+resp, err := client.Get(&quot;http://example.com&quot;)
+
+
+
+
+// ...
+req, err := http.NewRequest(&quot;GET&quot;, &quot;http://example.com&quot;, nil)
+// ...
+req.Header.Add(&quot;If-None-Match&quot;, `W/&quot;wyzzy&quot;`)
+resp, err := client.Do(req)
+// ...
+</code></pre>
+
+<ul>
+<li>http服务端</li>
+</ul>
+
+<p>简单的服务端例子</p>
+
+<pre><code>package main
+import (
+    &quot;io&quot;
+    &quot;net/http&quot;
+    &quot;log&quot;
+)
+// hello world, the web server
+func HelloServer(w http.ResponseWriter, req *http.Request) {
+    io.WriteString(w, &quot;hello, world!\n&quot;)
+}
+func main() {
+    http.HandleFunc(&quot;/hello&quot;, HelloServer)
+    err := http.ListenAndServe(&quot;:12345&quot;, nil)
+    if err != nil {
+        log.Fatal(&quot;ListenAndServe: &quot;, err)
+    }
+}
+</code></pre>
+
+<p>ListenAndServe该方法用于在指定的TCP网络地址addr进行监听，然后调用服务端处理程序来处理传入的连接请求。该方法有两个参数：第一个参数addr 即监听地址；第二个参数表示服务端处理程序，通常为空，这意味着服务端调用 http.DefaultServeMux 进行处理，而服务端编写的业务逻辑处理程序 http.Handle() 或 http.HandleFunc() 默认注入 http.DefaultServeMux 中。</p>
+
+<p>具体代码如下：</p>
+
+<pre><code>http.Handle(&quot;/foo&quot;, fooHandler) 
+http.HandleFunc(&quot;/bar&quot;, func(w http.ResponseWriter, r *http.Request) { 
+　　fmt.Fprintf(w, &quot;Hello, %q&quot;, html.EscapeString(r.URL.Path)) 
+　　}) 
+log.Fatal(http.ListenAndServe(&quot;:8080&quot;, nil)) 
+</code></pre>
+
+<p>如果想更多地控制服务端的行为，可以自定义 http.Server：</p>
+
+<pre><code>type Server struct {
+    Addr           string        // TCP address to listen on, &quot;:http&quot; if empty
+    Handler        Handler       // handler to invoke, http.DefaultServeMux if nil
+    ReadTimeout    time.Duration // maximum duration before timing out read of the request
+    WriteTimeout   time.Duration // maximum duration before timing out write of the response
+    MaxHeaderBytes int           // maximum size of request headers, DefaultMaxHeaderBytes if 0
+    TLSConfig      *tls.Config   // optional TLS config, used by ListenAndServeTLS
+
+    // TLSNextProto optionally specifies a function to take over
+    // ownership of the provided TLS connection when an NPN
+    // protocol upgrade has occurred.  The map key is the protocol
+    // name negotiated. The Handler argument should be used to
+    // handle HTTP requests and will initialize the Request's TLS
+    // and RemoteAddr if not already set.  The connection is
+    // automatically closed when the function returns.
+    TLSNextProto map[string]func(*Server, *tls.Conn, Handler)
+
+    // ConnState specifies an optional callback function that is
+    // called when a client connection changes state. See the
+    // ConnState type and associated constants for details.
+    ConnState func(net.Conn, ConnState)
+
+    // ErrorLog specifies an optional logger for errors accepting
+    // connections and unexpected behavior from handlers.
+    // If nil, logging goes to os.Stderr via the log package's
+    // standard logger.
+    ErrorLog *log.Logger
+    // contains filtered or unexported fields
+}
+</code></pre>
+
+<p>主要函数</p>
+
+<pre><code>type Server
+func (s *Server) SetKeepAlivesEnabled(v bool)
+func (srv *Server) Serve(l net.Listener) error
+func (srv *Server) ListenAndServe() error
+func (srv *Server) ListenAndServeTLS(certFile, keyFile string) error
+
+func (*Server) SetKeepAlivesEnabled
+func (s *Server) SetKeepAlivesEnabled(v bool)
+</code></pre>
+
+<p>SetKeepAlivesEnabled控制是否允许HTTP闲置连接重用（keep-alive）功能。默认该功能总是被启用的。只有资源非常紧张的环境或者服务端在关闭进程中时，才应该关闭该功能。</p>
+
+<pre><code>func (*Server) Serve
+func (srv *Server) Serve(l net.Listener) error
+</code></pre>
+
+<p>Serve会接手监听器l收到的每一个连接，并为每一个连接创建一个新的服务go程。该go程会读取请求，然后调用srv.Handler回复请求。</p>
+
+<pre><code>func (*Server) ListenAndServe
+func (srv *Server) ListenAndServe() error
+</code></pre>
+
+<p>ListenAndServe监听srv.Addr指定的TCP地址，并且会调用Serve方法接收到的连接。如果srv.Addr为空字符串，会使用&rdquo;:http&rdquo;。</p>
+
+<pre><code>func (*Server) ListenAndServeTLS
+func (srv *Server) ListenAndServeTLS(certFile, keyFile string) error
+</code></pre>
+
+<p>ListenAndServeTLS监听srv.Addr确定的TCP地址，并且会调用Serve方法处理接收到的连接。必须提供证书文件和对应的私钥文件。如果证书是由权威机构签发的，certFile参数必须是顺序串联的服务端证书和CA证书。如果srv.Addr为空字符串，会使用&rdquo;:https&rdquo;。</p>
+
+<p>初始化一个server的结构体</p>
+
+<pre><code>s := &amp;http.Server{ 
+    Addr: &quot;:8080&quot;, 
+    Handler: myHandler, 
+    ReadTimeout: 10 * time.Second, 
+    WriteTimeout: 10 * time.Second, 
+    MaxHeaderBytes: 1 &lt;&lt; 20, 
+} 
+log.Fatal(s.ListenAndServe())
+</code></pre>
+
+<ul>
+<li>go http原理解析</li>
+</ul>
+
+<p>上面是封装好的直接使用，这边理解一下内部实现原理，包括路由，连接等。</p>
+
+<p>Go的http有两个核心功能:Conn、ServeMux，一个实现了conn的goroutine的并发，一个实现了路由的实现</p>
+
+<p>对于golang，实现一个最简单的http server 非常简单，代码如下：</p>
+
+<pre><code>package main
+
+import (
+    &quot;net/http&quot;
+    &quot;fmt&quot;
+)
+
+func Indexhandler(w http.ResponseWriter,r *http.Request)  {
+    fmt.Fprintln(w,&quot;hello world&quot;)
+}
+
+
+func main() {
+    http.HandleFunc(&quot;/&quot;,Indexhandler)
+    http.ListenAndServe(&quot;127.0.0.1&quot;,nil)
+}
+</code></pre>
+
+<p>通过上面这个简单的例子，来一点一点学习go的net/http实现的http服务的原理</p>
+
+<p>HTTP</p>
+
+<p>理解HTTP相关的网络应用，主要关注两个地方-客户端(client)和服务端(server)</p>
+
+<p>两者的交互主要是client的request以及server的response,主要就在于如何接受client的request并向client返回response</p>
+
+<p>接收request的过程中，最重要的莫过于路由（router），即实现一个Multiplexer器。Go http中既可以使用内置的mutilplexer &mdash; DefautServeMux，也可以自定义。Multiplexer路由的目的就是为了找到处理器函数（handler），后者将对request进行处理，同时构建response</p>
+
+<p>流程为：</p>
+
+<pre><code>Clinet -&gt; Requests -&gt;  [Multiplexer(router) -&gt; handler  -&gt; Response -&gt; Clinet
+</code></pre>
+
+<p>对于一个http服务，大致需要理解这两个封装的过程就可以理解上面的实现了</p>
+
+<pre><code>1.首先需要注册路由，即提供url模式和handler函数的映射.
+2.其次就是实例化一个server对象，并开启对客户端的监听。
+</code></pre>
+
+<p>再看go http服务的代码</p>
+
+<pre><code>http.HandleFunc(&quot;/&quot;, indexHandler) -----即是注册路由。
+
+
+
+
+
+
+
+
+http.ListenAndServe(&quot;127.0.0.1:8000&quot;, nil)---启动server
+</code></pre>
+
+<p>或者</p>
+
+<pre><code>server := &amp;Server{Addr: addr, Handler: handler}
+
+server.ListenAndServe()
+</code></pre>
+
+<ol>
+<li>注册路由</li>
+</ol>
+
+<p>net/http包暴露的注册路由的api很简单</p>
+
+<pre><code>http.HandleFunc(&quot;/&quot;, indexHandler) -----即是注册路由。
+</code></pre>
+
+<p>1.indexHandler是一个函数类型</p>
+
+<p>HandlerFunc是一个函数类型，如下定义。同时实现了Handler接口的ServeHTTP方法。使用HandlerFunc类型包装一下路由定义的indexHandler函数，其目的就是为了让这个函数也实现ServeHTTP方法，即转变成一个handler处理器(函数)。</p>
+
+<pre><code>type HandlerFunc func(ResponseWriter, *Request)
+
+// ServeHTTP calls f(w, r).
+func (f HandlerFunc) ServeHTTP(w ResponseWriter, r *Request) {
+    f(w, r)
+}
+</code></pre>
+
+<p>我们最开始写的例子中</p>
+
+<pre><code>http.HandleFunc(&quot;/&quot;,Indexhandler)
+</code></pre>
+
+<p>这样 IndexHandler 函数也有了ServeHTTP方法。</p>
+
+<p>ServeMux和handler处理器函数的连接桥梁就是Handler接口。ServeMux的ServeHTTP方法实现了寻找注册路由的handler的函数（可以看下面的监控服务流程），并调用该handler的ServeHTTP方法。ServeHTTP方法就是真正处理请求和构造响应的地方。</p>
+
+<p>Go其实支持外部实现的路由器 ListenAndServe的第二个参数就是 用以配置外部路由器的，它是一个Handler接口，即外部路由器只要实现了Handler接口就可以,我们可以在自己实现 的路由器的ServHTTP里面实现自定义路由功能。</p>
+
+<p>如下代码所示，我们自己实现了一个简易的路由器</p>
+
+<pre><code>package main
+
+import ( 
+    &quot;fmt&quot;
+    &quot;net/http&quot; 
+    )
+type MyMux struct { }
+
+func (p *MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) { if r.URL.Path == &quot;/&quot; {
+    sayhelloName(w, r)
+    return 
+}
+    http.NotFound(w, r)
+    return 
+}
+
+func sayhelloName(w http.ResponseWriter, r *http.Request) { f
+    mt.Fprintf(w, &quot;Hello myroute!&quot;)
+}
+
+func main() {
+    mux := &amp;MyMux{}
+    http.ListenAndServe(&quot;:9090&quot;, mux) 
+}
+</code></pre>
+
+<ol>
+<li>multiplexer</li>
+</ol>
+
+<p>http.HandleFunc选取了DefaultServeMux作为multiplexer：</p>
+
+<pre><code>func HandleFunc(pattern string, handler func(ResponseWriter, *Request)) {
+    DefaultServeMux.HandleFunc(pattern, handler)
+}
+</code></pre>
+
+<p>DefaultServeMux是ServeMux的一个实例。当然http包也提供了NewServeMux方法创建一个ServeMux实例，默认则创建一个DefaultServeMux：</p>
+
+<pre><code>// NewServeMux allocates and returns a new ServeMux.
+func NewServeMux() *ServeMux { return new(ServeMux) }
+</code></pre>
+
+<p>DefaultServeMux的代码定义</p>
+
+<pre><code>// DefaultServeMux is the default ServeMux used by Serve.
+var DefaultServeMux = &amp;defaultServeMux
+var defaultServeMux ServeMux
+</code></pre>
+
+<p>当然也可以是其他可以实现的实例 ，比如上面实现的mux。</p>
+
+<p>路由结构体ServeMux</p>
+
+<p>ServeMux的源码：</p>
+
+<pre><code>type ServeMux struct {
+    mu    sync.RWMutex                      //锁，由于请求涉及到并发处理，因此这里需要一个锁机制
+    m     map[string]muxEntry               // 路由规则，一个string对应一个mux实体，这里的string就是注册的路由
+    hosts bool 
+}
+
+type muxEntry struct {
+    explicit bool                // 是否精确匹配
+    h        Handler              // 这个路由表达式对应哪个handler
+    pattern  string
+}
+</code></pre>
+
+<p>ServeMux结构中最重要的字段为m，这是一个map，key是一些url模式，value是一个muxEntry结构，后者里定义存储了具体的url模式和handler。</p>
+
+<p>当然，所谓的ServeMux也实现了ServeHTTP接口，也算是一个handler，不过ServeMux的ServeHTTP方法不是用来处理request和respone，而是用来找到路由注册的handler，可以看服务监听时候的调用过程。</p>
+
+<p>// HandleFunc registers the handler function for the given pattern.
+func (mux *ServeMux) HandleFunc(pattern string, handler func(ResponseWriter, *Request)) {
+    if handler == nil {
+        panic(&ldquo;http: nil handler&rdquo;)
+    }
+    mux.Handle(pattern, HandlerFunc(handler))
+}</p>
+
+<ol>
+<li>handle</li>
+</ol>
+
+<p>ServeMux的Handle方法，将会对pattern和handler函数做一个map映射：</p>
+
+<pre><code>// Handle registers the handler for the given pattern.
+// If a handler already exists for pattern, Handle panics.
+func (mux *ServeMux) Handle(pattern string, handler Handler) {
+    mux.mu.Lock()
+    defer mux.mu.Unlock()
+
+    if pattern == &quot;&quot; {
+        panic(&quot;http: invalid pattern &quot; + pattern)
+    }
+    if handler == nil {
+        panic(&quot;http: nil handler&quot;)
+    }
+    if mux.m[pattern].explicit {
+        panic(&quot;http: multiple registrations for &quot; + pattern)
+    }
+
+    if mux.m == nil {
+        mux.m = make(map[string]muxEntry)
+    }
+    mux.m[pattern] = muxEntry{explicit: true, h: handler, pattern: pattern}
+
+    if pattern[0] != '/' {
+        mux.hosts = true
+    }
+
+    // Helpful behavior:
+    // If pattern is /tree/, insert an implicit permanent redirect for /tree.
+    // It can be overridden by an explicit registration.
+    n := len(pattern)
+    if n &gt; 0 &amp;&amp; pattern[n-1] == '/' &amp;&amp; !mux.m[pattern[0:n-1]].explicit {
+        // If pattern contains a host name, strip it and use remaining
+        // path for redirect.
+        path := pattern
+        if pattern[0] != '/' {
+            // In pattern, at least the last character is a '/', so
+            // strings.Index can't be -1.
+            path = pattern[strings.Index(pattern, &quot;/&quot;):]
+        }
+        url := &amp;url.URL{Path: path}
+        mux.m[pattern[0:n-1]] = muxEntry{h: RedirectHandler(url.String(), StatusMovedPermanently), pattern: pattern}
+    }
+}
+</code></pre>
+
+<p>Handle函数的主要目的在于把handler和pattern模式绑定到map[string]muxEntry的map上，其中muxEntry保存了更多pattern和handler的信息，还记得前面讨论的Server结构吗？Server的m字段就是map[string]muxEntry这样一个map。</p>
+
+<p>此时，pattern和handler的路由注册完成。接下来就是如何开始server的监听，以接收客户端的请求。</p>
+
+<ol>
+<li><p>启动服务</p>
+
+<p>http.ListenAndServe(&ldquo;127.0.0.1:8000&rdquo;, nil)&mdash;启动server</p></li>
+</ol>
+
+<p>或者</p>
+
+<pre><code>server := &amp;Server{Addr: addr, Handler: handler}
+
+server.ListenAndServe()
+</code></pre>
+
+<p>注册好路由之后，启动web服务还需要开启服务器监听。http的ListenAndServer方法中可以看到创建了一个Server对象，并调用了Server对象的同名方法：</p>
+
+<pre><code>func ListenAndServe(addr string, handler Handler) error {
+    server := &amp;Server{Addr: addr, Handler: handler}
+    return server.ListenAndServe()
+}
+// ListenAndServe listens on the TCP network address srv.Addr and then
+// calls Serve to handle requests on incoming connections.
+// Accepted connections are configured to enable TCP keep-alives.
+// If srv.Addr is blank, &quot;:http&quot; is used.
+// ListenAndServe always returns a non-nil error.
+func (srv *Server) ListenAndServe() error {
+    addr := srv.Addr
+    if addr == &quot;&quot; {
+        addr = &quot;:http&quot;
+    }
+    ln, err := net.Listen(&quot;tcp&quot;, addr)
+    if err != nil {
+        return err
+    }
+    return srv.Serve(tcpKeepAliveListener{ln.(*net.TCPListener)})
+}
+</code></pre>
+
+<p>Server的ListenAndServe方法中，会初始化监听地址Addr，同时调用Listen方法设置监听。最后将监听的TCP对象传入Serve方法：</p>
+
+<pre><code>// Serve accepts incoming connections on the Listener l, creating a
+// new service goroutine for each. The service goroutines read requests and
+// then call srv.Handler to reply to them.
+//
+// For HTTP/2 support, srv.TLSConfig should be initialized to the
+// provided listener's TLS Config before calling Serve. If
+// srv.TLSConfig is non-nil and doesn't include the string &quot;h2&quot; in
+// Config.NextProtos, HTTP/2 support is not enabled.
+//
+// Serve always returns a non-nil error. After Shutdown or Close, the
+// returned error is ErrServerClosed.
+func (srv *Server) Serve(l net.Listener) error {
+    defer l.Close()
+    if fn := testHookServerServe; fn != nil {
+        fn(srv, l)
+    }
+    var tempDelay time.Duration // how long to sleep on accept failure
+
+    if err := srv.setupHTTP2_Serve(); err != nil {
+        return err
+    }
+
+    srv.trackListener(l, true)
+    defer srv.trackListener(l, false)
+
+    baseCtx := context.Background() // base is always background, per Issue 16220
+    ctx := context.WithValue(baseCtx, ServerContextKey, srv)
+    for {
+        rw, e := l.Accept()
+        if e != nil {
+            select {
+            case &lt;-srv.getDoneChan():
+                return ErrServerClosed
+            default:
+            }
+            if ne, ok := e.(net.Error); ok &amp;&amp; ne.Temporary() {
+                if tempDelay == 0 {
+                    tempDelay = 5 * time.Millisecond
+                } else {
+                    tempDelay *= 2
+                }
+                if max := 1 * time.Second; tempDelay &gt; max {
+                    tempDelay = max
+                }
+                srv.logf(&quot;http: Accept error: %v; retrying in %v&quot;, e, tempDelay)
+                time.Sleep(tempDelay)
+                continue
+            }
+            return e
+        }
+        tempDelay = 0
+        c := srv.newConn(rw)
+        c.setState(c.rwc, StateNew) // before Serve can return
+        go c.serve(ctx)
+    }
+}
+</code></pre>
+
+<p>监听开启之后，一旦客户端请求到达，创建一个conn结构体，这个conn中保留了这次请求的信息，go就开启一个协程serve处理请求，主要逻辑都在serve方法之中。</p>
+
+<p>serve方法比较长，其主要职能就是，创建一个上下文对象，然后调用Listener的Accept方法用来　获取连接数据并使用newConn方法创建连接对象。最后使用goroutein协程的方式处理连接请求。因为每一个连接都开起了一个协程，请求的上下文都不同，同时又保证了go的高并发。serve也是一个长长的方法：</p>
+
+<pre><code>// Serve a new connection.
+func (c *conn) serve(ctx context.Context) {
+    c.remoteAddr = c.rwc.RemoteAddr().String()
+    ctx = context.WithValue(ctx, LocalAddrContextKey, c.rwc.LocalAddr())
+    defer func() {
+        if err := recover(); err != nil &amp;&amp; err != ErrAbortHandler {
+            const size = 64 &lt;&lt; 10
+            buf := make([]byte, size)
+            buf = buf[:runtime.Stack(buf, false)]
+            c.server.logf(&quot;http: panic serving %v: %v\n%s&quot;, c.remoteAddr, err, buf)
+        }
+        if !c.hijacked() {
+            c.close()
+            c.setState(c.rwc, StateClosed)
+        }
+    }()
+
+    if tlsConn, ok := c.rwc.(*tls.Conn); ok {
+        if d := c.server.ReadTimeout; d != 0 {
+            c.rwc.SetReadDeadline(time.Now().Add(d))
+        }
+        if d := c.server.WriteTimeout; d != 0 {
+            c.rwc.SetWriteDeadline(time.Now().Add(d))
+        }
+        if err := tlsConn.Handshake(); err != nil {
+            c.server.logf(&quot;http: TLS handshake error from %s: %v&quot;, c.rwc.RemoteAddr(), err)
+            return
+        }
+        c.tlsState = new(tls.ConnectionState)
+        *c.tlsState = tlsConn.ConnectionState()
+        if proto := c.tlsState.NegotiatedProtocol; validNPN(proto) {
+            if fn := c.server.TLSNextProto[proto]; fn != nil {
+                h := initNPNRequest{tlsConn, serverHandler{c.server}}
+                fn(c.server, tlsConn, h)
+            }
+            return
+        }
+    }
+
+    // HTTP/1.x from here on.
+
+    ctx, cancelCtx := context.WithCancel(ctx)
+    c.cancelCtx = cancelCtx
+    defer cancelCtx()
+
+    c.r = &amp;connReader{conn: c}
+    c.bufr = newBufioReader(c.r)
+    c.bufw = newBufioWriterSize(checkConnErrorWriter{c}, 4&lt;&lt;10)
+
+    for {
+        w, err := c.readRequest(ctx)
+        if c.r.remain != c.server.initialReadLimitSize() {
+            // If we read any bytes off the wire, we're active.
+            c.setState(c.rwc, StateActive)
+        }
+        if err != nil {
+            const errorHeaders = &quot;\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n&quot;
+
+            if err == errTooLarge {
+                // Their HTTP client may or may not be
+                // able to read this if we're
+                // responding to them and hanging up
+                // while they're still writing their
+                // request. Undefined behavior.
+                const publicErr = &quot;431 Request Header Fields Too Large&quot;
+                fmt.Fprintf(c.rwc, &quot;HTTP/1.1 &quot;+publicErr+errorHeaders+publicErr)
+                c.closeWriteAndWait()
+                return
+            }
+            if isCommonNetReadError(err) {
+                return // don't reply
+            }
+
+            publicErr := &quot;400 Bad Request&quot;
+            if v, ok := err.(badRequestError); ok {
+                publicErr = publicErr + &quot;: &quot; + string(v)
+            }
+
+            fmt.Fprintf(c.rwc, &quot;HTTP/1.1 &quot;+publicErr+errorHeaders+publicErr)
+            return
+        }
+
+        // Expect 100 Continue support
+        req := w.req
+        if req.expectsContinue() {
+            if req.ProtoAtLeast(1, 1) &amp;&amp; req.ContentLength != 0 {
+                // Wrap the Body reader with one that replies on the connection
+                req.Body = &amp;expectContinueReader{readCloser: req.Body, resp: w}
+            }
+        } else if req.Header.get(&quot;Expect&quot;) != &quot;&quot; {
+            w.sendExpectationFailed()
+            return
+        }
+
+        c.curReq.Store(w)
+
+        if requestBodyRemains(req.Body) {
+            registerOnHitEOF(req.Body, w.conn.r.startBackgroundRead)
+        } else {
+            if w.conn.bufr.Buffered() &gt; 0 {
+                w.conn.r.closeNotifyFromPipelinedRequest()
+            }
+            w.conn.r.startBackgroundRead()
+        }
+
+        // HTTP cannot have multiple simultaneous active requests.[*]
+        // Until the server replies to this request, it can't read another,
+        // so we might as well run the handler in this goroutine.
+        // [*] Not strictly true: HTTP pipelining. We could let them all process
+        // in parallel even if their responses need to be serialized.
+        // But we're not going to implement HTTP pipelining because it
+        // was never deployed in the wild and the answer is HTTP/2.
+        serverHandler{c.server}.ServeHTTP(w, w.req)
+        w.cancelCtx()
+        if c.hijacked() {
+            return
+        }
+        w.finishRequest()
+        if !w.shouldReuseConnection() {
+            if w.requestBodyLimitHit || w.closedRequestBodyEarly() {
+                c.closeWriteAndWait()
+            }
+            return
+        }
+        c.setState(c.rwc, StateIdle)
+        c.curReq.Store((*response)(nil))
+
+        if !w.conn.server.doKeepAlives() {
+            // We're in shutdown mode. We might've replied
+            // to the user without &quot;Connection: close&quot; and
+            // they might think they can send another
+            // request, but such is life with HTTP/1.1.
+            return
+        }
+
+        if d := c.server.idleTimeout(); d != 0 {
+            c.rwc.SetReadDeadline(time.Now().Add(d))
+            if _, err := c.bufr.Peek(4); err != nil {
+                return
+            }
+        }
+        c.rwc.SetReadDeadline(time.Time{})
+    }
+}
+</code></pre>
+
+<p>使用defer定义了函数退出时，连接关闭相关的处理。然后就是读取连接的网络数据，并处理读取完毕时候的状态。接下来就是调用serverHandler{c.server}.ServeHTTP(w, w.req)方法处理请求了。最后就是请求处理完毕的逻辑。serverHandler是一个重要的结构，它近有一个字段，即Server结构，同时它也实现了Handler接口方法ServeHTTP，并在该接口方法中做了一个重要的事情，初始化multiplexer路由多路复用器。如果server对象没有指定Handler，则使用默认的DefaultServeMux作为路由Multiplexer。并调用初始化Handler的ServeHTTP方法。</p>
+
+<pre><code>// serverHandler delegates to either the server's Handler or
+// DefaultServeMux and also handles &quot;OPTIONS *&quot; requests.
+type serverHandler struct {
+    srv *Server
+}
+
+func (sh serverHandler) ServeHTTP(rw ResponseWriter, req *Request) {
+    handler := sh.srv.Handler
+    if handler == nil {
+        handler = DefaultServeMux
+    }
+    if req.RequestURI == &quot;*&quot; &amp;&amp; req.Method == &quot;OPTIONS&quot; {
+        handler = globalOptionsHandler{}
+    }
+    handler.ServeHTTP(rw, req)
+}
+</code></pre>
+
+<p>这里DefaultServeMux的ServeHTTP方法其实也是定义在ServeMux结构中的，相关代码如下：</p>
+
+<pre><code>// Find a handler on a handler map given a path string.
+// Most-specific (longest) pattern wins.
+func (mux *ServeMux) match(path string) (h Handler, pattern string) {
+    // Check for exact match first.
+    v, ok := mux.m[path]
+    if ok {
+        return v.h, v.pattern
+    }
+
+    // Check for longest valid match.
+    var n = 0
+    for k, v := range mux.m {
+        if !pathMatch(k, path) {
+            continue
+        }
+        if h == nil || len(k) &gt; n {
+            n = len(k)
+            h = v.h
+            pattern = v.pattern
+        }
+    }
+    return
+}
+func (mux *ServeMux) Handler(r *Request) (h Handler, pattern string) {
+
+    // CONNECT requests are not canonicalized.
+    if r.Method == &quot;CONNECT&quot; {
+        return mux.handler(r.Host, r.URL.Path)
+    }
+
+    // All other requests have any port stripped and path cleaned
+    // before passing to mux.handler.
+    host := stripHostPort(r.Host)
+    path := cleanPath(r.URL.Path)
+    if path != r.URL.Path {
+        _, pattern = mux.handler(host, path)
+        url := *r.URL
+        url.Path = path
+        return RedirectHandler(url.String(), StatusMovedPermanently), pattern
+    }
+
+    return mux.handler(host, r.URL.Path)
+}
+
+// handler is the main implementation of Handler.
+// The path is known to be in canonical form, except for CONNECT methods.
+func (mux *ServeMux) handler(host, path string) (h Handler, pattern string) {
+    mux.mu.RLock()
+    defer mux.mu.RUnlock()
+
+    // Host-specific pattern takes precedence over generic ones
+    if mux.hosts {
+        h, pattern = mux.match(host + path)
+    }
+    if h == nil {
+        h, pattern = mux.match(path)
+    }
+    if h == nil {
+        h, pattern = NotFoundHandler(), &quot;&quot;
+    }
+    return
+}
+
+// ServeHTTP dispatches the request to the handler whose
+// pattern most closely matches the request URL.
+func (mux *ServeMux) ServeHTTP(w ResponseWriter, r *Request) {
+    if r.RequestURI == &quot;*&quot; {
+        if r.ProtoAtLeast(1, 1) {
+            w.Header().Set(&quot;Connection&quot;, &quot;close&quot;)
+        }
+        w.WriteHeader(StatusBadRequest)
+        return
+    }
+    h, _ := mux.Handler(r)
+    h.ServeHTTP(w, r)
+}
+</code></pre>
+
+<p>mux的ServeHTTP方法通过调用其Handler方法寻找注册到路由上的handler函数，并调用该函数的ServeHTTP方法，本例则是IndexHandler函数。</p>
+
+<p>mux的Handler方法对URL简单的处理，然后调用handler方法，后者会创建一个锁，同时调用match方法返回一个handler和pattern。</p>
+
+<p>在match方法中，mux的m字段是map[string]muxEntry图，后者存储了pattern和handler处理器函数，因此通过迭代m寻找出注册路由的patten模式与实际url匹配的handler函数并返回。</p>
+
+<p>返回的结构一直传递到mux的ServeHTTP方法，接下来调用handler函数的ServeHTTP方法，即IndexHandler函数，然后把response写到http.RequestWirter对象返回给客户端。</p>
+
+<p>上述函数运行结束即serverHandler{c.server}.ServeHTTP(w, w.req)运行结束。接下来就是对请求处理完毕之后上希望和连接断开的相关逻辑。</p>
+
+<p>至此，Golang中一个完整的http服务介绍完毕，包括注册路由，开启监听，处理连接，路由处理函数。
+多数的web应用基于HTTP协议，客户端和服务器通过request-response的方式交互。一个server并不可少的两部分莫过于路由注册和连接处理。Golang通过一个ServeMux实现了的multiplexer路由多路复用器来管理路由。同时提供一个Handler接口提供ServeHTTP用来实现handler处理其函数，后者可以处理实际request并构造response。</p>
+
+<p>综上所述</p>
+
+<ol>
+<li>理解go中的http服务，最重要就是要理解Multiplexer和handler，Golang中的Multiplexer基于ServeMux结构，同时也实现了Handler接口。下面对几个重要概念说明，两个重要的结构体和一个接口</li>
+</ol>
+
+<p>Server结构体</p>
+
+<p>从http.ListenAndServe的源码可以看出，它还是创建了一个server对象，并调用server对象的ListenAndServe方法来实现监听路由：</p>
+
+<pre><code>func ListenAndServe(addr string, handler Handler) error {
+    server := &amp;Server{Addr: addr, Handler: handler}
+    return server.ListenAndServe()
+}
+</code></pre>
+
+<p>查看server的结构如下，其实上面已经解释过：</p>
+
+<pre><code>type Server struct {
+    Addr         string        
+    Handler      Handler       
+    ReadTimeout  time.Duration 
+    WriteTimeout time.Duration 
+    TLSConfig    *tls.Config   
+
+    MaxHeaderBytes int
+
+    TLSNextProto map[string]func(*Server, *tls.Conn, Handler)
+
+    ConnState func(net.Conn, ConnState)
+    ErrorLog *log.Logger
+    disableKeepAlives int32     nextProtoOnce     sync.Once 
+    nextProtoErr      error     
+}
+</code></pre>
+
+<p>server结构存储了服务器处理请求常见的字段。其中Handler字段也保留Handler接口。如果Server接口没有提供Handler结构对象，那么会使用DefautServeMux做multiplexer，后面再做分析。</p>
+
+<p>路由结构体ServeMux</p>
+
+<p>ServeMux的源码：</p>
+
+<pre><code>type ServeMux struct {
+    mu    sync.RWMutex                      //锁，由于请求涉及到并发处理，因此这里需要一个锁机制
+    m     map[string]muxEntry               // 路由规则，一个string对应一个mux实体，这里的string就是注册的路由
+    hosts bool 
+}
+
+type muxEntry struct {
+    explicit bool                // 是否精确匹配
+    h        Handler              // 这个路由表达式对应哪个handler
+    pattern  string
+}
+</code></pre>
+
+<p>ServeMux结构中最重要的字段为m，这是一个map，key是一些url模式，value是一个muxEntry结构，后者里定义存储了具体的url模式和handler。</p>
+
+<p>当然，所谓的ServeMux也实现了ServeHTTP接口，也算是一个handler，不过ServeMux的ServeHTTP方法不是用来处理request和respone，而是用来找到路由注册的handler</p>
+
+<p>Handler类型</p>
+
+<p>Golang没有继承，类多态的方式可以通过接口实现。所谓接口则是定义声明了函数签名，任何结构只要实现了与接口函数签名相同的方法，就等同于实现了接口。go的http服务都是基于handler进行处理。</p>
+
+<pre><code>type Handler interface {
+    ServeHTTP(ResponseWriter, *Request)
+}
+</code></pre>
+
+<p>任何结构体，只要实现了ServeHTTP方法，这个结构就可以称之为handler对象。ServeMux会使用handler并调用其ServeHTTP方法处理请求并返回响应。</p>
+
+<p>handler处理器(函数)&ndash;就是HandleFunc的第二个参数，是一个函数： 具有func(w http.ResponseWriter, r *http.Requests)签名的函数，经过HandlerFunc结构包装的handler函数，它实现了ServeHTTP接口方法的函数。调用handler处理器的ServeHTTP方法时，即调用handler函数本身。</p>
+
+<p>handler对象：实现了Handler接口ServeHTTP方法的结构。</p>
+
+<ol>
+<li>ServeMux和handler处理器函数的连接桥梁就是Handler接口。ServeMux的ServeHTTP方法实现了寻找注册路由的handler的函数，并调用该handler的ServeHTTP方法。ServeHTTP方法就是真正处理请求和构造响应的地方。</li>
+</ol>
+
+<p>Go代码的执行流程</p>
+
+<p>过对http包的分析之后，现在让我们来梳理一下整个的代码执行过程。</p>
+
+<p>首先调用Http.HandleFunc</p>
+
+<p>按顺序做了几件事:</p>
+
+<p>1 调用了DefaultServerMux的HandleFunc
+2 调用了DefaultServerMux的Handle
+3 往DefaultServeMux的map[string]muxEntry中增加对应的handler和路由规则</p>
+
+<p>其次调用http.ListenAndServe(&rdquo;:9090&rdquo;, nil)</p>
+
+<p>按顺序做了几件事情:</p>
+
+<p>1 实例化Server
+2 调用Server的ListenAndServe()
+3 调用net.Listen(&ldquo;tcp&rdquo;, addr)监听端口
+4 启动一个for循环，在循环体中Accept请求
+5 对每个请求实例化一个Conn，并且开启一个goroutine为这个请求进行服务go c.serve()
+6 读取每个请求的内容w, err := c.readRequest()
+7 判断handler是否为空，如果没有设置handler(这个例子就没有设置handler)，handler就设置为 DefaultServeMux
+8 调用handler的ServeHttp
+9 在这个例子中，下面就进入到DefaultServerMux.ServeHttp
+10 根据request选择handler，并且进入到这个handler的ServeHTTP mux.handler&reg;.ServeHTTP(w, r)
+11 选择handler:
+A 判断是否有路由能满足这个request(循环遍历ServerMux的muxEntry)
+B 如果有路由满足，调用这个路由handler的ServeHttp
+C 如果没有路由满足，调用NotFoundHandler的ServeHttp</p>
+
+<h1 id="应用">应用</h1>
+
+<h2 id="捕捉close">捕捉close</h2>
+
+<p>golang捕获http.ResponseWriter被close，也就是服务器端捕捉连接被客户端close。</p>
+
+<pre><code>notify := resp.(CloseNotifier).CloseNotify()
+
+go func() {
+    &lt;-notify
+    lock.RLock()
+    fmt.Println(&quot;HTTP connection just closed.&quot;)
+    lock.RUnlock()
+}()
+}
+</code></pre>
+
+<p>当传入参数不确定是否是resp时
+先做个简单的判断，采用reflect，假设resp 是你认为的http.ResponseWriter</p>
+
+<pre><code>v := reflect.ValueOf(resp) 
+v = reflect.Indirect(v) 
+for v.Kind() == reflect.Struct { 
+if fv := v.FieldByName(“ResponseWriter”); fv.IsValid() { 
+if cn, ok = fv.Interface().(http.CloseNotifier); ok { 
+return 
+} 
+v = reflect.Indirect(fv) 
+} else { 
+break 
+} 
+}
+</code></pre>
+
+<p>在frp中的使用</p>
+
+<pre><code>if cn, ok := rw.(http.CloseNotifier); ok {
+        var cancel context.CancelFunc
+        ctx, cancel = context.WithCancel(ctx)
+        defer cancel()
+        notifyChan := cn.CloseNotify()
+        go func() {
+            select {
+            case &lt;-notifyChan:
+                cancel()
+            case &lt;-ctx.Done():
+            }
+        }()
+    }
+</code></pre>
+
+<h2 id="web编程">web编程</h2>
+
+<h3 id="并发使用过程">并发使用过程</h3>
+
+<p>c/s</p>
+
+<p>c++的c/s原理</p>
+
+<pre><code>socket-bind-listen-while（accept）-fork（子进程处理业务，根据url，父进程继续监听）
+</code></pre>
+
+<p>c++的高并发</p>
+
+<p>高并发是说到底就是负载均衡和缓存，先就是多机器部署，然后让请求按不同通道（比如可以按地市划分，当然也可以负载均衡）到不同的机器上去，然后同一套也可以部署多个，加nginx之类的负载均衡调度处理，然后进入到了进程中具体处理的时候，使用多线程thread并发，也有使用fork出来多进行的进行处理，这边可以在逻辑里进行业务划分，到了这一边就是业务相关逻辑，优化业务，解决哪些很耗时间的操作，for循环什么的，最后就是数据库的优化，使用缓存数据库，优化数据库正常先对我们写的sql进行优化，可以看执行计划，然后数据库索引进行优化，然后就是分区，分表，分库的各种切分。</p>
+
+<p>go c/s</p>
+
+<p>go的c/s模型中socket中已经讲解，包括http服务的c/s模型</p>
+
+<p>go的高并发部署</p>
+
+<p>将前端请求划分，比如按地市分通道（路由），或者加nginx之类的负载均衡进行调度，然后到进程中，也就是官方提供的http的那个listen，进入具体的业务，就可以采用了1.简单并发，2，工作池，3异步处理。这边可以在逻辑里进行业务划分，到了这一边就是业务相关逻辑，优化业务，解决哪些很耗时间的操作，for循环什么的，最后就是数据库的优化，使用缓存数据库，优化数据库正常先对我们写的sql进行优化，可以看执行计划，然后数据库索引进行优化，然后就是分区，分表，分库的各种切分。</p>
+
+<p>其实go提供的http服务本来就是能够支持高并发的，通过http库建立起来的服务，对于每个请求都是新建一个goroutine去处理的。</p>
+
+<h3 id="go能支持的并发数据">go能支持的并发数据</h3>
+
+<p>世界级日活数据</p>
+
+<pre><code>2011年
+
+Google:世界浏览量最高的网站 
+日均 IP 访问量[一周平均] 
+≈ 281,280,000
+日均 PV 浏览量[一周平均] 
+≈ 3,546,940,800 
+35亿，每秒12W的PV，峰值应该能达到20W。
+
+QQ:
+日均 IP 访问量[一周平均] 
+≈ 44,460,000 
+日均 PV 浏览量[一周平均] 
+≈ 382,356,000 
+
+4亿左右，跟世界级的Google还是不能比
+
+Baidu：
+日均 IP 访问量[一周平均] 
+≈ 61,500,000 
+日均 PV 浏览量[一周平均] 
+≈ 991,995,000
+10亿左右。世界第六。97.2%都是国内提供的... 
+</code></pre>
+
+<h3 id="端口问题导致的并发问题">端口问题导致的并发问题</h3>
+
+<p>1、服务器端口数和端口复用设置</p>
+
+<p>默认情况下，客户端关闭TCP连接后本地的临时端口会长时间进入TIME_WAIT状态（默认120s），TIME_WAIT状态是为了保护TCP协议的正确性，避免端口发生复用后老的TCP连接残留在网络上的报文进入新的连接里。但这也引入了一个问题，临时端口数量有限，耗尽后，新建连接就会报错EADDRNOTAVAIL</p>
+
+<p>首先要增加临时端口的数量，增加可被消耗的临时端口资源</p>
+
+<pre><code>sysctl -w &quot;net.ipv4.ip_local_port_range=1024 65535”
+</code></pre>
+
+<p>然后要加速临时端口回收</p>
+
+<p>第一种方法是启用tw_reuse，tw_reuse能加速TIME_WAIT状态端口在几秒时间内安全的回收
+    sysctl -w net.ipv4.tcp_timestamps=1
+    sysctl -w net.ipv4.tcp_tw_reuse=1
+2.6.32内核下启动tw_reuse短连接可以达到2w，性能并不稳定；</p>
+
+<p>第二种方法更激进些，启用tw_recycle，tw_recycle允许在两个RTT。当多个客户端处于NAT后时，在服务器端开启tw_recycle会引起丢包问题，如果丢SYN包，就会造成新建连接失败
+    sysctl -w net.ipv4.tcp_timestamps=1
+    sysctl -w net.ipv4.tcp_tw_recycle=1
+2.6.32内核下启动tw_recycle短连接可以达到6w，比较稳定；</p>
+
+<p>第三种方法是给socket配置SO_LINGER，on设为1，linger设为0，这样关闭连接后TCP状态从ESTAB直接进入CLOSED，向服务器发rst包而不是fin包来关闭连接。这种方法风险最高，会丢弃buffer里未发送完的数据，不过通过设计协议（客户端和服务器协议上协商后再关闭TCP连接）可以规避这个问题，使用需要小心，选择合适的场景。
+这个方法可以完全解掉TIME_WAIT问题，短连接达到20w，很稳定</p>
+
+<p>短连接QPS达到20w后，网卡pps接近百万，耗时主要在软中断，内核spin_lock和网卡驱动里，也基本让内核态网络协议栈负载饱和了</p>
+
+<p>调整系统参数</p>
+
+<p>10m并发连接对系统是个挑战，需要调整相关的参数</p>
+
+<pre><code>sysctl -w fs.file-max=10485760 #系统允许的文件描述符数量10m
+sysctl -w net.ipv4.tcp_rmem=1024 #每个tcp连接的读取缓冲区1k，一个连接1k
+sysctl -w net.ipv4.tcp_wmem=1024 #每个tcp连接的写入缓冲区1k
+#修改默认的本地端口范围
+sysctl -w net.ipv4.ip_local_port_range='1024 65535' 
+sysctl -w net.ipv4.tcp_tw_recycle=1  #快速回收time_wait的连接
+sysctl -w net.ipv4.tcp_tw_reuse=1
+sysctl -w net.ipv4.tcp_timestamps=1
+#用户单进程的最大文件数，用户登录时生效
+echo '* soft nofile 1048576' &gt;&gt; /etc/security/limits.conf 
+echo '* hard nofile 1048576' &gt;&gt; /etc/security/limits.conf 
+ulimit -n 1048576 #用户单进程的最大文件数 当前会话生效
+</code></pre>
+
+<p>并发连接数到达千万时，有诸多方面的问题需要解决：</p>
+
+<p>. 单进程最大文件数量限制：limit -n 最多能把这个数字修改到1048575，因此单个进程最多能够打开百万个文件，千万并发连接需要千万个文件描述符，于是我们使用多进程来做到千万文件的支持</p>
+
+<p>.多进程之间的负载均衡：nginx使用多进程来增加自己的吞吐量，原先采用共享锁的方式来平衡负载，对核数较多的服务器，较多的进程并没有达到性能的线性提升。最新的linux内核引入了SO_REUSEPORT选项，该选项可以自动平衡监听同一端口的多进程，是内核级的解决方案。handy采用该方案，优于nginx的旧有方式（最新的nginx也支持SO_REUSEPORT）。</p>
+
+<p>.测试中客户端本地端口不够：让服务器监听了200个端口，这样客户端连接服务器的每个端口只有50k个连接，然后加大默认的本地端口范围就可以满足要求（见前面的服务器系统参数）</p>
+
+<p>测试中如果一次性创建千万个连接，则绝大部分的连接创建都会失败，因此让客户端每100ms创建2000个连接，提高连接创建的成功率。</p>
+
+<p>系统在运行中，并没有多少的负载，当然啦，一部分负载跑到底层的hypervisor去了</p>
+
+<p>小编实验的机器上内存占用大约40G，平均一个连接前后一共用了4k，不多不多</p>
+
+<p>大家可以通过iptraf，nload等工具来查看系统的网络情况</p>
+
+<p>写到这里，顺便给出我测是的ucloud主机的性能参数吧：</p>
+
+<pre><code>网卡流量最多可以到1.2GBit/s，并非所有时间都到了这么高，并不稳定，一般在800M-1.2G之间波动
+tcp收包发包的最高qps是12w/s，多了就上不去
+</code></pre>
+
+<h3 id="go-web-基本使用实例">go web 基本使用实例</h3>
+
+<p>文章结构包括：</p>
+
+<pre><code>Client-Get 请求 
+Client-Post 请求
+Server 处理 Get 和 Post 数据
+</code></pre>
+
+<p>在数据的封装中，我们部分采用了json，因而本文也涉及到Golang中json的编码和解码。</p>
+
+<p>一、Client-Get</p>
+
+<pre><code>package main
+
+import (
+        &quot;fmt&quot;
+        &quot;net/url&quot;
+        &quot;net/http&quot;
+        &quot;io/ioutil&quot;
+        &quot;log&quot;
+)
+
+func main() {
+        u, _ := url.Parse(&quot;http://localhost:9001/xiaoyue&quot;)
+        q := u.Query()
+        q.Set(&quot;username&quot;, &quot;user&quot;)
+        q.Set(&quot;password&quot;, &quot;passwd&quot;)
+        u.RawQuery = q.Encode()
+        res, err := http.Get(u.String());
+        if err != nil { 
+              log.Fatal(err) return 
+        }
+        result, err := ioutil.ReadAll(res.Body) 
+        res.Body.Close() 
+        if err != nil { 
+              log.Fatal(err) return 
+        } 
+        fmt.Printf(&quot;%s&quot;, result)
+} 
+</code></pre>
+
+<p>二、Client-Post</p>
+
+<pre><code>package main
+
+import (
+        &quot;fmt&quot;
+        &quot;net/url&quot;
+        &quot;net/http&quot;
+        &quot;io/ioutil&quot;
+        &quot;log&quot;
+        &quot;bytes&quot;
+        &quot;encoding/json&quot;
+)
+
+type Server struct {
+        ServerName string
+        ServerIP   string
+}
+
+type Serverslice struct {
+        Servers []Server
+        ServersID  string
+}
+
+
+func main() {
+
+        var s Serverslice
+
+        var newServer Server;
+        newServer.ServerName = &quot;Guangzhou_VPN&quot;;
+        newServer.ServerIP = &quot;127.0.0.1&quot;       
+        s.Servers = append(s.Servers, newServer)
+
+        s.Servers = append(s.Servers, Server{ServerName: &quot;Shanghai_VPN&quot;, ServerIP: &quot;127.0.0.2&quot;})
+        s.Servers = append(s.Servers, Server{ServerName: &quot;Beijing_VPN&quot;, ServerIP: &quot;127.0.0.3&quot;})
+        
+        s.ServersID = &quot;team1&quot;
+
+        b, err := json.Marshal(s)
+        if err != nil {
+                fmt.Println(&quot;json err:&quot;, err)
+        }
+
+        body := bytes.NewBuffer([]byte(b))
+        res,err := http.Post(&quot;http://localhost:9001/xiaoyue&quot;, &quot;application/json;charset=utf-8&quot;, body)
+        if err != nil {
+                log.Fatal(err)
+                return
+        }
+        result, err := ioutil.ReadAll(res.Body)
+        res.Body.Close()
+        if err != nil {
+                log.Fatal(err)
+                return
+        }
+        fmt.Printf(&quot;%s&quot;, result)
+}
+</code></pre>
+
+<p>三、Server</p>
+
+<pre><code>package main
+
+import (
+        &quot;fmt&quot;
+        &quot;net/http&quot;
+        &quot;strings&quot;
+        &quot;html&quot;
+        &quot;io/ioutil&quot;
+        &quot;encoding/json&quot;
+)
+
+type Server struct {
+        ServerName string
+        ServerIP   string
+}
+
+type Serverslice struct {
+        Servers []Server
+        ServersID  string
+}
+
+func main() {
+        http.HandleFunc(&quot;/&quot;, handler) 
+        http.ListenAndServe(&quot;:9001&quot;, nil)
+}
+
+func handler(w http.ResponseWriter, r *http.Request) { 
+        r.ParseForm() //解析参数，默认是不会解析的 
+        fmt.Fprintf(w, &quot;Hi, I love you %s&quot;, html.EscapeString(r.URL.Path[1:]))
+        if r.Method == &quot;GET&quot; {
+                fmt.Println(&quot;method:&quot;, r.Method) //获取请求的方法 
+
+                fmt.Println(&quot;username&quot;, r.Form[&quot;username&quot;]) 
+                fmt.Println(&quot;password&quot;, r.Form[&quot;password&quot;]) 
+
+                for k, v := range r.Form {
+                        fmt.Print(&quot;key:&quot;, k, &quot;; &quot;)
+                        fmt.Println(&quot;val:&quot;, strings.Join(v, &quot;&quot;))
+                }
+        } else if r.Method == &quot;POST&quot; {
+                result, _:= ioutil.ReadAll(r.Body)
+                r.Body.Close()
+                fmt.Printf(&quot;%s\n&quot;, result)
+
+                //未知类型的推荐处理方法
+
+                var f interface{}
+                json.Unmarshal(result, &amp;f) 
+                m := f.(map[string]interface{})
+                for k, v := range m {
+                        switch vv := v.(type) {
+                                case string:
+                                        fmt.Println(k, &quot;is string&quot;, vv)
+                                case int:
+                                        fmt.Println(k, &quot;is int&quot;, vv)
+                                case float64:
+                                        fmt.Println(k,&quot;is float64&quot;,vv)
+                                case []interface{}:
+                                        fmt.Println(k, &quot;is an array:&quot;)
+                                        for i, u := range vv {
+                                                fmt.Println(i, u)
+                                        }
+                                default:
+                                        fmt.Println(k, &quot;is of a type I don't know how to handle&quot;) 
+                         }
+                  }
+
+                 //结构已知，解析到结构体
+
+                 var s Serverslice;
+                 json.Unmarshal([]byte(result), &amp;s)
+
+                 fmt.Println(s.ServersID);
+  
+                 for i:=0; i&lt;len(s.Servers); i++ {
+                         fmt.Println(s.Servers[i].ServerName)
+                         fmt.Println(s.Servers[i].ServerIP)
+                 }
+        } 
+}
+</code></pre>
+
+<h3 id="请求参数解析">请求参数解析</h3>
+
+<p>http.request 中涉及到数据解析的几个重要变量为：</p>
+
+<pre><code>// Form contains the parsed form data, including both the URL
+// field's query parameters and the POST or PUT form data.
+// This field is only available after ParseForm is called.
+// The HTTP client ignores Form and uses Body instead.
+Form url.Values
+
+// PostForm contains the parsed form data from POST, PATCH,
+// or PUT body parameters.
+//
+// This field is only available after ParseForm is called.
+// The HTTP client ignores PostForm and uses Body instead.
+PostForm url.Values
+
+// MultipartForm is the parsed multipart form, including file uploads.
+// This field is only available after ParseMultipartForm is called.
+// The HTTP client ignores MultipartForm and uses Body instead.
+MultipartForm *multipart.Form
+</code></pre>
+
+<p>说明：</p>
+
+<pre><code>Form：存储了post、put和get参数，在使用之前需要调用 ParseForm 方法。
+PostForm：存储了post、put参数，在使用之前需要调用 ParseForm 方法。
+MultipartForm：存储了包含了文件上传的表单的post参数，在使用前需要调用 ParseMultipartForm
+ 方法。
+</code></pre>
+
+<p>获取http请求参数url</p>
+
+<ol>
+<li><p>r.URL.Path</p>
+
+<p>path := strings.Split(r.URL.Path,&ldquo;/&rdquo;)
+uid := path[len(path)-3]
+host := path[len(path)-1]</p></li>
+
+<li><p>mux.Vars</p>
+
+<p>vars := mux.Vars(req)
+uid := vars[&ldquo;uid&rdquo;]
+hostName := vars[&ldquo;host&rdquo;]</p></li>
+</ol>
+
+<p>获取http请求参数body</p>
+
+<ol>
+<li><p>application/x-www-form-urlencoded 格式</p>
+
+<p>r.ParseForm()
+// 法一
+r.PostForm[&ldquo;id&rdquo;][0]
+// 法二
+r.PostFormValue[&ldquo;id&rdquo;]</p></li>
+
+<li><p>multipart/form-data 格式</p></li>
+</ol>
+
+<p>普通参数</p>
+
+<pre><code>r.ParseMultipartForm(32&lt;&lt;20)
+// 法一
+r.PostForm[&quot;id&quot;][0]
+// 法二
+r.PostFormValue[&quot;id&quot;]
+</code></pre>
+
+<p>文件</p>
+
+<pre><code>r.ParseMultipartForm(32 &lt;&lt; 20)
+file, handler, err := r.FormFile(&quot;file&quot;)
+if err != nil {
+    fmt.Println(err)
+    return
+}
+defer file.Close()
+fmt.Fprintf(w, &quot;%v&quot;, handler.Header)
+f, err := os.OpenFile(&quot;./test.txt&quot;, os.O_WRONLY|os.O_CREATE, 0666)
+if err != nil {
+    fmt.Println(err)
+    return
+}
+defer f.Close()
+io.Copy(f, file)
+</code></pre>
+
+<ol>
+<li>application/json 格式</li>
+</ol>
+
+<p>对于json有两种方式：Decode和Marshal</p>
+
+<p>重http请求中接受到的body数据是io.reader格式的，所以使用上面两种格式都能进行解析，Decode使用NewDecoder将body数据转化为decode格式的，Marshal则使用ioutil.ReadAll将数据转化为[]byte格式的，然后做对应的解码。</p>
+
+<p>1.正常使用Decode，如下</p>
+
+<pre><code>type User struct {
+    Name string `json:&quot;username&quot;`
+    Pwd string `json:&quot;password&quot;`
+}
+
+type RetMessage struct {
+    Code string `json:&quot;code&quot;`
+    Msg string  `json:&quot;msg&quot;`
+}
+
+func processJson(w http.ResponseWriter, r *http.Request) {
+    var u User
+    if r.Body == nil {
+        http.Error(w, &quot;Please send a request body&quot;, 400)
+        return
+    }
+    err := json.NewDecoder(r.Body).Decode(&amp;u)
+    if err != nil {
+        http.Error(w, err.Error(), 400)
+        return
+    }
+    fmt.Println(u)
+    w.Header().Set(&quot;Content-Type&quot;, &quot;application/json&quot;)
+    json.NewEncoder(w).Encode(RetMessage{&quot;200&quot;, &quot;ok&quot;})
+}
+</code></pre>
+
+<ol>
+<li><p>Marshal</p>
+
+<p>fc := common.Host{}
+b, err := ioutil.ReadAll(r.Body)
+if err != nil {
+    log.Error(&ldquo;read http request body error:&ldquo;, err)
+    returnFail(w, err)
+    return
+}</p>
+
+<p>err = json.Unmarshal(b, &amp;fc)
+if err != nil {
+    log.Error(&ldquo;parse user information error:&ldquo;, err)
+    returnFail(w, err)
+    return
+}</p></li>
+</ol>
+
+<p>还可以限制读取内容长度</p>
+
+<p>body := io.LimitReader(req.Body, _maxUserRequestBodyLength)</p>
+
+<p>web返回内容封装</p>
+
+<pre><code>func Error(rw http.ResponseWriter, err error) {
+    rw.Header().Set(&quot;Content-Type&quot;, &quot;application/json&quot;)
+
+    var res ErrResponse
+    switch v := err.(type) {
+    case errors.Error:
+        res.Error = v.Error()
+        rw.WriteHeader(v.Code())
+    default:
+        res.Error = err.Error()
+        rw.WriteHeader(500)
+    }
+    buf, _ := json.Marshal(&amp;res)
+    rw.Write(buf)
+}
+
+func Reply(rw http.ResponseWriter, res interface{}) {
+    buf, _ := json.Marshal(res)
+    rw.Header().Set(&quot;Content-Type&quot;, &quot;application/json&quot;)
+    rw.Write(buf)
+}
+</code></pre>
+
+<p>主要将返回的[]byte这个内容write进去就可以了，需要什么具体内容就进行拼接，如上</p>
+
+<p>获取返回值</p>
+
+<p>标准库 ioutil.ReadAll 的代码，每次会创建一个 var buf bytes.Buffer 并且初始化 buf.Grow(int(capacity)) 的大小为 bytes.MinRead, 这个值呢就是 512，按这个 buffer 的大小读取一次数据需要分配 2~16 次内存。</p>
+
+<p>验证请求参数</p>
+
+<p>1.必填字段</p>
+
+<p>map</p>
+
+<p>if len(r.Form[&ldquo;username&rdquo;][0])==0{ //为空的处理
+}</p>
+
+<p>正常</p>
+
+<p>r.Form.Get()</p>
+
+<p>区别</p>
+
+<p>r.Form对不同类型的表单元素的留空有不同的处理， 对于空文本框、空文本区域以及文件上传，元素的值为空值, 而如果是未选中的复选框和单选按钮，则根本不会在r.Form中产生相应条目，如果我们用上面例子中的方式去获取数 据时程序就会报错。所以我们需要通过r.Form.Get()来获取值，因为如果字段不存在，通过该方式获取的是空值。 但是通过r.Form.Get()只能获取单个的值，如果是map的值，必须通过上面的方式来获取。</p>
+
+<p>2.数字</p>
+
+<p>你想要确保一个表单输入框中获取的只能是数字，例如，你想通过表单获取某个人的具体年龄是50岁还是10岁，而不 是像“一把年纪了”或“年轻着呢”这种描述
+如果我们是判断正整数，那么我们先转化成int类型，然后进行处理
+    getint,err:=strconv.Atoi(r.Form.Get(&ldquo;age&rdquo;)) if err!=nil{
+    //数字转化出错了，那么可能就是不是数字 }
+    //接下来就可以判断这个数字的大小范围了 if getint &gt;100 {
+    //太大了 }
+    还有一种方式就是正则匹配的方式
+    if m, _ := regexp.MatchString(&ldquo;<sup class="footnote-ref" id="fnref:0-9"><a href="#fn:0-9">1</a></sup>+$&ldquo;, r.Form.Get(&ldquo;age&rdquo;)); !m { return false
+    }</p>
+
+<p>对于性能要求很高的用户来说，这是一个老生常谈的问题了，他们认为应该尽量避免使用正则表达式，因为使用正则 表达式的速度会比较慢。但是在目前机器性能那么强劲的情况下，对于这种简单的正则表达式效率和类型转换函数是 没有什么差别的。如果你对正则表达式很熟悉，而且你在其它语言中也在使用它，那么在Go里面使用正则表达式将是 一个便利的方式。</p>
+
+<p>3.中英文／电子邮件／手机号码／身份证</p>
+
+<p>//中文
+if m, _ := regexp.MatchString(&ldquo;<sup class="footnote-ref" id="fnref:x-4e00-x-9fa5"><a href="#fn:x-4e00-x-9fa5">2</a></sup>+$&ldquo;, r.Form.Get(&ldquo;realname&rdquo;)); !m { return false
+}</p>
+
+<p>//英文
+if m, _ := regexp.MatchString(&ldquo;<sup class="footnote-ref" id="fnref:a-zA-Z"><a href="#fn:a-zA-Z">3</a></sup>+$&ldquo;, r.Form.Get(&ldquo;engname&rdquo;)); !m { return false
+}</p>
+
+<p>//电子邮件
+if m, _ := regexp.MatchString(<code>^([\w\.\_]{2,10})@(\w{1,}).([a-z]{2,4})$</code>, r.Form.Get(&ldquo;email&rdquo;)); !m fmt.Println(&ldquo;no&rdquo;)
+}else{ fmt.Println(&ldquo;yes&rdquo;)
+}</p>
+
+<p>//手机号码
+if m, _ := regexp.MatchString(<code>^(1[3|4|5|8][0-9]\d{4,8})$</code>, r.Form.Get(&ldquo;mobile&rdquo;)); !m { return false
+}</p>
+
+<p>//身份证
+//验证15位身份证，15位的是全部数字
+if m, _ := regexp.MatchString(<code>^(\d{15})$</code>, r.Form.Get(&ldquo;usercard&rdquo;)); !m {
+return false }
+//验证18位身份证，18位前17位为数字，最后一位是校验位，可能为数字或字符X。
+if m, _ := regexp.MatchString(<code>^(\d{17})([0-9]|X)$</code>, r.Form.Get(&ldquo;usercard&rdquo;)); !m {
+return false }</p>
+
+<p>4.下拉菜单</p>
+
+<pre><code>slice:=[]string{&quot;apple&quot;,&quot;pear&quot;,&quot;banane&quot;}
+for _, v := range slice {
+if v == r.Form.Get(&quot;fruit&quot;) {
+return true }
+}
+return false
+</code></pre>
+
+<p>5.单选按钮</p>
+
+<pre><code>slice:=[]int{1,2}
+for _, v := range slice {
+if v == r.Form.Get(&quot;gender&quot;) {
+return true }
+ }
+return false
+</code></pre>
+
+<p>6.复选框</p>
+
+<pre><code>slice:=[]string{&quot;football&quot;,&quot;basketball&quot;,&quot;tennis&quot;} 
+a:=Slice_diff(r.Form[&quot;interest&quot;],slice)
+if a == nil{
+return true }
+return false
+</code></pre>
+
+<p>跨站脚本攻击（cross site scripting）（xss）</p>
+
+<p>攻击者通常会在有漏洞的程序中插入JavaScript、VBScript、 ActiveX或Flash以欺骗用户。一旦得手，他们可以盗 取用户帐户信息，修改用户设置，盗取/污染cookie和植入恶意广告等。</p>
+
+<p>对XSS最佳的防护应该结合以下两种方法</p>
+
+<p>一是验证所有输入数据，有效检测攻击(这个我们前面小节已经有过介绍);
+另一个是对所有输出数据进行适当的处理，以防止任何已成功注入的脚本在浏览器端运行。</p>
+
+<p>Go的html/template里面带有下面几个函数可以帮你转义，可以用于预防</p>
+
+<pre><code>func HTMLEscape(w io.Writer, b []byte) //把b进行转义之后写到w
+func HTMLEscapeString(s string) string //转义s之后返回结果字符串
+func HTMLEscaper(args ...interface{}) string //支持多个参数一起转义，返回结果字符串
+</code></pre>
+
+<p>防止多次递交表单</p>
+
+<p>解决方案是在表单中添加一个带有唯一值的隐藏字段。在验证表单时，先检查带有该惟一值的表单是否已经递交过 了。如果是，拒绝再次递交;如果不是，则处理表单进行逻辑处理。另外，如果是采用了Ajax模式递交表单的话，当 表单递交后，通过javascript来禁用表单的递交按钮。</p>
+
+<p>处理上传文件</p>
+
+<ol>
+<li>表单中增加enctype=&ldquo;multipart/form-data&rdquo;</li>
+<li>服务端调用r.ParseMultipartForm,把上传的文件存储在内存和临时文件中</li>
+<li>使用r.FormFile获取文件句柄，然后对文件进行存储等处理。</li>
+</ol>
+
+<h1 id="net-http-httputil">net/http/httputil</h1>
+
+<p>代理的核心功能可以用一句话概括：接受客户端的请求，转发到后端服务器，获得应答之后返回给客户端。</p>
+
+<p>代理的功能有很多，事实上整个互联网到处都充斥着代理服务器。如果所有的 HTTP 访问都是客户端和服务器端直接进行的话，我们的网络不仅会变得缓慢，而且性能会大打折扣。</p>
+
+<p>代理服务器根据不同的配置和使用，可能会有不同的功能，这些功能主要包括：</p>
+
+<pre><code>内容过滤：代理可以根据一定的规则限制某些请求的连接。比如有些公司会设置内部网络无法访问某些购物、游戏网站，或者学校的网络不让学生访问色情暴力的网站等
+节省成本：代理服务器可以作为缓存使用，对于某些资源只需要第一次访问的时候去下载，以后代理直接把缓存的结果返回给客户端，节约网络带宽的开销
+提高性能：通过代理服务器的缓存（比如 CDN）和负载均衡（比如 nginx lb）功能，服务器端可以加速请求的访问，在更快的时间内返回结果）
+增加安全性：公司可以在内网和外网之间通过代理进行转发，这样不仅对外隐藏了实现的细节，而且可以在代理层对爬虫、病毒性请求进行过滤，保护内部服务
+</code></pre>
+
+<p>所有的这些功能的实现都依赖于代理的特性，它可以在客户端和服务器端做一些事情，根据代理做的事情不同，它的角色和功能也就不同。那么，代理具体可以做哪些事情呢？比如：</p>
+
+<pre><code>修改 HTTP 请求：url、header、body
+过滤请求：根据一定的规则丢弃、过滤请求
+决定转发到哪个后端（可以是静态定义的，也可以是动态决定）
+保存服务器的应答，后续的请求可以直接使用保存的应答
+修改应答：对应答做一些格式的转换，修改数据，甚至返回完全不一样的应答数据
+重试机制，如果后端服务器暂时无法响应，隔一段时间重试
+</code></pre>
+
+<p>分类</p>
+
+<p>代理可以分为正向代理和反向代理两种。</p>
+
+<p>正向代理需要客户端来配置，一般来说我们会通过浏览器或者操作系统提供的工具或者界面来配置。这个时候，代理对客户端不是透明的，客户端需要知道代理的地址并且手动配置。配置了代理，浏览器在发送请求的时候会对报文做特殊的修改。</p>
+
+<p>反向代理对客户端是透明的，也就是说客户端一般不知道代理的存在，认为自己是直接和服务器通信。我们大部分访问的网站就是反向代理服务器，反向代理服务器会转发到真正的服务器，一般在反向代理这一层实现负载均衡和高可用的功能。而且这里也可以看到，客户端是不会知道真正服务器端的 ip 地址和端口的，这在一定程度上起到了安全保护的作用。</p>
+
+<p>服务器地址发现</p>
+
+<p>在反向代理中，代理服务器要转发的服务器地址都是事先知道的（包括静态配置和动态配置）。比如 使用 nginx 来配置负载均衡 。</p>
+
+<p>而对于正向代理来说，客户端可能访问的服务器地址是无法事先知道的。因为HTTP 协议活动在应用层，它无法获取网络层（IP层）信息，那么该协议要有一个地方可以拿到这个信息。HTTP 中可能保存这个信息的地方有两个：URL 和 header。默认情况下，HTTP 请求的 status line 有三部分组成：方法、uri 和协议版本，比如：</p>
+
+<pre><code>GET /index.html HTTP/1.0
+User-Agent: gohttp 1.0
+</code></pre>
+
+<p>如果客户端（比如浏览器）知道自己在通过正向代理进行报文传输，那么它会在 status line 加上要访问服务器的真实地址。这个时候发送的报文是：</p>
+
+<pre><code>GET http://www.marys-antiques.com/index.html HTTP/1.0
+User-Agent: gohttp 1.0
+</code></pre>
+
+<p>代理路径</p>
+
+<p>客户端不管是通过代理服务器，还是直接访问后端服务器对于最终的结果是没有区别的，也就是说大多数情况下客户端根本不关心它访问的到底是什么，只需要（准确快速地）拿到想要的信息就够了。但是有时候，我们还是希望知道请求到底在中间经历了哪些代理，比如用来调试网络异常，或者做数据统计，而 HTTP 协议也提供了响应的功能。</p>
+
+<p>虽然 RFC 2616 定义了 Via 头部字段来跟踪 HTTP 请求经过的代理路径，但在实际中用的更多的还是 X-Forwarded-For 字段， X-Forwarded-For 是 Squid 缓存代理服务软件引入的，目前已经在规范化在 RFC 7239 文档。</p>
+
+<p>X-Forwarded-For 头部格式也比较简单，比如某个服务器接受到请求的对应头部可能是：</p>
+
+<pre><code>X-Forwarded-For: client, proxy1, proxy2
+</code></pre>
+
+<p>对应的值有多个字段，每个字段代表中间的一个节点，它们之间由逗号和空格隔开，从左到右距离当前节点越来越近。</p>
+
+<p>每个代理服务器会在 X-Forwarded-For 头部填上前一个节点的 ip 地址，这个地址可以通过 TCP 请求的 remote address 获取。为什么每个代理服务器不填写自己的 ip 地址呢？有两个原因，如果由代理服务器填写自己的 ip 地址，那么代理可以很简单地伪造这个地址，而上一个节点的 remote address 是根据 TCP 连接获取的（如果不建立正确的 TCP 连接是无法进行 HTTP 通信的）；另外一个原因是如果由当前节点填写 X-Forwarded-For ，那么很多情况客户端无法判断自己是否会通过代理的。</p>
+
+<p>NOTE：</p>
+
+<p>最终客户端或者服务器端接受的请求， X-Forwarded-For 是没有最邻近节点的 ip 地址的，而这个地址可以通过 remote address 获取
+每个节点（不管是客户端、代理服务器、真实服务器）都可以随便更改 X-Forwarded-For 的值，因此这个字段只能作为参考</p>
+
+<p>使用golang内置的net/http/httputil实现正向和反向代理</p>
+
+<p>正向代理</p>
+
+<p>按照我们之前介绍的代理原理，我们可以编写出这样的代码：</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;io&quot;
+    &quot;net&quot;
+    &quot;net/http&quot;
+    &quot;strings&quot;
+)
+
+type Pxy struct {}
+
+func (p *Pxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+    fmt.Printf(&quot;Received request %s %s %s\n&quot;, req.Method, req.Host, req.RemoteAddr)
+
+    transport :=  http.DefaultTransport
+
+    // step 1
+    outReq := new(http.Request)
+    *outReq = *req // this only does shallow copies of maps
+
+    if clientIP, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
+        if prior, ok := outReq.Header[&quot;X-Forwarded-For&quot;]; ok {
+            clientIP = strings.Join(prior, &quot;, &quot;) + &quot;, &quot; + clientIP
+        }
+        outReq.Header.Set(&quot;X-Forwarded-For&quot;, clientIP)
+    }
+
+    // step 2
+    res, err := transport.RoundTrip(outReq)
+    if err != nil {
+        rw.WriteHeader(http.StatusBadGateway)
+        return
+    }
+
+    // step 3
+    for key, value := range res.Header {
+        for _, v := range value {
+            rw.Header().Add(key, v)
+        }
+    }
+
+    rw.WriteHeader(res.StatusCode)
+    io.Copy(rw, res.Body)
+    res.Body.Close()
+}
+
+func main() {
+    fmt.Println(&quot;Serve on :8080&quot;)
+    http.Handle(&quot;/&quot;, &amp;Pxy{})
+    http.ListenAndServe(&quot;0.0.0.0:8080&quot;, nil)
+}
+</code></pre>
+
+<p>这段代码比较直观，只包含了最核心的代码逻辑，完全按照最上面的代理图例进行组织。一共分成几个步骤：</p>
+
+<pre><code>代理接收到客户端的请求，复制了原来的请求对象，并根据数据配置新请求的各种参数（添加上 X-Forward-For 头部等）
+把新请求发送到服务器端，并接收到服务器端返回的响应
+代理服务器对响应做一些处理，然后返回给客户端
+</code></pre>
+
+<p>上面的代码运行之后，会在本地的 8080 端口启动代理服务。修改浏览器的代理为 127.0.0.1：:8080 再访问网站，可以验证代理正常工作，也能看到它在终端打印出所有的请求信息。</p>
+
+<p>虽然这段代码非常简短，但是你可以添加更多的逻辑实现非常有用的功能。比如在请求发送之前进行过滤，根据一定的规则直接阻止某些请求的访问；或者对请求进行限流，某个客户端在一定的时间里执行的请求有最大限额；统计请求的数据进行分析等等。</p>
+
+<p>这个代理目前不支持 HTTPS 协议，因为它只提供了 HTTP 请求的转发功能，并没有处理证书和认证有关的内容。如果了解 HTTPS 协议的话，你会明白这种模式下是无法完成 HTTPS 握手的，虽然代理可以和真正的服务器建立连接（知道了对方的公钥和证书），但是代理无法代表服务器和客户端建立连接，因为代理服务器无法知道真正服务器的私钥。</p>
+
+<p>反向代理</p>
+
+<p>编写反向代理按照上面的思路当然没有问题，只需要在第二步的时候，根据之前的配置修改 outReq 的 URL Host 地址可以了。不过 Golang 已经给我们提供了编写代理的框架： httputil.ReverseProxy 。我们可以用非常简短的代码来实现自己的代理，而且内部的细节问题都已经被很好地处理了。</p>
+
+<p>这部分我们会实现一个简单的反向代理，它能够对请求实现负载均衡，随机地把请求发送给某些配置好的后端服务器。使用 httputil.ReverseProxy 编写反向代理最重要的就是实现自己的 Director 对象，这是 GoDoc 对它的介绍：</p>
+
+<p>Director must be a function which modifies the request into a new request to be sent using Transport. Its response is then copied back to the original client unmodified. Director must not access the provided Request after returning.</p>
+
+<p>简单翻译的话， Director 是一个函数，它接受一个请求作为参数，然后对其进行修改。修改后的请求会实际发送给服务器端，因此我们编写自己的 Director 函数，每次把请求的 Scheme 和 Host 修改成某个后端服务器的地址，就能实现负载均衡的效果（其实上面的正向代理也可以通过相同的方法实现）。看代码：</p>
+
+<pre><code>package main
+
+import (
+        &quot;log&quot;
+        &quot;math/rand&quot;
+        &quot;net/http&quot;
+        &quot;net/http/httputil&quot;
+        &quot;net/url&quot;
+)
+
+func NewMultipleHostsReverseProxy(targets []*url.URL) *httputil.ReverseProxy {
+        director := func(req *http.Request) {
+                target := targets[rand.Int()%len(targets)]
+                req.URL.Scheme = target.Scheme
+                req.URL.Host = target.Host
+                req.URL.Path = target.Path
+        }
+        return &amp;httputil.ReverseProxy{Director: director}
+}
+
+func main() {
+        proxy := NewMultipleHostsReverseProxy([]*url.URL{
+                {
+                        Scheme: &quot;http&quot;,
+                        Host:   &quot;localhost:9091&quot;,
+                },
+                {
+                        Scheme: &quot;http&quot;,
+                        Host:   &quot;localhost:9092&quot;,
+                },
+        })
+        log.Fatal(http.ListenAndServe(&quot;:9090&quot;, proxy))
+}
+</code></pre>
+
+<p>我们让代理监听在 9090 端口，在后端启动两个返回不同响应的服务器分别监听在 9091 和 9092 端口，通过 curl 访问，可以看到多次请求会返回不同的结果。</p>
+
+<pre><code>➜  curl http://127.0.0.1:9090
+116064a9eb83
+➜  curl http://127.0.0.1:9090
+8f7ccc11718f
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>package main
+
+import (
+    &quot;log&quot;
+    &quot;net/http&quot;
+    &quot;net/http/httputil&quot;
+    &quot;net/url&quot;
+)
+
+type handle struct {
+    host string
+    port string
+}
+
+func (this *handle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    remote, err := url.Parse(&quot;http://&quot; + this.host + &quot;:&quot; + this.port)
+    if err != nil {
+        panic(err)
+    }
+    proxy := httputil.NewSingleHostReverseProxy(remote)
+    proxy.ServeHTTP(w, r)
+}
+
+func startServer() {
+    //被代理的服务器host和port
+    h := &amp;handle{host: &quot;127.0.0.1&quot;, port: &quot;80&quot;}
+    err := http.ListenAndServe(&quot;:8888&quot;, h)
+    if err != nil {
+        log.Fatalln(&quot;ListenAndServe: &quot;, err)
+    }
+}
+
+func main() {
+    startServer()
+}
+</code></pre>
+
+<p>我们来看一下这个结构体</p>
+
+<pre><code>type ReverseProxy struct {
+    // Director must be a function which modifies
+    // the request into a new request to be sent
+    // using Transport. Its response is then copied
+    // back to the original client unmodified.
+    // Director must not access the provided Request
+    // after returning.
+    Director func(*http.Request)    //重制req请求内容
+
+    // The transport used to perform proxy requests.
+    // If nil, http.DefaultTransport is used.
+    Transport http.RoundTripper    //发送请求，主要是获取连接，发送请求，获取返回，默认是default，根据req来建立连接。也可以自己自定义，可以去看http的transport的结构体
+
+    // FlushInterval specifies the flush interval
+    // to flush to the client while copying the
+    // response body.
+    // If zero, no periodic flushing is done.
+    // A negative value means to flush immediately
+    // after each write to the client.
+    // The FlushInterval is ignored when ReverseProxy
+    // recognizes a response as a streaming response;
+    // for such responses, writes are flushed to the client
+    // immediately.
+    FlushInterval time.Duration
+
+    // ErrorLog specifies an optional logger for errors
+    // that occur when attempting to proxy the request.
+    // If nil, logging is done via the log package's standard logger.
+    ErrorLog *log.Logger // Go 1.4
+
+    // BufferPool optionally specifies a buffer pool to
+    // get byte slices for use by io.CopyBuffer when
+    // copying HTTP response bodies.
+    BufferPool BufferPool // Go 1.6
+
+    // ModifyResponse is an optional function that modifies the
+    // Response from the backend. It is called if the backend
+    // returns a response at all, with any HTTP status code.
+    // If the backend is unreachable, the optional ErrorHandler is
+    // called without any call to ModifyResponse.
+    //
+    // If ModifyResponse returns an error, ErrorHandler is called
+    // with its error value. If ErrorHandler is nil, its default
+    // implementation is used.
+    ModifyResponse func(*http.Response) error // Go 1.8
+
+    // ErrorHandler is an optional function that handles errors
+    // reaching the backend or errors from ModifyResponse.
+    //
+    // If nil, the default is to log the provided error and return
+    // a 502 Status Bad Gateway response.
+    ErrorHandler func(http.ResponseWriter, *http.Request, error) // Go 1.11
+}
+</code></pre>
+
+<p>我简化使用</p>
+
+<pre><code>type ReverseProxy struct {
+    // Director必须是将请求修改为新的请求的函数。
+    // 修改后的请求会使用Transport发送，得到的回复会不经修改的返回给客户端。
+    Director func(*http.Request)
+    // Transport用于执行代理请求。
+    // 如果本字段为nil，会使用http.DefaultTransport。
+    Transport http.RoundTripper
+    // FlushInterval指定拷贝回复的主体时将数据刷新给客户端的时间间隔。
+    // 如果本字段为零值，不会进行周期的刷新。（拷贝完回复主体后再刷新）
+    FlushInterval time.Duration
+}
+
+
+
+
+type Transport struct {
+    // Proxy指定一个对给定请求返回代理的函数。
+    // 如果该函数返回了非nil的错误值，请求的执行就会中断并返回该错误。
+    // 如果Proxy为nil或返回nil的*URL置，将不使用代理。
+    Proxy func(*Request) (*url.URL, error)
+    // Dial指定创建TCP连接的拨号函数。如果Dial为nil，会使用net.Dial。
+    Dial func(network, addr string) (net.Conn, error)
+    // TLSClientConfig指定用于tls.Client的TLS配置信息。
+    // 如果该字段为nil，会使用默认的配置信息。
+    TLSClientConfig *tls.Config
+    // TLSHandshakeTimeout指定等待TLS握手完成的最长时间。零值表示不设置超时。
+    TLSHandshakeTimeout time.Duration
+    // 如果DisableKeepAlives为真，会禁止不同HTTP请求之间TCP连接的重用。
+    DisableKeepAlives bool
+    // 如果DisableCompression为真，会禁止Transport在请求中没有Accept-Encoding头时，
+    // 主动添加&quot;Accept-Encoding: gzip&quot;头，以获取压缩数据。
+    // 如果Transport自己请求gzip并得到了压缩后的回复，它会主动解压缩回复的主体。
+    // 但如果用户显式的请求gzip压缩数据，Transport是不会主动解压缩的。
+    DisableCompression bool
+    // 如果MaxIdleConnsPerHost!=0，会控制每个主机下的最大闲置连接。
+    // 如果MaxIdleConnsPerHost==0，会使用DefaultMaxIdleConnsPerHost。
+    MaxIdleConnsPerHost int
+    // ResponseHeaderTimeout指定在发送完请求（包括其可能的主体）之后，
+    // 等待接收服务端的回复的头域的最大时间。零值表示不设置超时。
+    // 该时间不包括获取回复主体的时间。
+    ResponseHeaderTimeout time.Duration
+    // 内含隐藏或非导出字段
+}
+</code></pre>
+
+<h3 id="roundtripper-is-an-interface-representing-the-ability-to-execute-a-single-http-transaction-obtaining-the-response-for-a-given-request">RoundTripper is an interface representing the ability to execute a single HTTP transaction, obtaining the Response for a given Request.</h3>
+
+<p>对于http客户端，可以使用不同的实现了 RoundTripper 接口的Transport实现来配置它的行为，这个正常在http调用的时候就会使用默认，在http反向代理的时候会需要自己定义。</p>
+
+<p>RoundTripper 有点像 http.Client 的中间件</p>
+
+<p>接口定义</p>
+
+<pre><code>type RoundTripper interface { 
+       RoundTrip(*Request) (*Response, error)
+}
+</code></pre>
+
+<p>需要实现RoundTrip函数</p>
+
+<p>type SomeClient struct {}</p>
+
+<p>func (s *SomeClient) RoundTrip(r *http.Request)(*Response, error) {
+    //Something comes here&hellip;Maybe
+}</p>
+
+<p>使用场景</p>
+
+<p>1.缓存 responses，比如 app需要访问 Github api，获取 trending repos，这个数据变动不频繁，假设30分钟变动一次，你显然不希望每次都要点击api都要来请求Github api，解决这个问题的方法是实现这样的http.RoundTripper</p>
+
+<pre><code>有缓存时从缓存取出response数据
+过期，数据通过重新请求api获取
+</code></pre>
+
+<p>2.根据需要设置http header, 一个容易想到的例子go-github一个Github的 api的go客户端。某些github api不需要认证，有些需要认证则需要提供自己的http client，比如 ghinstallation,下面是ghinstallation 的 RoundTrip 函数实现，设置 Authorization 头</p>
+
+<p>3.限速(Rate limiting) 控制请求速率</p>
+
+<p>其次要管理代理、TLS配置、keep-alive、压缩和其他设置，创建一个Transport：</p>
+
+<pre><code>tr := &amp;http.Transport{
+    TLSClientConfig:    &amp;tls.Config{RootCAs: pool},
+    DisableCompression: true,
+}
+client := &amp;http.Client{Transport: tr}
+resp, err := client.Get(&quot;https://example.com&quot;)
+</code></pre>
+
+<p>Client和Transport类型都可以安全的被多个go程同时使用。出于效率考虑，应该一次建立、尽量重用。</p>
+
+<p>实例</p>
+
+<p>实现http.RoundTripper 缓存 http response的逻辑。</p>
+
+<pre><code>package main
+
+import (
+    &quot;bufio&quot;
+    &quot;bytes&quot;
+    &quot;errors&quot;
+    &quot;fmt&quot;
+    &quot;io/ioutil&quot;
+    &quot;log&quot;
+    &quot;net/http&quot;
+    &quot;net/http/httputil&quot;
+    &quot;os&quot;
+    &quot;os/signal&quot;
+    &quot;strings&quot;
+    &quot;sync&quot;
+    &quot;syscall&quot;
+    &quot;time&quot;
+)
+
+func main() {
+
+    cachedTransport := newTransport()
+
+    //Create a custom client so we can make use of our RoundTripper
+    //If you make use of http.Get(), the default http client located at http.DefaultClient is used instead
+    //Since we have special needs, we have to make use of our own http.RoundTripper implementation
+    client := &amp;http.Client{
+        Transport: cachedTransport,
+        Timeout:   time.Second * 5,
+    }
+
+    //Time to clear the cache store so we can make request to the original server
+    cacheClearTicker := time.NewTicker(time.Second * 5)
+
+    //Make a new request every second
+    //This would help demonstrate if the response is actually coming from the real server or from the cache
+    reqTicker := time.NewTicker(time.Second * 1)
+
+    terminateChannel := make(chan os.Signal, 1)
+
+    signal.Notify(terminateChannel, syscall.SIGTERM, syscall.SIGHUP)
+
+    req, err := http.NewRequest(http.MethodGet, &quot;http://localhost:8000&quot;, strings.NewReader(&quot;&quot;))
+
+    if err != nil {
+        log.Fatalf(&quot;An error occurred ... %v&quot;, err)
+    }
+
+    for {
+        select {
+        case &lt;-cacheClearTicker.C:
+            // Clear the cache so we can hit the original server
+            cachedTransport.Clear()
+
+        case &lt;-terminateChannel:
+            cacheClearTicker.Stop()
+            reqTicker.Stop()
+            return
+
+        case &lt;-reqTicker.C:
+
+            resp, err := client.Do(req)
+
+            if err != nil {
+                log.Printf(&quot;An error occurred.... %v&quot;, err)
+                continue
+            }
+
+            buf, err := ioutil.ReadAll(resp.Body)
+
+            if err != nil {
+                log.Printf(&quot;An error occurred.... %v&quot;, err)
+                continue
+            }
+
+            fmt.Printf(&quot;The body of the response is \&quot;%s\&quot; \n\n&quot;, string(buf))
+        }
+    }
+}
+
+func cacheKey(r *http.Request) string {
+    return r.URL.String()
+}
+
+type cacheTransport struct {
+    data              map[string]string
+    mu                sync.RWMutex
+    originalTransport http.RoundTripper
+}
+
+func (c *cacheTransport) Set(r *http.Request, value string) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.data[cacheKey(r)] = value
+}
+
+func (c *cacheTransport) Get(r *http.Request) (string, error) {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+
+    if val, ok := c.data[cacheKey(r)]; ok {
+        return val, nil
+    }
+
+    return &quot;&quot;, errors.New(&quot;key not found in cache&quot;)
+}
+
+
+
+//cacheTransport 中 RoundTrip 函数实现读取缓存中的reponse
+// There be dragons!!!
+func (c *cacheTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+
+    // Check if we have the response cached..
+    // If yes, we don't have to hit the server
+    // We just return it as is from the cache store.
+    if val, err := c.Get(r); err == nil {
+        fmt.Println(&quot;Fetching the response from the cache&quot;)
+        return cachedResponse([]byte(val), r)
+    }
+
+    // Ok, we don't have the response cached, the store was probably cleared.
+    // Make the request to the server.
+    resp, err := c.originalTransport.RoundTrip(r)
+
+    if err != nil {
+        return nil, err
+    }
+
+    // Get the body of the response so we can save it in the cache for the next request.
+    buf, err := httputil.DumpResponse(resp, true)
+
+    if err != nil {
+        return nil, err
+    }
+
+    // Saving it to the cache store
+    c.Set(r, string(buf))
+
+    fmt.Println(&quot;Fetching the data from the real source&quot;)
+    return resp, nil
+}
+
+func (c *cacheTransport) Clear() error {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+
+    c.data = make(map[string]string)
+    return nil
+}
+
+func cachedResponse(b []byte, r *http.Request) (*http.Response, error) {
+    buf := bytes.NewBuffer(b)
+    return http.ReadResponse(bufio.NewReader(buf), r)
+}
+
+func newTransport() *cacheTransport {
+    return &amp;cacheTransport{
+        data:              make(map[string]string),
+        originalTransport: http.DefaultTransport,
+    }
+}
+</code></pre>
+
+<p>可见使用golang net/http库发送http请求，最后都是调用 transport的 RoundTrip方法</p>
+
+<pre><code>type RoundTripper interface {
+    RoundTrip(*Request) (*Response, error)
+}
+</code></pre>
+
+<p>RoundTrip executes a single HTTP transaction, returning the Response for the request req. (RoundTrip 代表一个http事务，给一个请求返回一个响应)
+说白了，就是你给它一个request,它给你一个response</p>
+
+<p>下面我们来看一下他的实现，对应源文件net/http/transport.go，我感觉这里是http package里面的精髓所在，go里面一个struct就跟一个类一样，transport这个类长这样的</p>
+
+<pre><code>type Transport struct {
+    idleMu     sync.Mutex
+    wantIdle   bool // user has requested to close all idle conns
+    idleConn   map[connectMethodKey][]*persistConn
+    idleConnCh map[connectMethodKey]chan *persistConn
+
+    reqMu       sync.Mutex
+    reqCanceler map[*Request]func()
+
+    altMu    sync.RWMutex
+    altProto map[string]RoundTripper // nil or map of URI scheme =&gt; RoundTripper
+    //Dial获取一个tcp 连接，也就是net.Conn结构，你就记住可以往里面写request
+    //然后从里面搞到response就行了
+    Dial func(network, addr string) (net.Conn, error)
+}
+</code></pre>
+
+<p>篇幅所限， https和代理相关的我就忽略了， 两个 map 为 idleConn、idleConnCh，idleConn 是保存从 connectMethodKey （代表着不同的协议 不同的host，也就是不同的请求）到 persistConn 的映射， idleConnCh 用来在并发http请求的时候在多个 goroutine 里面相互发送持久连接，也就是说， 这些持久连接是可以重复利用的， 你的http请求用某个persistConn用完了，通过这个channel发送给其他http请求使用这个persistConn，然后我们找到transport的RoundTrip方法</p>
+
+<pre><code>func (t *Transport) RoundTrip(req *Request) (resp *Response, err error) {
+    ...
+    //获取一个连接
+    pconn, err := t.getConn(req, cm)
+    if err != nil {
+        t.setReqCanceler(req, nil)
+        req.closeBody()
+        return nil, err
+    }
+
+    //开始调用该pconn的rountTrip方法取得response
+    return pconn.roundTrip(treq)
+}
+</code></pre>
+
+<p>前面对输入的错误处理部分我们忽略， 其实就2步，先获取一个TCP长连接，所谓TCP长连接就是三次握手建立连接后不close而是一直保持重复使用（节约环保） 然后调用这个持久连接persistConn 这个struct的roundTrip方法</p>
+
+<p>我们跟踪第一步</p>
+
+<p>func (t *Transport) getConn(req *Request, cm connectMethod) (*persistConn, error) {
+    if pc := t.getIdleConn(cm); pc != nil {
+        // set request canceler to some non-nil function so we
+        // can detect whether it was cleared between now and when
+        // we enter roundTrip
+        t.setReqCanceler(req, func() {})
+        return pc, nil
+    }</p>
+
+<pre><code>type dialRes struct {
+    pc  *persistConn
+    err error
+}
+dialc := make(chan dialRes)
+//定义了一个发送 persistConn的channel
+
+prePendingDial := prePendingDial
+postPendingDial := postPendingDial
+
+handlePendingDial := func() {
+    if prePendingDial != nil {
+        prePendingDial()
+    }
+    go func() {
+        if v := &lt;-dialc; v.err == nil {
+            t.putIdleConn(v.pc)
+        }
+        if postPendingDial != nil {
+            postPendingDial()
+        }
+    }()
+}
+
+cancelc := make(chan struct{})
+t.setReqCanceler(req, func() { close(cancelc) })
+
+// 启动了一个goroutine, 这个goroutine 获取里面调用dialConn搞到
+// persistConn, 然后发送到上面建立的channel  dialc里面，    
+go func() {
+    pc, err := t.dialConn(cm)
+    dialc &lt;- dialRes{pc, err}
+}()
+
+idleConnCh := t.getIdleConnCh(cm)
+select {
+case v := &lt;-dialc:
+    // dialc 我们的 dial 方法先搞到通过 dialc通道发过来了
+    return v.pc, v.err
+case pc := &lt;-idleConnCh:
+    // 这里代表其他的http请求用完了归还的persistConn通过idleConnCh这个    
+    // channel发送来的
+    handlePendingDial()
+    return pc, nil
+case &lt;-req.Cancel:
+    handlePendingDial()
+    return nil, errors.New(&quot;net/http: request canceled while waiting for connection&quot;)
+case &lt;-cancelc:
+    handlePendingDial()
+    return nil, errors.New(&quot;net/http: request canceled while waiting for connection&quot;)
+}
+</code></pre>
+
+<p>}</p>
+
+<p>这里面的代码写的很有讲究 , 上面代码里面我也注释了， 定义了一个发送 persistConn的channel dialc， 启动了一个goroutine, 这个goroutine 获取里面调用dialConn搞到persistConn, 然后发送到dialc里面，主协程goroutine在 select里面监听多个channel,看看哪个通道里面先发过来 persistConn，就用哪个，然后return。</p>
+
+<p>这里要注意的是 idleConnCh 这个通道里面发送来的是其他的http请求用完了归还的persistConn， 如果从这个通道里面搞到了，dialc这个通道也等着发呢，不能浪费，就通过handlePendingDial这个方法把dialc通道里面的persistConn也发到idleConnCh，等待后续给其他http请求使用。</p>
+
+<p>还有就是，读者可以翻一下代码，每个新建的persistConn的时候都把tcp连接里地输入流，和输出流用br（br *bufio.Reader）,和bw(bw *bufio.Writer)包装了一下，往bw写就写到tcp输入流里面了，读输出流也是通过br读，并启动了读循环和写循环</p>
+
+<pre><code>pconn.br = bufio.NewReader(noteEOFReader{pconn.conn, &amp;pconn.sawEOF})
+pconn.bw = bufio.NewWriter(pconn.conn)
+go pconn.readLoop()
+go pconn.writeLoop()
+</code></pre>
+
+<p>我们跟踪第二步pconn.roundTrip 调用这个持久连接persistConn 这个struct的roundTrip方法。</p>
+
+<p>先瞄一下 persistConn 这个struct</p>
+
+<pre><code>type persistConn struct {
+    t        *Transport
+    cacheKey connectMethodKey
+    conn     net.Conn
+    tlsState *tls.ConnectionState
+    br       *bufio.Reader       // 从tcp输出流里面读
+    sawEOF   bool                // whether we've seen EOF from conn; owned by readLoop
+    bw       *bufio.Writer       // 写到tcp输入流
+     reqch    chan requestAndChan // 主goroutine 往channnel里面写，读循环从     
+                                 // channnel里面接受
+    writech  chan writeRequest   // 主goroutine 往channnel里面写                                      
+                                 // 写循环从channel里面接受
+    closech  chan struct{}       // 通知关闭tcp连接的channel 
+
+    writeErrCh chan error
+
+    lk                   sync.Mutex // guards following fields
+    numExpectedResponses int
+    closed               bool // whether conn has been closed
+    broken               bool // an error has happened on this connection; marked broken so it's not reused.
+    canceled             bool // whether this conn was broken due a CancelRequest
+    // mutateHeaderFunc is an optional func to modify extra
+    // headers on each outbound request before it's written. (the
+    // original Request given to RoundTrip is not modified)
+    mutateHeaderFunc func(Header)
+}
+</code></pre>
+
+<p>里面是各种channel, 用的是出神入化， 各位要好好理解一下，这里有三个goroutine，有两个channel writeRequest 和 requestAndChan</p>
+
+<pre><code>type writeRequest struct {
+    req *transportRequest
+    ch  chan&lt;- error
+}
+</code></pre>
+
+<p>主goroutine 往writeRequest里面写，写循环从writeRequest里面接受</p>
+
+<pre><code>type responseAndError struct {
+    res *Response
+    err error
+}
+
+type requestAndChan struct {
+    req *Request
+    ch  chan responseAndError
+    addedGzip bool
+}
+</code></pre>
+
+<p>主goroutine 往requestAndChan里面写，读循环从requestAndChan里面接受。</p>
+
+<p>注意这里的channel都是双向channel，也就是channel 的struct里面有一个chan类型的字段， 比如 reqch chan requestAndChan 这里的 requestAndChan 里面的 ch chan responseAndError。</p>
+
+<p>这个是很牛叉，主 goroutine 通过 reqch 发送requestAndChan 给读循环，然后读循环搞到response后通过 requestAndChan 里面的通道responseAndError把response返给主goroutine，所以我画了一个双向箭头。</p>
+
+<p>我们研究一下代码，我理解下来其实就是三个goroutine通过channel互相协作的过程。</p>
+
+<p>主循环：</p>
+
+<pre><code>func (pc *persistConn) roundTrip(req *transportRequest) (resp *Response, err error) {
+    ... 忽略
+    // Write the request concurrently with waiting for a response,
+    // in case the server decides to reply before reading our full
+    // request body.
+    writeErrCh := make(chan error, 1)
+    pc.writech &lt;- writeRequest{req, writeErrCh}
+    //把request发送给写循环
+    resc := make(chan responseAndError, 1)
+    pc.reqch &lt;- requestAndChan{req.Request, resc, requestedGzip}
+    //发送给读循环
+    var re responseAndError
+    var respHeaderTimer &lt;-chan time.Time
+    cancelChan := req.Request.Cancel
+WaitResponse:
+    for {
+        select {
+        case err := &lt;-writeErrCh:
+            if isNetWriteError(err) {
+                //写循环通过这个channel报告错误
+                select {
+                case re = &lt;-resc:
+                    pc.close()
+                    break WaitResponse
+                case &lt;-time.After(50 * time.Millisecond):
+                    // Fall through.
+                }
+            }
+            if err != nil {
+                re = responseAndError{nil, err}
+                pc.close()
+                break WaitResponse
+            }
+            if d := pc.t.ResponseHeaderTimeout; d &gt; 0 {
+                timer := time.NewTimer(d)
+                defer timer.Stop() // prevent leaks
+                respHeaderTimer = timer.C
+            }
+        case &lt;-pc.closech:
+            // 如果长连接挂了， 这里的channel有数据， 进入这个case, 进行处理
+
+            select {
+            case re = &lt;-resc:
+                if fn := testHookPersistConnClosedGotRes; fn != nil {
+                    fn()
+                }
+            default:
+                re = responseAndError{err: errClosed}
+                if pc.isCanceled() {
+                    re = responseAndError{err: errRequestCanceled}
+                }
+            }
+            break WaitResponse
+        case &lt;-respHeaderTimer:
+            pc.close()
+            re = responseAndError{err: errTimeout}
+            break WaitResponse
+            // 如果timeout，这里的channel有数据， break掉for循环
+        case re = &lt;-resc:
+            break WaitResponse
+           // 获取到读循环的response, break掉 for循环
+        case &lt;-cancelChan:
+            pc.t.CancelRequest(req.Request)
+            cancelChan = nil
+        }
+    }
+
+    if re.err != nil {
+        pc.t.setReqCanceler(req.Request, nil)
+    }
+    return re.res, re.err
+}
+</code></pre>
+
+<p>这段代码主要就干了三件事</p>
+
+<pre><code>主goroutine -&gt;requestAndChan -&gt; 读循环goroutine
+
+主goroutine -&gt;writeRequest-&gt; 写循环goroutine
+
+主goroutine 通过select 监听各个channel上的数据， 比如请求取消， timeout，长连接挂了，写流出错，读流出错， 都是其他goroutine 发送过来的， 跟中断一样，然后相应处理，上面也提到了，有些channel是主goroutine通过channel发送给其他goroutine的struct里面包含的channel, 比如 case err := &lt;-writeErrCh: case re = &lt;-resc:
+</code></pre>
+
+<p>读循环代码：</p>
+
+<pre><code>func (pc *persistConn) readLoop() {
+
+    ... 忽略
+    alive := true
+    for alive {
+
+        ... 忽略
+        rc := &lt;-pc.reqch
+
+        var resp *Response
+        if err == nil {
+            resp, err = ReadResponse(pc.br, rc.req)
+            if err == nil &amp;&amp; resp.StatusCode == 100 {
+                //100  Continue  初始的请求已经接受，客户应当继续发送请求的其 
+                // 余部分
+                resp, err = ReadResponse(pc.br, rc.req)
+                // 读pc.br（tcp输出流）中的数据，这里的代码在response里面
+                //解析statusCode，头字段， 转成标准的内存中的response 类型
+                //  http在tcp数据流里面，head和body以 /r/n/r/n分开， 各个头
+                // 字段 以/r/n分开
+            }
+        }
+
+        if resp != nil {
+            resp.TLS = pc.tlsState
+        }
+
+        ...忽略
+        //上面处理一些http协议的一些逻辑行为，
+        rc.ch &lt;- responseAndError{resp, err} //把读到的response返回给    
+                                             //主goroutine
+
+        .. 忽略
+        //忽略部分， 处理cancel req中断， 发送idleConnCh归还pc（持久连接）到持久连接池中（map）    
+    pc.close()
+}
+</code></pre>
+
+<p>无关代码忽略，这段代码主要干了一件事情</p>
+
+<p>读循环goroutine 通过channel requestAndChan 接受主goroutine发送的request(rc := &lt;-pc.reqch), 并从tcp输出流中读取response， 然后反序列化到结构体中， 最后通过channel 返给主goroutine (rc.ch &lt;- responseAndError{resp, err} )</p>
+
+<pre><code>func (pc *persistConn) writeLoop() {
+    for {
+        select {
+        case wr := &lt;-pc.writech:   //接受主goroutine的 request
+            if pc.isBroken() {
+                wr.ch &lt;- errors.New(&quot;http: can't write HTTP request on broken connection&quot;)
+                continue
+            }
+            err := wr.req.Request.write(pc.bw, pc.isProxy, wr.req.extra)   //写入tcp输入流
+            if err == nil {
+                err = pc.bw.Flush()
+            }
+            if err != nil {
+                pc.markBroken()
+                wr.req.Request.closeBody()
+            }
+            pc.writeErrCh &lt;- err 
+            wr.ch &lt;- err         //  出错的时候返给主goroutineto 
+        case &lt;-pc.closech:
+            return
+        }
+    }
+}
+</code></pre>
+
+<p>写循环就更简单了，select channel中主gouroutine的request，然后写入tcp输入流，如果出错了，channel 通知调用者。</p>
+
+<p>整体看下来，过程都很简单，但是代码中有很多值得我们学习的地方，比如高并发请求如何复用tcp连接，这里是连接池的做法，如果使用多个 goroutine相互协作完成一个http请求，出现错误的时候如何通知调用者中断错误，代码风格也有很多可以借鉴的地方。</p>
+
+<p>http.Client 表示一个http client端，用来处理HTTP相关的工作，例如cookies, redirect, timeout等工作，其内部包含一个Transport</p>
+
+<p>tranport用来建立一个连接，其中维护了一个空闲连接池idleConn map[connectMethodKey][]*persistConn，其中的每个成员都是一个persistConn对象，persistConn是个具体的连接实例，包含了连接的上下文，会启动两个groutine分别执行readLoop和writeLoop, 每当transport调用roundTrip的时候，就会从连接池中选择一个空闲的persistConn，然后调用其roundTrip方法，将读写请求通过channel分别发送到readLoop和writeLoop中，然后会进行select各个channel的信息，包括连接关闭，请求超时，writeLoop出错， readLoop返回读取结果等。在writeLoop中发送请求，在readLoop中获取response并通过channe返回给roundTrip函数中，并再次将自己加入到idleConn中，等待下次请求到来。</p>
+
+<h3 id="关于安全验证">关于安全验证</h3>
+
+<ol>
+<li>token</li>
+</ol>
+
+<p>背景</p>
+
+<p>Token是在客户端频繁向服务端请求数据，服务端频繁的去数据库查询用户名和密码并进行对比，判断用户名和密码正确与否，并作出相应提示，在这样的背景下，Token便应运而生。</p>
+
+<p>定义</p>
+
+<p>Token是服务端生成的一串字符串，以作客户端进行请求的一个令牌，当第一次登录后，服务器生成一个Token便将此Token返回给客户端，以后客户端只需带上这个Token前来请求数据即可，无需再次带上用户名和密码。</p>
+
+<p>目的</p>
+
+<p>Token的目的是为了减轻服务器的压力，减少频繁的查询数据库，使服务器更加健壮。</p>
+
+<p>使用</p>
+
+<ol>
+<li><p>用设备号/设备mac地址作为Token（推荐）</p></li>
+
+<li><p>用session值作为Token</p></li>
+
+<li><p>最简单的token组成:uid(用户唯一的身份标识)、time(当前时间的时间戳)、sign(签名，由token的前几位+盐以哈希算法压缩成一定长的十六进制字符串，可以防止恶意第三方拼接token请求服务器)。还可以把不变的参数也放进token，避免多次查库</p></li>
+</ol>
+
+<p>实例</p>
+
+<pre><code>package main
+
+import (
+    &quot;crypto/md5&quot;
+    &quot;fmt&quot;
+    &quot;io&quot;
+    &quot;strconv&quot;
+    &quot;time&quot;
+)
+
+func main() {
+
+    crutime := time.Now().Unix()
+    fmt.Println(&quot;crutime--&gt;&quot;, crutime)
+
+    h := md5.New()
+    fmt.Println(&quot;h--&gt;&quot;, h)
+
+    fmt.Println(&quot;strconv.FormatInt(crutime, 10)--&gt;&quot;, strconv.FormatInt(crutime, 10))
+    io.WriteString(h, strconv.FormatInt(crutime, 10))
+
+    fmt.Println(&quot;h--&gt;&quot;, h)
+
+    token := fmt.Sprintf(&quot;%x&quot;, h.Sum(nil))
+    fmt.Println(&quot;token---&gt;&quot;, token)
+
+    fmt.Println(len(&quot;8e1a188743c6077110da3c9778183031&quot;))
+}
+</code></pre>
+
+<ol>
+<li>session会话（服务器机制）</li>
+</ol>
+
+<p>session的中文翻译是“会话”，当用户打开某个web应用时，第一次便与web服务器产生一次session。服务器生成session，session存储着用户信息，并保存在了服务器上，并发送一个http响应到客户端，这个响应头，其中就包含Set-Cookie头部。该头部包含了sessionId。下次访问的时候，根据sessionid获取session信息，也就是用户信息，用户离开网站后session会被销毁。这种用户信息存储方式相对cookie来说更安全，可是session有一个缺陷：如果web服务器做了负载均衡，那么下一个操作请求到了另一台服务器的时候session会丢失。（session复制可以解决这个问题，session缓存）</p>
+
+<p>session存放位置可以是</p>
+
+<pre><code>内存
+cookie本身
+redis 或 memcached 等缓存中
+数据库中。（线上来说，缓存的方案比较常见，存数据库的话，查询效率相比前三者都太低，不推荐
+</code></pre>
+
+<p>目前Go标准包 没有为session提供任何支持</p>
+
+<p>这边自己实现一个session管理机制来加深对session的理解</p>
+
+<ol>
+<li><p>我们抽象出一个Provider接口，用以表征session管理器底层存储结构。</p>
+
+<p>type Provider interface {
+    SessionInit(sid string) (Session, error)
+    SessionRead(sid string) (Session, error)
+    SessionDestroy(sid string) error
+    SessionGC(maxLifeTime int64)
+}</p></li>
+</ol>
+
+<p>SessionInit函数实现Session的初始化，操作成功则返回此新的Session变量
+SSessionRead函数返回sid所代表的Session变量，如果不存在，那么将以sid为参数调用SessionInit函数创 建并返回一个新的Session变量
+SessionDestroy函数用来销毁sid对应的Session变量
+SessionGC根据maxLifeTime来删除过期的数据</p>
+
+<ol>
+<li><p>定义session的基本操作接口</p>
+
+<p>type Session interface {
+    Set(key, value interface{}) error //set session value
+    Get(key interface{}) interface{} //get session value
+    Delete(key interface{}) error //delete session value
+    SessionID() string //back current sessionID
+}</p></li>
+
+<li><p>注册session</p></li>
+</ol>
+
+<p>var provides = make(map[string]Provide)</p>
+
+<p>// Register makes a session provide available by the provided name.
+// If Register is called twice with the same name or if driver is nil, // it panics.
+    func Register(name string, provide Provide) {
+        if driver == nil {
+            panic(&ldquo;session: Register provide is nil&rdquo;)
+        }
+        if _, dup := provides[name]; dup {
+            panic(&ldquo;session: Register called twice for provide &ldquo; + name)
+        }
+        provides[name] = provide
+    }</p>
+
+<ol>
+<li><p>定义一个全局的session管理器</p>
+
+<p>type Manager struct {
+    cookieName string  //private cookiename
+    lock sync.Mutex  // protects session
+    provider Provider
+    maxlifetime int64
+}</p>
+
+<p>func NewManager(provideName, cookieName string, maxlifetime int64) (*Manager, error) {
+    provider, ok := provides[provideName]
+    if !ok {
+        return nil, fmt.Errorf(&ldquo;session: unknown provide %q (forgotten import?)&ldquo;, provideName)
+    }
+    return &amp;Manager{provider: provider, cookieName: cookieName, maxlifetime: maxlifetime}, nil
+}</p></li>
+
+<li><p>sessionid</p>
+
+<p>func (manager *Manager) sessionId() string {
+    b := make([]byte, 32)
+    if _, err := io.ReadFull(rand.Reader, b); err != nil {
+        return &ldquo;&rdquo;
+    }
+    return base64.URLEncoding.EncodeToString(b)
+}</p></li>
+
+<li><p>session创建</p>
+
+<p>func (manager *Manager) SessionStart(w http.ResponseWriter, r *http.Request) (session Session) {
+    manager.lock.Lock()
+    defer manager.lock.Unlock()</p>
+
+<pre><code>cookie, err := r.Cookie(manager.cookieName) 
+if err != nil || cookie.Value == &quot;&quot; {
+    sid := manager.sessionId()
+    session, _ = manager.provider.SessionInit(sid)
+    cookie := http.Cookie{Name: manager.cookieName, Value: url.QueryEscape(sid), Path: &quot;/&quot;, Ht http.SetCookie(w, &amp;cookie)
+} else {
+    sid, _ := url.QueryUnescape(cookie.Value) 
+    session, _ = manager.provider.SessionRead(sid)
+}
+return 
+</code></pre>
+
+<p>}</p></li>
+</ol>
+
+<p>我们用前面login操作来演示session的运用:</p>
+
+<pre><code>var globalSessions *session.Manager //然后在init函数中初始化
+func init() {
+    globalSessions = NewManager(&quot;memory&quot;,&quot;gosessionid&quot;,3600) 
+}
+
+
+
+func login(w http.ResponseWriter, r *http.Request) { 
+    sess := globalSessions.SessionStart(w, r) r.ParseForm()
+    if r.Method == &quot;GET&quot; {
+        t, _ := template.ParseFiles(&quot;login.gtpl&quot;) w.Header().Set(&quot;Content-Type&quot;, &quot;text/html&quot;) t.Execute(w, sess.Get(&quot;username&quot;))
+    } else {
+        sess.Set(&quot;username&quot;, r.Form[&quot;username&quot;]) http.Redirect(w, r, &quot;/&quot;, 302)
+    } 
+}
+</code></pre>
+
+<ol>
+<li><p>接口实现</p>
+
+<p>package memory</p>
+
+<p>import (
+    &ldquo;container/list&rdquo;
+    &ldquo;github.com/astaxie/session&rdquo;
+    &ldquo;sync&rdquo;
+    &ldquo;time&rdquo;
+)</p>
+
+<p>var pder = &amp;Provider{list: list.New()}</p>
+
+<p>type SessionStore struct {
+    sid string
+    timeAccessed time.Time
+    value map[interface{}]interface{} //session里面存储的值
+}
+func (st *SessionStore) Set(key, value interface{}) error { st.value[key] = value
+    pder.SessionUpdate(st.sid)
+    return nil
+}
+func (st *SessionStore) Get(key interface{}) interface{} { pder.SessionUpdate(st.sid)
+    if v, ok := st.value[key]; ok {
+        return v } else {
+        return nil }
+    return nil }
+func (st *SessionStore) Delete(key interface{}) error { delete(st.value, key)
+    pder.SessionUpdate(st.sid)
+    return nil
+}
+func (st *SessionStore) SessionID() string { return st.sid
+}</p>
+
+<p>type Provider struct {
+    lock sync.Mutex //用来锁 sessions map[string]*list.Element //用来存储在内存 list *list.List //用来做gc
+}
+func (pder *Provider) SessionInit(sid string) (session.Session, error) { pder.lock.Lock()
+    defer pder.lock.Unlock()
+    v := make(map[interface{}]interface{}, 0)
+    newsess := &amp;SessionStore{sid: sid, timeAccessed: time.Now(), value: v} element := pder.list.PushBack(newsess)
+    pder.sessions[sid] = element
+    return newsess, nil
+}
+func (pder *Provider) SessionRead(sid string) (session.Session, error) { if element, ok := pder.sessions[sid]; ok {
+    return element.Value.(*SessionStore), nil } else {
+    sess, err := pder.SessionInit(sid)
+    return sess, err }
+    //session id唯一标示 //最后访问时间
+    145
+    return nil, nil }
+func (pder *Provider) SessionDestroy(sid string) error { if element, ok := pder.sessions[sid]; ok {
+    delete(pder.sessions, sid) pder.list.Remove(element) return nil
+}
+    return nil }
+func (pder *Provider) SessionGC(maxlifetime int64) { pder.lock.Lock()
+    defer pder.lock.Unlock()
+    for {
+        element := pder.list.Back() if element == nil {
+            break }
+        if (element.Value.(*SessionStore).timeAccessed.Unix() + maxlifetime) &lt; time.Now().Unix() { pder.list.Remove(element)
+            delete(pder.sessions, element.Value.(*SessionStore).sid)
+        } else { break
+        } }
+}
+func (pder *Provider) SessionUpdate(sid string) error { pder.lock.Lock()
+    defer pder.lock.Unlock()
+    if element, ok := pder.sessions[sid]; ok {
+        element.Value.(*SessionStore).timeAccessed = time.Now() pder.list.MoveToFront(element)
+        return nil
+    }
+    return nil
+}
+func init() {
+    pder.sessions = make(map[string]*list.Element, 0) session.Register(&ldquo;memory&rdquo;, pder)
+}</p></li>
+</ol>
+
+<p>上面这个代码实现了一个内存存储的session机制。通过init函数注册到session管理器中。这样就可以方便的调用 了。我们如何来调用该引擎呢?请看下面的代码</p>
+
+<pre><code>import (
+&quot;github.com/astaxie/session&quot;
+_ &quot;github.com/astaxie/session/providers/memory&quot;
+)
+</code></pre>
+
+<p>当import的时候已经执行了memory函数里面的init函数，这样就已经注册到session管理器中，我们就可以使用了， 通过如下方式就可以初始化一个session管理器:</p>
+
+<pre><code>var globalSessions *session.Manager
+//然后在init函数中初始化 func init() {
+globalSessions, _ = session.NewManager(&quot;memory&quot;, &quot;gosessionid&quot;, 3600)
+go globalSessions.GC() }
+</code></pre>
+
+<p>7.session使用</p>
+
+<p>设置、读取和删除</p>
+
+<p>SessionStart函数返回的是一个满足Session接口的变量，那么我们该如何用他来对session数据进行操作呢? 上面的例子中的代码session.Get(&ldquo;uid&rdquo;)已经展示了基本的读取数据的操作，现在我们再来看一下详细的操作:</p>
+
+<pre><code>func count(w http.ResponseWriter, r *http.Request) { 
+    sess := globalSessions.SessionStart(w, r) 
+    createtime := sess.Get(&quot;createtime&quot;)
+    if createtime == nil {
+        sess.Set(&quot;createtime&quot;, time.Now().Unix())
+    } else if (createtime.(int64) + 360) &lt; (time.Now().Unix()) {
+        globalSessions.SessionDestroy(w, r)
+        sess = globalSessions.SessionStart(w, r) }
+        ct := sess.Get(&quot;countnum&quot;) if ct == nil {
+        sess.Set(&quot;countnum&quot;, 1) } else {
+        sess.Set(&quot;countnum&quot;, (ct.(int) + 1)) }
+        t, _ := template.ParseFiles(&quot;count.gtpl&quot;) w.Header().Set(&quot;Content-Type&quot;, &quot;text/html&quot;) t.Execute(w, sess.Get(&quot;countnum&quot;))
+}
+</code></pre>
+
+<p>通过上面的例子可以看到，Session的操作和操作key/value数据库类似:Set、Get、Delete等操作</p>
+
+<p>因为Session有过期的概念，所以我们定义了GC操作，当访问过期时间满足GC的触发条件后将会引起GC，但是当我们 进行了任意一个session操作，都会对Session实体进行更新，都会触发对最后访问时间的修改，这样当GC的时候就不会误删除还在使用的Session实体。</p>
+
+<p>session重置</p>
+
+<p>我们知道，Web应用中有用户退出这个操作，那么当用户退出应用的时候，我们需要对该用户的session数据进行销毁 操作，上面的代码已经演示了如何使用session重置操作，下面这个函数就是实现了这个功能:</p>
+
+<pre><code>//Destroy sessionid
+func (manager *Manager) SessionDestroy(w http.ResponseWriter, r *http.Request){
+    cookie, err := r.Cookie(manager.cookieName) 
+    if err != nil || cookie.Value == &quot;&quot; {
+        return 
+    } else {
+        manager.lock.Lock()
+    } 
+    defer manager.lock.Unlock()
+    manager.provider.SessionDestroy(cookie.Value)
+    expiration := time.Now()
+    cookie := http.Cookie{Name: manager.cookieName, Path: &quot;/&quot;, HttpOnly: true, Expires: expira http.SetCookie(w, &amp;cookie)
+}
+</code></pre>
+
+<p>session销毁 我们来看一下Session管理器如何来管理销毁,只要我们在Main启动的时候启动:</p>
+
+<pre><code>func init() {
+    go globalSessions.GC()
+}
+
+func (manager *Manager) GC() {
+    manager.lock.Lock()
+    defer manager.lock.Unlock()
+    manager.provider.SessionGC(manager.maxlifetime) time.AfterFunc(time.Duration(manager.maxlifetime), func() { manager.GC() })
+} 
+</code></pre>
+
+<p>我们可以看到GC充分利用了time包中的定时器功能，当超时maxLifeTime之后调用GC函数，这样就可以保证maxLifeTime时间内的session都是可用的，类似的方案也可以用于统计在线用户数之类的。</p>
+
+<p>session预防劫持的方法：1。使用token。2，不断生成新的sessionid</p>
+
+<ol>
+<li>cookie（客户端机制）</li>
+</ol>
+
+<p>cookie是保存在本地终端的数据。cookie由服务器生成，发送给浏览器，浏览器把cookie以kv形式保存到浏览器某个目录下的文本文件内，下一次请求同一网站时会把该cookie发送给服务器。由于cookie是存在客户端上的，所以浏览器加入了一些限制确保cookie不会被恶意使用，同时不会占据太多磁盘空间，所以每个域的cookie数量是有限的。</p>
+
+<p>cookie的组成有：名称(key)、值(value)、有效域(domain)、路径(域的路径，一般设置为全局:&rdquo;\&ldquo;)、失效时间、安全标志(指定后，cookie只有在使用SSL连接时才发送到服务器(https))。</p>
+
+<p>Cookie时效性：目前有些 Cookie 是临时的，有些则是持续的。临时的 Cookie 只在浏览器上保存一段规定的时间，一旦超过规定的时间，该 Cookie 就会被系统清除。Cookie总是保存在客户端中，按在客户端中的存储位置，可分为内存Cookie和硬盘Cookie。内存Cookie由浏览器维护，保存在内存中，浏览器关闭后就消失了，其存在时间是短暂的。硬盘Cookie保存在硬盘里，有一个过期时间，除非用户手工清理或到了过期时间，硬盘Cookie不会被删除，其存在时间是长期的。</p>
+
+<p>Cookie使用限制：Cookie 必须在 HTML 文件的内容输出之前设置；不同的浏览器 (Netscape Navigator、Internet Explorer) 对 Cookie 的处理不一致，使用时一定要考虑；客户端用户如果设置禁止 Cookie，则 Cookie 不能建立。 并且在客户端，一个浏览器能创建的 Cookie 数量最多为 300 个，并且每个不能超过 4KB，每个 Web 站点能设置的 Cookie 总数不能超过 20 个。</p>
+
+<p>go相关实现</p>
+
+<p>Go设置cookie
+Go语言中通过net/http包中的SetCookie来设置:</p>
+
+<pre><code>http.SetCookie(w ResponseWriter, cookie *Cookie) 
+</code></pre>
+
+<p>w表示需要写入的response，cookie是一个struct，让我们来看一下cookie对象是怎么样的</p>
+
+<pre><code>type Cookie struct {
+    Name string
+    Value string
+    Path  string 
+    Domain string 
+    Expires time.Time 
+    RawExpires string
+
+    RawExpires string
+    // MaxAge=0 means 
+    // MaxAge&lt;0 means 
+    // MaxAge&gt;0 means no 'Max-Age' attribute specified.delete cookie now, equivalently 'Max-Age: 0' Max-Age attribute present and given in seconds
+    MaxAge int
+    Secure  bool
+    HttpOnly bool
+    Raw string
+    Unparsed []string // Raw text of unparsed attribute-value pairs
+}
+</code></pre>
+
+<p>我们来看一个例子，如何设置cookie</p>
+
+<pre><code>expiration := *time.LocalTime()
+expiration.Year += 1
+cookie := http.Cookie{Name: &quot;username&quot;, Value: &quot;astaxie&quot;, Expires: expiration} 
+http.SetCookie(w, &amp;cookie)
+</code></pre>
+
+<p>Go读取cookie 上面的例子演示了如何设置cookie数据，我们这里来演示一下如何读取cookie</p>
+
+<pre><code>cookie, _ := r.Cookie(&quot;username&quot;) 
+fmt.Fprint(w, cookie)
+</code></pre>
+
+<p>还有另外一种读取方式</p>
+
+<pre><code>for _, cookie := range r.Cookies() { 
+    fmt.Fprint(w, cookie.Name)
+}
+</code></pre>
+
+<p>可以看到通过request获取cookie非常方便。</p>
+
+<p>三者之间的关系（其实cookie和session是对应的）</p>
+
+<p>为什么会有cookie又有session：</p>
+
+<p>原因一：因为如果我们把所有信息全都存在cookie，cookie有很容易被用户在浏览器看到或者在js脚本修改，cookie存储数据大小也受限，太大传输效率就低了，所以我们把一些敏感或者量大的数据存在session里。只要传输sessionid就可以了。然后根据sessionid来查找在服务器上的session信息，也就是用户信息。</p>
+
+<p>原因二：将两者信息进行匹配验证，即浏览器(cookie)和服务器端(session)之间的验证。</p>
+
+<p>为什么需要这两者的合作？</p>
+
+<p>HTTP是一种无状态无连接的协议，即请求是不知道是谁请求，需要在这两者之间做一层身份的识别。就如原本是去商场用现金交易，付款后就不知道用户是谁了，但后来变成线上支付，加了一层身份识别，我们就可以对用户进行追踪了。</p>
+
+<p>所以正常验证流程</p>
+
+<pre><code>客户端访问时，使用用户名和密码通过了验证。
+服务端将客户端信息进行处理加密(签名，专业术语叫信息摘要算法)，包含一些用户角色，登陆时间等
+把记录这些信息的ID（session_id）发送给客户端
+客户端收到ID（session_id）后存储在cookie中
+下次客户端重新访问服务端时，带上cookie信息
+服务端验证cookie里面的信息，如果能找到对应的记录，则用户通过了验证
+</code></pre>
+
+<p>以上我们讲到我们采用 session_id 去匹配用户验证用户完成一次API请求，但每次请求都要去做匹配。一种新的请求机制是token认证</p>
+
+<p>上面这种模式的问题在于，扩展性（scaling）不好。单机当然没有问题，如果是服务器集群，或者是跨域的服务导向架构，就要求 session 数据共享，每台服务器都能够读取 session。</p>
+
+<p>举例来说，A 网站和 B 网站是同一家公司的关联服务。现在要求，用户只要在其中一个网站登录，再访问另一个网站就会自动登录，请问怎么实现？</p>
+
+<p>一种解决方案是 session 数据持久化，写入数据库或别的持久层。各种服务收到请求后，都向持久层请求数据。这种方案的优点是架构清晰，缺点是工程量比较大。另外，持久层万一挂了，就会单点失败。</p>
+
+<p>另一种方案是服务器索性不保存 session 数据了，所有数据都保存在客户端，每次请求都发回服务器。JWT 就是这种方案的一个代表。</p>
+
+<p>所以说token是sesion的另一种用法，使用token就不用session了。</p>
+
+<p>下面简介jwt（json web token），常用的</p>
+
+<p>JWT 的原理是，服务器认证以后，生成一个 JSON 对象，发回给用户，就像下面这样。</p>
+
+<pre><code>{
+  &quot;姓名&quot;: &quot;张三&quot;,
+  &quot;角色&quot;: &quot;管理员&quot;,
+  &quot;到期时间&quot;: &quot;2018年7月1日0点0分&quot;
+}
+</code></pre>
+
+<p>以后，用户与服务端通信的时候，都要发回这个 JSON 对象。服务器完全只靠这个对象认定用户身份。为了防止用户篡改数据，服务器在生成这个对象的时候，会加上签名，生成密文。</p>
+
+<p>服务器就不保存任何 session 数据了，也就是说，服务器变成无状态了，从而比较容易实现扩展。</p>
+
+<p>golang实战</p>
+
+<p>json web token 简称 jwt 是一种轻量级的规范，常用与用户认证</p>
+
+<p>大致由 3 部分构成:</p>
+
+<pre><code>Header (头部)
+Payload (载荷)
+Signature (签名)
+用.拼接
+Token = Header + '.' + Payload + '.' + Signature
+</code></pre>
+
+<p>Header</p>
+
+<p>用来表明签名的加密算法 token 类型等.</p>
+
+<pre><code>{
+    &quot;typ&quot;: &quot;JWT&quot;,
+    &quot;alg&quot;: &quot;HS256&quot;lag
+}
+</code></pre>
+
+<p>以上 json 转为 base64 生成 header</p>
+
+<p>Payload</p>
+
+<p>Payload 记录你需要的信息. 其中应该包含 Claims</p>
+
+<pre><code>Claims
+Audience string `json:&quot;aud,omitempty&quot;`  
+ExpiresAt int64 `json:&quot;exp,omitempty&quot;`  
+Id string `json:&quot;jti,omitempty&quot;` 
+IssuedAt int64 `json:&quot;iat,omitempty&quot;`  
+Issuer string `json:&quot;iss,omitempty&quot;`  
+NotBefore int64 `json:&quot;nbf,omitempty&quot;`  
+Subject string `json:&quot;sub,omitempty&quot;`
+</code></pre>
+
+<ol>
+<li>aud 标识token的接收者.</li>
+<li>exp 过期时间.通常与Unix UTC时间做对比过期后token无效</li>
+<li>jti 是自定义的id号</li>
+<li>iat 签名发行时间.</li>
+<li>iss 是签名的发行者.</li>
+<li>nbf 这条token信息生效时间.这个值可以不设置,但是设定后,一定要大于当前Unix UTC,否则token将会延迟生效.</li>
+<li>sub 签名面向的用户</li>
+</ol>
+
+<p>Signature</p>
+
+<p>通过 header 生明的加密方法生成 签名.</p>
+
+<p>JWT 包下载</p>
+
+<pre><code>go get github.com/dgrijalva/jwt-go
+</code></pre>
+
+<p>简单使用</p>
+
+<p>生成 Token</p>
+
+<p>Payload 结构体</p>
+
+<pre><code>type jwtCustomClaims struct {  
+   jwt.StandardClaims
+
+   // 追加自己需要的信息
+   Uid uint `json:&quot;uid&quot;`  
+   Admin bool `json:&quot;admin&quot;`  
+}
+</code></pre>
+
+<p>编写生成 token 的函数</p>
+
+<pre><code>/**  
+ * 生成 token
+ * SecretKey 是一个 const 常量
+ */
+func CreateToken(SecretKey []byte, issuer string, Uid uint, isAdmin bool) (tokenString string, err error) {  
+    claims := &amp;jwtCustomClaims{  
+       jwt.StandardClaims{
+           ExpiresAt: int64(time.Now().Add(time.Hour * 72).Unix()),  
+           Issuer:    issuer,  
+       },  
+       Uid,  
+       isAdmin,  
+   }  
+   token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)  
+   tokenString, err = token.SignedString(SecretKey)  
+   return  
+}
+</code></pre>
+
+<p>test 一下</p>
+
+<pre><code>func TestCreateToken(t *testing.T)  {  
+   token, _ := CreateToken([]byte(SecretKey), &quot;YDQ&quot;, 2222, true)  
+   fmt.Println(token)
+}
+</code></pre>
+
+<p>结果是这样的.</p>
+
+<pre><code>=== RUN   TestCreateToken
+
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE1NDA2MDc2MzYsImlzcyI6IllEUSIsInVpZCI6MjIyMiwiYWRtaW4iOnRydWV9.oaX63ScaDttkhC31bgjvPSr4PjvBb55UanAA_QP5zpc
+--- PASS: TestCreateToken (0.00s)
+PASS
+</code></pre>
+
+<p>解析 Token</p>
+
+<p>解析函数</p>
+
+<pre><code>/**  
+ * 解析 token 
+ */
+func ParseToken(tokenSrt string, SecretKey []byte) (claims jwt.Claims, err error) {  
+   var token *jwt.Token  
+   token, err = jwt.Parse(tokenSrt, func(*jwt.Token) (interface{}, error) {  
+      return SecretKey, nil  
+   })  
+   claims = token.Claims  
+   return  
+}
+</code></pre>
+
+<p>合并到一直测试.</p>
+
+<pre><code>func TestCreateToken(t *testing.T)  {  
+   token, _ := CreateToken([]byte(SecretKey), &quot;YDQ&quot;, 2222, true)  
+   fmt.Println(token)  
+
+   claims, err := ParseToken(token, []byte(SecretKey))  
+   if nil != err {  
+      fmt.Println(&quot; err :&quot;, err)  
+   }  
+   fmt.Println(&quot;claims:&quot;, claims)  
+   fmt.Println(&quot;claims uid:&quot;, claims.(jwt.MapClaims)[&quot;uid&quot;])
+}
+</code></pre>
+
+<p>结果是这样的.</p>
+
+<pre><code>=== RUN   TestCreateToken
+
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE1NDA2MDgyODgsImlzcyI6IllEUSIsInVpZCI6MjIyMiwiYWRtaW4iOnRydWV9.8wE-_Wx-DHI2GMXJ9KT5JOndst2CCEaUNEIGDy9CUbM
+claims: map[exp:1.540608288e+09 iss:YDQ uid:2222 admin:true]
+claims uid: 2222
+--- PASS: TestCreateToken (0.00s)
+PASS
+</code></pre>
+
+<p>这里要注意, 信息 parse 后与签名信息不一致, 会报 err: signature is invalid</p>
+
+<pre><code>package main
+
+import (
+    &quot;log&quot;
+    &quot;net/http&quot;
+    &quot;github.com/codegangsta/negroni&quot;
+    &quot;encoding/json&quot;
+    &quot;fmt&quot;
+    &quot;strings&quot;
+    &quot;github.com/dgrijalva/jwt-go&quot;
+    &quot;time&quot;
+    &quot;github.com/dgrijalva/jwt-go/request&quot;
+)
+
+/**
+说明：
+客户端通过在request对象header里添加token参数，发送到服务端。
+服务端再拿出token进行比对。
+token的第一次产生是发生在login检查账户存在并且正确之后，为该用户赋予一块令牌（加密字符串）
+并将token放入response的header里。客户端登陆成功后，从response里取出token。并在以后操作request请求。
+都保持在header里添加该段令牌，令牌有效期失效后，只有重新login，才能获取新的令牌。
+*/
+const (
+    //SecretKey = &quot;welcome to wangshubo's blog&quot;
+    SecretKey = &quot;I have login&quot;
+)
+
+func fatal(err error) {
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+
+type UserCredentials struct {
+    Username string `json:&quot;username&quot;`
+    Password string `json:&quot;password&quot;`
+}
+
+type User struct {
+    ID       int    `json:&quot;id&quot;`
+    Name     string `json:&quot;name&quot;`
+    Username string `json:&quot;username&quot;`
+    Password string `json:&quot;password&quot;`
+}
+
+type Response struct {
+    Data string `json:&quot;data&quot;`
+}
+
+type Token struct {
+    Token string `json:&quot;token&quot;`
+}
+
+func StartServer() {
+
+    http.HandleFunc(&quot;/login&quot;, LoginHandler)
+
+    http.Handle(&quot;/resource&quot;, negroni.New(
+        negroni.HandlerFunc(ValidateTokenMiddleware),
+        negroni.Wrap(http.HandlerFunc(ProtectedHandler)),
+    ))
+
+    log.Println(&quot;Now listening...&quot;)
+    http.ListenAndServe(&quot;:8080&quot;, nil)
+}
+
+func main() {
+    StartServer()
+}
+
+func ProtectedHandler(w http.ResponseWriter, r *http.Request) {
+
+    response := Response{&quot;Gained access to protected resource !&quot;}
+    JsonResponse(response, w)
+
+}
+
+//服务端生成token，并放入到response的header
+/**
+JWT由三部份组成：
+* Header:头部 （对应：Header）
+* Claims:声明 (对应：Payload)
+* Signature:签名 (对应：Signature)
+*/
+func LoginHandler(w http.ResponseWriter, r *http.Request) {
+
+    var u *User=new(User)
+
+    var user UserCredentials
+
+    err := json.NewDecoder(r.Body).Decode(&amp;user)
+
+    if err != nil {
+        w.WriteHeader(http.StatusForbidden)
+        fmt.Fprint(w, &quot;Error in request&quot;)
+        return
+    }
+
+    //验证是身份：若用户是someone，则生成token
+    if strings.ToLower(user.Username) != &quot;someone&quot; {
+        if user.Password != &quot;p@ssword&quot; {
+            w.WriteHeader(http.StatusForbidden)
+            fmt.Println(&quot;Error logging in&quot;)
+            fmt.Fprint(w, &quot;Invalid credentials&quot;)
+            return
+        }
+    }
+
+    //1。生成token
+    token := jwt.New(jwt.SigningMethodHS256)
+    claims := make(jwt.MapClaims)
+    //2。添加令牌关键信息
+    //添加令牌期限
+    claims[&quot;exp&quot;] = time.Now().Add(time.Hour * time.Duration(1)).Unix()
+    claims[&quot;iat&quot;] = time.Now().Unix()
+    claims[&quot;id&quot;]=u.ID
+    claims[&quot;userName&quot;]=u.Username
+    claims[&quot;password&quot;]=u.Password
+    token.Claims = claims
+
+    fmt.Println(claims)
+
+    if err != nil {
+        w.WriteHeader(http.StatusInternalServerError)
+        fmt.Fprintln(w, &quot;Error extracting the key&quot;)
+        fatal(err)
+    }
+
+    //获取令牌
+    tokenString, err := token.SignedString([]byte(SecretKey))
+    if err != nil {
+        w.WriteHeader(http.StatusInternalServerError)
+        fmt.Fprintln(w, &quot;Error while signing the token&quot;)
+        fatal(err)
+    }
+
+    //2。将生成的token放入到header
+    response := Token{tokenString}
+    JsonResponse(response, w)
+
+}
+
+//验证Token
+func ValidateTokenMiddleware(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+    token, err := request.ParseFromRequest(r, request.AuthorizationHeaderExtractor,
+        func(token *jwt.Token) (interface{}, error) {
+            return []byte(SecretKey), nil
+        })
+
+    if err == nil {
+        if token.Valid {
+            next(w, r)
+        } else {
+            w.WriteHeader(http.StatusUnauthorized)
+            fmt.Fprint(w, &quot;Token is not valid&quot;)
+        }
+    } else {
+        w.WriteHeader(http.StatusUnauthorized)
+        fmt.Fprint(w, &quot;Unauthorized access to this resource&quot;)
+    }
+
+}
+
+func JsonResponse(response interface{}, w http.ResponseWriter) {
+    json, err := json.Marshal(response)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    w.WriteHeader(http.StatusOK)
+    w.Header().Set(&quot;Content-Type&quot;, &quot;application/json&quot;)
+    w.Write(json)
+}
+</code></pre>
+
+<p>token认证流程</p>
+
+<p>token 的认证流程与cookie很相似</p>
+
+<pre><code>用户登录，成功后服务器返回Token给客户端。
+客户端收到数据后保存在客户端
+客户端再次访问服务器，将token放入headers中
+服务器端采用filter过滤器校验。校验成功则返回请求数据，校验失败则返回错误码
+</code></pre>
+
+<h2 id="golang-如何随机监听某一范围内的端口">Golang 如何随机监听某一范围内的端口</h2>
+
+<pre><code>mux := http.NewServeMux()
+port := 20000
+server := &amp;http.Server{
+    Handler: mux,
+}
+// 防止2万到3万端口中随机选择了不可用端口会出错，所以这里用到了错误检查。
+// 因为GO反人类的错误处理，不像try catch或try except写起来那么优雅
+// 这里因为采用的端口是随机的，所以最后必须显示给你目前使用的端口号
+// 如 used port num is::21163 -&gt; fail 说明本次选择这个21163是不可用的
+// 此时程序会自动获取下一个2到3万之间的端口号，直到可用（number 后面没有 -&gt; fail）为止
+for {
+        seed := rand.New(rand.NewSource(time.Now().UnixNano()))
+        randNum := seed.Intn(10000)
+        port += randNum
+        server.Addr = &quot;:&quot; + strconv.Itoa(port)
+        fmt.Printf(&quot;used port num is:%s&quot;, server.Addr)
+
+        func(){
+            defer func() {
+                if ok := recover(); ok != nil{
+                    fmt.Printf(&quot; -&gt; %s\n&quot;, &quot;fail&quot;)
+                    port = 20000
+                }
+            }()
+            err := server.ListenAndServe()
+            if err != nil {
+                panic(&quot;unavailable&quot;)
+            }
+        }()
+}
+</code></pre>
+<div class="footnotes">
+
+<hr />
+
+<ol>
+<li id="fn:0-9">0-9 <a class="footnote-return" href="#fnref:0-9"><sup>[return]</sup></a></li>
+<li id="fn:x-4e00-x-9fa5">\x{4e00}-\x{9fa5} <a class="footnote-return" href="#fnref:x-4e00-x-9fa5"><sup>[return]</sup></a></li>
+<li id="fn:a-zA-Z">a-zA-Z <a class="footnote-return" href="#fnref:a-zA-Z"><sup>[return]</sup></a></li>
+</ol>
+</div>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-net-web/">https://kingjcy.github.io/post/golang/go-net-web/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/net/">
+                            <i class="fa fa-tags"></i>
+                            net
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/web/">
+                            <i class="fa fa-tags"></i>
+                            web
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/socket/">
+                            <i class="fa fa-tags"></i>
+                            socket
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/web/html/">Html Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月28日)</span></li><li id="li-rels"><a href="/post/web/css/">Css Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月28日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/linux/centos/centos-kernel-update/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-net/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#net">net</a>
+<ul>
+<li><a href="#dns域名解析常用">DNS域名解析常用</a></li>
+<li><a href="#ip">ip</a></li>
+<li><a href="#tcp">tcp</a></li>
+<li><a href="#udp">udp</a></li>
+<li><a href="#unix">unix</a></li>
+<li><a href="#基本c-s功能">基本c/s功能</a></li>
+<li><a href="#net-http">net/http</a></li>
+</ul></li>
+<li><a href="#应用">应用</a>
+<ul>
+<li><a href="#捕捉close">捕捉close</a></li>
+<li><a href="#web编程">web编程</a>
+<ul>
+<li><a href="#并发使用过程">并发使用过程</a></li>
+<li><a href="#go能支持的并发数据">go能支持的并发数据</a></li>
+<li><a href="#端口问题导致的并发问题">端口问题导致的并发问题</a></li>
+<li><a href="#go-web-基本使用实例">go web 基本使用实例</a></li>
+<li><a href="#请求参数解析">请求参数解析</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#net-http-httputil">net/http/httputil</a>
+<ul>
+<li>
+<ul>
+<li><a href="#roundtripper-is-an-interface-representing-the-ability-to-execute-a-single-http-transaction-obtaining-the-response-for-a-given-request">RoundTripper is an interface representing the ability to execute a single HTTP transaction, obtaining the Response for a given Request.</a></li>
+<li><a href="#关于安全验证">关于安全验证</a></li>
+</ul></li>
+<li><a href="#golang-如何随机监听某一范围内的端口">Golang 如何随机监听某一范围内的端口</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

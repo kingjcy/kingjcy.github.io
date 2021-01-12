@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="日志分析，就是根据输出的日志信息，分析挖掘可能的问题，排查解决问题都十分重要。
+
+golang标准库的日志框架非常简单，仅仅提供了print，panic和fatal三个函数对于更精细的日志级别、日志文件分割以及日志分发等方面并没有提供支持。所以催生了很多第三方的日志库，但是在golang的世界里，没有一个日志库像slf4j那样在Java中具有绝对统治地位。golang中，流行的日志框架包括logrus、zap、zerolog、seelog、beegolog等">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="golang使用系列---- Log - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    golang使用系列---- Log
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年01月31日 
+                </div>
+                <h1 class="post-title">golang使用系列---- Log</h1>
+            </header>
+
+            <div class="post-content">
+                <p>日志分析，就是根据输出的日志信息，分析挖掘可能的问题，排查解决问题都十分重要。</p>
+
+<p>golang标准库的日志框架非常简单，仅仅提供了print，panic和fatal三个函数对于更精细的日志级别、日志文件分割以及日志分发等方面并没有提供支持。所以催生了很多第三方的日志库，但是在golang的世界里，没有一个日志库像slf4j那样在Java中具有绝对统治地位。golang中，流行的日志框架包括logrus、zap、zerolog、seelog、beegolog等</p>
+
+<h2 id="golang标准库中提供了基本的log操作">golang标准库中提供了基本的log操作</h2>
+
+<h3 id="基本使用">基本使用</h3>
+
+<p>golang标准库的日志框架非常简单，仅仅提供了print，panic和fatal三个函数。</p>
+
+<p>1.Print</p>
+
+<pre><code>package main
+
+import (
+    &quot;log&quot;
+)
+
+func main(){
+    arr := []int {2,3}
+    log.Print(&quot;Print array &quot;,arr,&quot;\n&quot;)
+    log.Println(&quot;Println array&quot;,arr)
+    log.Printf(&quot;Printf array with item [%d,%d]\n&quot;,arr[0],arr[1])
+}
+
+// 输出
+2018/11/14 10:52:16 Print array [2 3]
+2018/11/14 10:52:16 Println array [2 3]
+2018/11/14 10:52:16 Printf array with item [2,3]
+</code></pre>
+
+<p>2.Fatal</p>
+
+<p>log.Fatal接口会先将日志内容打印到标准输出，接着调用系统的 os.exit(1)接口，退出程序并返回状态 1 。</p>
+
+<p>但是有一点需要注意，由于是直接调用系统接口退出，defer函数不会被调用。</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;log&quot;
+)
+
+func test_deferfatal(){
+    defer func() {
+        fmt.Println(&quot;--first--&quot;)
+    }()
+    log.Fatalln(&quot;test for defer Fatal&quot;)
+}
+
+func main() {
+    test_deferfatal()
+}
+
+
+// 输出
+2018/11/14 10:55:23 test for defer Fatal
+exit status 1
+</code></pre>
+
+<p>3.Panic</p>
+
+<p>log.Panic接口会把日志内容刷到标准错误后调用panic函数</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;log&quot;
+)
+
+func test_deferpanic(){
+    defer func() {
+        fmt.Println(&quot;--first--&quot;)
+        if err := recover(); err != nil {
+            fmt.Println(err)
+        }
+    }()
+    log.Panicln(&quot;test for defer Panic&quot;)
+    defer func() {
+        fmt.Println(&quot;--second--&quot;)
+    }()
+}
+
+func main() {
+    test_deferpanic()
+}
+// 输出
+2018/11/14 10:57:11 test for defer Panic
+--first--
+test for defer Panic
+</code></pre>
+
+<p>首先输出了test for defer Panic
+然后第一个defer函数被调用了并输出了&ndash;first&ndash;
+但是第二个defer函数并没有输出
+可见在Panic之后声明的defer是不会执行的。</p>
+
+<h3 id="自定义logger类型">自定义Logger类型</h3>
+
+<p>log.Logger提供了一个New方法用来创建对象</p>
+
+<pre><code>//定义logger, 传入参数 文件，前缀字符串，flag标记
+func New(out io.Writer, prefix string, flag int) *Logger
+
+该函数一共有三个参数：
+输出位置out，是一个io.Writer对象，该对象可以是一个文件也可以是实现了该接口的对象。通常我们可以用这个来指定日志输出到哪个文件。
+prefix我们在前面已经看到，就是在日志内容前面的东西。我们可以将其置为[Info]、[Warning]等来帮助区分日志级别。
+flags是一个选项，显示日志开头的东西，可选的值有：
+
+    Ldate = 1 &lt;&lt; iota // 形如 2009/01/23 的日期
+    Ltime             // 形如 01:23:23   的时间
+    Lmicroseconds     // 形如 01:23:23.123123   的时间
+    Llongfile         // 全路径文件名和行号: /a/b/c/d.go:23
+    Lshortfile        // 文件名和行号: d.go:23
+    LstdFlags = Ldate | Ltime // 日期和时间
+
+//设置flag格式
+func SetFlags(flag int) ----就是上面的flag
+
+//配置log的输出格式
+func SetPrefix(prefix string)
+
+还有设置定制化的前缀
+
+    log.SetPrefix(&quot;【UserCenter】&quot;)
+
+    输出
+    【UserCenter】2017/04/29 05:53:26 main.go:11: 飞雪无情的博客: http://www.flysnow.org
+    【UserCenter】2017/04/29 05:53:26 main.go:12: 飞雪无情的微信公众号：flysnow_org
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>package main
+
+import (
+    &quot;log&quot;
+    &quot;os&quot;
+)
+func main(){
+    // 定义一个文件
+    fileName := &quot;ll.log&quot;
+    logFile,err  := os.Create(fileName)
+    defer logFile.Close()
+    if err != nil {
+        log.Fatalln(&quot;open file error !&quot;)
+    }
+    // 创建一个日志对象
+    debugLog := log.New(logFile,&quot;[Debug]&quot;,log.LstdFlags)
+    debugLog.Println(&quot;A debug message here&quot;)
+    //配置一个日志格式的前缀
+    debugLog.SetPrefix(&quot;[Info]&quot;)
+    debugLog.Println(&quot;A Info Message here &quot;)
+    //配置log的Flag参数
+    debugLog.SetFlags(debugLog.Flags() | log.LstdFlags)
+    debugLog.Println(&quot;A different prefix&quot;)
+}
+</code></pre>
+
+<p>但是自身所带的日志，在实现日志登记上比较不优雅，不够简洁。</p>
+
+<h2 id="logrus">logrus</h2>
+
+<p>logrus是我已知的Go语言日志库中在Github中stars数最多的日志库，功能强大，性能也不错。另外值得一提的是logrus的一个fork库gogap/logrus，可以配置输出到文件和graylog日志系统，基础的level、调用链、行号，文件切分都有，特色是结构化日志可以被统计和索引，借助graylog就可以做日志分析，不过这个库很久没有维护了。</p>
+
+<p>logrus其是一个结构化后的日志包，API完全兼容标准包logger。docker(moby)源码中使用logrus来做日志记录</p>
+
+<p>优点</p>
+
+<pre><code>结构化、可插拔的日志模块
+完全兼容官方log库接口
+Field机制
+可扩展的HOOK机制
+TEXT与JSON两种可选格式
+</code></pre>
+
+<p>基本使用</p>
+
+<p>输出内容格式化</p>
+
+<pre><code>内建日志格式化有：
+
+logrus.TextFormatter
+当你登录TTY时，其输出内容会是彩色标注；如果不在TTY，则需要将ForceColors设置为true
+
+logrus.JSONFormatter
+以JSON格式为输出
+</code></pre>
+
+<p>基本实例</p>
+
+<pre><code>package main
+
+import (
+    &quot;os&quot;
+
+    &quot;github.com/sirupsen/logrus&quot;
+)
+
+func init() {
+    // 以JSON格式为输出，代替默认的ASCII格式
+    logrus.SetFormatter(&amp;logrus.JSONFormatter{})
+    // 以Stdout为输出，代替默认的stderr
+    logrus.SetOutput(os.Stdout)
+    // 设置日志等级
+    logrus.SetLevel(logrus.WarnLevel)
+}
+func main() {
+    logrus.WithFields(logrus.Fields{
+        &quot;animal&quot;: &quot;walrus&quot;,
+        &quot;size&quot;:   10,
+    }).Info(&quot;A group of walrus emerges from the ocean&quot;)
+
+    logrus.WithFields(logrus.Fields{
+        &quot;omg&quot;:    true,
+        &quot;number&quot;: 122,
+    }).Warn(&quot;The group's number increased tremendously!&quot;)
+
+    logrus.WithFields(logrus.Fields{
+        &quot;omg&quot;:    true,
+        &quot;number&quot;: 100,
+    }).Fatal(&quot;The ice breaks!&quot;)
+}
+运行：
+
+go run logrus_study.go
+
+&lt;&lt;'COMMENT'
+{&quot;level&quot;:&quot;warning&quot;,&quot;msg&quot;:&quot;The group's number increased tremendously!&quot;,&quot;number&quot;:122,&quot;omg&quot;:true,&quot;time&quot;:&quot;2017-09-18T17:53:13+08:00&quot;}
+{&quot;level&quot;:&quot;fatal&quot;,&quot;msg&quot;:&quot;The ice breaks!&quot;,&quot;number&quot;:100,&quot;omg&quot;:true,&quot;time&quot;:&quot;2017-09-18T17:53:13+08:00&quot;}
+COMMENT
+</code></pre>
+
+<p>Logger：logrus也提供了一个名为std的标准logger，对外导出的各类方法直接使用std记录日志</p>
+
+<p>实例</p>
+
+<pre><code>package main
+
+import log &quot;github.com/sirupsen/logrus&quot;
+
+func main() {
+
+    log.Info(&quot;hello, world.&quot;)
+}
+</code></pre>
+
+<p>自建logger</p>
+
+<pre><code>package main
+
+import (
+    &quot;os&quot;
+
+    &quot;github.com/sirupsen/logrus&quot;
+)
+
+var log = logrus.New()
+
+
+func main() {
+    file, err := os.OpenFile(&quot;logrus.log&quot;, os.O_CREATE|os.O_WRONLY, 0666)
+    if err == nil {
+        log.Out = file
+    } else {
+        log.Info(&quot;Failed to log to file, using default stderr&quot;)
+    }
+
+    log.WithFields(logrus.Fields{
+        &quot;animal&quot;: &quot;walrus&quot;,
+        &quot;size&quot;:   10,
+    }).Info(&quot;A group of walrus emerges from the ocean&quot;)
+    file.Close()
+}
+执行后会在GOPATH路径下穿件logrus.log文件，内容如下：
+
+time=&quot;2018-09-18T18:09:32+08:00&quot; level=info msg=&quot;A group of walrus emerges from the ocean&quot; animal=walrus size=10
+</code></pre>
+
+<p>日志等级</p>
+
+<pre><code>log.Debug(&quot;Useful debugging information.&quot;)
+log.Info(&quot;Something noteworthy happened!&quot;)
+log.Warn(&quot;You should probably take a look at this.&quot;)
+log.Error(&quot;Something failed but I'm not quitting.&quot;)
+// 随后会触发os.Exit(1)
+log.Fatal(&quot;Bye.&quot;)
+// 随后会触发panic()
+log.Panic(&quot;I'm bailing.&quot;)
+</code></pre>
+
+<h2 id="go-kit">go-kit</h2>
+
+<p>本身go-kit是一个微服务框架。其中也提供了日志的功能。</p>
+
+<pre><code>github.com/go-kit/kit/log/level
+github.com/go-kit/kit/log
+</code></pre>
+
+<p>Package level implements leveled logging on top of package log. To use the level package, create a logger as per normal in your func main, and wrap it with level.NewFilter.</p>
+
+<pre><code>var logger log.Logger
+logger = log.NewLogfmtLogger(os.Stderr)
+logger = level.NewFilter(logger, level.AllowInfo()) // &lt;--
+logger = log.With(logger, &quot;ts&quot;, log.DefaultTimestampUTC)
+</code></pre>
+
+<p>Then, at the callsites, use one of the level.Debug, Info, Warn, or Error helper methods to emit leveled log events.</p>
+
+<pre><code>logger.Log(&quot;foo&quot;, &quot;bar&quot;) // as normal, no level
+level.Debug(logger).Log(&quot;request_id&quot;, reqID, &quot;trace_data&quot;, trace.Get())
+if value &gt; 100 {
+    level.Error(logger).Log(&quot;value&quot;, value)
+}
+</code></pre>
+
+<p>NewFilter allows precise control over what happens when a log event is emitted without a level key, or if a squelched level is used. Check the Option functions for details.</p>
+
+<h2 id="seelog">seelog</h2>
+
+<p>seelog 功能非常强大，简要概括下：</p>
+
+<pre><code>可以设置分级日志；
+可以输出到命令行或文件；
+可以定义多种日志的格式；
+可以根据触发日志的文件名、函数名来区别输出日志；
+可以通过 SMTP 或 TCP 转发日志；
+可以滚动日志文件。
+</code></pre>
+
+<p>1.创建</p>
+
+<p>使用下面的构造函数来创建一个日志记录器，也就是新建一个logger。有</p>
+
+<pre><code>func LoggerFromConfigAsBytes
+func LoggerFromConfigAsFile
+func LoggerFromConfigAsString
+func LoggerFromWriterWithMinLevel
+func LoggerFromWriterWithMinLevelAndFormat
+func LoggerFromCustomReceiver(check https://github.com/cihub/seelog/wiki/Custom-receivers)
+</code></pre>
+
+<p>举例</p>
+
+<p>配置文件seelog.xml</p>
+
+<pre><code>&lt;seelog type=&quot;asynctimer&quot; asyncinterval=&quot;1000000&quot; minlevel=&quot;debug&quot; maxlevel=&quot;error&quot;&gt;
+    &lt;outputs formatid=&quot;main&quot;&gt;
+        &lt;!-- 仅实现将日志内容输出到终端 --&gt;
+        &lt;console/&gt;
+    &lt;/outputs&gt;
+    &lt;formats&gt;
+        &lt;!-- 设置格式，输出UTC日期 UTC时间 - 缩写版大写日志级别 - 相对于应用程序运行目录的调用者路径 - 日志记录器被调用时的行号 - 消息文本（最后换行） --&gt;
+        &lt;format id=&quot;main&quot; format=&quot;%UTCDate %UTCTime - [%LEV] - %RelFile - l%Line - %Msg%n&quot;/&gt;
+    &lt;/formats&gt;
+&lt;/seelog&gt;
+</code></pre>
+
+<p>然后应用</p>
+
+<pre><code>package main
+
+import (
+    log &quot;github.com/cihub/seelog&quot;
+    &quot;fmt&quot;
+)
+
+func main() {
+    logger, err := log.LoggerFromConfigAsFile(&quot;seelog.xml&quot;)
+    if err != nil {
+        fmt.Println(&quot;parse seelog.xml error&quot;)
+    }
+
+    log.ReplaceLogger(logger)
+
+    defer log.Flush()
+    log.Info(&quot;Hello from Seelog!&quot;)
+
+}
+</code></pre>
+
+<p>输出为</p>
+
+<pre><code>2019-03-04 09:19:11 - [INF] - test.go - l20 - Hello from Seelog!
+</code></pre>
+
+<p>“defer”行语句很重要，因为如果使用异步日志行为，在关闭应用程序时，如果没有这行，可能会丢失一些消息，因为它们是在另一个非阻塞goroutine中处理的。为了避免这种情况，在关闭之前显式地延迟刷新所有消息。</p>
+
+<p>2.详细配置</p>
+
+<p>1、Constraints 级别限制</p>
+
+<p>用于配置接受的日志级别：</p>
+
+<pre><code>&lt;!-- 设置接受的最小和最大级别 --&gt;
+&lt;seelog minlevel=&quot;info&quot; maxlevel=&quot;error&quot;&gt;
+
+&lt;!-- 设置接受的级别 --&gt;
+&lt;seelog levels=&quot;trace,info,critical&quot;&gt;
+</code></pre>
+
+<p>可以在全局的 seelog 或 exception 上配置。</p>
+
+<p>支持的日志级别有：</p>
+
+<pre><code>Trace -查找关于所有基本构造的状态的普遍信息。使用“Trace”进行深度调试，查找函数的问题部分，检查临时变量的值，等等。
+Debug——用于详细的系统行为报告和诊断消息，以帮助定位开发过程中的问题。
+Info-关于应用程序工作的一般信息。在代码中使用“Info”级别，这样即使在生产环境中也可以启用它。所以这是一个“生产日志级别”。
+Warn-用于指示以安全方式自动处理的小错误、奇怪情况和故障。
+Error-严重故障影响应用程序的工作流程，但不是致命的(不强迫应用程序关闭)。
+Critical——在应用程序死亡之前生成最后的消息。注意:Critical消息强制立即刷新，因为Critical情况下，如果应用程序崩溃，避免日志消息丢失是很重要的。
+Off—用于关闭日志记录的特殊日志级别
+</code></pre>
+
+<p>2、Exceptions</p>
+
+<p>不同于 seelog  是全局配置，exception 是为特定的程序文件或函数设定特殊的日志规则。</p>
+
+<p>有两种匹配方式：</p>
+
+<p>filepattern：根据文件名来匹配；</p>
+
+<p>funcpattern：根据函数名来匹配。</p>
+
+<pre><code>&lt;seelog minlevel=&quot;info&quot;&gt;
+    &lt;exceptions&gt; &lt;!-- 首先声明一个 exceptions 段 --&gt;
+        &lt;!-- 为 test 开头的文件开启 debug 级别的日志 --&gt;
+        &lt;exception filepattern=&quot;test*&quot; minlevel=&quot;debug&quot;/&gt;
+
+        &lt;!-- 为 main.testFunc 函数开启 debug 级别的日志 --&gt;
+        &lt;exception funcpattern=&quot;main.testFunc&quot; minlevel=&quot;debug&quot;/&gt;
+    &lt;/exceptions&gt;
+&lt;/seelog&gt;
+</code></pre>
+
+<p>3、Dispatcher 分发日志</p>
+
+<p>有三个关键字：</p>
+
+<p>1.outputs</p>
+
+<p>用于定义输出块，在 outpus 内定义具体的输出方式和格式。spliter 和 filter 都定义在 outputs 块内。</p>
+
+<pre><code>&lt;outputs&gt;
+    &lt;splitter&gt;...&lt;/splitter&gt;
+    &lt;filter&gt;...&lt;/filter&gt;
+&lt;/outputs&gt;
+</code></pre>
+
+<p>2.spliter</p>
+
+<p>用于指定格式，内部可以包含多个 receiver。</p>
+
+<pre><code>&lt;!-- 通过 formatid 定义适用的日志格式 --&gt;
+&lt;splitter formatid=&quot;common&quot;&gt;
+    ...
+&lt;/splitter&gt;
+</code></pre>
+
+<p>3.filter</p>
+
+<p>用于指定接收的日志级别，内部可以包含多个 receiver。</p>
+
+<pre><code>&lt;!-- 通过 levels 定义适用的日志级别 --&gt;
+&lt;filter levels=&quot;critical&quot;&gt;
+    ...
+&lt;/filter&gt;
+</code></pre>
+
+<p>一个完整的例子：</p>
+
+<pre><code>&lt;seelog&gt;
+    &lt;!-- 定义 outputs 块 --&gt;
+    &lt;outputs&gt;
+        &lt;!-- splitter 应用格式 --&gt;
+        &lt;splitter formatid=&quot;common&quot;&gt;
+            &lt;console/&gt;
+            &lt;file path=&quot;file.log&quot;/&gt;
+            &lt;conn addr=&quot;192.168.0.2:8123&quot;/&gt;
+        &lt;/splitter&gt;
+
+        &lt;!-- filter 应用级别 --&gt;
+        &lt;filter levels=&quot;critical&quot;&gt;
+            &lt;file path=&quot;critical.log&quot; formatid=&quot;critical&quot;/&gt;
+            &lt;smtp formatid=&quot;criticalemail&quot; senderaddress=&quot;noreply-notification-service@none.org&quot; sendername=&quot;Automatic notification service&quot; hostname=&quot;mail.none.org&quot; hostport=&quot;587&quot; username=&quot;nns&quot; password=&quot;123&quot;&gt;
+                &lt;recipient address=&quot;john-smith@none.com&quot;/&gt;
+                &lt;recipient address=&quot;hans-meier@none.com&quot;/&gt;
+            &lt;/smtp&gt;
+        &lt;/filter&gt;
+    &lt;/outputs&gt;
+
+    &lt;!-- formats 块定义各种格式 --&gt;
+    &lt;formats&gt;
+        &lt;format id=&quot;common&quot; format=&quot;[%LEV] %Msg&quot;/&gt;
+        &lt;format id=&quot;critical&quot; format=&quot;%Time %Date %RelFile %Func %Msg&quot;/&gt;
+        &lt;format id=&quot;criticalemail&quot; format=&quot;Critical error on our server!\n    %Time %Date %RelFile %Func %Msg \nSent by Seelog&quot;/&gt;
+    &lt;/formats&gt;
+&lt;/seelog&gt;
+</code></pre>
+
+<p>4、Receiver 处理日志</p>
+
+<p>Receiver 具体定义日志的处理和分发方式，上面示例中出现的 console, file, conn, smtp 都是 receiver 类型。</p>
+
+<p>介绍几种常用的 receiver：</p>
+
+<p>1.console</p>
+
+<p>最常用的，直接输出到控制台，用 supervisor 等工具管理进程的时候比较方便。</p>
+
+<pre><code>&lt;console/&gt;
+file
+最简单的输出到文件，不作任何处理。
+
+&lt;file path=&quot;&lt;YOUR_LOG_FILE_PATH&gt;&quot;/&gt;
+</code></pre>
+
+<p>2.rollingfile</p>
+
+<p>滚动文件，可以按大小或时间滚动日志文件。</p>
+
+<p>滚动是指为了防止文件过大，按一定的规律创建新的日志文件，并且删除过期的日志文件，保证磁盘的使用量不会无限的增长。</p>
+
+<p>可以接受的参数有：</p>
+
+<pre><code>filename：文件名；
+type：data | size，滚动的触发条件；
+maxrolls：最大文件数；
+archivetype：none | zip | gzip；
+namemode：prefix | postfix，滚动文件的命名方式；
+archiveexploded：一个用于指定日志是应该被分解还是分组到同一个归档文件中的属性。true｜flase
+archivepath：当 archivetype 不为 none 时，指定保存的位置；
+maxsize：最大大小；
+datepattern：指定按事件滚动的触发条件；
+02.01.2006 指按日滚动；
+02.01.2006.15 指按时滚动；
+fullname：bool。
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>&lt;seelog&gt;
+    &lt;outputs&gt;
+        &lt;rollingfile type=&quot;size&quot; filename=&quot;logs/roll.log&quot; maxsize=&quot;1000&quot; maxrolls=&quot;5&quot; /&gt;
+    &lt;/outputs&gt;
+&lt;/seelog&gt;
+</code></pre>
+
+<p>3.buffered</p>
+
+<p>将日志先存在内存中，定期写入文件，适合日志并发量较大或 IO 比较紧张的场合。</p>
+
+<p>参数：</p>
+
+<pre><code>size：缓存大小；
+flushperiod：缓存间隔（毫秒）。
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>&lt;buffered size=&quot;10000&quot; flushperiod=&quot;1000&quot; formatid=&quot;someFormat&quot;&gt;
+    &lt;rollingfile type=&quot;date&quot; filename=&quot;logs/roll.log&quot; datepattern=&quot;02.01.2006&quot; /&gt;
+&lt;/buffered&gt;
+</code></pre>
+
+<p>4.smtp</p>
+
+<p>以邮件的形式发送日志。</p>
+
+<p>参数：</p>
+
+<pre><code>senderaddress：发信人地址；
+sendername：发信人名字；
+hostname：邮件服务器地址；
+hostport：邮件服务器端口；
+username：邮件服务器用户名；
+password：邮件服务器密码；
+subject：邮件标题；
+address：收信人地址；
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>&lt;filter levels=&quot;error,critical&quot;&gt;
+    &lt;smtp senderaddress=&quot;nns@none.org&quot; sendername=&quot;ANS&quot; hostname=&quot;mail.none.org&quot; hostport=&quot;587&quot; username=&quot;nns&quot; password=&quot;123&quot; subject=&quot;test&quot;&gt;
+        &lt;cacertdirpath path=&quot;cacdp1&quot;/&gt;
+        &lt;recipient address=&quot;hans-meier@none.com&quot;/&gt;
+        &lt;header name=&quot;Priority&quot; value=&quot;Urgent&quot; /&gt;
+        &lt;header name=&quot;Importance&quot; value=&quot;high&quot; /&gt;
+        &lt;header name=&quot;Sensitivity&quot; value=&quot;Company-Confidential&quot; /&gt;
+        &lt;header name=&quot;Auto-Submitted&quot; value=&quot;auto-generated&quot; /&gt;
+    &lt;/smtp&gt;
+&lt;/filter&gt;
+</code></pre>
+
+<p>5.conn</p>
+
+<p>通过网络转发，支持多种协议。</p>
+
+<p>参数：</p>
+
+<pre><code>net：tcp | udp | tcp4 | udp4；
+addr：地址；
+reconnectonmsg：bool；
+usetls：bool；
+insecureskipverify：bool。
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>&lt;conn formatid=&quot;syslog&quot; net=&quot;tcp4&quot; addr=&quot;server.address:5514&quot; tls=&quot;true&quot; insecureskipverify=&quot;true&quot; /&gt;
+</code></pre>
+
+<p>5.Formats</p>
+
+<p>定义日志格式，如上文中出现的例子，首先定义 formats 块，然后在内部定义任意条 <format id="xxx" format="xxx" />， 然后就可以在 dispatcher 和 receiver 内通过 formatid=&ldquo;xxx&rdquo; 的形式来指定格式。</p>
+
+<p>格式其实就是个字符串，通过不同的占位符来显示不同的内容，比如我自己用的格式就是：</p>
+
+<pre><code>&lt;format id=&quot;main&quot; format=&quot;%UTCDate %UTCTime - [%LEV] - %RelFile - l%Line - %Msg%n&quot;/&gt;
+</code></pre>
+
+<p>详细的定义可以参见官方文档：<a href="https://github.com/cihub/seelog/wiki/Format-reference">https://github.com/cihub/seelog/wiki/Format-reference</a></p>
+
+<h2 id="zap">zap</h2>
+
+<p>go.uber.org/zap</p>
+
+<p>一、基础</p>
+
+<p>关于Logger</p>
+
+<p>zap 包中有两种类型的logger:</p>
+
+<p>SugaredLogger:在性能要求不是很严格的情况下，可以使用SugaredLogger。它比其他结构化日志记录包快4-10倍，并支持结构化和printf样式的日志记录。</p>
+
+<p>Logger:如果对性能要求非常高的话，可以用Logger，它比SugaredLogger更快，更节省资源</p>
+
+<p>提示：默认情况下Logger是无缓冲的。 但是，由于zap的低级API允许缓冲，所以最好在退出进程之前调用Sync</p>
+
+<p>内置的三种构建Logger的方法：NewExample，NewProduction和NewDevelopment。 通过这三种方法我们可以很方便的就构建一个logger，如下面例子：</p>
+
+<pre><code>logger,err := zap.NewProduction()
+if err != nil {
+    log.Fatalf(&quot;can't initialize zap logger:%v\n&quot;,err)
+}
+defer logger.Sync()
+logger.Info(&quot;hello golang&quot;)
+</code></pre>
+
+<p>Config 的结构体如下：</p>
+
+<pre><code>type Config struct {
+    // Level is the minimum enabled logging level. Note that this is a dynamic
+    // level, so calling Config.Level.SetLevel will atomically change the log
+    // level of all loggers descended from this config.
+    Level AtomicLevel `json:&quot;level&quot; yaml:&quot;level&quot;`
+    // Development puts the logger in development mode, which changes the
+    // behavior of DPanicLevel and takes stacktraces more liberally.
+    Development bool `json:&quot;development&quot; yaml:&quot;development&quot;`
+    // DisableCaller stops annotating logs with the calling function's file
+    // name and line number. By default, all logs are annotated.
+    DisableCaller bool `json:&quot;disableCaller&quot; yaml:&quot;disableCaller&quot;`
+    // DisableStacktrace completely disables automatic stacktrace capturing. By
+    // default, stacktraces are captured for WarnLevel and above logs in
+    // development and ErrorLevel and above in production.
+    DisableStacktrace bool `json:&quot;disableStacktrace&quot; yaml:&quot;disableStacktrace&quot;`
+    // Sampling sets a sampling policy. A nil SamplingConfig disables sampling.
+    Sampling *SamplingConfig `json:&quot;sampling&quot; yaml:&quot;sampling&quot;`
+    // Encoding sets the logger's encoding. Valid values are &quot;json&quot; and
+    // &quot;console&quot;, as well as any third-party encodings registered via
+    // RegisterEncoder.
+    Encoding string `json:&quot;encoding&quot; yaml:&quot;encoding&quot;`
+    // EncoderConfig sets options for the chosen encoder. See
+    // zapcore.EncoderConfig for details.
+    EncoderConfig zapcore.EncoderConfig `json:&quot;encoderConfig&quot; yaml:&quot;encoderConfig&quot;`
+    // OutputPaths is a list of URLs or file paths to write logging output to.
+    // See Open for details.
+    OutputPaths []string `json:&quot;outputPaths&quot; yaml:&quot;outputPaths&quot;`
+    // ErrorOutputPaths is a list of URLs to write internal logger errors to.
+    // The default is standard error.
+    //
+    // Note that this setting only affects internal errors; for sample code that
+    // sends error-level logs to a different location from info- and debug-level
+    // logs, see the package-level AdvancedConfiguration example.
+    ErrorOutputPaths []string `json:&quot;errorOutputPaths&quot; yaml:&quot;errorOutputPaths&quot;`
+    // InitialFields is a collection of fields to add to the root logger.
+    InitialFields map[string]interface{} `json:&quot;initialFields&quot; yaml:&quot;initialFields&quot;`
+}
+</code></pre>
+
+<p>Config 提供了非常方便的方式让我们构造一个Logger,关于该结构体的说明：</p>
+
+<p>Level: 这是一个AtomicLevel类型的数据，AtomicLevel 是原子可动态更改日志级别，这里需要注意：必须使用NewAtomicLevel构造函数创建AtomicLevels才能分配其内部原子指针。常用的方法有： NewAtomicLevel 和 NewAtomicLevelAt , NewAtomicLevel创建一个启用了InfoLevel及更高级别日志记录的AtomicLevel。NewAtomicLevelAt 是可以创建一个我们指定的日志级别。</p>
+
+<p>Development: 用于设置logger是否是开发模式</p>
+
+<p>DisableCaller：是否显示调用函数的文件名和行号。 默认情况下是显示的，即默认值是false</p>
+
+<p>DisableStacktrace: 是否禁用堆栈跟踪捕获，默认情况下，将为development中的Warn Level，和更高的日志以及production中的Error Level捕获堆栈信息</p>
+
+<p>Encoding： 设置logger的编码，这里有可以设置的参数有：“json” 和 “console” 以及通过RegisterEncoder注册的任何第三方编码。</p>
+
+<p>EncoderConfig: 在下面会详细整理，主要是用于更灵活的做一些自定义配置</p>
+
+<p>OutputPaths: 是一个要写日志的urls或者文件路径的列表</p>
+
+<p>ErrorOutputPaths： 和OutputPaths类似，不过只影响内部错误</p>
+
+<p>InitialFields： 初始字典设置，可以为日志输出的内容中添加一些初始字段</p>
+
+<p>关于Config配置的一个简单例子：</p>
+
+<pre><code>atom := zap.NewAtomicLevelAt(zap.DebugLevel)
+config := zap.Config{
+    Level:atom,
+    Development:false,
+    DisableCaller:true,
+    Encoding: &quot;json&quot;,
+    EncoderConfig: encoderConfig,
+    InitialFields:map[string]interface{}{&quot;service&quot;:&quot;BlogService&quot;},
+    OutputPaths:[]string{&quot;stdout&quot;,&quot;./logs/blog.log&quot;},
+    ErrorOutputPaths: []string{&quot;stdout&quot;,&quot;./logs/blog.log&quot;},
+}
+</code></pre>
+
+<p>EncoderConfig的结构体如下：</p>
+
+<pre><code>type EncoderConfig struct {
+    // Set the keys used for each log entry. If any key is empty, that portion
+    // of the entry is omitted.
+    MessageKey    string `json:&quot;messageKey&quot; yaml:&quot;messageKey&quot;`
+    LevelKey      string `json:&quot;levelKey&quot; yaml:&quot;levelKey&quot;`
+    TimeKey       string `json:&quot;timeKey&quot; yaml:&quot;timeKey&quot;`
+    NameKey       string `json:&quot;nameKey&quot; yaml:&quot;nameKey&quot;`
+    CallerKey     string `json:&quot;callerKey&quot; yaml:&quot;callerKey&quot;`
+    StacktraceKey string `json:&quot;stacktraceKey&quot; yaml:&quot;stacktraceKey&quot;`
+    LineEnding    string `json:&quot;lineEnding&quot; yaml:&quot;lineEnding&quot;`
+    // Configure the primitive representations of common complex types. For
+    // example, some users may want all time.Times serialized as floating-point
+    // seconds since epoch, while others may prefer ISO8601 strings.
+    EncodeLevel    LevelEncoder    `json:&quot;levelEncoder&quot; yaml:&quot;levelEncoder&quot;`
+    EncodeTime     TimeEncoder     `json:&quot;timeEncoder&quot; yaml:&quot;timeEncoder&quot;`
+    EncodeDuration DurationEncoder `json:&quot;durationEncoder&quot; yaml:&quot;durationEncoder&quot;`
+    EncodeCaller   CallerEncoder   `json:&quot;callerEncoder&quot; yaml:&quot;callerEncoder&quot;`
+    // Unlike the other primitive type encoders, EncodeName is optional. The
+    // zero value falls back to FullNameEncoder.
+    EncodeName NameEncoder `json:&quot;nameEncoder&quot; yaml:&quot;nameEncoder&quot;`
+}
+</code></pre>
+
+<p>通过 EncoderConfig 我们可以更灵活的做一些自定义配置，可以设置日志输出是对应字段的名字以及格式，下面对一些重要字段的进行说明：</p>
+
+<p>LineEnding: 默认的参数是DefaultLineEnding 也就是”\n”，即默认以换行符为一行日志的结束</p>
+
+<p>EncodeLevel： 通常会设置为： LowercaseLevelEncoder ，将Level序列化为小写字符串。 例如，InfoLevel被序列化为”info”。</p>
+
+<p>EncodeTime: 设置时间格式，通常设置为zapcore.ISO8601TimeEncoder</p>
+
+<p>EncodeCaller: 设置caller的显示的内容，有两个参数可以设置：ShortCallerEncoder和 FullCallerEncoder，FullCallerEncoder显示完成的调用路径，ShortCallerEncoder显示的是包级别调用路径</p>
+
+<p>一个使用例子如下：</p>
+
+<pre><code>encoderConfig := zapcore.EncoderConfig{
+    TimeKey:&quot;Time&quot;,
+    LevelKey:&quot;Level&quot;,
+    NameKey: &quot;Logger&quot;,
+    CallerKey: &quot;Caller&quot;,
+    MessageKey:&quot;Msg&quot;,
+    LineEnding: zapcore.DefaultLineEnding,
+    EncodeLevel: zapcore.LowercaseLevelEncoder,
+    EncodeTime: zapcore.ISO8601TimeEncoder,
+    EncodeDuration: zapcore.SecondsDurationEncoder,
+    EncodeCaller: zapcore.FullCallerEncoder,
+}
+</code></pre>
+
+<p>完整例子</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;go.uber.org/zap&quot;
+    &quot;go.uber.org/zap/zapcore&quot;
+)
+
+func main() {
+      encoderConfig := zapcore.EncoderConfig{
+        TimeKey:&quot;Time&quot;,
+        LevelKey:&quot;Level&quot;,
+        NameKey: &quot;Logger&quot;,
+        CallerKey: &quot;Caller&quot;,
+        MessageKey:&quot;Msg&quot;,
+        LineEnding: zapcore.DefaultLineEnding,
+        EncodeLevel: zapcore.LowercaseLevelEncoder,
+        EncodeTime: zapcore.ISO8601TimeEncoder,
+        EncodeDuration: zapcore.SecondsDurationEncoder,
+        EncodeCaller: zapcore.FullCallerEncoder,
+    }
+    atom := zap.NewAtomicLevelAt(zap.DebugLevel)
+    config := zap.Config{
+        Level:atom,
+        Development:false,
+        DisableCaller:false,
+        Encoding: &quot;json&quot;,
+        EncoderConfig: encoderConfig,
+        InitialFields:map[string]interface{}{&quot;service&quot;:&quot;BlogService&quot;},
+        OutputPaths:[]string{&quot;stdout&quot;,&quot;./logs/blog.log&quot;},
+        ErrorOutputPaths: []string{&quot;stdout&quot;,&quot;./logs/blog.log&quot;},
+    }
+    logger, err := config.Build()
+    if err != nil {
+        panic(fmt.Sprintf(&quot;logger init failed,error:%v&quot;,err))
+    }
+    logger.Info(&quot;logger init success&quot;)
+    logger.Error(&quot;connect db failed&quot;,
+        zap.String(&quot;dbAddress&quot;,&quot;127.0.0.1&quot;),
+        zap.Int(&quot;dbPort&quot;,10021,
+    ))
+
+}
+</code></pre>
+
+<p>二、日志切割</p>
+
+<p>gopkg.in/natefinch/lumberjack.v2 可以对zap写日志进行更好的控制，包括了日志的切割，历史日志的压缩，保留日期等</p>
+
+<p>下面是一个完整的和zap包结合使用的例子：</p>
+
+<pre><code>package main
+
+import (
+    &quot;go.uber.org/zap&quot;
+    &quot;go.uber.org/zap/zapcore&quot;
+    &quot;gopkg.in/natefinch/lumberjack.v2&quot;
+    &quot;os&quot;
+)
+
+func main() {
+    hook := lumberjack.Logger{
+        Filename:&quot;./logs/test.log&quot;,  //日志文件路径
+        MaxSize: 20,// 每个日志的大小，单位是M
+        MaxAge: 7, // 文件被保存的天数
+        Compress:true, // 是否压缩
+        MaxBackups:10, // 保存多少个文件备份
+    }
+    encoderConfig := zapcore.EncoderConfig{
+        TimeKey:&quot;Time&quot;,
+        LevelKey:&quot;Level&quot;,
+        NameKey: &quot;Logger&quot;,
+        CallerKey: &quot;Caller&quot;,
+        MessageKey:&quot;Msg&quot;,
+        LineEnding: zapcore.DefaultLineEnding,
+        EncodeLevel: zapcore.LowercaseLevelEncoder,
+        EncodeTime: zapcore.ISO8601TimeEncoder,
+        EncodeDuration: zapcore.SecondsDurationEncoder,
+        EncodeCaller: zapcore.ShortCallerEncoder,
+    }
+    atomicLevel := zap.NewAtomicLevel()
+    atomicLevel.SetLevel(zap.InfoLevel)
+    core := zapcore.NewCore(
+        zapcore.NewJSONEncoder(encoderConfig),
+        zapcore.NewMultiWriteSyncer(zapcore.AddSync(os.Stdout),zapcore.AddSync(&amp;hook)),
+        atomicLevel,
+    )
+    caller := zap.AddCaller()
+    development := zap.Development()
+    filed := zap.Fields(zap.String(&quot;service&quot;,&quot;blog&quot;))
+    logger := zap.New(core,caller, development,filed)
+    logger.Info(&quot;logger init success&quot;)
+    logger.Info(&quot;connect db success&quot;)
+    logger.Error(&quot;connect redis error&quot;)
+
+
+}
+</code></pre>
+
+<h2 id="beego-log">beego log</h2>
+
+<p>beego log也是我们常用的log，它是集成在beego框架中的，也是可以单独使用的模块，具体可以看beego框架篇。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-log/">https://kingjcy.github.io/post/golang/go-log/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/log/">
+                            <i class="fa fa-tags"></i>
+                            log
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/benchmark/">golang使用系列---- Benchmark</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/middleware/serverdiscovery/sd/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-compress/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li><a href="#golang标准库中提供了基本的log操作">golang标准库中提供了基本的log操作</a>
+<ul>
+<li><a href="#基本使用">基本使用</a></li>
+<li><a href="#自定义logger类型">自定义Logger类型</a></li>
+</ul></li>
+<li><a href="#logrus">logrus</a></li>
+<li><a href="#go-kit">go-kit</a></li>
+<li><a href="#seelog">seelog</a></li>
+<li><a href="#zap">zap</a></li>
+<li><a href="#beego-log">beego log</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

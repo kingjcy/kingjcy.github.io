@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="锁可以分为正常的进程内锁和分布式的进程间的锁。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="分布式系列---- Distributed Lock - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    分布式系列---- Distributed Lock
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年04月03日 
+                </div>
+                <h1 class="post-title">分布式系列---- Distributed Lock</h1>
+            </header>
+
+            <div class="post-content">
+                <p>锁可以分为正常的进程内锁和分布式的进程间的锁。</p>
+
+<h2 id="正常锁">正常锁</h2>
+
+<p>我们一般所说的锁，就是指单进程多线程的锁机制。在单进程中，如果有多个线程并发访问某个某个全局资源，存在并发修改的问题。如果要避免这个问题，我们需要对资源进行同步，同步其实就是可以加一个锁来保证同一时刻只有一个线程能操作这个资源。</p>
+
+<p>具体的锁可以看go的<a href="posts/golang/go-mutex/">锁</a>,当然在golang中主要是使用channel来实现进程内通信和共享。</p>
+
+<h2 id="分布式锁">分布式锁</h2>
+
+<p>涉及到分布式环境，以集群为例，就是多个实例，也就是多个进程，而且这些进程完全可能不在同一个机器上。我们知道多线程可以共享父进程的资源，包括内存。所以多线程可以看见锁，但是多进程之间无法共享资源，甚至都不在一台机器上，所以这时候分布式环境下，就需要其他的方式来让所有进程都可以知道这个锁，来控制对全局资源的并发修改。</p>
+
+<p> </p>
+
+<p>为了解决分布式的问题，我们可以把这个锁放入所有进程都可以访问的地方，比如数据库，redis，memcached或者是zookeeper。这些也是目前实现分布式锁的主要实现方式。</p>
+
+<ol>
+<li><p>基于数据库表实现分布式锁</p>
+
+<p>我们可以将我们分布式要操作的资源都定义成表，然后对表进行查询数据，如果查到了没有数据，可以进行update，否则，说明该锁被其他线程持有，还没有释放</p>
+
+<p>缺点：</p>
+
+<p>更新之前会多一次查询，增加了数据库的操作</p>
+
+<p>数据库链接资源宝贵，如果并发量太大，数据库的性能有影响</p>
+
+<p>如果单个数据库存在单点问题，所以最好是高可用的。</p></li>
+
+<li><p>基于Redis实现分布式锁</p>
+
+<ol>
+<li><p>通过Redis的setnx key命令，如果不存在某个key就设置值，设置成功表示获取锁。</p>
+
+<p>缺点：如果设置成功后，还没有释放锁，对应的业务节点就挂掉了，那么这时候锁就没有释放。其他业务节点也无法获取这个锁。</p></li>
+
+<li><p>使用setnx设置命令成功后，则使用expire命令设置到期时间，就算业务节点还没有释放锁就挂掉了，但是我们还是可以保证这个锁到期就会释放。</p>
+
+<p>缺点：</p>
+
+<p>setnx 和 expire不是原子操作，即设置了setnx还没有来得及设置到期时间，业务节点就挂了。</p>
+
+<p>而且key到期了，业务节点业务还没有执行完，怎么办？</p></li>
+
+<li><p>使用set命令 我们知道set命令格式如下：</p>
+
+<p>set key value [EX seconds] [PX milliseconds][NX|XX]</p>
+
+<p>即首先可以根据这个key不存在，则设置值，即使用NX。然后可以设置到期时间，EX表示秒数，PX表示毫秒数，这个操作就是原子性的，解决了上述问题。</p>
+
+<p>set id EX 10 NX</p></li>
+</ol></li>
+
+<li><p>zookeeper，memcached</p>
+
+<ol>
+<li><p>利用Memcached的add命令。此命令是原子性操作，只有在key不存在的情况下，才能add成功，也就意味着线程得到了锁。</p></li>
+
+<li><p>利用Zookeeper的顺序临时节点，来实现分布式锁和等待队列。Zookeeper设计的初衷，就是为了实现分布式锁服务的。</p></li>
+</ol></li>
+</ol>
+
+<h2 id="实例">实例</h2>
+
+<p>1、简单实例</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;log&quot;
+    &quot;time&quot;
+
+    &quot;github.com/garyburd/redigo/redis&quot;
+)
+
+type Lock struct {
+    resource string
+    token    string
+    conn     redis.Conn
+    timeout  int
+}
+
+func (lock *Lock) tryLock() (ok bool, err error) {
+    _, err = redis.String(lock.conn.Do(&quot;SET&quot;, lock.key(), lock.token, &quot;EX&quot;, int(lock.timeout), &quot;NX&quot;))
+    if err == redis.ErrNil {
+        // The lock was not successful, it already exists.
+        return false, nil
+    }
+    if err != nil {
+        return false, err
+    }
+    return true, nil
+}
+
+func (lock *Lock) Unlock() (err error) {
+    _, err = lock.conn.Do(&quot;del&quot;, lock.key())
+    return
+}
+
+func (lock *Lock) key() string {
+    return fmt.Sprintf(&quot;redislock:%s&quot;, lock.resource)
+}
+
+func (lock *Lock) AddTimeout(ex_time int64) (ok bool, err error) {
+    ttl_time, err := redis.Int64(lock.conn.Do(&quot;TTL&quot;, lock.key()))
+    fmt.Println(ttl_time)
+    if err != nil {
+        log.Fatal(&quot;redis get failed:&quot;, err)
+    }
+    if ttl_time &gt; 0 {
+        fmt.Println(11)
+        _, err := redis.String(lock.conn.Do(&quot;SET&quot;, lock.key(), lock.token, &quot;EX&quot;, int(ttl_time+ex_time)))
+        if err == redis.ErrNil {
+            return false, nil
+        }
+        if err != nil {
+            return false, err
+        }
+    }
+    return false, nil
+}
+
+func TryLock(conn redis.Conn, resource string, token string, DefaulTimeout int) (lock *Lock, ok bool, err error) {
+    return TryLockWithTimeout(conn, resource, token, DefaulTimeout)
+}
+
+func TryLockWithTimeout(conn redis.Conn, resource string, token string, timeout int) (lock *Lock, ok bool, err error) {
+    lock = &amp;Lock{resource, token, conn, timeout}
+
+    ok, err = lock.tryLock()
+
+    if !ok || err != nil {
+        lock = nil
+    }
+
+    return
+}
+
+func main() {
+    fmt.Println(&quot;start&quot;)
+    DefaultTimeout := 10
+    conn, err := redis.Dial(&quot;tcp&quot;, &quot;localhost:6379&quot;)
+
+    lock, ok, err := TryLock(conn, &quot;xiaoru.cc&quot;, &quot;token&quot;, int(DefaultTimeout))
+    if err != nil {
+        log.Fatal(&quot;Error while attempting lock&quot;)
+    }
+    if !ok {
+        log.Fatal(&quot;Lock&quot;)
+    }
+    lock.AddTimeout(100)
+
+    time.Sleep(time.Duration(DefaultTimeout) * time.Second)
+    fmt.Println(&quot;end&quot;)
+    defer lock.Unlock()
+}
+</code></pre>
+
+<p>这段golang代码运行后的正常结果是:</p>
+
+<pre><code>$ go run lock.go
+start
+10
+11
+end
+</code></pre>
+
+<p>如果同时起多个进程去测试，会遇到这么一个结果:</p>
+
+<pre><code>$ go run lock.go
+start
+2016/03/23 01:23:22 Lock
+exit status 1
+</code></pre>
+
+<p>2、promes告警事件进行加锁</p>
+
+<p>后台是分布式的admin程序，分布在几台机器上，同时去消费kafka中的告警信息事件，对于同一个id的有着不同的事件，对于同一个id可能在不同的实例进行事件的处理，比如一个发生事件，一个恢复事件，这个时候就要使用分布式锁了。</p>
+
+<pre><code>set id EX 10 NX
+</code></pre>
+
+<h1 id="redis分布式锁实现乐观锁-悲观锁">Redis分布式锁实现乐观锁、悲观锁</h1>
+
+<p>乐观锁的实现
+　　
+    乐观锁实现中的锁就是商品的键值对。使用jedis的watch方法监视商品键值对，如果事务提交exec时发现监视的键值对发生变化，事务将被取消，商品数目不会被改动。</p>
+
+<pre><code>    1).multi，开启Redis的事务，置客户端为事务态。
+
+    2).exec，提交事务，执行从multi到此命令前的命令队列，置客户端为非事务态。
+
+    3).discard，取消事务，置客户端为非事务态。
+
+    4).watch,监视键值对，作用时如果事务提交exec时发现监视的监视对发生变化，事务将被取消。
+</code></pre>
+
+<p>悲观锁实现
+　　
+    悲观锁中的锁是一个唯一标识的锁lockKey和该锁的过期时间。首先确定缓存中有商品，然后在拿数据(商品数目改动)之前先获取到锁，之后对商品数目进行减一操作，操作完成释放锁，一个秒杀操作完成。这个锁是基于redis的setNX操作实现的阻塞式分布式锁。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/distributed/distributed-lock/">https://kingjcy.github.io/post/distributed/distributed-lock/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/lock/">
+                            <i class="fa fa-tags"></i>
+                            lock
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/distributed/">
+                            <i class="fa fa-tags"></i>
+                            Distributed
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/linux/c&#43;&#43;/thread-lock/">Thread Lock</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2015年05月02日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/kubernetes/k8s-tutorial/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/docker/docker-principle/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li><a href="#正常锁">正常锁</a></li>
+<li><a href="#分布式锁">分布式锁</a></li>
+<li><a href="#实例">实例</a></li>
+</ul></li>
+<li><a href="#redis分布式锁实现乐观锁-悲观锁">Redis分布式锁实现乐观锁、悲观锁</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

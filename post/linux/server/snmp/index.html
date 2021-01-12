@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="简单网络管理协议（Simple Network Management Protocol）
+
+SNMP的基本思想：为不同种类的设备、不同厂家生产的设备、不同型号的设备，定义为一个统一的接口和协议，使得管理员可以是使用统一的外观面对这些需要管理的网络设备进行管理。通过网络，管理员可以管理位于不同物理空间的设备，从而大大提高网络管理的效率，简化网络管理员的工作。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Snmp - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Snmp
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年11月09日 
+                </div>
+                <h1 class="post-title">Snmp</h1>
+            </header>
+
+            <div class="post-content">
+                <p>简单网络管理协议（Simple Network Management Protocol）</p>
+
+<p>SNMP的基本思想：为不同种类的设备、不同厂家生产的设备、不同型号的设备，定义为一个统一的接口和协议，使得管理员可以是使用统一的外观面对这些需要管理的网络设备进行管理。通过网络，管理员可以管理位于不同物理空间的设备，从而大大提高网络管理的效率，简化网络管理员的工作。</p>
+
+<p>SNMP使用主要由两大部分构成：SNMP管理站和SNMP代理。SNMP管理站是一个中心节点，负责收集维护各个SNMP元素的信息，并对这些信息进行处理，最后反馈给网络管理员；而SNMP代理是运行在各个被管理的网络节点之上，负责统计该节点的各项信息，并且负责与SNMP管理站交互，接收并执行管理站的命令，上传各种本地的网络信息。</p>
+
+<p>SNMP管理站和SNMP代理之间是松散耦合。他们之间的通信是通过UDP协议完成的。一般情况下，SNMP管理站通过UDP协议向SNMP代理发送各种命令，当SNMP代理收到命令后，返回SNMP管理站需要的参数。但是当SNMP代理检测到网络元素异常的时候，也可以主动向SNMP管理站发送消息，通告当前异常状况。</p>
+
+<p>常用架构</p>
+
+<p>网络设备，包括路由器，交换机，Wifi，服务器（Windows和其他），台式电脑，笔记本电脑，打印机，UPS等，都内置了代理软件，需要启用和配置，或者只需正确配置，以便由NMS调查。</p>
+
+<p>正常机器上运行的snmp服务就是对应的SNMP代理，负责统计该节点的各项信息，并且负责与SNMP管理站交互，接收并执行管理站的命令，上传各种本地的网络信息。</p>
+
+<p>我们的探针就是使用client lib去请求snmp服务的api，负责调取这些信息，所以要遵循snmp协议，使用mibs来交互，存储在prometheus中给grafana中展示，整体就是一个管理站</p>
+
+<p>snmp消息</p>
+
+<p>一条SNMP消息由&rdquo;版本号&rdquo;、&rdquo;SNMP共同体名&rdquo;和&rdquo;协议数据单元(PDU)&ldquo;构成，数据包的长度不是固定的。</p>
+
+<p>版本识别符(version identifier)：用于说明现在使用的是哪个版本的SNMP协议，确保SNMP代理使用相同的协议，每个SNMP代理都直接抛弃与自己协议版本不同的数据报。
+团体名(Community Name)：团体（community）是基本的安全机制，用于实现SNMP网络管理员访问SNMP管理代理时的身份验证。类似于密码，默认值为 public。团体名（Community name）是管理代理的口令，管理员被允许访问数据对象的前提就是网络管理员知道网络代理的口令。如果把配置管理代理成可以执行Trap命令，当网络管理 员用一个错误的分区名查询管理代理时，系统就发送一个autenticationFailure trap报文。
+协议数据单元（PDU）：PDU (协议数据单元)是SNMP消息中的数据区， 即Snmp通信时报文数据的载体。PDU指明了SNMP的消息类型及其相关参数</p>
+
+<p>PDU(协议数据单元)
+　　PDU (协议数据单元)是SNMP消息中的数据区， 即Snmp通信时报文数据的载体。</p>
+
+<p>管理信息库MIB（由中定义了可访问的网络设备及其属性，由对象识别符（OID：Object Identifier）唯一指定。MIB是一个树形结构，SNMP协议消息通过遍历MIB树形目录中的节点来访问网络中的设备。管理信息(MIB)库可以理解成为agent维护的管理对象数据库，MIB中定义的大部分管理对象的状态和统计信息都可以被NMS访问。MIB是一个按照层次结构组织的树状结构，每个被管对象对应树形结构的一个叶子节点，称为一个object，拥有唯一的数字标识符</p>
+
+<p>OID(Object Identifier)
+　　每个管理对象都有自己的OID(Object Identifier)，管理对象通过树状结构进行组织，OID由树上的一系列整数组成，整数之间用点( . )分隔开，树的叶子节点才是真正能够被管理的对象。</p>
+
+<p>net-snmp工具介绍</p>
+
+<p>[root@node1 ~]# snmp
+snmpbulkget snmpd snmpget snmpnetstat snmptable snmptrap snmpvacm
+snmpbulkwalk snmpdelta snmpgetnext snmpset snmptest snmptrapd snmpwalk
+snmpconf snmpdf snmpinform snmpstatus snmptranslate snmpusm</p>
+
+<p>snmpget 模拟snmp的GetRequest操作的工具。用来获取一个或几个管理信息。用来读取管理信息的内容。</p>
+
+<p>snmpgetnext 模拟snmp的GetNextRequest操作的工具。用来获取一个管理信息实例的下一个可用实例数据。一般用来遍历SNMP中的表格数据。</p>
+
+<p>snmpset 模拟snmp的SetRequest操作的工具。用来设置可以写的管理信息。一般用来配置设备或对设备执行操作。</p>
+
+<p>snmpbulkget 模拟snmp的GetBulkRequest操作的工具。用来获取大块的数据。一般在大量读取大块数据时使用，以提高带宽利用率，并且比使用snmpget、snmpgetnext及snmpwalk有更强的容错能力，代理会返回尽可能多的数据，比其它命令更有保证。</p>
+
+<p>snmpwalk 利用GetNextRequest对给定的管理树进行遍历的工具。一般用来对表格类型管理信息进行遍历。</p>
+
+<p>snmptrap 模拟trap的工具。用来发送模拟trap。一般用来测试管理站安装和配置是否正确，或者用来验证开发的Trap接收程序是否可以正常工作。</p>
+
+<p>snmptrapd 接收并显示trap的工具。一般在代理的开发过程中，接收代理发来的Trap，并将PDU细节打印出来，也来测试Trap发送功能是否正常。</p>
+
+<p>snmpinform 模拟发送InformRequest的工具。跟snmptrap类似，用来发送模拟的带应答的Trap，以测试管理站或自己开发的接收程序。</p>
+
+<p>snmptable 使用GetNextRequest 和 GetBulkRequest操作读取表信息，以列表形式显示的工具。</p>
+
+<p>snmpstatus 从SNMP实体读取几个重要的管理信息以确定设备状态的工具。用来简单测定设备状态。</p>
+
+<p>snmpbulkwalk 利用GetBulkRequest实现对给定管理树进行遍历的工具。对表格类型的管理信息进行遍历读取。</p>
+
+<p>snmpdelta 用来监视Integer类型的管理对象，会及时报告值改变情况的工具。用于监测一个设备或开发中的代理。</p>
+
+<p>snmptest 是一个复杂的工具，可以监测和管理一个网络实体的信息，通过SNMP请求操作与管理实体通信。</p>
+
+<p>snmptranslate 将对象名字和标识符相互转换的工具。用于数据格式的对象标识和可读式字符串的数据名称的转换。类似于域名与IP地址的关系。</p>
+
+<p>snmpusm SNMPv3 USM配置工具。用于SNMPv3的用户管理。</p>
+
+<p>snmpvacm 为一个网络实体创建和维护SNMPv3的基于视图访问控制参数的工具。用于维护SNMPv3的视图访问控制。</p>
+
+<p>snmpconf 生成snmpd配置文件的工具。用于生成snmpd的各种配置文件，用作模板，以生成用户级配置文件。</p>
+
+<p>snmpd Net-snmp开发的主代理程序，包括众多标准MIB的实现。还可以使用子代理对其进行扩展，是一个功能强大的SNMP代理。Linux、Unix和Windows系统运行snmpd后，直接具备了SNMP协议支持，可以被管理站管理。许多商业化的Linux中使用snmpd作为系统的SNMP代理。</p>
+
+<p>snmpdf 通过SNMP访问并显示网络实体磁盘利用情况的工具。用来监测网络实体的磁盘。</p>
+
+<p>下面我们来说几个最常用的net-snmp工具，</p>
+
+<p>常用命令：</p>
+
+<p>(1).snmpget命令</p>
+
+<p>snmpget [OPTIONS] AGENT OID [OID]&hellip;
+选项：
+-v 1|2c|3 指定SNMP版本
+-c COMMUNITY 指定community string
+-m MIB[:&hellip;] 指定MIB文件
+注，snmpget 不同于 snmpwalk ，必须在命令行给出 <object>.<instance> 的格式，不能只给出 object。</p>
+
+<p>案例，snmpget -v 2c -c public localhost system.sysDescr.0 #获取设备的描述信息。</p>
+
+<p>[root@node1 ~]# snmpget -v 2c -c public localhost system.sysDescr.0
+SNMPv2-MIB::sysDescr.0 = STRING: Linux node1.test.com 2.6.32-358.el6.x86_64 #1 SMP Fri Feb 22 00:31:26 UTC 2013 x86_64
+(2).snmpwalk/snmpbulkwalk 命令</p>
+
+<p>snmpwalk/snmpbulkwalk [OPTIONS] AGENT [OID]
+选项：
+-v 1|2c|3 指定SNMP版本
+-c COMMUNITY 指定community string
+-m MIB[:&hellip;] 指定MIB文件
+注，snmpbulkwalk命令： 获取snmp服务器的mib-2各种资讯，snmpbulkwalk用于通过SNMPv2 的SNMP GET BULK请求命令与其它网络实体通信，只能用于snmpv2,速度快于snmpwalk</p>
+
+<p>案例，snmpbulkwalk -v 2c -c public 127.0.0.1 .1.3.6.1.2.1.1 #获取mib-2的system的数据。</p>
+
+<pre><code>[root@node1 ~]# snmpbulkwalk -v 2c -c public 127.0.0.1 .1.3.6.1.2.1.1
+SNMPv2-MIB::sysDescr.0 = STRING: Linux node1.test.com 2.6.32-358.el6.x86_64 #1 SMP Fri Feb 22 00:31:26 UTC 2013 x86_64
+SNMPv2-MIB::sysObjectID.0 = OID: NET-SNMP-MIB::netSnmpAgentOIDs.10
+DISMAN-EVENT-MIB::sysUpTimeInstance = Timeticks: (264551) 0:44:05.51
+SNMPv2-MIB::sysContact.0 = STRING: Root &lt;root@localhost&gt; (configure /etc/snmp/snmp.local.conf)
+SNMPv2-MIB::sysName.0 = STRING: node1.test.com
+SNMPv2-MIB::sysLocation.0 = STRING: Unknown (edit /etc/snmp/snmpd.conf)
+SNMPv2-MIB::sysORLastChange.0 = Timeticks: (10) 0:00:00.10
+SNMPv2-MIB::sysORID.1 = OID: SNMP-MPD-MIB::snmpMPDMIBObjects.3.1.1
+SNMPv2-MIB::sysORID.2 = OID: SNMP-USER-BASED-SM-MIB::usmMIBCompliance
+SNMPv2-MIB::sysORID.3 = OID: SNMP-FRAMEWORK-MIB::snmpFrameworkMIBCompliance
+SNMPv2-MIB::sysORID.4 = OID: SNMPv2-MIB::snmpMIB
+SNMPv2-MIB::sysORID.5 = OID: TCP-MIB::tcpMIB
+SNMPv2-MIB::sysORID.6 = OID: IP-MIB::ip
+SNMPv2-MIB::sysORID.7 = OID: UDP-MIB::udpMIB
+SNMPv2-MIB::sysORID.8 = OID: SNMP-VIEW-BASED-ACM-MIB::vacmBasicGroup
+SNMPv2-MIB::sysORDescr.1 = STRING: The MIB for Message Processing and Dispatching.
+SNMPv2-MIB::sysORDescr.2 = STRING: The MIB for Message Processing and Dispatching.
+SNMPv2-MIB::sysORDescr.3 = STRING: The SNMP Management Architecture MIB.
+SNMPv2-MIB::sysORDescr.4 = STRING: The MIB module for SNMPv2 entities
+SNMPv2-MIB::sysORDescr.5 = STRING: The MIB module for managing TCP implementations
+SNMPv2-MIB::sysORDescr.6 = STRING: The MIB module for managing IP and ICMP implementations
+SNMPv2-MIB::sysORDescr.7 = STRING: The MIB module for managing UDP implementations
+SNMPv2-MIB::sysORDescr.8 = STRING: View-based Access Control Model for SNMP.
+SNMPv2-MIB::sysORUpTime.1 = Timeticks: (9) 0:00:00.09
+SNMPv2-MIB::sysORUpTime.2 = Timeticks: (9) 0:00:00.09
+SNMPv2-MIB::sysORUpTime.3 = Timeticks: (9) 0:00:00.09
+SNMPv2-MIB::sysORUpTime.4 = Timeticks: (9) 0:00:00.09
+SNMPv2-MIB::sysORUpTime.5 = Timeticks: (9) 0:00:00.09
+SNMPv2-MIB::sysORUpTime.6 = Timeticks: (10) 0:00:00.10
+SNMPv2-MIB::sysORUpTime.7 = Timeticks: (10) 0:00:00.10
+SNMPv2-MIB::sysORUpTime.8 = Timeticks: (10) 0:00:00.10
+</code></pre>
+
+<p>(3).snmpwalk命令</p>
+
+<p>注，获取snmp服务器的HOST-RESOURCES的各种资讯。</p>
+
+<p>案例，snmpwalk -v 2c -c public localhost system #这条指令用于查看本机系统信息。</p>
+
+<pre><code>[root@node1 ~]# snmpwalk -v 2c -c public localhost system
+SNMPv2-MIB::sysDescr.0 = STRING: Linux node1.test.com 2.6.32-358.el6.x86_64 #1 SMP Fri Feb 22 00:31:26 UTC 2013 x86_64
+SNMPv2-MIB::sysObjectID.0 = OID: NET-SNMP-MIB::netSnmpAgentOIDs.10
+DISMAN-EVENT-MIB::sysUpTimeInstance = Timeticks: (3335125) 9:15:51.25
+SNMPv2-MIB::sysContact.0 = STRING: Root &lt;root@localhost&gt; (configure /etc/snmp/snmp.local.conf)
+SNMPv2-MIB::sysName.0 = STRING: node1.test.com
+SNMPv2-MIB::sysLocation.0 = STRING: Unknown (edit /etc/snmp/snmpd.conf)
+SNMPv2-MIB::sysORLastChange.0 = Timeticks: (10) 0:00:00.10
+SNMPv2-MIB::sysORID.1 = OID: SNMP-MPD-MIB::snmpMPDMIBObjects.3.1.1
+SNMPv2-MIB::sysORID.2 = OID: SNMP-USER-BASED-SM-MIB::usmMIBCompliance
+SNMPv2-MIB::sysORID.3 = OID: SNMP-FRAMEWORK-MIB::snmpFrameworkMIBCompliance
+SNMPv2-MIB::sysORID.4 = OID: SNMPv2-MIB::snmpMIB
+SNMPv2-MIB::sysORID.5 = OID: TCP-MIB::tcpMIB
+SNMPv2-MIB::sysORID.6 = OID: IP-MIB::ip
+SNMPv2-MIB::sysORID.7 = OID: UDP-MIB::udpMIB
+SNMPv2-MIB::sysORID.8 = OID: SNMP-VIEW-BASED-ACM-MIB::vacmBasicGroup
+SNMPv2-MIB::sysORDescr.1 = STRING: The MIB for Message Processing and Dispatching.
+SNMPv2-MIB::sysORDescr.2 = STRING: The MIB for Message Processing and Dispatching.
+SNMPv2-MIB::sysORDescr.3 = STRING: The SNMP Management Architecture MIB.
+SNMPv2-MIB::sysORDescr.4 = STRING: The MIB module for SNMPv2 entities
+SNMPv2-MIB::sysORDescr.5 = STRING: The MIB module for managing TCP implementations
+SNMPv2-MIB::sysORDescr.6 = STRING: The MIB module for managing IP and ICMP implementations
+SNMPv2-MIB::sysORDescr.7 = STRING: The MIB module for managing UDP implementations
+SNMPv2-MIB::sysORDescr.8 = STRING: View-based Access Control Model for SNMP.
+SNMPv2-MIB::sysORUpTime.1 = Timeticks: (9) 0:00:00.09
+SNMPv2-MIB::sysORUpTime.2 = Timeticks: (9) 0:00:00.09
+SNMPv2-MIB::sysORUpTime.3 = Timeticks: (9) 0:00:00.09
+SNMPv2-MIB::sysORUpTime.4 = Timeticks: (9) 0:00:00.09
+SNMPv2-MIB::sysORUpTime.5 = Timeticks: (9) 0:00:00.09
+SNMPv2-MIB::sysORUpTime.6 = Timeticks: (10) 0:00:00.10
+SNMPv2-MIB::sysORUpTime.7 = Timeticks: (10) 0:00:00.10
+SNMPv2-MIB::sysORUpTime.8 = Timeticks: (10) 0:00:00.10
+</code></pre>
+
+<p>(4).snmpdelta命令</p>
+
+<p>注，监控网卡流量等信息， 指定共同体为public，协议为snmpv1，以表格的方式输出结果,显示时间戳。</p>
+
+<p>案例，</p>
+
+<p>snmpdelta -c public -v 1 -Cs -CT 127.0.0.1 IF-MIB::ifInUcastPkts.2 IF-MIB::ifOutUcastPkts.2 #监控IF-MIB::ifInUcastPkts(输入流量)，IF-MIB::ifOutUcastPkts(输出流量)，如监控本地的第二块网卡instance为2。
+snmpdelta -c public -v 1 -Cs -CT 127.0.0.1 ifInDiscards.2 #监控ifInDiscards(已经丢弃的收到的数据包的总数)，格式同上。
+(5).snmpnetstat命令</p>
+
+<p>注，查看snmp服务器的端口连接信息， 协议为snmp 2c。</p>
+
+<p>案例，</p>
+
+<p>snmpnetstat -v 2c -c public -Can -Cp tcp 127.0.0.1 #获取127.0.0.1的TCP协议的开放端口状态
+(6).snmptranslate 命令</p>
+
+<p>注，在MIB OID 在数字和文字名称之间进行转换。</p>
+
+<p>例子，</p>
+
+<p>snmptranslate -On -IR HOST-RESOURCES-MIB::hrSystem #用snmptranslate把symbol 格式的HOST-RESOURCES-MIB::hrSystem 转换为 numberic 格式的oid,用-On(输出数字格式的oid),使用 -IR(允许“随机”访问 MIB)</p>
+
+<p>[root@node1 ~]# snmptranslate -On -IR HOST-RESOURCES-MIB::hrSystem
+.1.3.6.1.2.1.25.1</p>
+
+<p>snmptranslate -Onf -IR HOST-RESOURCES-MIB::hrSystem #用snmptranslate把symbol 格式的HOST-RESOURCES-MIB::hrSystem 转换为symbol 格式的 oid,用-Onf(输出符号格式的oid)</p>
+
+<p>[root@node1 ~]# snmptranslate -Onf -IR HOST-RESOURCES-MIB::hrSystem
+.iso.org.dod.internet.mgmt.mib-2.host.hrSystem
+snmptranslate -Td iso.org.dod.internet.mgmt.mib-2 #用snmptranslate输出该对象(iso.org.dod.internet.mgmt.mib-2)的详细定义,用-Td(包括文字名称、所属 MIB、类型、状态、读写权限、描述信息，数字格式的 OID)</p>
+
+<p>[root@node1 ~]# snmptranslate -Td iso.org.dod.internet.mgmt.mib-2
+SNMPv2-SMI::mib-2
+mib-2 OBJECT-TYPE
+&ndash; FROM SNMPv2-SMI, RFC1213-MIB
+::= { iso(1) org(3) dod(6) internet(1) mgmt(2) 1 }</p>
+
+<p>snmptranslate -Tp iso.org.dod.internet.mgmt.mib-2 #用snmptranslate打印从指定OID(.1.3.6.1.2.1)开始一直到该OID(.1.3.6.1.2.1)所属的 MIB 子树末端的树型结构信息</p>
+
+<p>snmptranslate -Ta #用snmptranslate导出所有已经加载的 MIB 的数据，每个对象一行</p>
+
+<p>snmptranslate -Tl #用snmptranslate导出所有已经加载的 MIB 的对象，并且输出完整的 oid 路径</p>
+
+<p>snmptranslate -To #用snmptranslate导出已经加载的所有 MIB 的数字格式的 oid ，不含值和类型，仅仅有 oid 而已</p>
+
+<p>snmptranslate -Ts #用snmptranslate只输出文字格式的 OID 名称而已</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/linux/server/snmp/">https://kingjcy.github.io/post/linux/server/snmp/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/snmp/">
+                            <i class="fa fa-tags"></i>
+                            snmp
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-syscall/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/prometheus/exporter/snmp_exporter/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

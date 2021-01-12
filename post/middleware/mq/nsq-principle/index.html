@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="nsq的原理解析">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Nsq Principle - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Nsq Principle
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年06月20日 
+                </div>
+                <h1 class="post-title">Nsq Principle</h1>
+            </header>
+
+            <div class="post-content">
+                <p>nsq的原理解析</p>
+
+<h1 id="nsq拓扑结构以及工作原理">NSQ拓扑结构以及工作原理</h1>
+
+<ol>
+<li><p>nsqlookupd服务同时开启tcp和http两个监听服务，nsqd会作为客户端，连上nsqlookupd的tcp服务，并上报自己的topic和channel信息，以及通过心跳机制判断nsqd状态；还有个http服务提供给nsqadmin获取集群信息；</p></li>
+
+<li><p>nsqadmin只开启http服务，其实就是一个web服务，提供给客户端查询集群信息；</p></li>
+
+<li><p>nsqd也会同时开启tcp和http服务，两个服务都可以提供给生产者和消费者，http服务还提供给nsqadmin获取该nsqd本地topic和channel信息；</p></li>
+
+<li><p>生产者会同时连上NSQ集群中所有nsqd节点，当然这些节点的地址是在Writer初始化时，通过外界传递进去；当发布消息时，writer会随机选择一个nsqd节点发布某个topic的消息；</p></li>
+
+<li><p>消费者也会同时连上NSQ集群中所有nsqd节点，reader首先会连上nsqlookupd，获取集群中topic的所有producer，然后通过tcp连上所有producer节点，并在本地用tornado轮询每个连接，当某个连接有可读事件时，即有消息达到，处理即可；</p></li>
+</ol>
+
+<h1 id="特点">特点</h1>
+
+<ol>
+<li><p>高可用(无单点问题) writer和reader是直接连上各个nsqd节点，因此即使nsqlookupd挂了，也不影响线上正常使用；即使某个nsqd节点挂了，writer发布消息时，发现节点挂了，可以选择其他节点(当然，这是客户端负责的)，单个节点挂了对reader无影响；</p></li>
+
+<li><p>高性能 writer在发布消息时，是随机发布到集群中nsqd节点，因此在一定程序上达到负载均衡；reader同时监听着集群中所有nsqd节点，无论哪个节点有消息，都会投递到reader上；</p></li>
+
+<li><p>高可扩展 当向集群中添加节点时，首先reader会通过nsqlookupd发现新的节点加入，并i自动连接；因为writer连接的nsqd节点的地址是初始化时设置的，因此增加节点时，只需要在初始化writer时，添加新节点的地址即可；</p></li>
+</ol>
+
+<h1 id="nsq目录结构">NSQ目录结构</h1>
+
+<p>在看nsqlookupd源码之前，先来看下NSQ的目录结构；NSQ目录结构设计也很清晰，从目录就可以看出各个模块什么意思；</p>
+
+<pre><code>apps　目录存放了nsqd, nsqlookupd, nsqadmin和一些工具的main函数文件；
+internal　目录存放了NSQ内部使用的一些函数，例如三大组件通用函数；
+nsqadmin　目录存放了关于nsqadmin源码；
+nsqd　目录存放了关于nsqd源码；
+nsqlookupd　目录存放了　nsqlookupd的源码；
+</code></pre>
+
+<h1 id="nsqlookupd">nsqlookupd</h1>
+
+<p>nsqlookupd是nsq管理集群拓扑信息以及用于注册和发现nsqd服务；所以，也可以把nsqlookupd理解为注册发现服务；当nsq集群中有多个nsqlookupd服务时，因为每个nsqd都会向所有的nsqlookupd上报本地信息，因此nsqlookupd具有最终一致性；</p>
+
+<p>首先需要看apps/nsqlookupd目录下的nsqlookupd.go文件；</p>
+
+<ol>
+<li>nsqlookupd启动函数</li>
+</ol>
+
+<p>NSQ的nsqd和nsqlookupd组件都使用了开源组件</p>
+
+<pre><code>&quot;github.com/judwhite/go-svc/svc&quot;
+</code></pre>
+
+<p>来管理进程的初始化，启动和关闭；</p>
+
+<ul>
+<li><p>svc.run方法接收一个实现了init,start和stop方法的服务实例，以及若干信号；信号用于控制该服务的优雅终止，而服务实例用于开启nsqlookupd服务；</p></li>
+
+<li></li>
+</ul>
+
+<h1 id="nsqd">NSQD</h1>
+
+<ol>
+<li>nsqd基本结构</li>
+</ol>
+
+<p><img src="/media/middleware/mq/nsq/20170620.jpg" alt="" /></p>
+
+<p>利用svc框架来启动服务, Run 时, 先后调用svc框架的 Init 和 Start 方法 ，然后开始不断监听退出的信号量, 最后调用 svc框架的Stop 方法来退出。</p>
+
+<p>svc框架的Start方法从本地文件读取数据初始化topic和channel，然后调用功能入口Main方法。Main方法利用waitGroup框架来启动4个服务线程，至此启动完毕。</p>
+
+<p>WaitGroup来自sync包，用于线程同步，单从字面意思理解，wait等待的意思，group组、团队的意思，WaitGroup就是等待一组服务执行完成后才会继续向下执行，涉及到WG个数的操作都使用原子操作来保证线程安全。</p>
+
+<p>nsqd详细流程图</p>
+
+<p><img src="/media/middleware/mq/nsq/20170620-1.jpg" alt="" /></p>
+
+<p>nsqd源码概述</p>
+
+<p>nsqd 服务开启时启动 TCP 服务供客户端连接，启动 HTTP 服务，提供 HTTP API</p>
+
+<p>nsqd/nsqd.go:238</p>
+
+<pre><code>    tcpServer := &amp;tcpServer{ctx: ctx}
+    n.waitGroup.Wrap(func() {
+        protocol.TCPServer(n.tcpListener, tcpServer, n.logf)
+    })
+    httpServer := newHTTPServer(ctx, false, n.getOpts().TLSRequired == TLSRequired)
+    n.waitGroup.Wrap(func() {
+        http_api.Serve(n.httpListener, httpServer, &quot;HTTP&quot;, n.logf)
+    })
+</code></pre>
+
+<p>TCP 接收到客户端的请求后，创建protocol实例并调用nsqd/tcp.go中IOLoop()方法</p>
+
+<p>nsqd/tcp.go:31</p>
+
+<pre><code>    var prot protocol.Protocol
+    switch protocolMagic {
+    case &quot;  V2&quot;:
+        prot = &amp;protocolV2{ctx: p.ctx}
+    default:
+        protocol.SendFramedResponse(clientConn, frameTypeError, []byte(&quot;E_BAD_PROTOCOL&quot;))
+        clientConn.Close()
+        p.ctx.nsqd.logf(LOG_ERROR, &quot;client(%s) bad protocol magic '%s'&quot;,
+            clientConn.RemoteAddr(), protocolMagic)
+        return
+    }
+    err = prot.IOLoop(clientConn)
+</code></pre>
+
+<p>protocol的IOLoop接收客户端的请求，根据命令的不同做相应处理。同时nsqd/protocol_v2.go中IOLoop会起一个goroutine运行messagePump()，该函数从该client订阅的channel中读取消息并发送给client( consumer )</p>
+
+<p>nsqd/protocol_v2.go:41</p>
+
+<pre><code>func (p *protocolV2) IOLoop(conn net.Conn) error {
+    ...
+
+    clientID := atomic.AddInt64(&amp;p.ctx.nsqd.clientIDSequence, 1)
+    client := newClientV2(clientID, conn, p.ctx)
+
+    // synchronize the startup of messagePump in order
+    // to guarantee that it gets a chance to initialize
+    // goroutine local state derived from client attributes
+    // and avoid a potential race with IDENTIFY (where a client
+    // could have changed or disabled said attributes)
+    messagePumpStartedChan := make(chan bool)
+    go p.messagePump(client, messagePumpStartedChan)
+    &lt;-messagePumpStartedChan
+
+    ...
+}
+</code></pre>
+
+<p>nsqd/protocol_v2.go:200</p>
+
+<pre><code>func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
+    ...
+    var memoryMsgChan chan *Message
+    var backendMsgChan chan []byte
+    var subChannel *Channel
+    ...
+
+    select {
+            ...
+        case b := &lt;-backendMsgChan:
+            ...
+            msg, err := decodeMessage(b)
+            ...
+            subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
+            client.SendingMessage()
+            err = p.SendMessage(client, msg)
+            ...
+        case msg := &lt;-memoryMsgChan:
+            ...
+            subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
+            client.SendingMessage()
+            err = p.SendMessage(client, msg)
+            ...
+        }
+    ...
+</code></pre>
+
+<p>然后我们看下memoryMsgChan，backendMsgChan是如何产生的。我们知道producer通过TCP或HTTP来发布消息。我们重点看下TCP时的处理过程。首先protocol的IOLoop会根据producer的不同请求做相应处理，Exec方法判断请求的参数，调用不同的方法。</p>
+
+<p>nsqd/protocol_v2.go:165</p>
+
+<pre><code>func (p *protocolV2) Exec(client *clientV2, params [][]byte) ([]byte, error) {
+    ...
+    switch {
+    case bytes.Equal(params[0], []byte(&quot;FIN&quot;)):
+        return p.FIN(client, params)
+    case bytes.Equal(params[0], []byte(&quot;RDY&quot;)):
+        return p.RDY(client, params)
+    case bytes.Equal(params[0], []byte(&quot;REQ&quot;)):
+        return p.REQ(client, params)
+    case bytes.Equal(params[0], []byte(&quot;PUB&quot;)):
+        return p.PUB(client, params)
+    case bytes.Equal(params[0], []byte(&quot;MPUB&quot;)):
+        return p.MPUB(client, params)
+    case bytes.Equal(params[0], []byte(&quot;DPUB&quot;)):
+        return p.DPUB(client, params)
+    case bytes.Equal(params[0], []byte(&quot;NOP&quot;)):
+        return p.NOP(client, params)
+    case bytes.Equal(params[0], []byte(&quot;TOUCH&quot;)):
+        return p.TOUCH(client, params)
+    case bytes.Equal(params[0], []byte(&quot;SUB&quot;)):
+        return p.SUB(client, params)
+    case bytes.Equal(params[0], []byte(&quot;CLS&quot;)):
+        return p.CLS(client, params)
+    case bytes.Equal(params[0], []byte(&quot;AUTH&quot;)):
+        return p.AUTH(client, params)
+    }
+    return nil, protocol.NewFatalClientErr(nil, &quot;E_INVALID&quot;, fmt.Sprintf(&quot;invalid command %s&quot;, params[0]))
+}
+</code></pre>
+
+<p>我们重点看下“PUB”时的运行过程。调用了p.pub(client, params)。从TCP中读到messageBody，然后处理后调用topic.PutMessage(msg)发送给topic。</p>
+
+<p>topic.PutMessage（）首先对topic加一个锁，通过t.put(m)方法将消息m发送memoryMsgChan中，然后释放锁。如果memoryMsgChan满了，申请一个buff，把消息写到Backend，后期被backendMsgChan接收</p>
+
+<p>nsqd/protocol_v2.go:757</p>
+
+<pre><code>func (p *protocolV2) PUB(client *clientV2, params [][]byte) ([]byte, error) {
+    ...
+    topic := p.ctx.nsqd.GetTopic(topicName)
+    msg := NewMessage(topic.GenerateID(), messageBody)
+    err = topic.PutMessage(msg)
+    ...
+}
+</code></pre>
+
+<p>nsqd/topic.go:197</p>
+
+<pre><code>func (t *Topic) put(m *Message) error {
+    select {
+    case t.memoryMsgChan &lt;- m:
+    default:
+        b := bufferPoolGet()
+        err := writeMessageToBackend(b, m, t.backend)
+        bufferPoolPut(b)
+        t.ctx.nsqd.SetHealth(err)
+        if err != nil {
+            t.ctx.nsqd.logf(LOG_ERROR,
+                &quot;TOPIC(%s) ERROR: failed to write message to backend - %s&quot;,
+                t.name, err)
+            return err
+        }
+    }
+    return nil
+}
+</code></pre>
+
+<p>了解了消息的产生，现在看下消息的传递。在nsqd/topic.go中有一个NewTopic()。其中又调用了messagePump()，注意这个和上面IOLoop的messagePump()不一样。</p>
+
+<p>nsqd/topic.go:44</p>
+
+<pre><code>func NewTopic(topicName string, ctx *context, deleteCallback func(*Topic)) *Topic {
+    t := &amp;Topic{
+        name:              topicName,
+        channelMap:        make(map[string]*Channel),
+        memoryMsgChan:     make(chan *Message, ctx.nsqd.getOpts().MemQueueSize),
+        exitChan:          make(chan int),
+        channelUpdateChan: make(chan int),
+        ctx:               ctx,
+        pauseChan:         make(chan bool),
+        deleteCallback:    deleteCallback,
+        idFactory:         NewGUIDFactory(ctx.nsqd.getOpts().ID),
+    }
+
+    ...
+
+    t.waitGroup.Wrap(func() { t.messagePump() })
+
+    t.ctx.nsqd.Notify(t)
+
+    return t
+}
+</code></pre>
+
+<p>看下t.messagePump()。topic的messagePump函数会不断从memoryMsgChan/backend队列中读消息，并将消息每个复制一遍，发送给topic下的所有channel。</p>
+
+<p>nsqd/topic.go:220</p>
+
+<pre><code>func (t *Topic) messagePump() {
+    ...
+    for {
+        select {
+        case msg = &lt;-memoryMsgChan:
+        case buf = &lt;-backendChan:
+            msg, err = decodeMessage(buf)
+            ...
+        case &lt;-t.channelUpdateChan:
+            ...
+        case pause := &lt;-t.pauseChan:
+            ...
+        case &lt;-t.exitChan:
+            goto exit
+        }
+
+        for i, channel := range chans {
+            chanMsg := msg
+            // copy the message because each channel
+            // needs a unique instance but...
+            // fastpath to avoid copy if its the first channel
+            // (the topic already created the first copy)
+            if i &gt; 0 {
+                chanMsg = NewMessage(msg.ID, msg.Body)
+                chanMsg.Timestamp = msg.Timestamp
+                chanMsg.deferred = msg.deferred
+            }
+            if chanMsg.deferred != 0 {
+                channel.PutMessageDeferred(chanMsg, chanMsg.deferred)
+                continue
+            }
+            err := channel.PutMessage(chanMsg)
+            ...
+            }
+        }
+    }
+    ...
+}
+</code></pre>
+
+<p>channel的PutMessage方法和topic类似的，也是调用了put,首先写入memoryMsgChan，满了写入backend。</p>
+
+<p>最后由一开始介绍的protocol实例的messagePump方法从memoryMsgChan或backendMsgChan读取消息并通过p.SendMessage(client, msg)发送到客户端 ，消息写入client.Writer。</p>
+
+<p>nsqd/channel.go:220</p>
+
+<pre><code>func (c *Channel) put(m *Message) error {
+    select {
+    case c.memoryMsgChan &lt;- m:
+    default:
+        b := bufferPoolGet()
+        err := writeMessageToBackend(b, m, c.backend)
+        bufferPoolPut(b)
+        c.ctx.nsqd.SetHealth(err)
+        if err != nil {
+            c.ctx.nsqd.logf(LOG_ERROR, &quot;CHANNEL(%s): failed to write message to backend - %s&quot;,
+                c.name, err)
+            return err
+        }
+    }
+    return nil
+}
+</code></pre>
+
+<p>nsqd/protocol_v2.go:258</p>
+
+<pre><code>    select {
+           ...
+    case b := &lt;-backendMsgChan:
+        ...
+        subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
+        client.SendingMessage()
+        err = p.SendMessage(client, msg)
+        ...
+    case msg := &lt;-memoryMsgChan:
+        ...
+        subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
+        client.SendingMessage()
+        err = p.SendMessage(client, msg)
+        ...
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/middleware/mq/nsq-principle/">https://kingjcy.github.io/post/middleware/mq/nsq-principle/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/mq/">
+                            <i class="fa fa-tags"></i>
+                            mq
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/nsq/">
+                            <i class="fa fa-tags"></i>
+                            nsq
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/middleware/">
+                            <i class="fa fa-tags"></i>
+                            middleware
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/principle/">
+                            <i class="fa fa-tags"></i>
+                            principle
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/middleware/mq/emq/">Activemq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年03月19日)</span></li><li id="li-rels"><a href="/post/middleware/mq/kafka-client/">消息队列系列---- Kafka Client</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月08日)</span></li><li id="li-rels"><a href="/post/cloud/paas/docker/docker-principle/">容器系列---- Docker Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月14日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/prometheus-principle/">prometheus系列---- Prometheus Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年05月13日)</span></li><li id="li-rels"><a href="/post/middleware/mq/mq-compare/">Mq Compare</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年04月21日)</span></li><li id="li-rels"><a href="/post/middleware/mq/rocketmq/">Rocketmq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月28日)</span></li><li id="li-rels"><a href="/post/middleware/mq/activemq/">Activemq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月19日)</span></li><li id="li-rels"><a href="/post/middleware/mq/kafka/">消息队列系列---- Kafka</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年07月19日)</span></li><li id="li-rels"><a href="/post/middleware/mq/nsq/">Nsq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年06月19日)</span></li><li id="li-rels"><a href="/post/database/redis/redis_cluster_principle/">redis系列---- redis集群的原理</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年02月12日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/frame/martini/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/middleware/mq/nsq/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#nsq拓扑结构以及工作原理">NSQ拓扑结构以及工作原理</a></li>
+<li><a href="#特点">特点</a></li>
+<li><a href="#nsq目录结构">NSQ目录结构</a></li>
+<li><a href="#nsqlookupd">nsqlookupd</a></li>
+<li><a href="#nsqd">NSQD</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

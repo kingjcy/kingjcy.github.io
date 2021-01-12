@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="性能压测是我们写接口或者程序的时候经常需要进行的一项工作，golang有很多的压测工具，这边做一个整理。
+基本概念 1.压测是什么
+压测，即压力测试，是确立系统稳定性的一种测试方法，通常在系统正常运作范围之外进行，以考察其功能极限和隐患。
+主要检测服务器的承受能力，包括用户承受能力（多少用户同时玩基本不影响质量）、流量承受等。
+2.为什么要压测
+压测的目的就是通过压测(模拟真实用户的行为)，测算出机器的性能(单台机器的QPS)，从而推算出系统在承受指定用户数(100W)时，需要多少机器能支撑得住
+压测是在上线前为了应对未来可能达到的用户数量的一次预估(提前演练)，压测以后通过优化程序的性能或准备充足的机器，来保证用户的体验。
+3.压测名词解释
+压测类型解释
+压力测试(Stress Testing) 也称之为强度测试，测试一个系统的最大抗压能力，在强负载(大数据、高并发)的情况下，测试系统所能承受的最大压力，预估系统的瓶颈 并发测试(Concurrency Testing) 通过模拟很多用户同一时刻访问系统或对系统某一个功能进行操作，来测试系统的性能，从中发现问题(并发读写、线程控制、资源争抢) 耐久性测试(Configuration Testing) 通过对系统在大负荷的条件下长时间运行，测试系统、机器的长时间运行下的状况,从中发现问题(内存泄漏、数据库连接池不释放、资源不回收)  压测名词解释
+并发(Concurrency) 指一个处理器同时处理多个任务的能力(逻辑上处理的能力) 并行(Parallel) 多个处理器或者是多核的处理器同时处理多个不同的任务(物理上同时执行) QPS(每秒钟查询数量 Query Per Second) 服务器每秒钟处理请求数量 (req/sec 请求数/秒 一段时间内总请求数/请求时间) 事务(Transactions) 是用户一次或者是几次请求的集合 TPS(每秒钟处理事务数量 Transaction Per Second) 服务器每秒钟处理事务数量(一个事务可能包括多个请求) 请求成功数(Request Success Number) 在一次压测中，请求成功的数量 请求失败数(Request Failures Number) 在一次压测中，请求失败的数量 错误率(Error Rate) 在压测中，请求成功的数量与请求失败数量的比率 最大响应时间(Max Response Time) 在一次事务中，从发出请求或指令系统做出的反映(响应)的最大时间 最少响应时间(Mininum Response Time) 在一次事务中，从发出请求或指令系统做出的反映(响应)的最少时间 平均响应时间(Average Response Time) 在一次事务中，从发出请求或指令系统做出的反映(响应)的平均时间  4.机器性能指标解释
+CUP利用率(CPU Usage) CUP 利用率分用户态、系统态和空闲态，CPU利用率是指:CPU执行非系统空闲进程的时间与CPU总执行时间的比率 内存使用率(Memory usage) 内存使用率指的是此进程所开销的内存。 IO(Disk input/ output) 磁盘的读写包速率 网卡负载(Network Load) 网卡的进出带宽,包量  5.">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="golang使用系列---- Benchmark - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    golang使用系列---- Benchmark
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年01月10日 
+                </div>
+                <h1 class="post-title">golang使用系列---- Benchmark</h1>
+            </header>
+
+            <div class="post-content">
+                
+
+<p>性能压测是我们写接口或者程序的时候经常需要进行的一项工作，golang有很多的压测工具，这边做一个整理。</p>
+
+<h1 id="基本概念">基本概念</h1>
+
+<p>1.压测是什么</p>
+
+<p>压测，即压力测试，是确立系统稳定性的一种测试方法，通常在系统正常运作范围之外进行，以考察其功能极限和隐患。</p>
+
+<p>主要检测服务器的承受能力，包括用户承受能力（多少用户同时玩基本不影响质量）、流量承受等。</p>
+
+<p>2.为什么要压测</p>
+
+<p>压测的目的就是通过压测(模拟真实用户的行为)，测算出机器的性能(单台机器的QPS)，从而推算出系统在承受指定用户数(100W)时，需要多少机器能支撑得住</p>
+
+<p>压测是在上线前为了应对未来可能达到的用户数量的一次预估(提前演练)，压测以后通过优化程序的性能或准备充足的机器，来保证用户的体验。</p>
+
+<p>3.压测名词解释</p>
+
+<p>压测类型解释</p>
+
+<pre><code>压力测试(Stress Testing)    也称之为强度测试，测试一个系统的最大抗压能力，在强负载(大数据、高并发)的情况下，测试系统所能承受的最大压力，预估系统的瓶颈
+并发测试(Concurrency Testing)   通过模拟很多用户同一时刻访问系统或对系统某一个功能进行操作，来测试系统的性能，从中发现问题(并发读写、线程控制、资源争抢)
+耐久性测试(Configuration Testing)    通过对系统在大负荷的条件下长时间运行，测试系统、机器的长时间运行下的状况,从中发现问题(内存泄漏、数据库连接池不释放、资源不回收)
+</code></pre>
+
+<p>压测名词解释</p>
+
+<pre><code>并发(Concurrency) 指一个处理器同时处理多个任务的能力(逻辑上处理的能力)
+并行(Parallel)    多个处理器或者是多核的处理器同时处理多个不同的任务(物理上同时执行)
+QPS(每秒钟查询数量 Query Per Second)   服务器每秒钟处理请求数量 (req/sec 请求数/秒 一段时间内总请求数/请求时间)
+事务(Transactions)    是用户一次或者是几次请求的集合
+TPS(每秒钟处理事务数量 Transaction Per Second)   服务器每秒钟处理事务数量(一个事务可能包括多个请求)
+请求成功数(Request Success Number)   在一次压测中，请求成功的数量
+请求失败数(Request Failures Number)  在一次压测中，请求失败的数量
+错误率(Error Rate) 在压测中，请求成功的数量与请求失败数量的比率
+最大响应时间(Max Response Time)   在一次事务中，从发出请求或指令系统做出的反映(响应)的最大时间
+最少响应时间(Mininum Response Time)   在一次事务中，从发出请求或指令系统做出的反映(响应)的最少时间
+平均响应时间(Average Response Time)   在一次事务中，从发出请求或指令系统做出的反映(响应)的平均时间
+</code></pre>
+
+<p>4.机器性能指标解释</p>
+
+<pre><code>CUP利用率(CPU Usage)   CUP 利用率分用户态、系统态和空闲态，CPU利用率是指:CPU执行非系统空闲进程的时间与CPU总执行时间的比率
+内存使用率(Memory usage) 内存使用率指的是此进程所开销的内存。
+IO(Disk input/ output)  磁盘的读写包速率
+网卡负载(Network Load)  网卡的进出带宽,包量
+</code></pre>
+
+<p>5.访问指标解释</p>
+
+<pre><code>PV(页面浏览量 Page View) 用户每打开1个网站页面，记录1个PV。用户多次打开同一页面，PV值累计多次
+UV(网站独立访客 Unique Visitor)   通过互联网访问、流量网站的自然人。1天内相同访客多次访问网站，只计算为1个独立访客
+</code></pre>
+
+<p>6.如何计算压测指标</p>
+
+<p>压测我们需要有目的性的压测，这次压测我们需要达到什么目标(如:单台机器的性能为100QPS?网站能同时满足100W人同时在线)</p>
+
+<p>可以通过以下计算方法来进行计算:</p>
+
+<pre><code>压测原则:每天80%的访问量集中在20%的时间里，这20%的时间就叫做峰值
+公式: ( 总PV数80% ) / ( 每天的秒数20% ) = 峰值时间每秒钟请求数(QPS)
+机器: 峰值时间每秒钟请求数(QPS) / 单台机器的QPS = 需要的机器的数量
+
+假设:网站每天的用户数(100W)，每天的用户的访问量约为3000W PV，这台机器的需要多少QPS?
+
+( 30000000*0.8 ) / (86400 * 0.2) ≈ 1389 (QPS)
+
+假设:单台机器的的QPS是69，需要需要多少台机器来支撑？
+
+1389 / 69 ≈ 20
+</code></pre>
+
+<h1 id="常见的压测工具">常见的压测工具</h1>
+
+<h2 id="ab">ab</h2>
+
+<p>ApacheBench 是 Apache服务器自带的一个web压力测试工具，简称ab。ab又是一个命令行工具，对发起负载的本机要求很低，根据ab命令可以创建很多的并发访问线程，模拟多个访问者同时对某一URL地址进行访问，因此可以用来测试目标服务器的负载压力。总的来说ab工具小巧简单，上手学习较快，可以提供需要的基本性能指标，但是没有图形化结果，不能监控。</p>
+
+<p>ab属于一个轻量级的压测工具，结果不会特别准确，可以用作参考。</p>
+
+<p>在linux环境安装</p>
+
+<pre><code>sudo yum -y install httpd
+</code></pre>
+
+<p>用法</p>
+
+<pre><code>Usage: ab [options] [http[s]://]hostname[:port]/path
+
+选项：
+Options are:
+    -n requests      #执行的请求数，即一共发起多少请求。
+    -c concurrency   #请求并发数。
+    -s timeout       #指定每个请求的超时时间，默认是30秒。
+    -k               #启用HTTP KeepAlive功能，即在一个HTTP会话中执行多个请求。默认时，不启用KeepAlive功能。
+</code></pre>
+
+<p>使用ab压测工具，对百度的链接 请求100次，并发数1</p>
+
+<pre><code>ab -n 100 -c 1 https://www.baidu.com/
+</code></pre>
+
+<p>压测结果</p>
+
+<pre><code>~ &gt;ab -n 100 -c 1 https://www.baidu.com/
+This is ApacheBench, Version 2.3 &lt;$Revision: 1430300 $&gt;
+Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/
+Licensed to The Apache Software Foundation, http://www.apache.org/
+
+Benchmarking www.baidu.com (be patient).....done
+
+
+Server Software:        BWS/1.1
+Server Hostname:        www.baidu.com
+Server Port:            443
+SSL/TLS Protocol:       TLSv1.2,ECDHE-RSA-AES128-GCM-SHA256,2048,128
+
+Document Path:          /
+Document Length:        227 bytes
+
+Concurrency Level:      1
+Time taken for tests:   9.430 seconds
+Complete requests:      100
+Failed requests:        0
+Write errors:           0
+Total transferred:      89300 bytes
+HTML transferred:       22700 bytes
+Requests per second:    10.60 [#/sec] (mean)
+Time per request:       94.301 [ms] (mean)
+Time per request:       94.301 [ms] (mean, across all concurrent requests)
+Transfer rate:          9.25 [Kbytes/sec] received
+
+Connection Times (ms)
+              min  mean[+/-sd] median   max
+Connect:       54   70  16.5     69     180
+Processing:    18   24  12.0     23     140
+Waiting:       18   24  12.0     23     139
+Total:         72   94  20.5     93     203
+
+Percentage of the requests served within a certain time (ms)
+  50%     93
+  66%     99
+  75%    101
+  80%    102
+  90%    108
+  95%    122
+  98%    196
+  99%    203
+ 100%    203 (longest request)
+</code></pre>
+
+<p>主要关注的测试指标</p>
+
+<pre><code>Concurrency Level 并发请求数
+
+Time taken for tests 整个测试时间
+
+Complete requests 完成请求个数
+
+Failed requests 失败个数
+
+Requests per second 吞吐量，指的是某个并发用户下单位时间内处理的请求数。等效于QPS，其实可以看作同一个统计方式，只是叫法不同而已。
+
+Time per request 用户平均请求等待时间
+
+Time per request 服务器处理时间
+</code></pre>
+
+<h2 id="locust">Locust</h2>
+
+<p>是非常简单易用、分布式、python开发的压力测试工具。有图形化界面，支持将压测数据导出。</p>
+
+<p>安装</p>
+
+<pre><code>pip3  install locust
+</code></pre>
+
+<p>查看是否安装成功</p>
+
+<pre><code>locust -h
+</code></pre>
+
+<p>运行 Locust 分布在多个进程/机器库</p>
+
+<pre><code>pip3 install pyzmq
+</code></pre>
+
+<p>webSocket 压测库</p>
+
+<pre><code>pip3 install websocket-client
+</code></pre>
+
+<p>用法</p>
+
+<p>编写压测脚本 test.py</p>
+
+<pre><code>from locust import HttpLocust, TaskSet, task
+
+# 定义用户行为
+class UserBehavior(TaskSet):
+
+    @task
+    def baidu_index(self):
+        self.client.get(&quot;/&quot;)
+
+
+class WebsiteUser(HttpLocust):
+    task_set = UserBehavior # 指向一个定义的用户行为类
+    min_wait = 3000 # 执行事务之间用户等待时间的下界（单位：毫秒）
+    max_wait = 6000 # 执行事务之间用户等待时间的上界（单位：毫秒）
+</code></pre>
+
+<p>启动压测
+locust -f  test.py &ndash;host=<a href="https://www.baidu.com">https://www.baidu.com</a></p>
+
+<p>访问 <a href="http://localhost:8089">http://localhost:8089</a> 进入压测首页</p>
+
+<pre><code>Number of users to simulate 模拟用户数
+
+Hatch rate (users spawned/second) 每秒钟增加用户数
+</code></pre>
+
+<p>点击 &ldquo;Start swarming&rdquo; 进入压测页面</p>
+
+<p>压测界面右上角有:被压测的地址、当前状态、RPS、失败率、开始或重启按钮</p>
+
+<p>性能测试参数</p>
+
+<pre><code>Type 请求的类型，例如GET/POST
+
+Name 请求的路径
+
+Request 当前请求的数量
+
+Fails 当前请求失败的数量
+
+Median 中间值，单位毫秒，请求响应时间的中间值
+
+Average 平均值，单位毫秒，请求的平均响应时间
+
+Min 请求的最小服务器响应时间，单位毫秒
+
+Max 请求的最大服务器响应时间，单位毫秒
+
+Average size 单个请求的大小，单位字节
+
+Current RPS 代表吞吐量(Requests Per Second的缩写)，指的是某个并发用户数下单位时间内处理的请求数。等效于QPS，其实可以看作同一个统计方式，只是叫法不同而已。
+</code></pre>
+
+<h2 id="jmeter">JMeter</h2>
+
+<p>Apache JMeter是Apache组织开发的基于Java的压力测试工具。用于对软件做压力测试，它最初被设计用于Web应用测试，但后来扩展到其他测试领域。 JMeter能够对应用程序做功能/回归测试，通过创建带有断言的脚本来验证你的程序返回了你期望的结果。</p>
+
+<p>安装</p>
+
+<pre><code>访问 https://jmeter-plugins.org/install/Install/ 下载解压以后即可使用
+</code></pre>
+
+<p>用法</p>
+
+<pre><code>JMeter的功能过于强大，这里暂时不介绍用法，可以查询相关文档使用(参考文献中有推荐的教程文档)
+</code></pre>
+
+<h2 id="云压测">云压测</h2>
+
+<p>顾名思义就是将压测脚本部署在云端，通过云端对对我们的应用进行全方位压测，只需要配置压测的参数，无需准备实体机，云端自动给我们分配需要压测的云主机，对被压测目标进行压测。</p>
+
+<p>云压测的优势:</p>
+
+<pre><code>轻易的实现分布式部署
+能够模拟海量用户的访问
+流量可以从全国各地发起，更加真实的反映用户的体验
+全方位的监控压测指标
+文档比较完善
+</code></pre>
+
+<p>当然了云压测是一款商业产品，在使用的时候自然还是需要收费的，而且价格还是比较昂贵的~</p>
+
+<p>1.阿里云 性能测试 PTS</p>
+
+<p>PTS（Performance Testing Service）是面向所有技术背景人员的云化测试工具。有别于传统工具的繁复，PTS以互联网化的交互，提供性能测试、API调试和监测等多种能力。自研和适配开源的功能都可以轻松模拟任意体量的用户访问业务的场景，任务随时发起，免去繁琐的搭建和维护成本。更是紧密结合监控、流控等兄弟产品提供一站式高可用能力，高效检验和管理业务性能。</p>
+
+<p>阿里云同样还是支持渗透测试，通过模拟黑客对业务系统进行全面深入的安全测试。</p>
+
+<p>2.腾讯云 压测大师 LM</p>
+
+<p>通过创建虚拟机器人模拟多用户的并发场景，提供一整套完整的服务器压测解决方案</p>
+
+<h2 id="go-stress-testing">go-stress-testing</h2>
+
+<p>go-stress-testing 是go语言实现的简单压测工具，源码开源、支持二次开发，可以压测http、webSocket请求，使用协程模拟单个用户，可以更高效的利用CPU资源。</p>
+
+<p>项目地址 <a href="https://github.com/link1st/go-stress-testing">https://github.com/link1st/go-stress-testing</a></p>
+
+<p>4.2 用法</p>
+
+<pre><code>Usage of ./go_stress_testing_mac:
+  -c uint
+        并发数 (default 1)
+  -d string
+        调试模式 (default &quot;false&quot;)
+  -n uint
+        请求总数 (default 1)
+  -p string
+        curl文件路径
+  -u string
+        请求地址
+  -v string
+</code></pre>
+
+<p>使用示例</p>
+
+<p>1.查看用法</p>
+
+<pre><code>go run main.go
+</code></pre>
+
+<p>2.使用请求百度页面</p>
+
+<pre><code>go run main.go -c 1 -n 100 -u https://www.baidu.com/
+</code></pre>
+
+<p>3.使用debug模式请求百度页面</p>
+
+<pre><code>go run main.go -c 1 -n 1 -d true -u https://www.baidu.com/
+</code></pre>
+
+<p>4.压测webSocket连接</p>
+
+<pre><code>go run main.go -c 10 -n 10 -u ws://127.0.0.1:8089/acc
+</code></pre>
+
+<p>5.使用 curl文件(文件在curl目录下) 的方式请求</p>
+
+<pre><code>go run main.go -c 1 -n 1 -p curl/baidu.curl.txt
+</code></pre>
+
+<p>使用 curl文件进行压测</p>
+
+<p>curl是Linux在命令行下的工作的文件传输工具，是一款很强大的http命令行工具。</p>
+
+<p>使用curl文件可以压测使用非GET的请求，支持设置http请求的 method、cookies、header、body等参数</p>
+
+<p>chrome 浏览器生成 curl文件，打开开发者模式(快捷键F12)，如图所示，生成 curl 在终端执行命令copy cURL</p>
+
+<p>生成内容粘贴到项目目录下的curl/baidu.curl.txt文件中，执行下面命令就可以从curl.txt文件中读取需要压测的内容进行压测了</p>
+
+<p>项目目录结构</p>
+
+<pre><code>|____main.go                      // main函数，获取命令行参数
+|____server                       // 处理程序目录
+| |____dispose.go                 // 压测启动，注册验证器、启动统计函数、启动协程进行压测
+| |____statistics                 // 统计目录
+| | |____statistics.go            // 接收压测统计结果并处理
+| |____golink                     // 建立连接目录
+| | |____http_link.go             // http建立连接
+| | |____websocket_link.go        // webSocket建立连接
+| |____client                     // 请求数据客户端目录
+| | |____http_client.go           // http客户端
+| | |____websocket_client.go      // webSocket客户端
+| |____verify                     // 对返回数据校验目录
+| | |____http_verify.go           // http返回数据校验
+| | |____websokcet_verify.go      // webSocket返回数据校验
+|____heper                        // 通用函数目录
+| |____heper.go                   // 通用函数
+|____model                        // 模型目录
+| |____request_model.go           // 请求数据模型
+| |____curl_model.go              // curl文件解析
+|____vendor                       // 项目依赖目录
+</code></pre>
+
+<h1 id="wrk">wrk</h1>
+
+<p>wrk 是一个简单的 HTTP server 性能测试工具，使用方式比较简单，只需要安装后命令行跑一跑就可以对 HTTP server 进行压力测试。</p>
+
+<pre><code>wrk -t12 -c400 -d30s http://127.0.0.1:8080/index.html
+</code></pre>
+
+<p>这条命令是跑一个 benchmark，持续 30s，用 12 个 thread，保持 400 个 HTTP 连接。</p>
+
+<p>不仅如此，wrk 还支持写 lua 脚本自定义请求。</p>
+
+<pre><code>-- example HTTP POST script which demonstrates setting the
+-- HTTP method, body, and adding a header
+
+wrk.method = &quot;POST&quot;
+wrk.body   = &quot;foo=bar&amp;baz=quux&quot;
+wrk.headers[&quot;Content-Type&quot;] = &quot;application/x-www-form-urlencoded&quot;
+</code></pre>
+
+<p>我当时需要使用的 method 是 PUT，直接无脑换上也是可以使用，写起来很简单。</p>
+
+<h1 id="go-的-benchmark-工具">Go 的 Benchmark 工具</h1>
+
+<p>Go 有自己的 unit test 和 Benchmark 的工具，见 <a href="https://golang.org/pkg/testing/">https://golang.org/pkg/testing/</a></p>
+
+<p>看了看使用方法，虽然是 Benchmark 工具，但是测试数据的准备、函数的调用方式和结果的判定基本上还是需要自己来定制一下。于是粗略地写了几个函数，分别用于启动 HTTP server 和 websocket server，准备测试数据，发送消息和接收消息。写了一个 BenchmarkHTTP 来大概检测了一下是否可以调用这几个函数来判断是否可行，嗯可行。</p>
+
+<p>正常都是使用于go代码的测试，还没尝试过其他的测试。</p>
+
+<h1 id="go-的-proff">Go 的 proff</h1>
+
+<p>内嵌于代码中<a href="https://golang.org/pkg/net/http/pprof/">https://golang.org/pkg/net/http/pprof/</a> 。另外还有 runtime 的 pprof <a href="https://golang.org/pkg/runtime/pprof/">https://golang.org/pkg/runtime/pprof/</a> 。</p>
+
+<p>这边有一个可视化工具</p>
+
+<p>1.代码里写上pprof，运行go-torch</p>
+
+<pre><code>go-torch -u http://127.0.0.1:9090/ -f cpu.svg
+</code></pre>
+
+<p>2.执行go-wrk</p>
+
+<p>go-wrk -c=400 -t=8 -n=10000 <a href="http://localhost:9090/hello">http://localhost:9090/hello</a></p>
+
+<p>用浏览器打开本地文件cpu.svg就能看到函数执行的效率了，这个例子很简单，主要是net包里的调用，就已经这么大一张图了，真实情况更复杂，因此只能点进去一块一块分析</p>
+
+<h1 id="自己实现压测工具">自己实现压测工具</h1>
+
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/benchmark/">https://kingjcy.github.io/post/golang/benchmark/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/benchmark/">
+                            <i class="fa fa-tags"></i>
+                            benchmark
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-crypto-tls/">Golang使用系列---- Crypto/Tls</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月19日)</span></li><li id="li-rels"><a href="/post/golang/go-web-safe/">Golang web系列---- Safe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-rate/">Golang使用系列---- Rate</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月10日)</span></li><li id="li-rels"><a href="/post/golang/go-container-list/">golang使用系列---- List</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-container-heap/">golang使用系列---- heap</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月11日)</span></li><li id="li-rels"><a href="/post/golang/go-proxy/">golang系列---- Go Proxy</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月07日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-encode/">Golang使用系列---- encode</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月17日)</span></li><li id="li-rels"><a href="/post/golang/go-crypto/">golang使用系列---- Crypto</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月06日)</span></li><li id="li-rels"><a href="/post/golang/go-threadsafety/">Go Threadsafety</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月04日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/prometheus/exporter/log/mtail/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-unsafe/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#常见的压测工具">常见的压测工具</a>
+<ul>
+<li><a href="#ab">ab</a></li>
+<li><a href="#locust">Locust</a></li>
+<li><a href="#jmeter">JMeter</a></li>
+<li><a href="#云压测">云压测</a></li>
+<li><a href="#go-stress-testing">go-stress-testing</a></li>
+</ul></li>
+<li><a href="#wrk">wrk</a></li>
+<li><a href="#go-的-benchmark-工具">Go 的 Benchmark 工具</a></li>
+<li><a href="#go-的-proff">Go 的 proff</a></li>
+<li><a href="#自己实现压测工具">自己实现压测工具</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="组件介绍 M3 Coordinator M3 Coordinator是一种服务，用于协调上游系统（如Prometheus和M3DB）之间的读写操作。它是用户可以部署以访问M3DB的优势的桥梁，例如长期存储和与其他监控系统（如Prometheus）的多DC设置。
+M3DB M3DB是一个分布式时间序列数据库，提供可扩展存储和时间序列的反向索引。它经过优化，具有成本效益和可靠的实时和长期保留指标存储和索引
+M3 Query M3 Query是一种服务，它包含一个分布式查询引擎，用于查询实时和历史指标，支持多种不同的查询语言。它旨在支持低延迟实时查询和可能需要更长时间执行的查询，聚合更大的数据集，用于分析用例
+M3 Aggregator M3 Aggregator是一种作为专用度量聚合器运行的服务，它基于存储在etcd中的动态规则提供基于流的下采样。它使用领导者选举和聚合窗口跟踪，利用etcd来管理此状态，从而可靠地为低采样度量标准发送至少一次聚合到长期存储。这提供了成本有效且可靠的下采样和汇总指标。这些功能也存在于M3协调器中，但专用聚合器是分片和复制的，而M3协调器则不需要并且需要谨慎部署和以高可用性方式运行。还有一些工作要使用户更容易访问聚合器，而无需他们编写自己的兼容生产者和消费者。
+接口api界面
+localhost:7201/api/v1/openapi
+例如 http://10.47.182.227:7201/api/v1/openapi#operation/placementDelete
+M3 提供了集群管理、聚合、收集、存储管理、分布式时序数据库（TSDB）以及带有其查询语言 M3QL 的查询引擎。
+M3 目前存储了 66 亿条时序数据，每秒收集 5 亿个指标并且每秒存储 2000 万个指标。
+Prometheus 的集成是通过一个 sidecar 组件实现的，该组件会向本地区域（regional）的 M3DB 实例写入数据，并将查询扩展至“区域间协调器（inter-regional coordinator），它会从本地区域的M3DB（存储引擎）实例协调读取”。这种模型的运行方式类似于Thanos，Thanos 是 Prometheus 的一个扩展，提供了跨集群联合、无限制存储以及跨集群全局查询的功能。但是，Uber 团队基于各种原因并没有选择 Thanos，主要原因在于非本地存储的指标所带来的高延迟。Thanos 从 AWS S3 中拉取并缓存指标数据，因此会带来相关的延迟和用于缓存的额外空间使用，鉴于 Uber 在延迟方面的需求以及庞大的数据量，这种方式是不可行的。
+M3 的查询引擎提供了所有指标数据的全局视图，无需跨区域的副本。指标写入到本地区域的 M3DB 实例中，副本对区域来讲是本地化的。查询既可以访问本地区域实例，也可以访问存储指标的远程区域中的协调器。结果是在本地聚合的，未来的工作计划是所有的查询都会在远程协调器中进行。
+M3 的存储引擎会将每个指标在区域内生成三个副本。为了减少磁盘的使用，会采用自定义的压缩算法对数据进行压缩。大多数的时序数据库都具有压缩整理（compaction）的特性，较小的数据块会重写到较大的数据块中，并重新组织结构以便于提升查询性能。M3DB 尽可能地避免这种压缩整理，从而最大限度地利用主机资源进行更多的并发写入操作并实现稳定的写入和读取延迟。
+因为 PromQL 缺少了一些特性，所以Uber 内部使用了M3 自己的查询语言 M3QL。在能够处理的指标基数方面会有一些限制，这主要指的是查询而并非存储。M3 通过采用Bloom 过滤器和内存映射文件的索引，优化了对时间数据的访问。Bloom 过滤器用来确定集合中是否存在某些内容，在 M3 中，它用来确定要查询的序列是否需要从硬盘中检索。团队目前正在致力于添加在Kubernetes上运行 M3 的功能。
+M3于2015年发布，目前拥有超过66亿个时间序列。 M3每秒聚合5亿个指标，并在全球范围内（使用M3DB）每秒持续存储2000万个度量指标，批量写入将每个指标持久保存到区域中的三个副本。它还允许工程师编写度量策略，告诉M3以更短或更长的保留时间（两天，一个月，六个月，一年，三年，五年等）以特定的粒度（一秒，十秒，一分钟，十分钟等）。这允许工程师和数据科学家使用与定义的存储策略匹配的度量标签（标签），在精细和粗粒度范围内智能地存储不同保留的时间序列。例如，工程师可以选择存储“应用程序”标记为“mobile_api”且“端点”标记为“注册”的所有度量标准，这些标记在10秒粒度下为30天，在一小时粒度下为5年。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="M3db - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    M3db
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年01月17日 
+                </div>
+                <h1 class="post-title">M3db</h1>
+            </header>
+
+            <div class="post-content">
+                <p>组件介绍
+M3 Coordinator
+M3 Coordinator是一种服务，用于协调上游系统（如Prometheus和M3DB）之间的读写操作。它是用户可以部署以访问M3DB的优势的桥梁，例如长期存储和与其他监控系统（如Prometheus）的多DC设置。</p>
+
+<p>M3DB
+M3DB是一个分布式时间序列数据库，提供可扩展存储和时间序列的反向索引。它经过优化，具有成本效益和可靠的实时和长期保留指标存储和索引</p>
+
+<p>M3 Query
+M3 Query是一种服务，它包含一个分布式查询引擎，用于查询实时和历史指标，支持多种不同的查询语言。它旨在支持低延迟实时查询和可能需要更长时间执行的查询，聚合更大的数据集，用于分析用例</p>
+
+<p>M3 Aggregator
+M3 Aggregator是一种作为专用度量聚合器运行的服务，它基于存储在etcd中的动态规则提供基于流的下采样。它使用领导者选举和聚合窗口跟踪，利用etcd来管理此状态，从而可靠地为低采样度量标准发送至少一次聚合到长期存储。这提供了成本有效且可靠的下采样和汇总指标。这些功能也存在于M3协调器中，但专用聚合器是分片和复制的，而M3协调器则不需要并且需要谨慎部署和以高可用性方式运行。还有一些工作要使用户更容易访问聚合器，而无需他们编写自己的兼容生产者和消费者。</p>
+
+<p>接口api界面</p>
+
+<p>localhost:7201/api/v1/openapi</p>
+
+<p>例如
+<a href="http://10.47.182.227:7201/api/v1/openapi#operation/placementDelete">http://10.47.182.227:7201/api/v1/openapi#operation/placementDelete</a></p>
+
+<p>M3 提供了集群管理、聚合、收集、存储管理、分布式时序数据库（TSDB）以及带有其查询语言 M3QL 的查询引擎。</p>
+
+<p>M3 目前存储了 66 亿条时序数据，每秒收集 5 亿个指标并且每秒存储 2000 万个指标。</p>
+
+<p>Prometheus 的集成是通过一个 sidecar 组件实现的，该组件会向本地区域（regional）的 M3DB 实例写入数据，并将查询扩展至“区域间协调器（inter-regional coordinator），它会从本地区域的M3DB（存储引擎）实例协调读取”。这种模型的运行方式类似于Thanos，Thanos 是 Prometheus 的一个扩展，提供了跨集群联合、无限制存储以及跨集群全局查询的功能。但是，Uber 团队基于各种原因并没有选择 Thanos，主要原因在于非本地存储的指标所带来的高延迟。Thanos 从 AWS S3 中拉取并缓存指标数据，因此会带来相关的延迟和用于缓存的额外空间使用，鉴于 Uber 在延迟方面的需求以及庞大的数据量，这种方式是不可行的。</p>
+
+<p>M3 的查询引擎提供了所有指标数据的全局视图，无需跨区域的副本。指标写入到本地区域的 M3DB 实例中，副本对区域来讲是本地化的。查询既可以访问本地区域实例，也可以访问存储指标的远程区域中的协调器。结果是在本地聚合的，未来的工作计划是所有的查询都会在远程协调器中进行。</p>
+
+<p>M3 的存储引擎会将每个指标在区域内生成三个副本。为了减少磁盘的使用，会采用自定义的压缩算法对数据进行压缩。大多数的时序数据库都具有压缩整理（compaction）的特性，较小的数据块会重写到较大的数据块中，并重新组织结构以便于提升查询性能。M3DB 尽可能地避免这种压缩整理，从而最大限度地利用主机资源进行更多的并发写入操作并实现稳定的写入和读取延迟。</p>
+
+<p>因为 PromQL 缺少了一些特性，所以Uber 内部使用了M3 自己的查询语言 M3QL。在能够处理的指标基数方面会有一些限制，这主要指的是查询而并非存储。M3 通过采用Bloom 过滤器和内存映射文件的索引，优化了对时间数据的访问。Bloom 过滤器用来确定集合中是否存在某些内容，在 M3 中，它用来确定要查询的序列是否需要从硬盘中检索。团队目前正在致力于添加在Kubernetes上运行 M3 的功能。</p>
+
+<p>M3于2015年发布，目前拥有超过66亿个时间序列。 M3每秒聚合5亿个指标，并在全球范围内（使用M3DB）每秒持续存储2000万个度量指标，批量写入将每个指标持久保存到区域中的三个副本。它还允许工程师编写度量策略，告诉M3以更短或更长的保留时间（两天，一个月，六个月，一年，三年，五年等）以特定的粒度（一秒，十秒，一分钟，十分钟等）。这允许工程师和数据科学家使用与定义的存储策略匹配的度量标签（标签），在精细和粗粒度范围内智能地存储不同保留的时间序列。例如，工程师可以选择存储“应用程序”标记为“mobile_api”且“端点”标记为“注册”的所有度量标准，这些标记在10秒粒度下为30天，在一小时粒度下为5年。</p>
+
+<p>How is it scale at UBER now and how stable is it?
+Could you share UBER internal cluster statistic (how many nodes serving how many metrics), and the spec of each node if the information is available?
+Is the inverted index implementation stable yet?
+I see a lot of undocumented modules like m3cluster, m3ctl, are those modules optional or mandatory? Or just m3dbnode / m3coodirnator are only 2 mandatory components?</p>
+
+<p>With respect to the scale, again while I can&rsquo;t give numbers representing all our machines, I can say that as an example we have one cluster at Uber that performs 8.85 million writes/sec with 130 nodes at replication factor 3. Each node performs about 200k writes/sec very comfortably, with regular peaks of 350k writes/sec. We&rsquo;ve also run the same machines at 1.5x that with less comfort, with regular peaks of 700k writes/sec. Overall we&rsquo;re pretty happy about the efficiency, but we would like to continue to push the performance of course though to drive costs even further down over time. During benchmarks we&rsquo;ve been able to reach considerably higher numbers, but again we don&rsquo;t want to run at that level of stress in production until we have tuned it further, there&rsquo;s some low hanging fruit here but we&rsquo;d prefer to spend time on other things right now.
+Here you can see the standard work load on one of our clusters:</p>
+
+<p>I shared the writes/sec and number of machines for a single cluster above, although the caveat is that we&rsquo;re not using the inverted index on those clusters just yet. From our testing of the inverted index on our test clusters, which are only 20 nodes or so, we&rsquo;re seeing roughly 10-20% lower performance but with about 20-30% larger heap sizes. In terms of the machine specs, the machines we&rsquo;re using for this workload are 32 core Xeons roughly 2ghz each with 256gb memory and a 1TB SSD. In terms of CPU, we are not CPU bound and run at about 20-30% CPU load average. Go is using about 54gb of memory, and there&rsquo;s mmap&rsquo;d disk files using memory that could be evicted by the OS if required on top of that. We&rsquo;re actually more bound by the size of disks with this machine SKU.</p>
+
+<p>The inverted index is stable on the write path but we don&rsquo;t believe the read queries are performant enough for people to use it in production (we have it turned on and nodes are steady at similar write workloads as our non-inverted index enabled clusters). The read performance of the index is our current focus, and we are onboarding an internal cluster that takes production traffic too so we need to raise the bar on QPS. We estimate two weeks left before we are in a place where we&rsquo;re using it production actively and happy with the read performance.</p>
+
+<p>m3dbnode and m3coordinator are the only two required components to run, all the other repositories are more library based, with the exception of the m3aggregator. Eventually all libraries and services will be built out from the single repository (we are moving from decentralized repos to single repo). You may want to think about running the m3aggregator however if you begin to use the end to end stack more, it&rsquo;s useful because if you start downsampling at 1min or 10min you ideally don&rsquo;t want to lose downsampled tiles when you restart the m3coordinator and have partial 10min tiles. m3aggregator is replicated and allows you to downsample metrics reliably during metrics ingestion.</p>
+
+<p>Without inverted index, m3db still able to search by tag and prometheus read/write plugin still works ?(because you said that inverted index read path is still unstable , so I wonder that before that is the search function still functional?). In another word, for latest stable version of m3db (without inverted index), is the search feature functional and prometheus read/write functional.</p>
+
+<p>your last query, the search feature and prometheus read/write feature is indeed functional (covered by our integration tests too). However we have seen that you can&rsquo;t perform that many queries involved the inverted index per second without starting to time out further queries. A few queries per second is currently at all it can take. Our production instances take thousands of queries per second, so we need to rectify this before we can use it ourselves.</p>
+
+<p>So it&rsquo;s stable in that it doesn&rsquo;t crash, it just uses a lot of resources than normal when issuing more than a few queries per second, so we&rsquo;re rectifying that this and next week.</p>
+
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/database/tsdb/m3db/">https://kingjcy.github.io/post/database/tsdb/m3db/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags//">
+                            <i class="fa fa-tags"></i>
+                            
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-unsafe/">Go Unsafe</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-text/">Go Text</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-plugin/">Go Plugin</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-mine/">Go Mine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-internal/">Go Internal</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-index/">Go Index</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-image/">Go Image</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-html/">Go Html</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-hash/">Go Hash</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-go/">Go Go</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月25日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/linux/system/raid/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/paas/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

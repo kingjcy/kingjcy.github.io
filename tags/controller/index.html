@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Controller">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:title" content="Controller - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Controller - kingjcy blog
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="posts">
+    
+    
+<article class="post li">
+    <header>
+        <div class="post-date">
+            2016年11月24日
+        </div>
+        <h2 class="post-title">
+            <a href="/post/cloud/paas/kubernetes/k8s-controller-manager/">K8s组件系列（三）---- K8s controller manager 详解</a>
+        </h2>
+    </header>
+    <div class="post-content">
+        kube-controller-manager  controller-manager是管理器的控制者。使用是集群管理控制中心。内部对应控制器如下
+他们通过API Server提供的接口实时监控整个集群里的每一个资源对象的当前状态，当发生各种故障导致系统状态发生变化，这些controller会尝试将系统从“现有装态”修正到“期望状态”。
+ replication controller
+ replication controller副本控制 ,副本控制器的核心作用是确保任何使用集群中的一个RC所关联的Pod副本数量保持预设的值。当然他是通过rc机制实现的。
+RC中的Pod模板就像一个模具，模具制作出来的东西一旦离开模具，二者将毫无关系，一旦pod创建，无论模板如何变化都不会影响到已经创建的pod，并且删除一个RC 不会影响它所创建出来的Pod，当然如果想在RC控制下，删除所有的Pod，需要将RC中设置的pod的副本数该为0，这样才会自动删除所有的Pod。
+1. 重新调度 就是上面说的能确保规定数量的pod运行 2. 弹性伸缩 可以通过spec.replicas来改变pod的数量 3. 滚动更新 新建一个rc为一个副本，然后减少原来的副本数量一个，一个增加，一个减少，直到原始的为0   node controller节点管理。
+ 首先我们需要了解kubelet通过apiserver向etcd中存储的节点信息（有节点健康状况，节点资源，节点名称地址，操作系统版本，docker版本，kubelet版本等等），其中一个节点健康状况分为三种True，false，unknown三种状态，也是最直接的节点状态
+然后这个控制器就会重etcd中逐个节点读取这些状态，将来自kubelet状态来改变node controller中nodestatusmap中状态，对于状态不对的node节点加入一个队列，等待确认node是否有问题，有问题就进行信息同步，并且删除节点。
+具体步骤
+ - 如果controller manager在启动时设置了--cluster-cidr，那么为每一个没有设置spec.PodCIDR的节点生成一个CIDR地址，并用该地址设置节点的spec.PodCIDR属性。 - 逐个读取节点信息，此时node controller中有一个nodestatusMap，里面存储了信息，与新发送过来的节点信息做比较，并更新nodestatusMap中的节点信息。Kubelet发送过来的节点信息，有三种情况：未发送、发送但节点信息未变化、发送并且节点信息变化。此时node controller根据发送的节点信息，更新nodestatusMap，如果判断出在某段时间内没有接受到某个节点的信息，则设置节点状态为“未知”。 - 最后，将未就绪状态的节点加入到待删除队列中，待删除后，通过API Server将etcd中该节点的信息删除。如果节点为就绪状态，那么就向etcd中同步该节点信息。   resourcequota controller资源配额
+ 这一个功能十分必要，它确保任何对象任何时候都不会超量占用资源，确保来系统的稳定性。目前k8s支持三个层次的资源配额
+1. 容器级别 可以限制cpu和memory 2. pod级别 对pod内所有容器的可用资源进行限制 3. namespace级别 pod数量，rc数量 service数量，rq数量，secret数量，persistent volume数量  实现机制：准入机制（admission caotrol），admission control当前提供了两种方式的配额约束，分别是limitRanger和resourceQuota。其中limitRanger作用于pod和容器上。ResourceQuota作用于namespace上，用于限定一个namespace里的各类资源的使用总额。
+在etcd中会维护一个资源配额记录，每次用户通过apiserver进行请求时，这个控制器会先进行计算，如果资源不过就会拒绝请求。
+从上图中，我们可以看出，大概有三条路线，resourceQuota controller在这三条路线中都起着重要的作用：
+如果用户在定义pod时同时声明了limitranger，则用户通过API Server请求创建或者修改资源对象，这是admission control会计算当前配额的使用情况，不符合约束的则创建失败。（一、三） 对于定义了resource Quota的namespace，resourceQuota controller会定期统计和生成该namespace下的各类对象资源使用总量，统计结果包括：pod、service、RC、secret和PV等对象的实例个数，以及该namespace下所有的container实例所使用的资源量（CPU，memory），然后会将这些结果写入到etcd中，写入的内容为资源对象名称、配额制、使用值，然后admission control会根据统计结果判断是否超额，以确保相关namespace下的资源配置总量不会超过resource Quota的限定值。（二、三）   namespace controller
+    </div>
+    </article>
+<hr>
+
+    
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

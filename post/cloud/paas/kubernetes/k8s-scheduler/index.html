@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="kube-scheduler  scheduler负责资源的调度，按照预定的调度策略将待调度的Pod调度到相应的机器node上；并将信息写入到etcd中去。
+ scheduler的工作流程
+ 核心：待调度的pod列表、可有的合适的node列表、调度算法和策略
+1、遍历所有目标node，筛选出符合要求的候选节点。为此，kubernetes内置了多种预选策略
+2、确定优先节点，在第1步的基础上，采用优选策略，计算出每一个节点候选的积分，积分最高者胜出
+3、最后通过API Server将待调度的Pod，通知给最优node上的kubelet，将其创建并运行
+ scheduler中可用的预选策略有很多
+ 1、NoDiskconflict：磁盘冲突 判断备选pod的gcePersistentDisk或者AWSElasticBlockStore和备选的节点中已存在的pod是否存在冲突具体检测过程如下：
+ 首先，读取备选pod的所有的volume信息，对每一个volume执行一下步骤的冲突检测 如果该volume是gcePersistentDisk，则将volume和备选节点上的所有pod的每个volume进行比较，如果发现相同的gcePersistentDisk，则返回false，表明磁盘冲突，检测结束，反馈给调度器该备选节点不合适作为备选的pod，如果volume是AWSElasticBlockStore，则将volume和备选节点上的所有pod的每个volume进行比较，如果发现相同的AWSElasticBlockStore，则返回false，表明磁盘冲突，检测结束，反馈给调度器该备选节点不合适作为备选的pod 最终，检查备选pod的所有的volume均为发现冲突，则返回true，表明不存在磁盘冲突，反馈给调度器该备选节点合适备选pod  2、podFistResources：资源要求 判断备选节点资源是否满足备选pod的需求，检测过程如下： - 计算备选pod和节点中已存在的pod的所有容器的需求资源（CPU 和内存）的总和 - 获得备选节点的状态信息，其中包括节点的资源信息 - 如果备选pod和节点中已存在pod的所有容器的需求资源（CPU和内存）的总和超出了备选节点拥有的资源，则返回false，表明备选节点不适合备选pod，否则返回true,表明备选节点适合备选pod
+3、PodSelectorMatches：标签匹配 判断备选节点是否包含备选pod的标签选择器指定的标签： - 如果pod没有指定spec.nodeSelector标签选择器，则返回true - 如果获得备选节点的标签信息，判断节点是否包含备选pod的标签选择器所指的标签，如果包含返回true，不包含返回false
+4、PodFitsHost：
+判断备选pod的spec.nodeName域所指定的节点名称和备选节点的名称是否一致，如果一致返回true，否则返回false。
+5、PodFitsPorts 判断备选pod所用的端口列表汇中的端口是否在备选节点中被占用，如果被占用，则返回false，否则返回true。
+ Scheduler中的优选策略
+ 1、leastRequestedPriority 该策略用于从备选节点列表中选出资源消耗最小的节点： - 计算出所有备选节点上运行的pod和备选pod的CPU占用量 - 计算出所有备选节点上运行的pod和备选pod的memory占用量 - 根据特定的算法，计算每个节点的得分
+2、CalculateNodeLabelPriority 如果用户在配置中指定了该策略，则scheduler会通过registerCustomPriorityFunction方法注册该策略。该策略用于判断策略列出的标签在备选节点中存在时，是否选择该备选节点。如果备选节点的标签在优选策略的标签列表中且优选策略的presence值为true，或者备选节点的标签不在优选策略的标签列表中且优选策略的presence值为false，则备选节点score=10，否则等于0。
+3、BalancedResourceAllocation 该优选策略用于从备选节点列表中选出各项资源使用率最均衡的节点： - 计算出所有备选节点上运行的pod和备选pod的CPU占用量 - 计算出所有备选节点上运行的pod和备选pod的memory占用量 - 根据特定的算法，计算每个节点的得分">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="K8s组件系列（二）---- K8s scheduler 详解 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    K8s组件系列（二）---- K8s scheduler 详解
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年11月24日 
+                </div>
+                <h1 class="post-title">K8s组件系列（二）---- K8s scheduler 详解</h1>
+            </header>
+
+            <div class="post-content">
+                
+
+<blockquote>
+<h3 id="kube-scheduler">kube-scheduler</h3>
+</blockquote>
+
+<p>scheduler负责资源的调度，按照预定的调度策略将待调度的Pod调度到相应的机器node上；并将信息写入到etcd中去。</p>
+
+<blockquote>
+<p>scheduler的工作流程</p>
+</blockquote>
+
+<p><img src="/media/cloud/k8s/scheduler" alt="" /></p>
+
+<p>核心：待调度的pod列表、可有的合适的node列表、调度算法和策略</p>
+
+<p>1、遍历所有目标node，筛选出符合要求的候选节点。为此，kubernetes内置了多种预选策略</p>
+
+<p>2、确定优先节点，在第1步的基础上，采用优选策略，计算出每一个节点候选的积分，积分最高者胜出</p>
+
+<p>3、最后通过API Server将待调度的Pod，通知给最优node上的kubelet，将其创建并运行</p>
+
+<blockquote>
+<p>scheduler中可用的预选策略有很多</p>
+</blockquote>
+
+<p>1、NoDiskconflict：磁盘冲突
+   
+判断备选pod的gcePersistentDisk或者AWSElasticBlockStore和备选的节点中已存在的pod是否存在冲突具体检测过程如下：</p>
+
+<ul>
+<li>首先，读取备选pod的所有的volume信息，对每一个volume执行一下步骤的冲突检测</li>
+<li>如果该volume是gcePersistentDisk，则将volume和备选节点上的所有pod的每个volume进行比较，如果发现相同的gcePersistentDisk，则返回false，表明磁盘冲突，检测结束，反馈给调度器该备选节点不合适作为备选的pod，如果volume是AWSElasticBlockStore，则将volume和备选节点上的所有pod的每个volume进行比较，如果发现相同的AWSElasticBlockStore，则返回false，表明磁盘冲突，检测结束，反馈给调度器该备选节点不合适作为备选的pod</li>
+<li>最终，检查备选pod的所有的volume均为发现冲突，则返回true，表明不存在磁盘冲突，反馈给调度器该备选节点合适备选pod</li>
+</ul>
+
+<p>2、podFistResources：资源要求
+   
+判断备选节点资源是否满足备选pod的需求，检测过程如下：
+    
+- 计算备选pod和节点中已存在的pod的所有容器的需求资源（CPU 和内存）的总和
+- 获得备选节点的状态信息，其中包括节点的资源信息
+- 如果备选pod和节点中已存在pod的所有容器的需求资源（CPU和内存）的总和超出了备选节点拥有的资源，则返回false，表明备选节点不适合备选pod，否则返回true,表明备选节点适合备选pod</p>
+
+<p>3、PodSelectorMatches：标签匹配
+   
+判断备选节点是否包含备选pod的标签选择器指定的标签：
+    
+- 如果pod没有指定spec.nodeSelector标签选择器，则返回true
+- 如果获得备选节点的标签信息，判断节点是否包含备选pod的标签选择器所指的标签，如果包含返回true，不包含返回false</p>
+
+<p>4、PodFitsHost：</p>
+
+<p>判断备选pod的spec.nodeName域所指定的节点名称和备选节点的名称是否一致，如果一致返回true，否则返回false。</p>
+
+<p>5、PodFitsPorts
+  
+判断备选pod所用的端口列表汇中的端口是否在备选节点中被占用，如果被占用，则返回false，否则返回true。</p>
+
+<blockquote>
+<p>Scheduler中的优选策略</p>
+</blockquote>
+
+<p>1、leastRequestedPriority
+ 
+该策略用于从备选节点列表中选出资源消耗最小的节点：
+    
+- 计算出所有备选节点上运行的pod和备选pod的CPU占用量
+- 计算出所有备选节点上运行的pod和备选pod的memory占用量
+- 根据特定的算法，计算每个节点的得分</p>
+
+<p>2、CalculateNodeLabelPriority
+   
+如果用户在配置中指定了该策略，则scheduler会通过registerCustomPriorityFunction方法注册该策略。该策略用于判断策略列出的标签在备选节点中存在时，是否选择该备选节点。如果备选节点的标签在优选策略的标签列表中且优选策略的presence值为true，或者备选节点的标签不在优选策略的标签列表中且优选策略的presence值为false，则备选节点score=10，否则等于0。</p>
+
+<p>3、BalancedResourceAllocation
+   
+该优选策略用于从备选节点列表中选出各项资源使用率最均衡的节点：
+    
+- 计算出所有备选节点上运行的pod和备选pod的CPU占用量
+- 计算出所有备选节点上运行的pod和备选pod的memory占用量
+- 根据特定的算法，计算每个节点的得分</p>
+
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-scheduler/">https://kingjcy.github.io/post/cloud/paas/kubernetes/k8s-scheduler/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/kubernetes/">
+                            <i class="fa fa-tags"></i>
+                            kubernetes
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/scheduler/">
+                            <i class="fa fa-tags"></i>
+                            scheduler
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-principle/">K8s系列---- K8s Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-apiserver/">K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-controller-manager/">K8s组件系列（三）---- K8s controller manager 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-proxy/">K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/kubernetes/k8s-kubelet/">K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年11月24日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/kubernetes/k8s-controller-manager/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/kubernetes/k8s-proxy/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li>
+<ul>
+<li>
+<ul>
+<li><a href="#kube-scheduler">kube-scheduler</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

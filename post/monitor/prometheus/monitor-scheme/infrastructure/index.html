@@ -1,0 +1,1731 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="一个完整的监控体系包括：采集数据、分析存储数据、展示数据、告警以及自动化处理、监控工具自身的安全机制.
+
+使用prometheus进行基础设施监控。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控架构系列---- Infrastructure - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控架构系列---- Infrastructure
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+                        <li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="kingjcy.github.io"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年06月13日 
+                </div>
+                <h1 class="post-title">监控架构系列---- Infrastructure</h1>
+            </header>
+
+            <div class="post-content">
+                <p>一个完整的监控体系包括：采集数据、分析存储数据、展示数据、告警以及自动化处理、监控工具自身的安全机制.</p>
+
+<p>使用prometheus进行基础设施监控。</p>
+
+<h1 id="方案">方案</h1>
+
+<p>首先可以看一下官方给出的架构方案</p>
+
+<p><img src="/media/monitor/prometheus/monitor-scheme/20190315.png" alt="" /></p>
+
+<p>经过不断的调研测试调整，最终使用了这一套方案作为架构来进行基础设施的监控。架构图如下：</p>
+
+<p><img src="/media/monitor/prometheus/monitor-scheme/20180613.png" alt="" /></p>
+
+<p>这边对架构进行简单的说明：</p>
+
+<ol>
+<li><p>用户使用域名解析到vip，然后到nginx进行转发到两台部署了grafana的应用上，访问监控视图</p></li>
+
+<li><p>grafana再通过访问nginx的vip，然后选择其中一个nginx进行转发，通过不同的端口去访问不同的thanos-query</p></li>
+
+<li><p>thanos-query查询对应的prometheus集群，获取数据。</p></li>
+
+<li><p>prometheus使用hashmod来实现对数据采集的分片，把数据放到不同的prometheus的节点上，实现集群，这个没有使用federation，因为联合在大规模的情况下，瓶颈比较严重，还有目前只是单彩模式，可以设置双彩，使用vip+keepalive来实现主备切换。</p></li>
+
+<li><p>prometheus去采集数据并不是直接使用target连接，这边使用率nginx进行了转发采集，使用prometheus的relabel来设置<strong>address</strong>,使得所有采集都连接nginx，然后使用target作为参数，最终访问target地址，获取数据，这样可以将nginx的网络打通，就能实现跨机房跨区域采集了，后面有网络问题也是处理nginx所在的机器就好。</p></li>
+
+<li><p>具体的采集监控内容下面一一说明</p></li>
+
+<li><p>prometheus的数据可以提供给第三方使用，我们直接将数据通过adapter推送的kafka，给其他使用方消费</p></li>
+
+<li><p>远程存储这一块，我们直接使用了remote read／write，当原生数据库不支持的时候，需要使用adapter进行转化发送</p></li>
+
+<li><p>告警直接根据rule文件推送的alartmanager，这个alartmanager是一个分布式的，在prometheus的yaml文件中都要配置上，alartmanager又将数据推送给mq，正常可以使用kafka，给一些告警平台进行消费使用。rule文件直接使用consul的注册信息生成，注册信息是后台管理的。</p></li>
+
+<li><p>服务发现这一块，可以看见，使用的是consul+consul-template,使用consul注册，并且保存注册信息，这边使用了consul的k/v模式（为什么使用这个下面有说明），然后使用consul-template这个工具将注册的信息生成json文件给prometheus的file_sd_condig使用。使用crontab 来定时更新文件，实现配置文件的自动加载</p></li>
+
+<li><p>后台管理这一块主要是对探针和告警的管理，探针的安装卸载，采集信息的注册，以及相关服务器的管理，告警这块也是一种规则配置注册。</p></li>
+</ol>
+
+<p>大体架构如此，就可以实现一套物理环境的基础设施监控。</p>
+
+<h1 id="监控内容">监控内容</h1>
+
+<p>具体见监控内容可以查看每个探针。</p>
+
+<h1 id="prometheus项目经验总结">prometheus项目经验总结</h1>
+
+<p>1.consul的service的瓶颈问题</p>
+
+<p>之前使用consul的services注册job的服务信息，然后使用consul-template动态生成prometheus的配置文件。然后prometheus通过查询consul中注册的信息正则匹配来完成prometheus的采集操作
+但是这样当job量很大的时候，比如有20组job，一组job130的target的的时候，就会出现consul请求api瓶颈</p>
+
+<p>现在使用consul的k/v格式进行注册，直接通过IP：port作为key，对应的label作为vaule，然后使用consul-template动态生成discovery的json文件，然后prometheus使用file sd来发现这个json文件，相当于将对应的json的内容写到了prometheus的配置文件中去，这个时候五分钟consul-template动态生成一次，不会每次都去请求，这样consul的压力就几乎没有了，经过测试可以达到5000个target，prometheus的shard极限，对consul依旧没有什么压力，现在主要瓶颈在于json文件大小，filesd的压力，可以继续优化成多个文件。</p>
+
+<p>2.自动刷新配置文件</p>
+
+<p>由于Prometheus是“拉”的方式主动监测，所以需要在server端指定被监控节点的列表。当被监控的节点增多之后，每次增加节点都需要更改配置文件，非常麻烦，我这里用consul-template+consul动态生成配置文件，这种方式同样适用于其他需要频繁更改配置文件的服务。另外一种解决方案是etcd+confd，基本现在主流的动态配置系统分这两大阵营。consul-template的定位和confd差不多，不过它是consul自家推出的模板系统。</p>
+
+<p>3.性能</p>
+
+<ul>
+<li><p>一个shard节点采集20组job，每组job有130个target通过调整参数目前拉去数据已经没有问题</p></li>
+
+<li><p>prometheus的shard停止后出现大量的close_wait链接，和 &ndash;web.max-connections 这个参数有关系。 默认是512. 目前改成 2048</p></li>
+</ul>
+
+<h1 id="部署整体方案">部署整体方案</h1>
+
+<h3 id="nginx">nginx</h3>
+
+<pre><code>[root@promessitweb02 ~]# ps -ef | grep nginx
+root     22005     1  0 Jan18 ?        00:01:43 nginx: master process /usr/local/nginx/sbin/nginx -c /usr/local/nginx/conf/nginx.conf
+nobody   22977 22005  0 17:40 ?        00:00:00 nginx: worker process
+nobody   22978 22005  0 17:40 ?        00:00:00 nginx: worker process
+root     23225 23195  0 17:42 pts/0    00:00:00 grep nginx
+</code></pre>
+
+<p>nginx配置文件（不同数据中心不同类型数据的查询转发）</p>
+
+<pre><code>user  nobody;
+worker_processes  auto;
+worker_cpu_affinity     auto;
+
+#error_log  logs/error.log;
+#error_log  logs/error.log  notice;
+#error_log  logs/error.log  info;
+
+#pid        logs/nginx.pid;
+
+
+events {
+    use epoll;
+    accept_mutex             off;  
+    multi_accept             on;
+    worker_connections  10240;
+}
+
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+#    log_format  main  '$remote_addr ,- , $remote_user [$time_local] ,&quot;$request&quot; ,'
+#                      '$status $body_bytes_sent ,&quot;$http_referer&quot; ,'
+#                      '&quot;$http_user_agent&quot; ,&quot;$http_x_forwarded_for&quot;';
+#    log_format  main  '$remote_addr\t$http_x_forwarded_for\t$remote_user\t$time_iso8601\t$request_method\t&quot;$document_uri&quot;\t&quot;$query_string&quot;\t$server_protocol\t$status\t$body_bytes_sent\t$request_time\t&quot;$http_referer&quot;\t&quot;$http_user_agent&quot;\t$http_Cdn-Src-Ip\t$host\t$hostname\t$server_addr\t+\tV4';
+#     log_format  main  '$remote_addr\t$http_x_forwarded_for\t-\t$remote_user\t$time_iso8601\t$request_method\t&quot;$document_uri&quot;\t&quot;$query_string&quot;\t$server_protocol\t$status\t$body_bytes_sent\t$request_time\t&quot;$http_referer&quot;\t&quot;$http_user_agent&quot;\t$http_Cdn-Src-Ip\t$host\t$hostname\t$server_addr\t-\t-\t-\t-\t-\tV5';
+     log_format  main '$remote_addr\t$http_x_forwarded_for\t-\t$remote_user\t'
+                     '$time_iso8601\t$request_method\t&quot;$document_uri&quot;\t'
+                     '&quot;$query_string&quot;\t$server_protocol\t$status\t$body_bytes_sent\t'
+                     '$request_time\t&quot;$http_referer&quot;\t&quot;$http_user_agent&quot;\t'
+                     '$http_Cdn-Src-Ip\t$host\t$hostname\t$server_addr\t'
+                     '$remote_port\t$server_port\t'
+                     '&quot;$upstream_addr&quot;\t&quot;$upstream_status&quot;\t&quot;$upstream_response_time&quot;\tV5';
+
+    access_log  /opt/rsync_log/access_http.log  main;
+    server_tokens       off;
+    sendfile        on;
+    #tcp_nopush     on;
+
+    #keepalive_timeout  0;
+    keepalive_timeout  15;
+    concat on;
+
+    #gzip  on;
+    gzip  on;
+    gzip_vary on;
+    gzip_min_length  1k;
+    gzip_buffers     4  8k;
+    gzip_comp_level 1;
+    gzip_types       text/plain application/x-javascript text/css text/htm application/xml application/javascript text/javascript;
+    gzip_http_version 1.1;
+    proxy_buffering off;
+    underscores_in_headers  on;
+    #node转发
+
+    upstream PROMES_PROMETHEUS_NJYH_NODE_01 {
+        server  10.96.126.131:10902;
+        server  10.96.126.132:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJXG_PRE_NODE_01 {
+        server  10.244.13.153:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJXZ_NODE_01 {
+        server  10.47.178.82:9800;
+        server  10.47.178.83:9800;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_YG_PRD_NODE_01 {
+        server  10.230.96.24:10902;
+        server  10.230.96.25:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_NODE_01 {
+        server  10.205.9.145:9800;
+        server  10.205.9.146:9800;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_TYWC_PRD_NODE_01 {
+        server  10.204.62.65:10902;
+        server  10.204.62.66:10902;
+    }
+
+    server {
+        listen       9800;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_NODE&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        REMOTE-HOST $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #node ldcld
+
+            if ($http_x_PROMES_ldc = &quot;NJYH&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJYH_NODE_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PRE&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_PRE_NODE_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PST&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_PRE_NODE_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXZ&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXZ_NODE_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_YG&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_YG_PRD_NODE_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_PRETYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_NODE_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_TYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_TYWC_PRD_NODE_01;
+            }
+
+            proxy_redirect off;
+        }
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+    #redis转发
+
+    upstream PROMES_PROMETHEUS_NJYH_REDIS_01 {
+        server  10.246.47.246:10902;
+        server  10.104.184.186:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJXG_REDIS_01 {
+        server  10.244.13.155:9801;
+        server  10.244.13.157:9801;
+    }
+    upstream PROMES_PROMETHEUS_NJXZ_REDIS_01 {
+        server  10.47.178.82:9801;
+        server  10.47.178.83:9801;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_YG_PRD_REDIS_01 {
+        server  10.230.96.24:10902;
+        server  10.230.96.25:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_REDIS_01 {
+        server  10.205.9.145:9800;
+        server  10.205.9.146:9800;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_TYWC_PRD_REDIS_01 {
+        server  10.204.62.65:10902;
+        server  10.204.62.66:10902;
+    }
+
+    server {
+        listen       9801;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_REDIS&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #redis ldcld
+
+            if ($http_x_PROMES_ldc = &quot;NJYH&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJYH_REDIS_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PRE&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_REDIS_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PST&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_REDIS_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXZ&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXZ_REDIS_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_YG&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_YG_PRD_REDIS_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_PRETYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_REDIS_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_TYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_TYWC_PRD_REDIS_01;
+            }
+
+            proxy_redirect off;
+
+        }
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+#mysql转发
+
+    upstream PROMES_PROMETHEUS_NJYH_MYSQL_01 {
+        server  10.104.184.180:10902;
+        server  10.104.184.172:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJXG_MYSQL_01 {
+        server  10.244.13.154:9802;
+        server  10.244.13.156:9802;
+    }
+    upstream PROMES_PROMETHEUS_NJXZ_MYSQL_01 {
+        server  10.47.178.82:9801;
+        server  10.47.178.83:9801;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_YG_PRD_MYSQL_01 {
+        server  10.230.96.24:10902;
+        server  10.230.96.25:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_MYSQL_01 {
+        server  10.205.9.145:9800;
+        server  10.205.9.146:9800;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_TYWC_PRD_MYSQL_01 {
+        server  10.204.62.65:10902;
+        server  10.204.62.66:10902;
+    }
+
+    server {
+        listen       9802;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_MYSQL&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        REMOTE-HOST $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #mysql ldcld
+
+            if ($http_x_PROMES_ldc = &quot;NJYH&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJYH_MYSQL_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PRE&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_MYSQL_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PST&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_MYSQL_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXZ&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXZ_MYSQL_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_YG&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_YG_PRD_MYSQL_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_PRETYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_MYSQL_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_TYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_TYWC_PRD_MYSQL_01;
+            }
+            proxy_redirect off;
+        }
+
+
+        #charset koi8-r;
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+    #pg转发
+
+    upstream PROMES_PROMETHEUS_NJYH_PG_01 {
+        server  10.246.47.246:10902;
+        server  10.104.184.186:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJXG_PG_01 {
+        server  10.244.13.155:9801;
+        server  10.244.13.157:9801;
+    }
+    upstream PROMES_PROMETHEUS_NJXZ_PG_01 {
+        server  10.47.178.82:9801;
+        server  10.47.178.83:9801;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_YG_PRD_PG_01 {
+        server  10.230.96.24:10902;
+        server  10.230.96.25:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_PG_01 {
+        server  10.205.9.145:9800;
+        server  10.205.9.146:9800;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_TYWC_PRD_PG_01 {
+        server  10.204.62.65:10902;
+        server  10.204.62.66:10902;
+    }
+
+    server {
+        listen       9803;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_PG&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        REMOTE-HOST $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #pg ldcld
+
+            if ($http_x_PROMES_ldc = &quot;NJYH&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJYH_PG_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PRE&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_PG_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PST&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_PG_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXZ&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXZ_PG_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_YG&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_YG_PRD_PG_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_PRETYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_PG_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_TYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_TYWC_PRD_PG_01;
+            }
+
+            proxy_redirect off;
+        }
+
+        #charset koi8-r;
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+    #ping/curl转发
+
+    upstream PROMES_PROMETHEUS_NJYH_BLACKBOX_01 {
+        server  10.246.47.245:10902;
+        server  10.104.184.173:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJXG_BLACKBOX_01 {
+        server  10.242.182.184:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJXZ_BLACKBOX_01 {
+        server  10.47.178.82:9801;
+        server  10.47.178.83:9801;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_YG_PRD_BLACKBOX_01 {
+        server  10.230.96.24:10902;
+        server  10.230.96.25:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_BLACKBOX_01 {
+        server  10.205.9.145:9800;
+        server  10.205.9.146:9800;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_TYWC_PRD_BLACKBOX_01 {
+        server  10.204.62.65:10902;
+        server  10.204.62.66:10902;
+    }
+
+    server {
+        listen       9804;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_PING_URL&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        REMOTE-HOST $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #blackbox=&gt;ping/curl ldcld
+
+            if ($http_x_PROMES_ldc = &quot;NJYH&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJYH_BLACKBOX_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PRE&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_BLACKBOX_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PST&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_BLACKBOX_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXZ&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXZ_BLACKBOX_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_YG&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_YG_PRD_BLACKBOX_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_PRETYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_BLACKBOX_01;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_TYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_TYWC_PRD_BLACKBOX_01;
+            }
+
+            proxy_redirect off;
+        }
+
+        #charset koi8-r;
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+    #node转发
+
+    server {
+        listen       9805;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_K8S&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        REMOTE-HOST $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #node ldcld
+
+            proxy_redirect off;
+        }
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+    #ibmmq转发etcd
+
+    upstream PROMES_PROMETHEUS_NJYH_BLACKBOX_02 {
+        server  10.246.47.245:10902;
+        server  10.104.184.173:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJXG_BLACKBOX_02 {
+        server  10.242.182.184:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJXZ_BLACKBOX_02 {
+        server  10.47.178.82:9801;
+        server  10.47.178.83:9801;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_YG_PRD_BLACKBOX_02 {
+        server  10.230.96.24:10902;
+        server  10.230.96.25:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_BLACKBOX_02 {
+        server  10.205.9.145:9800;
+        server  10.205.9.146:9800;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_TYWC_PRD_BLACKBOX_02 {
+        server  10.204.62.65:10902;
+        server  10.204.62.66:10902;
+    }
+
+    server {
+        listen       9806;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_IBMMQ&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        REMOTE-HOST $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #ibmmq ldcld
+
+            if ($http_x_PROMES_ldc = &quot;NJYH&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJYH_BLACKBOX_02;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PRE&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_BLACKBOX_02;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PST&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_BLACKBOX_02;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXZ&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXZ_BLACKBOX_02;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_YG&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_YG_PRD_BLACKBOX_02;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_PRETYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_BLACKBOX_02;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_TYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_TYWC_PRD_BLACKBOX_02;
+            }
+
+            proxy_redirect off;
+        }
+
+        #charset koi8-r;
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+    #node转发
+
+    server {
+        listen       9807;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_WINDQ&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        REMOTE-HOST $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #node ldcld
+
+            proxy_redirect off;
+        }
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+    #自定义
+
+    upstream PROMES_PROMETHEUS_NJYH_BLACKBOX_03 {
+        server  10.246.47.245:10902;
+        server  10.104.184.173:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJXG_BLACKBOX_03 {
+        server  10.242.182.184:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJXZ_BLACKBOX_03 {
+        server  10.47.178.82:9801;
+        server  10.47.178.83:9801;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_YG_PRD_BLACKBOX_03 {
+        server  10.230.96.24:10902;
+        server  10.230.96.25:10902;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_BLACKBOX_03 {
+        server  10.205.9.145:9800;
+        server  10.205.9.146:9800;
+    }
+    upstream PROMES_PROMETHEUS_NJGX_TYWC_PRD_BLACKBOX_03 {
+        server  10.204.62.65:10902;
+        server  10.204.62.66:10902;
+    }
+
+    server {
+        listen       9808;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_IBMMQ&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        REMOTE-HOST $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #ibmmq ldcld
+
+            if ($http_x_PROMES_ldc = &quot;NJYH&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJYH_BLACKBOX_03;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PRE&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_BLACKBOX_03;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXG_PST&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXG_BLACKBOX_03;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJXZ&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXZ_BLACKBOX_03;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_YG&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_YG_PRD_BLACKBOX_03;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_PRETYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_PRETYWC_PRE_BLACKBOX_03;
+            }
+            if ($http_x_PROMES_ldc = &quot;NJGX_TYWC&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJGX_TYWC_PRD_BLACKBOX_03;
+            }
+
+            proxy_redirect off;
+        }
+
+        #charset koi8-r;
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+    #node转发
+
+    server {
+        listen       9809;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_MYCAT&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        REMOTE-HOST $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #node ldcld
+
+            proxy_redirect off;
+        }
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+    #node转发
+
+    server {
+        listen       9810;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_SNMP&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        REMOTE-HOST $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #node ldcld
+
+            proxy_redirect off;
+        }
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+    #node转发
+
+    upstream PROMES_PROMETHEUS_NJXZ_SERVER_01 {
+        server  10.47.212.61:10902;
+        server  10.47.212.62:10902;
+    }
+
+    server {
+        listen       9811;
+        server_name  localhost;
+        charset utf-8;
+        access_log  /opt/rsync_log/access_http.log  main;
+        error_log  /opt/rsync_log/error.log  crit;
+        location ~^/ {
+            if ($request_method = 'OPTIONS') {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 204;
+            }
+            add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+            add_header 'Access-Control-Allow-Credentials' 'true' always;
+            add_header 'Access-Control-Allow-Headers' 'x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+            proxy_hide_header 'Access-Control-Allow-Origin';
+            auth_basic &quot;NJYH_PRD_SERVER&quot;;
+            auth_basic_user_file /usr/local/nginx/conf/nginxpwd.txt;
+            proxy_set_header        Host $host;
+            proxy_set_header        X-Real-IP $remote_addr;
+            proxy_set_header        REMOTE-HOST $remote_addr;
+            proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+            client_max_body_size    60m;
+            proxy_read_timeout      600s;
+            proxy_connect_timeout   90s;
+            proxy_send_timeout      90s;
+            proxy_buffer_size       4k;
+            proxy_buffers           4 32k;
+            proxy_busy_buffers_size 64k;
+            #node ldcld
+
+            if ($http_x_PROMES_ldc = &quot;NJXZ&quot;) {
+                proxy_pass http://PROMES_PROMETHEUS_NJXZ_SERVER_01;
+            }
+
+            proxy_redirect off;
+        }
+
+
+        error_page  404 =200   /errorhttp;
+        location = /errorhttp {
+                add_header 'Access-Control-Allow-Origin' &quot;$http_origin&quot; always;
+                add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS';
+                add_header 'Access-Control-Allow-Credentials' 'true' always;
+                add_header 'Access-Control-Allow-Headers' 'Accept,Authorization,Cache-Control,Content-Type,DNT,If-Modified-Since,Keep-Alive,Origin,User-Agent,X-Requested-With,x-PROMES-center,x-PROMES-ldc,x-PROMES-env' always;
+                add_header 'Access-Control-Max-Age' 1728000;
+                add_header 'Content-Type' 'text/plain charset=UTF-8';
+                add_header 'Content-Length' 0;
+                return 200;
+        }
+
+        # redirect server error pages to the static page /50x.html
+        #
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+</code></pre>
+
+<p>nginx配置文件（探针代理转发）</p>
+
+<pre><code>server {
+    listen 9099;
+        server_name  localhost;
+        proxy_set_header        Host $host:9099;
+    proxy_set_header        X-Real-IP $remote_addr;
+    proxy_set_header        REMOTE-HOST $remote_addr;
+    proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
+    client_max_body_size    60m;
+    proxy_read_timeout      600s;
+    proxy_connect_timeout   30s;
+        location ~^/ {
+            if ($query_string ~* &quot;target=(.*)%3A(.*)$&quot;) {//重点在这里，参数转发
+              proxy_pass http://$1:$2/metrics;
+             }
+             proxy_redirect off;
+        }
+
+
+        #charset koi8-r;
+        access_log  /opt/rsync_log/access_http.log  main;
+    error_log  /opt/rsync_log/error.log  crit;
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+</code></pre>
+
+<h2 id="grafana">grafana</h2>
+
+<pre><code>[root@promessitapp02 conf]# ps -ef | grep grafana
+root     17753     1  0 Feb25 ?        00:18:45 /opt/promes/grafana-5.2.4.linux-amd64/bin/grafana-server -config=/opt/promes/grafana-5.2.4.linux-amd64/conf/custom.ini
+root     32006 31093  0 16:21 pts/0    00:00:00 grep grafana
+</code></pre>
+
+<p>启动</p>
+
+<pre><code>nohup /opt/promes/grafana-5.2.4.linux-amd64/bin/grafana-server -config=/opt/promes/grafana-5.2.4.linux-amd64/conf/custom.ini &gt;&gt;/opt/promes/grafana-5.2.4.linux-amd64/logs/start.log 2&gt;&amp;1 &amp;
+</code></pre>
+
+<p>配置中主要是连接mysql，和开放端口，也包括一些权限设置，这边就不看了</p>
+
+<h2 id="thanos">thanos</h2>
+
+<p>sidecar</p>
+
+<pre><code>[root@promessitapp19 ~]# ps -ef | grep thanos
+root      2668     1  0 Mar21 ?        00:42:24 /opt/promes/thanos-0.2.0.linux-amd64/thanos sidecar --log.level=debug --tsdb.path=/data --prometheus.url=http://localhost:9099 --cluster.peers=10.47.212.53:10900 --cluster.peers=10.47.212.54:10900 --cluster.peers=10.47.212.55:10900 --cluster.peers=10.47.212.56:10900 --cluster.peers=10.47.212.57:10900 --cluster.peers=10.47.212.58:10900 --cluster.peers=10.47.212.59:10900 --cluster.peers=10.47.212.60:10900
+root     18954 18929  0 16:22 pts/0    00:00:00 grep thanos
+</code></pre>
+
+<p>启动</p>
+
+<pre><code>[root@promessitapp19 ~]# cat /opt/promes/thanos-0.2.0.linux-amd64/start.sh
+#!/usr/bin/env bash
+nohup /opt/promes/thanos-0.2.0.linux-amd64/thanos sidecar --log.level=debug --tsdb.path=/data --prometheus.url=http://localhost:9099 --cluster.peers=10.47.212.53:10900 --cluster.peers=10.47.212.54:10900 --cluster.peers=10.47.212.55:10900 --cluster.peers=10.47.212.56:10900 --cluster.peers=10.47.212.57:10900  --cluster.peers=10.47.212.58:10900 --cluster.peers=10.47.212.59:10900 --cluster.peers=10.47.212.60:10900   &gt;&gt; /opt/promes/thanos-0.2.0.linux-amd64/start.logs 2&gt;&amp;1 &amp;
+</code></pre>
+
+<p>可见没有配置文件，设置都在启动参数中，只是把promtheus进行了分片聚合，形成集群。</p>
+
+<p>query</p>
+
+<pre><code>[root@promessitapp10 ~]# ps -ef | grep thanos
+root      4263  4228  0 16:24 pts/0    00:00:00 grep thanos
+root      9250     1  0 Mar21 ?        00:40:27 /opt/promes/thanos-0.2.0.linux-amd64/thanos query --log.level=debug --cluster.peers=10.47.212.53:10900 --cluster.peers=10.47.212.54:10900 --cluster.peers=10.47.212.55:10900 --cluster.peers=10.47.212.56:10900 --cluster.peers=10.47.212.57:10900 --cluster.peers=10.47.212.58:10900 --cluster.peers=10.47.212.59:10900 --cluster.peers=10.47.212.60:10900
+</code></pre>
+
+<p>启动</p>
+
+<pre><code>[root@promessitapp10 ~]# cat /opt/promes/thanos-0.2.0.linux-amd64/start.sh
+#!/usr/bin/env bash
+nohup /opt/promes/thanos-0.2.0.linux-amd64/thanos query --log.level=debug --cluster.peers=10.47.212.53:10900 --cluster.peers=10.47.212.54:10900 --cluster.peers=10.47.212.55:10900 --cluster.peers=10.47.212.56:10900 --cluster.peers=10.47.212.57:10900  --cluster.peers=10.47.212.58:10900 --cluster.peers=10.47.212.59:10900 --cluster.peers=10.47.212.60:10900   &gt;&gt; /opt/promes/thanos-0.2.0.linux-amd64/start.logs 2&gt;&amp;1 &amp;
+</code></pre>
+
+<p>可见没有配置文件，设置都在启动参数中，只是对promtheus进行了集群查询。</p>
+
+<h2 id="prometheus">prometheus</h2>
+
+<pre><code>[root@promessitapp19 ~]# ps -ef | grep prom
+root     30881     1  0 Mar21 ?        01:42:02 /opt/promes/prometheus-2.4.2.linux-amd64/prometheus --web.listen-address=0.0.0.0:9099 --config.file=/opt/promes/prometheus-2.4.2.linux-amd64/prometheus.yml --storage.tsdb.path=/data --storage.tsdb.retention=30d --log.level=info --query.max-concurrency=2000 --web.max-connections=4096 --web.read-timeout=40s --query.lookback-delta=72000s --query.timeout=40s
+</code></pre>
+
+<p>启动</p>
+
+<pre><code>[root@promessitapp19 prometheus-2.4.2.linux-amd64]# cat bin/start.sh
+nohup /opt/promes/prometheus-2.4.2.linux-amd64/prometheus --web.listen-address=&quot;0.0.0.0:9099&quot; --config.file=&quot;/opt/promes/prometheus-2.4.2.linux-amd64/prometheus.yml&quot; --storage.tsdb.path=&quot;/data&quot; --storage.tsdb.retention=30d --log.level=info --query.max-concurrency=2000 --web.max-connections=4096 --web.read-timeout=40s --query.lookback-delta=72000s  --query.timeout=40s  &gt;&gt;/opt/promes/prometheus-2.4.2.linux-amd64/logs/start.log    2&gt;&amp;1 &amp;
+</code></pre>
+
+<p>配置文件因为不同部署方式，各有不同，但是基本都是使用了file_sd_config的服务发现。</p>
+
+<pre><code>## altermanager
+
+[root@promessitapp04 ~]# ps -ef | grep alert
+root     27703     1  0 Feb26 ?        02:16:44 /opt/promes/alertmanager-0.15.2.linux-amd64/alertmanager --cluster.listen-address=10.47.178.80:8001 --config.file=/opt/promes/alertmanager-0.15.2.linux-amd64/alertmanager.yaml
+</code></pre>
+
+<p>启动</p>
+
+<pre><code>[root@promessitapp04 alertmanager-0.15.2.linux-amd64]# cat bin/start.sh
+nohup /opt/promes/alertmanager-0.15.2.linux-amd64/alertmanager  --cluster.listen-address=&quot;10.47.178.80:8001&quot; --config.file=/opt/promes/alertmanager-0.15.2.linux-amd64/alertmanager.yaml &gt;&gt;/opt/promes/alertmanager-0.15.2.linux-amd64/logs/start.log 2&gt;&amp;1 &amp;
+</code></pre>
+
+<p>配置文件</p>
+
+<pre><code>[root@promessitapp04 alertmanager-0.15.2.linux-amd64]# cat alertmanager.yaml
+global:
+  resolve_timeout: 5m
+  kafka_topic: 'promes_alartmessages_sit_xz'
+#  kafka_topic: 'promes_alartmessages_xg_pre'
+route:
+  group_by: ['alertname','team']
+  group_wait: 1m
+  group_interval: 1m
+  repeat_interval: 1m
+  receiver: 'kafka'
+receivers:
+- name: 'kafka'
+  kafka_configs:
+  - url: 'kafkasit02broker01.cnsuning.com:9092,kafkasit02broker02.cnsuning.com:9092,kafkasit02broker03.cnsuning.com:9092'
+#  - url: 'kafkaprexg01broker01.cnsuning.com:9092,kafkaprexg01broker02.cnsuning.com:9092,kafkaprexg01broker03.cnsuning.com:9092'
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname','team', 'dev', 'instance']
+</code></pre>
+
+<h2 id="consul">consul</h2>
+
+<pre><code>[root@promessitapp03 ~]# ps -ef | grep consul
+root     11482     1  0 14:43 pts/0    00:01:26 /opt/promes/consul_1.0.2/consul agent -server -bootstrap-expect 1 -data-dir /opt/promes/consul_1.0.2/data -ui -http-port=9996 -bind=10.47.178.81 -client 0.0.0.0 -config-dir /opt/promes/consul_1.0.2/consul.d -enable-script-checks
+</code></pre>
+
+<p>启动</p>
+
+<pre><code>[root@promessitapp03 bin]# cat start.sh
+nohup /opt/promes/consul_1.0.2/consul agent -server -bootstrap-expect 1 -data-dir /opt/promes/consul_1.0.2/data -ui  -http-port=9996 -bind=10.47.178.81 -client 0.0.0.0 -config-dir /opt/promes/consul_1.0.2/consul.d -enable-script-checks  &gt;/opt/promes/consul_1.0.2/logs/start.log  2&gt;&amp;1 &amp;
+</code></pre>
+
+<p>默认情况下，consul也是没有配置文件的。</p>
+
+<h2 id="consul-template">consul-template</h2>
+
+<p>可以使用once执行，一般使用crontab的定时脚本定时更新</p>
+
+<p>执行脚本</p>
+
+<pre><code>[root@promessitapp10 consul-template-0.19.5]# cat start-shard-server.sh
+#!/usr/bin/env bash
+cd /opt/promes/consul-template/consul-template-0.19.5
+./consul-template -config ./promes-shard-server.tpl -once
+</code></pre>
+
+<p>定时</p>
+
+<pre><code>[root@promessitapp10 consul-template-0.19.5]# cat start-shard-server.sh
+#!/usr/bin/env bash
+cd /opt/promes/consul-template/consul-template-0.19.5
+./consul-template -config ./promes-shard-server.tpl -once
+[root@promessitapp10 consul-template-0.19.5]# crontab -l
+10 * * * * /usr/sbin/ntpdate 10.27.126.249
+00 00 * * * /nmon/nmon_x86_rhel6  -f -N -m /nmon  -s 60 -c 1440  -y
+0 18 * * * /usr/sbin/logrotate /etc/logrotate.d/syslog
+00 01 * * * find /opt/nmon /nmon -name *.nmon -atime +30 -exec rm {} \;
+* * * * * /opt/promes/exporter/server_exporter/server_exporter_v1.0.7_linux-amd64/check_alive.sh server_exporter_v1.0.7_linux
+* * * * * /opt/promes/consul-template/consul-template-0.19.5/start-shard-server.sh
+</code></pre>
+
+<p>配置文件</p>
+
+<pre><code>[root@promessitapp10 consul-template-0.19.5]# cat promes-shard-server.tpl
+log_level = &quot;warn&quot;
+syslog {
+    enabled = true
+    facility = &quot;LOCAL5&quot;
+}
+reload_signal = &quot;SIGHUP&quot;
+kill_signal = &quot;SIGINT&quot;
+max_stale = &quot;1m&quot;
+log_level = &quot;warn&quot;
+pid_file = &quot;/opt/promes/consul-template/consul-template-0.19.5/.pid&quot;
+
+consul {
+    address = &quot;10.47.178.81:9996&quot;
+    retry {
+        enabled = true
+        attempts = 12
+        backoff = &quot;250ms&quot;
+        max_backoff = &quot;3m&quot;
+    }
+}
+
+template {
+        source = &quot;/opt/promes/consul-template/consul-template-0.19.5/templates/promes-shard-30s.ctmpl&quot;
+        destination = &quot;/opt/promes/prometheus-2.4.2.linux-amd64/discoveries/30s/discovery.json&quot;
+        command = &quot;sh /opt/promes/consul-template/consul-template-0.19.5/result/echo-ok.sh&quot;
+        backup = true
+        create_dest_dirs = true
+        command_timeout = &quot;60s&quot;
+        left_delimiter = &quot;{$&quot;
+        right_delimiter = &quot;$}&quot;
+        wait {
+                min = &quot;2s&quot;
+                max = &quot;20s&quot;
+        }
+}
+
+template {
+        source = &quot;/opt/promes/consul-template/consul-template-0.19.5/templates/promes-shard-1m.ctmpl&quot;
+        destination = &quot;/opt/promes/prometheus-2.4.2.linux-amd64/discoveries/1m/discovery.json&quot;
+        command = &quot;sh /opt/promes/consul-template/consul-template-0.19.5/result/echo-ok.sh&quot;
+        backup = true
+        create_dest_dirs = true
+        command_timeout = &quot;60s&quot;
+        left_delimiter = &quot;{$&quot;
+        right_delimiter = &quot;$}&quot;
+        wait {
+                min = &quot;2s&quot;
+                max = &quot;20s&quot;
+        }
+}
+
+template {
+        source = &quot;/opt/promes/consul-template/consul-template-0.19.5/templates/promes-shard-5m.ctmpl&quot;
+        destination = &quot;/opt/promes/prometheus-2.4.2.linux-amd64/discoveries/5m/discovery.json&quot;
+        command = &quot;sh /opt/promes/consul-template/consul-template-0.19.5/result/echo-ok.sh&quot;
+        backup = true
+        create_dest_dirs = true
+        command_timeout = &quot;60s&quot;
+        left_delimiter = &quot;{$&quot;
+        right_delimiter = &quot;$}&quot;
+        wait {
+                min = &quot;2s&quot;
+                max = &quot;20s&quot;
+        }
+}
+
+
+template {
+    source = &quot;/opt/promes/consul-template/consul-template-0.19.5/templates/promes-shard-30m.ctmpl&quot;
+    destination = &quot;/opt/promes/prometheus-2.4.2.linux-amd64/discoveries/30m/discovery.json&quot;
+    command = &quot;sh /opt/promes/consul-template/consul-template-0.19.5/result/echo-ok.sh&quot;
+    backup = true
+    create_dest_dirs = true
+    command_timeout = &quot;60s&quot;
+    left_delimiter = &quot;{$&quot;
+    right_delimiter = &quot;$}&quot;
+    wait {
+        min = &quot;2s&quot;
+        max = &quot;20s&quot;
+    }
+}
+
+template {
+        source = &quot;/opt/promes/consul-template/consul-template-0.19.5/templates/promes-shard-1h.ctmpl&quot;
+        destination = &quot;/opt/promes/prometheus-2.4.2.linux-amd64/discoveries/1h/discovery.json&quot;
+        command = &quot;sh /opt/promes/consul-template/consul-template-0.19.5/result/echo-ok.sh&quot;
+        backup = true
+        create_dest_dirs = true
+        command_timeout = &quot;60s&quot;
+        left_delimiter = &quot;{$&quot;
+        right_delimiter = &quot;$}&quot;
+        wait {
+                min = &quot;2s&quot;
+                max = &quot;20s&quot;
+        }
+}
+
+template {
+        source = &quot;/opt/promes/consul-template/consul-template-0.19.5/templates/promes-shard-1d.ctmpl&quot;
+        destination = &quot;/opt/promes/prometheus-2.4.2.linux-amd64/discoveries/1d/discovery.json&quot;
+        command = &quot;sh /opt/promes/consul-template/consul-template-0.19.5/result/echo-ok.sh&quot;
+        backup = true
+        create_dest_dirs = true
+        command_timeout = &quot;60s&quot;
+        left_delimiter = &quot;{$&quot;
+        right_delimiter = &quot;$}&quot;
+        wait {
+                min = &quot;2s&quot;
+                max = &quot;20s&quot;
+        }
+}
+</code></pre>
+
+<p>对应的执行模版和文件生成路径，我们来看一下模版</p>
+
+<pre><code>[root@promessitapp10 templates]# cat promes-shard-30m.ctmpl
+[
+{$range tree &quot;JOB_LIST/SERVER_EXPORTER/30M/&quot; $}
+{$ .Value $},
+{$ end $}
+{}
+]
+</code></pre>
+
+<h2 id="探针部署">探针部署</h2>
+
+<p>每个探针都不一样，参考对应的使用，基本都是二进制文件对应的配置文件和启动参数的方式，基本上都是集成了client-golang库的使用。</p>
+
+<h2 id="告警系统">告警系统</h2>
+
+<p>监控告警系统应该在单独和主网系统隔离，并且多活保障系统随时随地都要处于运行中，而且系统不能和主网相互干扰。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="http://blog.fatedier.com/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/prometheus/monitor-scheme/infrastructure/">https://kingjcy.github.io/post/monitor/prometheus/monitor-scheme/infrastructure/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/infrastructure/">
+                            <i class="fa fa-tags"></i>
+                            Infrastructure
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/prometheus/exporter/log/grok_exporter/">prometheus探针系列---- Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/log/mtail/">prometheus探针系列---- mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/zabbix/zabbix2tsdb/">Zabbix数据入到tsdb</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月20日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/cluster/victoriametrics/">prometheus集群系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/process_exporter/">Process_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/prometheus-operater/">prometheus系列---- Prometheus Operater</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月12日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/redis_exporter/">Redis_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li><li id="li-rels"><a href="/post/monitor/server/ntp/">Ntp</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年10月15日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/script_exporter/">Script_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年10月09日)</span></li><li id="li-rels"><a href="/post/monitor/prometheus/exporter/postgres_exporter/">Postgres_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年08月09日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/server/iptables/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/cdn/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#方案">方案</a></li>
+<li><a href="#监控内容">监控内容</a></li>
+<li><a href="#prometheus项目经验总结">prometheus项目经验总结</a></li>
+<li><a href="#部署整体方案">部署整体方案</a>
+<ul>
+<li>
+<ul>
+<li><a href="#nginx">nginx</a></li>
+</ul></li>
+<li><a href="#grafana">grafana</a></li>
+<li><a href="#thanos">thanos</a></li>
+<li><a href="#prometheus">prometheus</a></li>
+<li><a href="#consul">consul</a></li>
+<li><a href="#consul-template">consul-template</a></li>
+<li><a href="#探针部署">探针部署</a></li>
+<li><a href="#告警系统">告警系统</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
