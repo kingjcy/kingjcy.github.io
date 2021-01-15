@@ -1660,6 +1660,602 @@ fmt.Println(buf.Bytes())
     
       
         <item>
+          <title>Golang使用系列---- Go Net 协议层</title>
+          <link>https://kingjcy.github.io/post/golang/go-net/</link>
+          <pubDate>Mon, 11 Jul 2016 17:34:34 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-net/</guid>
+          <description>&lt;p&gt;网络编程是go语言使用的一个核心模块。golang的网络封装使用对于底层socket或者上层的http，甚至是web服务都很友好。&lt;/p&gt;
+
+&lt;h1 id=&#34;net&#34;&gt;net&lt;/h1&gt;
+
+&lt;p&gt;net包提供了可移植的网络I/O接口，包括TCP/IP、UDP、域名解析和Unix域socket等方式的通信。其中每一种通信方式都使用 xxConn 结构体来表示，诸如IPConn、TCPConn等，这些结构体都实现了Conn接口，Conn接口实现了基本的读、写、关闭、获取远程和本地地址、设置timeout等功能。&lt;/p&gt;
+
+&lt;p&gt;conn的接口定义&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Conn interface {
+    // Read从连接中读取数据
+    // Read方法可能会在超过某个固定时间限制后超时返回错误，该错误的Timeout()方法返回真
+    Read(b []byte) (n int, err error)
+    // Write从连接中写入数据
+    // Write方法可能会在超过某个固定时间限制后超时返回错误，该错误的Timeout()方法返回真
+    Write(b []byte) (n int, err error)
+    // Close方法关闭该连接
+    // 并会导致任何阻塞中的Read或Write方法不再阻塞并返回错误
+    Close() error
+    // 返回本地网络地址
+    LocalAddr() Addr
+    // 返回远端网络地址
+    RemoteAddr() Addr
+    // 设定该连接的读写deadline，等价于同时调用SetReadDeadline和SetWriteDeadline
+    // deadline是一个绝对时间，超过该时间后I/O操作就会直接因超时失败返回而不会阻塞
+    // deadline对之后的所有I/O操作都起效，而不仅仅是下一次的读或写操作
+    // 参数t为零值表示不设置期限
+    SetDeadline(t time.Time) error
+    // 设定该连接的读操作deadline，参数t为零值表示不设置期限
+    SetReadDeadline(t time.Time) error
+    // 设定该连接的写操作deadline，参数t为零值表示不设置期限
+    // 即使写入超时，返回值n也可能&amp;gt;0，说明成功写入了部分数据
+    SetWriteDeadline(t time.Time) error
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后每种类型都是对应的结构体实现这些接口。&lt;/p&gt;
+
+&lt;p&gt;还有一个常用的接口定义PacketConn&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type PacketConn interface {
+    // ReadFrom方法从连接读取一个数据包，并将有效信息写入b
+    // ReadFrom方法可能会在超过某个固定时间限制后超时返回错误，该错误的Timeout()方法返回真
+    // 返回写入的字节数和该数据包的来源地址
+    ReadFrom(b []byte) (n int, addr Addr, err error)
+    // WriteTo方法将有效数据b写入一个数据包发送给addr
+    // WriteTo方法可能会在超过某个固定时间限制后超时返回错误，该错误的Timeout()方法返回真
+    // 在面向数据包的连接中，写入超时非常罕见
+    WriteTo(b []byte, addr Addr) (n int, err error)
+    // Close方法关闭该连接
+    // 会导致任何阻塞中的ReadFrom或WriteTo方法不再阻塞并返回错误
+    Close() error
+    // 返回本地网络地址
+    LocalAddr() Addr
+    // 设定该连接的读写deadline
+    SetDeadline(t time.Time) error
+    // 设定该连接的读操作deadline，参数t为零值表示不设置期限
+    // 如果时间到达deadline，读操作就会直接因超时失败返回而不会阻塞
+    SetReadDeadline(t time.Time) error
+    // 设定该连接的写操作deadline，参数t为零值表示不设置期限
+    // 如果时间到达deadline，写操作就会直接因超时失败返回而不会阻塞
+    // 即使写入超时，返回值n也可能&amp;gt;0，说明成功写入了部分数据
+    SetWriteDeadline(t time.Time) error
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;ip&#34;&gt;ip&lt;/h2&gt;
+
+&lt;p&gt;使用IPConn结构体来表示，它实现了Conn、PacketConn两种接口。使用如下两个函数进行Dial（连接）和Listen（监听）。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func DialIP(netProto string, laddr, raddr *IPAddr) (*IPConn, error)   
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;DialIP在网络协议netProto上连接本地地址laddr和远端地址raddr，netProto必须是&amp;rdquo;ip&amp;rdquo;、&amp;rdquo;ip4&amp;rdquo;或&amp;rdquo;ip6&amp;rdquo;后跟冒号和协议名或协议号。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func ListenIP(netProto string, laddr *IPAddr) (*IPConn, error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;ListenIP创建一个接收目的地是本地地址laddr的IP数据包的网络连接，返回的*IPConn的ReadFrom和WriteTo方法可以用来发送和接收IP数据包。（每个包都可获取来源址或者设置目标地址）&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;类型&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、IPAddr类型&lt;/p&gt;
+
+&lt;p&gt;位于iprawsock.go中在net包的许多函数和方法会返回一个指向IPAddr的指针。这不过只是一个包含IP类型的结构体。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type IPAddr struct {
+    IP   IP
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个类型的另一个主要用途是通过IP主机名执行DNS查找。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ResolveIPAddr
+ResolveIPAddr有两个参数第一个参数.必须为&amp;quot;ip&amp;quot;,&amp;quot;ip4&amp;quot;,&amp;quot;ip6&amp;quot;,第二个参数多为要解析的域名.返回一个IPAddr的指针类型
+
+addr, _ := net.ResolveIPAddr(&amp;quot;ip&amp;quot;, &amp;quot;www.baidu.com&amp;quot;)
+fmt.Println(addr)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;ip.go 中还定义了三个类型.分别是IP,IPMask,IPNet&lt;/p&gt;
+
+&lt;p&gt;2、IP类型&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type IP []byte
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;IP类型被定义为一个字节数组。 ParseIP(String) 可以将字符窜转换为一个IP类型.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;name := &amp;quot;127.0.0.1&amp;quot;
+addr := net.ParseIP(name)
+fmt.Println(addr.IsLoopback())// IsLoopback reports whether ip is a loopback address.
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;3、IPMask类型&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// An IP mask is an IP address.
+type IPMask []byte
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;一个掩码的字符串形式是一个十六进制数，如掩码255.255.0.0为ffff0000。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func IPv4Mask(a, b, c, d byte) IPMask :用一个4字节的IPv4地址来创建一个掩码.
+func CIDRMask(ones, bits int) IPMask : 用ones和bits来创建一个掩码
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;4、IPNet类型&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// An IPNet represents an IP network.
+type IPNet struct {
+    IP   IP     // network number
+    Mask IPMask // network mask
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;由IP类型和IPMask组成一个网段,其字符串形式是CIDR地址,如:“192.168.100.1/24”或“2001:DB8::/ 48”&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func main() {
+    mask := net.IPv4Mask(byte(255), byte(255), byte(255), byte(0))
+    ip := net.ParseIP(&amp;quot;192.168.1.125&amp;quot;).Mask(mask)
+    in := &amp;amp;net.IPNet{ip, mask}
+    fmt.Println(in)         //  192.168.1.0/24
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;实例&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;这边插播一个经常使用的实例：获取本地IP&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;net&amp;quot;
+    &amp;quot;os&amp;quot;
+)
+func main() {
+    addrs, err := net.InterfaceAddrs()
+    if err != nil {
+        fmt.Println(err)
+        os.Exit(1)
+    }
+    for _, address := range addrs {
+        // 检查ip地址判断是否回环地址
+        if ipnet, ok := address.(*net.IPNet); ok &amp;amp;&amp;amp; !ipnet.IP.IsLoopback() {
+            if ipnet.IP.To4() != nil {
+                fmt.Println(ipnet.IP.String())
+            }
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;tcp&#34;&gt;tcp&lt;/h2&gt;
+
+&lt;p&gt;使用TCPConn结构体来表示，它实现了Conn接口。&lt;/p&gt;
+
+&lt;p&gt;使用DialTCP进行Dial操作：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func DialTCP(net string, laddr, raddr *TCPAddr) (*TCPConn, error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;DialTCP在网络协议net上连接本地地址laddr和远端地址raddr。net必须是&amp;rdquo;tcp&amp;rdquo;、&amp;rdquo;tcp4&amp;rdquo;、&amp;rdquo;tcp6&amp;rdquo;；如果laddr不是nil，将使用它作为本地地址，否则自动选择一个本地地址。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func ListenTCP(net string, laddr *TCPAddr) (*TCPListener, error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;使用 ListenTCP函数进行Listen，产生一个TCPListener结构体，使用TCPListener的AcceptTCP方法建立通信链路，得到TCPConn。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;TCPAddr类型&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;位于tcpsock.go中TCPAddr类型包含一个IP和一个port的结构:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type TCPAddr struct {
+    IP   IP
+    Port int
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;ResolveTCPAddr&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func ResolveTCPAddr(net, addr string) (*TCPAddr, os.Error) 
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;该函数用来创建一个TCPAddr,第一个参数为,tcp,tcp4或者tcp6,addr是一个字符串，由主机名或IP地址，以及&amp;rdquo;:&amp;ldquo;后跟随着端口号组成，例如： &amp;ldquo;www.google.com:80&amp;rdquo; 或 &amp;lsquo;127.0.0.1:22&amp;rdquo;。如果地址是一个IPv6地址，由于已经有冒号，主机部分，必须放在方括号内, 例如：&amp;rdquo;[::1]:23&amp;rdquo;. 另一种特殊情况是经常用于服务器, 主机地址为0, 因此，TCP地址实际上就是端口名称, 例如：&amp;rdquo;:80&amp;rdquo; 用来表示HTTP服务器。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;addr, _ := net.ResolveTCPAddr(&amp;quot;tcp&amp;quot;, &amp;quot;www.baidu.com:80&amp;quot;)
+fmt.Println(addr)   //220.181.111.147:80
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;udp&#34;&gt;udp&lt;/h2&gt;
+
+&lt;p&gt;使用UDPConn接口体来表示，它实现了Conn、PacketConn两种接口。使用如下两个函数进行Dial和Listen。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func DialUDP(net string, laddr, raddr *UDPAddr) (*UDPConn, error)    
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;DialTCP在网络协议net上连接本地地址laddr和远端地址raddr。net必须是&amp;rdquo;udp&amp;rdquo;、&amp;rdquo;udp4&amp;rdquo;、&amp;rdquo;udp6&amp;rdquo;；如果laddr不是nil，将使用它作为本地地址，否则自动选择一个本地地址。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func ListenUDP(net string, laddr *UDPAddr) (*UDPConn, error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;ListenUDP创建一个接收目的地是本地地址laddr的UDP数据包的网络连接。net必须是&amp;rdquo;udp&amp;rdquo;、&amp;rdquo;udp4&amp;rdquo;、&amp;rdquo;udp6&amp;rdquo;；如果laddr端口为0，函数将选择一个当前可用的端口，可以用Listener的Addr方法获得该端口。返回的*UDPConn的ReadFrom和WriteTo方法可以用来发送和接收UDP数据包（每个包都可获得来源地址或设置目标地址）。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;类型&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、UDPAddr类型&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type UDPAddr struct {
+    IP   IP
+    Port int
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;ResolveUDPAddr同样的功能&lt;/p&gt;
+
+&lt;p&gt;2、UnixAddr类型&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type UnixAddr struct {
+    Name string
+    Net  string
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;ResolveUnixAddr同样的功能&lt;/p&gt;
+
+&lt;h2 id=&#34;unix&#34;&gt;unix&lt;/h2&gt;
+
+&lt;p&gt;UnixConn实现了Conn、PacketConn两种接口，其中unix又分为SOCK_DGRAM、SOCK_STREAM。&lt;/p&gt;
+
+&lt;p&gt;1.对于unix（SOCK_DGRAM），使用如下两个函数进行Dial和Listen。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func DialUnix(net string, laddr, raddr *UnixAddr) (*UnixConn, error)    
+
+func ListenUnixgram(net string, laddr *UnixAddr) (*UnixConn, error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2.对于unix（SOCK_STREAM）&lt;/p&gt;
+
+&lt;p&gt;客户端使用DialUnix进行Dial操作&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func DialUnix(net string, laddr, raddr *UnixAddr) (*UnixConn, error)   
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;服务端使用ListenUnix函数进行Listen操作，然后使用UnixListener进行AcceptUnix&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func ListenUnix(net string, laddr *UnixAddr) (*UnixListener, error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;函数整合&#34;&gt;函数整合&lt;/h1&gt;
+
+&lt;p&gt;为了使用方便，golang将上面一些重复的操作集中到一个函数中。在参数中制定上面不同协议类型。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func ListenPacket(net, laddr string) (PacketConn, error)　
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个函数用于侦听ip、udp、unix（DGRAM）等协议，返回一个PacketConn接口，同样根据侦听的协议不同，这个接口可以包含IPCon、UDPConn、UnixConn等，它们都实现了PacketConn。可以发现与ip、unix（stream）协议不同，直接返回的是xxConn，不是间接的通过Listener进行Accept操作后，才得到一个Conn。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Listen(net, laddr string) (Listener, error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个函数用于侦听tcp、unix（stream）等协议，返回一个Listener接口、根据侦听的协议不同，这个接口可以包含TCPListener、UnixListener等，它们都实现了Listener接口，然后通过调用其Accept方法可以得到Conn接口，进行通信。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Dial(network, address string) (Conn, error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个函数对于所有的协议都是相同的操作，返回一个Conn接口，根据协议的不同实际上包含IPConn、UDPConn、UnixConn、IPConn，它们都实现了Conn接口&lt;/p&gt;
+
+&lt;h1 id=&#34;基本c-s功能&#34;&gt;基本c/s功能&lt;/h1&gt;
+
+&lt;p&gt;在 Unix/Linux 中的 Socket 编程主要通过调用 listen, accept, write read 等函数来实现的. 具体如下图所示:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/golang/net/unix_socket.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;服务端&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;服务端listen, accept&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func connHandler(c net.Conn) {
+    for {
+        cnt, err := c.Read(buf)
+        c.Write(buf)
+    }
+}
+func main() {
+    server, err := net.Listen(&amp;quot;tcp&amp;quot;, &amp;quot;:1208&amp;quot;)
+    for {
+        conn, err := server.Accept()
+        go connHandler(conn)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;直接使用net的listen返回的就是对应协议已经定义好的结构体，比如tcp&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type TCPListener struct {
+    fd *netFD
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个结构体实现了listener接口的所有接口，所以可以作为返回值返回。其他协议类型也是一样。&lt;/p&gt;
+
+&lt;p&gt;accept后返回的conn是一个存储着连接信息的结构体&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// Network file descriptor.
+type netFD struct {
+    pfd poll.FD
+
+    // immutable until Close
+    family      int
+    sotype      int
+    isConnected bool // handshake completed or use of association with peer
+    net         string
+    laddr       Addr
+    raddr       Addr
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;客户端&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;客户端dial&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func connHandler(c net.Conn) {
+    for {
+        c.Write(...)
+        c.Read(...)
+    }
+}
+func main() {
+    conn, err := net.Dial(&amp;quot;tcp&amp;quot;, &amp;quot;localhost:1208&amp;quot;)
+    connHandler(conn)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;主要函数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Dial(net, addr string) (Conn, error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;其中net参数是网络协议的名字， addr参数是IP地址或域名，而端口号以“:”的形式跟随在地址
+或域名的后面，端口号可选。如果连接成功，返回连接对象，否则返回error。&lt;/p&gt;
+
+&lt;p&gt;Dial() 函数支持如下几种网络协议：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&amp;quot;tcp&amp;quot; 、 &amp;quot;tcp4&amp;quot; （仅限IPv4）、 &amp;quot;tcp6&amp;quot; （仅限IPv6）、 &amp;quot;udp&amp;quot; 、 &amp;quot;udp4&amp;quot;（仅限IPv4）、 &amp;quot;udp6&amp;quot;（仅限IPv6）、 &amp;quot;ip&amp;quot; 、 &amp;quot;ip4&amp;quot;（仅限IPv4）和&amp;quot;ip6&amp;quot;（仅限IPv6）。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以直接用相关协议的函数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func DialTCP(net string, laddr, raddr *TCPAddr) (c *TCPConn, err error)
+func DialUDP(net string, laddr, raddr *UDPAddr) (c *UDPConn, err error)
+func DialIP(netProto string, laddr, raddr *IPAddr) (*IPConn, error)
+func DialUnix(net string, laddr, raddr *UnixAddr) (c *UnixConn, err error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;特性功能&#34;&gt;特性功能&lt;/h2&gt;
+
+&lt;p&gt;1、控制TCP连接&lt;/p&gt;
+
+&lt;p&gt;TCP连接有很多控制函数，我们平常用到比较多的有如下几个函数：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (c *TCPConn) SetTimeout(nsec int64) os.Error
+func (c *TCPConn) SetKeepAlive(keepalive bool) os.Error
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;第一个函数用来设置超时时间，客户端和服务器端都适用，当超过设置的时间时那么该链接就失效。&lt;/p&gt;
+
+&lt;p&gt;第二个函数用来设置客户端是否和服务器端一直保持着连接，即使没有任何的数据发送&lt;/p&gt;
+
+&lt;h1 id=&#34;实例&#34;&gt;实例&lt;/h1&gt;
+
+&lt;p&gt;从零开始写Socket Server： Socket-Client框架&lt;/p&gt;
+
+&lt;p&gt;在golang中，网络协议已经被封装的非常完好了，想要写一个Socket的Server，我们并不用像其他语言那样需要为socket、bind、listen、receive等一系列操作头疼，只要使用Golang中自带的net包即可很方便的完成连接等操作~&lt;/p&gt;
+
+&lt;p&gt;在这里，给出一个最最基础的基于Socket的Server的写法：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;net&amp;quot;
+    &amp;quot;log&amp;quot;
+    &amp;quot;os&amp;quot;
+)
+
+
+func main() {
+
+//建立socket，监听端口
+    netListen, err := net.Listen(&amp;quot;tcp&amp;quot;, &amp;quot;localhost:1024&amp;quot;)
+    CheckError(err)
+    defer netListen.Close()
+
+    Log(&amp;quot;Waiting for clients&amp;quot;)
+    for {
+        conn, err := netListen.Accept()
+        if err != nil {
+            continue
+        }
+
+        Log(conn.RemoteAddr().String(), &amp;quot; tcp connect success&amp;quot;)
+        handleConnection(conn)
+    }
+}
+//处理连接
+func handleConnection(conn net.Conn) {
+
+    buffer := make([]byte, 2048)
+
+    for {
+
+        n, err := conn.Read(buffer)
+
+        if err != nil {
+            Log(conn.RemoteAddr().String(), &amp;quot; connection error: &amp;quot;, err)
+            return
+        }
+
+
+        Log(conn.RemoteAddr().String(), &amp;quot;receive data string:\n&amp;quot;, string(buffer[:n]))
+
+    }
+
+}
+func Log(v ...interface{}) {
+    log.Println(v...)
+}
+
+func CheckError(err error) {
+    if err != nil {
+        fmt.Fprintf(os.Stderr, &amp;quot;Fatal error: %s&amp;quot;, err.Error())
+        os.Exit(1)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;唔，抛除Go语言里面10行代码有5行error的蛋疼之处,你可以看到，Server想要建立并接受一个Socket，其核心流程就是&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;netListen, err := net.Listen(&amp;quot;tcp&amp;quot;, &amp;quot;localhost:1024&amp;quot;)
+conn, err := netListen.Accept()
+n, err := conn.Read(buffer)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这三步，通过Listen、Accept 和Read，我们就成功的绑定了一个端口，并能够读取从该端口传来的内容~&lt;/p&gt;
+
+&lt;p&gt;这边插播一个内容，关于read是阻塞的，如果读取不到内容，代码会阻塞在这边，直到有内容可以读取，包括connection断掉返回的io.EOF,一般对这个都有特殊处理。一般重conn读取数据也是在for循环中。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;io&amp;quot;
+    &amp;quot;net&amp;quot;
+)
+
+func main(){
+    ln, err := net.Listen(&amp;quot;tcp&amp;quot;,&amp;quot;127.0.0.1:10051&amp;quot;)
+
+    if err != nil {
+        panic(err)
+    }
+
+    for {
+        conn, _ := ln.Accept() //The loop will be held here
+        fmt.Println(&amp;quot;get connect&amp;quot;)
+        go handleread(conn)
+
+
+    }
+}
+
+func handleread(conn net.Conn){
+    defer conn.Close()
+
+    var tatalBuffer  []byte
+    var all int
+    for {
+        buffer := make([]byte, 2)
+        n,err := conn.Read(buffer)
+        if err == io.EOF{
+            fmt.Println(err,n)
+            break
+        }
+
+        tatalBuffer = append(tatalBuffer,buffer...)
+        all += n
+
+        fmt.Println(string(buffer),n,string(tatalBuffer[:all]),all)
+    }
+
+
+
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面这个例子中，会重conn中两个字符循环读取内容，这边slice不会动态扩容，所以需要使用append来获取全部内容。&lt;/p&gt;
+
+&lt;p&gt;还有一点，buffer := make([]byte, 2)这个代码，放在for循环中，浪费内存，可以放在gor循环外部，然后使用n来截取buf[:n]可以解决buf最后一部分重复的问题。&lt;/p&gt;
+
+&lt;p&gt;插播结束，回到server。&lt;/p&gt;
+
+&lt;p&gt;Server写好之后，接下来就是Client方面啦，我手写一个HelloWorld给大家：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;net&amp;quot;
+    &amp;quot;os&amp;quot;
+)
+
+func sender(conn net.Conn) {
+        words := &amp;quot;hello world!&amp;quot;
+        conn.Write([]byte(words))
+    fmt.Println(&amp;quot;send over&amp;quot;)
+
+}
+
+
+
+func main() {
+    server := &amp;quot;127.0.0.1:1024&amp;quot;
+    tcpAddr, err := net.ResolveTCPAddr(&amp;quot;tcp4&amp;quot;, server)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, &amp;quot;Fatal error: %s&amp;quot;, err.Error())
+        os.Exit(1)
+    }
+
+    conn, err := net.DialTCP(&amp;quot;tcp&amp;quot;, nil, tcpAddr)
+    if err != nil {
+        fmt.Fprintf(os.Stderr, &amp;quot;Fatal error: %s&amp;quot;, err.Error())
+        os.Exit(1)
+    }
+
+
+    fmt.Println(&amp;quot;connect success&amp;quot;)
+    sender(conn)
+
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以看到，Client这里的关键在于&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;tcpAddr, err := net.ResolveTCPAddr(&amp;quot;tcp4&amp;quot;, server)
+conn, err := net.DialTCP(&amp;quot;tcp&amp;quot;, nil, tcpAddr)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这两步，主要是负责解析端口和连接。&lt;/p&gt;
+
+&lt;p&gt;这边插播一个tcp协议的三次握手图，加强理解。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/golang/net/tcp_open_close.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&#34;扩展&#34;&gt;扩展&lt;/h1&gt;
+
+&lt;p&gt;其实我们最常用的还是&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-net-http/&#34;&gt;http协议&lt;/a&gt;，也即是应用层的协议，其实http协议是在tcp协议的基础上进行封装，最终还是使用的这边基本的网络IO，所以在网络传输中，网络IO的基本协议的实现是基础。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>用hugo&#43;github构建自己的blog</title>
           <link>https://kingjcy.github.io/post/tool/hugo-blog-build/</link>
           <pubDate>Fri, 29 Aug 2014 09:29:40 CST</pubDate>
