@@ -6,8 +6,278 @@
     <language>en-us</language>
     <author></author>
     <rights>(C) 2017</rights>
-    <updated>2017-11-08 11:40:49 &#43;0800 CST</updated>
+    <updated>2017-12-25 14:28:17 &#43;0800 CST</updated>
 
+    
+      
+        <item>
+          <title>Golang使用系列---- Bytes</title>
+          <link>https://kingjcy.github.io/post/golang/go-bytes/</link>
+          <pubDate>Mon, 25 Dec 2017 14:28:17 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-bytes/</guid>
+          <description>&lt;p&gt;该包定义了一些操作 byte slice 的便利操作。因为字符串可以表示为 []byte，因此，bytes 包定义的函数、方法等和 strings 包很类似，所以讲解时会和 strings 包类似甚至可以直接参考。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本使用&#34;&gt;基本使用&lt;/h1&gt;
+
+&lt;h2 id=&#34;是否存在某个子-slice&#34;&gt;是否存在某个子 slice&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;// 子 slice subslice 在 b 中，返回 true
+func Contains(b, subslice []byte) bool
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;该函数的内部调用了 bytes.Index 函数（在后面会讲解）:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Contains(b, subslice []byte) bool {
+    return Index(b, subslice) != -1
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;题外：对比 strings.Contains 你会发现，一个判断 &amp;gt;=0，一个判断 != -1，可见库不是一个人写的，没有做到一致性。&lt;/p&gt;
+
+&lt;h2 id=&#34;byte-出现次数&#34;&gt;[]byte 出现次数&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;// slice sep 在 s 中出现的次数（无重叠）
+func Count(s, sep []byte) int
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;和 strings 实现不同，此包中的 Count 核心代码如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;count := 0
+c := sep[0]
+i := 0
+t := s[:len(s)-n+1]
+for i &amp;lt; len(t) {
+    // 判断 sep 第一个字节是否在 t[i:] 中
+    // 如果在，则比较之后相应的字节
+    if t[i] != c {
+        o := IndexByte(t[i:], c)
+        if o &amp;lt; 0 {
+            break
+        }
+        i += o
+    }
+    // 执行到这里表示 sep[0] == t[i]
+    if n == 1 || Equal(s[i:i+n], sep) {
+        count++
+        i += n
+        continue
+    }
+    i++
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;runes-类型转换&#34;&gt;Runes 类型转换&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;// 将 []byte 转换为 []rune
+func Runes(s []byte) []rune
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;该函数将 []byte 转换为 []rune ，适用于汉字等多字节字符，示例：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;b:=[]byte(&amp;quot;你好，世界&amp;quot;)
+for k,v:=range b{
+    fmt.Printf(&amp;quot;%d:%s |&amp;quot;,k,string(v))
+}
+r:=bytes.Runes(b)
+for k,v:=range r{
+    fmt.Printf(&amp;quot;%d:%s|&amp;quot;,k,string(v))
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;运行结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;0:ä |1:½ |2:  |3:å |4:¥ |5:½ |6:ï |7:¼ |8:  |9:ä |10:¸ |11:  |12:ç |13:  |14: |
+0:你|1:好|2:，|3:世|4:界|
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;其它函数&#34;&gt;其它函数&lt;/h2&gt;
+
+&lt;p&gt;其它大部分函数、方法与 strings 包下的函数、方法类似，只是数据源从 string 变为了 []byte ，请参考 strings 包的用法。&lt;/p&gt;
+
+&lt;h1 id=&#34;类型&#34;&gt;类型&lt;/h1&gt;
+
+&lt;h2 id=&#34;reader-类型&#34;&gt;Reader 类型&lt;/h2&gt;
+
+&lt;p&gt;看到名字就能猜到，这是实现了 io 包中的接口。其实这就是缓存io，对缓存中的[]byte进行读写操作。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Reader struct {
+    s        []byte
+    i        int64 // 当前读取下标
+    prevRune int   // 前一个字符的下标，也可能 &amp;lt; 0
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;bytes 包下的 Reader 类型实现了 io 包下的 Reader, ReaderAt, RuneReader, RuneScanner, ByteReader, ByteScanner, ReadSeeker, Seeker, WriterTo 等多个接口。主要用于 Read 数据。&lt;/p&gt;
+
+&lt;p&gt;我们需要在通过 bytes.NewReader 方法来初始化 bytes.Reader 类型的对象。初始化时传入 []byte 类型的数据。NewReader 函数签名如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func NewReader(b []byte) *Reader
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果直接声明该对象了，可以通过 Reset 方法重新写入数据，示例：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;x:=[]byte(&amp;quot;你好，世界&amp;quot;)
+
+r1:=bytes.NewReader(x)
+d1:=make([]byte,len(x))
+n,_:=r1.Read(d1)
+fmt.Println(n,string(d1))
+
+r2:=bytes.Reader{}
+r2.Reset(x)
+d2:=make([]byte,len(x))
+n,_=r2.Read(d2)
+fmt.Println(n,string(d2))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;15 你好，世界
+15 你好，世界
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Reader 包含了 8 个读取相关的方法，实现了前面提到的 io 包下的 9 个接口（ReadSeeker 接口内嵌 Reader 和 Seeker 两个接口）：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// 读取数据至 b
+func (r *Reader) Read(b []byte) (n int, err error)
+// 读取一个字节
+func (r *Reader) ReadByte() (byte, error)
+// 读取一个字符
+func (r *Reader) ReadRune() (ch rune, size int, err error)
+// 读取数据至 w
+func (r *Reader) WriteTo(w io.Writer) (n int64, err error)
+// 进度下标指向前一个字节，如果 r.i &amp;lt;= 0 返回错误。
+func (r *Reader) UnreadByte()
+// 进度下标指向前一个字符，如果 r.i &amp;lt;= 0 返回错误，且只能在每次 ReadRune 方法后使用一次，否则返回错误。
+func (r *Reader) UnreadRune()
+// 读取 r.s[off:] 的数据至b，该方法忽略进度下标 i，不使用也不修改。
+func (r *Reader) ReadAt(b []byte, off int64) (n int, err error)
+// 根据 whence 的值，修改并返回进度下标 i ，当 whence == 0 ，进度下标修改为 off，当 whence == 1 ，进度下标修改为 i+off，当 whence == 2 ，进度下标修改为 len[s]+off.
+// off 可以为负数，whence 的只能为 0，1，2，当 whence 为其他值或计算后的进度下标越界，则返回错误。
+func (r *Reader) Seek(offset int64, whence int) (int64, error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;示例：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;x := []byte(&amp;quot;你好，世界&amp;quot;)
+r1 := bytes.NewReader(x)
+
+ch, size, _ := r1.ReadRune()
+fmt.Println(size, string(ch))
+_ = r1.UnreadRune()
+ch, size, _ = r1.ReadRune()
+fmt.Println(size, string(ch))
+_ = r1.UnreadRune()
+
+by, _ := r1.ReadByte()
+fmt.Println(by)
+_ = r1.UnreadByte()
+by, _ = r1.ReadByte()
+fmt.Println(by)
+_ = r1.UnreadByte()
+
+d1 := make([]byte, 6)
+n, _ := r1.Read(d1)
+fmt.Println(n, string(d1))
+
+d2 := make([]byte, 6)
+n, _ = r1.ReadAt(d2, 0)
+fmt.Println(n, string(d2))
+
+w1 := &amp;amp;bytes.Buffer{}
+_, _ = r1.Seek(0, 0)
+_, _ = r1.WriteTo(w1)
+fmt.Println(w1.String())
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;运行结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;3 你
+3 你
+228
+228
+6 你好
+6 你好
+你好，世界
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;buffer-类型&#34;&gt;Buffer 类型&lt;/h2&gt;
+
+&lt;p&gt;buffer类型也实现了缓存io，也是对[]byte进行读写操作，提供了多种实现化函数对象，个人感觉是对string，byte的reader的综合使用实现。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Buffer struct {
+    buf      []byte
+    off      int
+    lastRead readOp
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在上一个示例的最后，我们使用了 bytes.Buffer 类型，该类型实现了 io 包下的 ByteScanner, ByteWriter, ReadWriter, Reader, ReaderFrom, RuneReader, RuneScanner, StringWriter, Writer, WriterTo 等接口，可以方便的进行读写操作。&lt;/p&gt;
+
+&lt;p&gt;对象可读取数据为 buf[off : len(buf)], off 表示进度下标，lastRead 表示最后读取的一个字符所占字节数，方便 Unread* 相关操作。&lt;/p&gt;
+
+&lt;p&gt;Buffer 可以通过 3 中方法初始化对象：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;a := bytes.NewBufferString(&amp;quot;Hello World&amp;quot;)
+b := bytes.NewBuffer([]byte(&amp;quot;Hello World&amp;quot;))
+c := bytes.Buffer{}
+
+fmt.Println(a)
+fmt.Println(b)
+fmt.Println(c)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Hello World
+Hello World
+{[] 0 0}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Buffer 包含了 21 个读写相关的方法，大部分同名方法的用法与前面讲的类似，这里只讲演示其中的 3 个方法：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// 读取到字节 delim 后，以字节数组的形式返回该字节及前面读取到的字节。如果遍历 b.buf 也找不到匹配的字节，则返回错误(一般是 EOF)
+func (b *Buffer) ReadBytes(delim byte) (line []byte, err error)
+// 读取到字节 delim 后，以字符串的形式返回该字节及前面读取到的字节。如果遍历 b.buf 也找不到匹配的字节，则返回错误(一般是 EOF)
+func (b *Buffer) ReadString(delim byte) (line string, err error)
+// 截断 b.buf , 舍弃 b.off+n 之后的数据。n == 0 时，调用 Reset 方法重置该对象，当 n 越界时（n &amp;lt; 0 || n &amp;gt; b.Len() ）方法会触发 panic.
+func (b *Buffer) Truncate(n int)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;示例：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;a := bytes.NewBufferString(&amp;quot;Good Night&amp;quot;)
+
+x, err := a.ReadBytes(&#39;t&#39;)
+if err != nil {
+    fmt.Println(&amp;quot;delim:t err:&amp;quot;, err)
+} else {
+    fmt.Println(string(x))
+}
+
+a.Truncate(0)
+a.WriteString(&amp;quot;Good Night&amp;quot;)
+fmt.Println(a.Len())
+a.Truncate(5)
+fmt.Println(a.Len())
+y, err := a.ReadString(&#39;N&#39;)
+if err != nil {
+    fmt.Println(&amp;quot;delim:N err:&amp;quot;, err)
+} else {
+    fmt.Println(y)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Good Night
+10
+5
+delim:N err: EOF
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
     
       
         <item>
@@ -2316,6 +2586,696 @@ func (srv *Server) ListenAndServeTLS(certFile, keyFile string) error
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;ListenAndServeTLS监听srv.Addr确定的TCP地址，并且会调用Serve方法处理接收到的连接。必须提供证书文件和对应的私钥文件。如果证书是由权威机构签发的，certFile参数必须是顺序串联的服务端证书和CA证书。如果srv.Addr为空字符串，会使用&amp;rdquo;:https&amp;rdquo;。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>Golang使用系列---- Strings</title>
+          <link>https://kingjcy.github.io/post/golang/go-strings/</link>
+          <pubDate>Wed, 12 Oct 2016 19:37:30 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-strings/</guid>
+          <description>&lt;p&gt;平时在开发过程中， 和字符串打交道还是比较多的，比如分割， 去除， 替换等等常用的方法， 这些都是由strings包来提供的。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本应用&#34;&gt;基本应用&lt;/h1&gt;
+
+&lt;h2 id=&#34;字符串比较&#34;&gt;字符串比较&lt;/h2&gt;
+
+&lt;p&gt;Compare 函数，用于比较两个字符串的大小，如果两个字符串相等，返回为 0。如果 a 小于 b ，返回 -1 ，反之返回 1 。不推荐使用这个函数，直接使用 == != &amp;gt; &amp;lt; &amp;gt;= &amp;lt;= 等一系列运算符更加直观。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Compare(a, b string) int
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;EqualFold 函数，计算 s 与 t 忽略字母大小写后是否相等。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func EqualFold(s, t string) bool
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;示例：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;a := &amp;quot;gopher&amp;quot;
+b := &amp;quot;hello world&amp;quot;
+fmt.Println(strings.Compare(a, b))
+fmt.Println(strings.Compare(a, a))
+fmt.Println(strings.Compare(b, a))
+
+fmt.Println(strings.EqualFold(&amp;quot;GO&amp;quot;, &amp;quot;go&amp;quot;))
+fmt.Println(strings.EqualFold(&amp;quot;壹&amp;quot;, &amp;quot;一&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;-1
+0
+1
+true
+false
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;是否存在某个字符或子串&#34;&gt;是否存在某个字符或子串&lt;/h2&gt;
+
+&lt;p&gt;有三个函数做这件事：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// 子串 substr 在 s 中，返回 true
+func Contains(s, substr string) bool
+// chars 中任何一个 Unicode 代码点在 s 中，返回 true
+func ContainsAny(s, chars string) bool
+// Unicode 代码点 r 在 s 中，返回 true
+func ContainsRune(s string, r rune) bool
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这里对 ContainsAny 函数进行一下说明，看如下例子：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Println(strings.ContainsAny(&amp;quot;team&amp;quot;, &amp;quot;i&amp;quot;))
+fmt.Println(strings.ContainsAny(&amp;quot;failure&amp;quot;, &amp;quot;u &amp;amp; i&amp;quot;))
+fmt.Println(strings.ContainsAny(&amp;quot;in failure&amp;quot;, &amp;quot;s g&amp;quot;))
+fmt.Println(strings.ContainsAny(&amp;quot;foo&amp;quot;, &amp;quot;&amp;quot;))
+fmt.Println(strings.ContainsAny(&amp;quot;&amp;quot;, &amp;quot;&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;false
+true
+true
+false
+false
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;也就是说，第二个参数 chars 中任意一个字符（Unicode Code Point）如果在第一个参数 s 中存在，则返回 true。&lt;/p&gt;
+
+&lt;p&gt;查看这三个函数的源码，发现它们只是调用了相应的 Index 函数（子串出现的位置），然后和 0 作比较返回 true 或 fale。如，Contains：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Contains(s, substr string) bool {
+  return Index(s, substr) &amp;gt;= 0
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;子串出现次数-字符串匹配&#34;&gt;子串出现次数 ( 字符串匹配 )&lt;/h2&gt;
+
+&lt;p&gt;在数据结构与算法中，可能会讲解以下字符串匹配算法：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;朴素匹配算法
+KMP 算法
+Rabin-Karp 算法
+Boyer-Moore 算法
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;还有其他的算法，这里不一一列举，感兴趣的可以网上搜一下。&lt;/p&gt;
+
+&lt;p&gt;在 Go 中，查找子串出现次数即字符串模式匹配，实现的是 Rabin-Karp 算法。Count 函数的签名如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Count(s, sep string) int
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在 Count 的实现中，处理了几种特殊情况，属于字符匹配预处理的一部分。这里要特别说明一下的是当 sep 为空时，Count 的返回值是：utf8.RuneCountInString(s) + 1&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Println(strings.Count(&amp;quot;cheese&amp;quot;, &amp;quot;e&amp;quot;))
+fmt.Println(len(&amp;quot;谷歌中国&amp;quot;))
+fmt.Println(strings.Count(&amp;quot;谷歌中国&amp;quot;, &amp;quot;&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;3
+12
+5
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;关于 Rabin-Karp 算法的实现，有兴趣的可以看看 Count 的源码。&lt;/p&gt;
+
+&lt;p&gt;另外，Count 是计算子串在字符串中出现的无重叠的次数，比如：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Println(strings.Count(&amp;quot;fivevev&amp;quot;, &amp;quot;vev&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;字符串分割为-string&#34;&gt;字符串分割为[]string&lt;/h2&gt;
+
+&lt;p&gt;这个需求很常见，倒不一定是为了得到[]string。&lt;/p&gt;
+
+&lt;p&gt;该包提供了六个三组分割函数：Fields和FieldsFunc、Split和SplitAfter、SplitN和SplitAfterN。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Fields和FieldsFunc&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;func Fields(s string) []string
+func FieldsFunc(s string, f func(rune) bool) []string
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Fields 用一个或多个连续的空格分隔字符串 s，返回子字符串的数组（slice）。如果字符串 s 只包含空格，则返回空列表 ([]string 的长度为 0）。其中，空格的定义是 unicode.IsSpace，之前已经介绍过。&lt;/p&gt;
+
+&lt;p&gt;常见间隔符包括：&amp;rsquo;\t&amp;rsquo;, &amp;lsquo;\n&amp;rsquo;, &amp;lsquo;\v&amp;rsquo;, &amp;lsquo;\f&amp;rsquo;, &amp;lsquo;\r&amp;rsquo;, &amp;lsquo; &amp;lsquo;, U+0085 (NEL), U+00A0 (NBSP)&lt;/p&gt;
+
+&lt;p&gt;由于是用空格分隔，因此结果中不会含有空格或空子字符串，例如：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Printf(&amp;quot;Fields are: %q&amp;quot;, strings.Fields(&amp;quot;  foo bar  baz   &amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Fields are: [&amp;quot;foo&amp;quot; &amp;quot;bar&amp;quot; &amp;quot;baz&amp;quot;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;FieldsFunc通过实现一个回调函数来指定分隔字符串 s 的字符。比如上面的例子，我们通过 FieldsFunc 来实现：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Println(strings.FieldsFunc(&amp;quot;  foo bar  baz   &amp;quot;, unicode.IsSpace))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;实际上，Fields 函数就是调用 FieldsFunc 实现的：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Fields(s string) []string {
+  return FieldsFunc(s, unicode.IsSpace)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Split和SplitAfter、SplitN和SplitAfterN&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;之所以将这四个函数放在一起讲，是因为它们都是通过一个同一个内部函数来实现的。它们的函数签名及其实现：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Split(s, sep string) []string { return genSplit(s, sep, 0, -1) }
+func SplitAfter(s, sep string) []string { return genSplit(s, sep, len(sep), -1) }
+func SplitN(s, sep string, n int) []string { return genSplit(s, sep, 0, n) }
+func SplitAfterN(s, sep string, n int) []string { return genSplit(s, sep, len(sep), n) }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;它们都调用了 genSplit 函数。&lt;/p&gt;
+
+&lt;p&gt;这四个函数都是通过 sep 进行分割，返回[]string。如果 sep 为空，相当于分成一个个的 UTF-8 字符，如 Split(&amp;ldquo;abc&amp;rdquo;,&amp;ldquo;&amp;rdquo;)，得到的是[a b c]。&lt;/p&gt;
+
+&lt;p&gt;Split(s, sep) 和 SplitN(s, sep, -1) 等价；SplitAfter(s, sep) 和 SplitAfterN(s, sep, -1) 等价。&lt;/p&gt;
+
+&lt;p&gt;那么，Split 和 SplitAfter 有啥区别呢？通过这两句代码的结果就知道它们的区别了：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Printf(&amp;quot;%q\n&amp;quot;, strings.Split(&amp;quot;foo,bar,baz&amp;quot;, &amp;quot;,&amp;quot;))
+fmt.Printf(&amp;quot;%q\n&amp;quot;, strings.SplitAfter(&amp;quot;foo,bar,baz&amp;quot;, &amp;quot;,&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[&amp;quot;foo&amp;quot; &amp;quot;bar&amp;quot; &amp;quot;baz&amp;quot;]
+[&amp;quot;foo,&amp;quot; &amp;quot;bar,&amp;quot; &amp;quot;baz&amp;quot;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;也就是说，Split 会将 s 中的 sep 去掉，而 SplitAfter 会保留 sep。&lt;/p&gt;
+
+&lt;p&gt;带 N 的方法可以通过最后一个参数 n 控制返回的结果中的 slice 中的元素个数，当 n &amp;lt; 0 时，返回所有的子字符串；当 n == 0 时，返回的结果是 nil；当 n &amp;gt; 0 时，表示返回的 slice 中最多只有 n 个元素，其中，最后一个元素不会分割，比如：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Printf(&amp;quot;%q\n&amp;quot;, strings.SplitN(&amp;quot;foo,bar,baz&amp;quot;, &amp;quot;,&amp;quot;, 2))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[&amp;quot;foo&amp;quot; &amp;quot;bar,baz&amp;quot;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;另外看一下官方文档提供的例子，注意一下输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Printf(&amp;quot;%q\n&amp;quot;, strings.Split(&amp;quot;a,b,c&amp;quot;, &amp;quot;,&amp;quot;))
+fmt.Printf(&amp;quot;%q\n&amp;quot;, strings.Split(&amp;quot;a man a plan a canal panama&amp;quot;, &amp;quot;a &amp;quot;))
+fmt.Printf(&amp;quot;%q\n&amp;quot;, strings.Split(&amp;quot; xyz &amp;quot;, &amp;quot;&amp;quot;))
+fmt.Printf(&amp;quot;%q\n&amp;quot;, strings.Split(&amp;quot;&amp;quot;, &amp;quot;Bernardo O&#39;Higgins&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[&amp;quot;a&amp;quot; &amp;quot;b&amp;quot; &amp;quot;c&amp;quot;]
+[&amp;quot;&amp;quot; &amp;quot;man &amp;quot; &amp;quot;plan &amp;quot; &amp;quot;canal panama&amp;quot;]
+[&amp;quot; &amp;quot; &amp;quot;x&amp;quot; &amp;quot;y&amp;quot; &amp;quot;z&amp;quot; &amp;quot; &amp;quot;]
+[&amp;quot;&amp;quot;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;字符串是否有某个前缀或后缀&#34;&gt;字符串是否有某个前缀或后缀&lt;/h2&gt;
+
+&lt;p&gt;这两个函数比较简单，源码如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// s 中是否以 prefix 开始
+func HasPrefix(s, prefix string) bool {
+  return len(s) &amp;gt;= len(prefix) &amp;amp;&amp;amp; s[0:len(prefix)] == prefix
+}
+// s 中是否以 suffix 结尾
+func HasSuffix(s, suffix string) bool {
+  return len(s) &amp;gt;= len(suffix) &amp;amp;&amp;amp; s[len(s)-len(suffix):] == suffix
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果 prefix 或 suffix 为 &amp;ldquo;&amp;rdquo; , 返回值总是 true。&lt;/p&gt;
+
+&lt;p&gt;示例：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Println(strings.HasPrefix(&amp;quot;Gopher&amp;quot;, &amp;quot;Go&amp;quot;))
+fmt.Println(strings.HasPrefix(&amp;quot;Gopher&amp;quot;, &amp;quot;C&amp;quot;))
+fmt.Println(strings.HasPrefix(&amp;quot;Gopher&amp;quot;, &amp;quot;&amp;quot;))
+fmt.Println(strings.HasSuffix(&amp;quot;Amigo&amp;quot;, &amp;quot;go&amp;quot;))
+fmt.Println(strings.HasSuffix(&amp;quot;Amigo&amp;quot;, &amp;quot;Ami&amp;quot;))
+fmt.Println(strings.HasSuffix(&amp;quot;Amigo&amp;quot;, &amp;quot;&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;true
+false
+true
+true
+false
+true
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;字符或子串在字符串中出现的位置&#34;&gt;字符或子串在字符串中出现的位置&lt;/h2&gt;
+
+&lt;p&gt;有一序列函数与该功能有关：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// 在 s 中查找 sep 的第一次出现，返回第一次出现的索引
+func Index(s, sep string) int
+// 在 s 中查找字节 c 的第一次出现，返回第一次出现的索引
+func IndexByte(s string, c byte) int
+// chars 中任何一个 Unicode 代码点在 s 中首次出现的位置
+func IndexAny(s, chars string) int
+// 查找字符 c 在 s 中第一次出现的位置，其中 c 满足 f(c) 返回 true
+func IndexFunc(s string, f func(rune) bool) int
+// Unicode 代码点 r 在 s 中第一次出现的位置
+func IndexRune(s string, r rune) int
+
+// 有三个对应的查找最后一次出现的位置
+func LastIndex(s, sep string) int
+func LastIndexByte(s string, c byte) int
+func LastIndexAny(s, chars string) int
+func LastIndexFunc(s string, f func(rune) bool) int
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这一序列函数，只举 IndexFunc 的例子：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;han := func(c rune) bool {
+    return unicode.Is(unicode.Han, c) // 汉字
+}
+fmt.Println(strings.IndexFunc(&amp;quot;Hello, world&amp;quot;, han))
+fmt.Println(strings.IndexFunc(&amp;quot;Hello, 世界&amp;quot;, han))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;-1
+7
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;字符串-join-操作&#34;&gt;字符串 JOIN 操作&lt;/h2&gt;
+
+&lt;p&gt;将字符串数组（或 slice）连接起来可以通过 Join 实现，函数签名如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Join(a []string, sep string) string
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;假如没有这个库函数，我们自己实现一个，我们会这么实现：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Join(str []string, sep string) string {
+  // 特殊情况应该做处理
+  if len(str) == 0 {
+      return &amp;quot;&amp;quot;
+  }
+  if len(str) == 1 {
+      return str[0]
+  }
+  buffer := bytes.NewBufferString(str[0])
+  for _, s := range str[1:] {
+      buffer.WriteString(sep)
+      buffer.WriteString(s)
+  }
+  return buffer.String()
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这里，我们使用了 bytes 包的 Buffer 类型，避免大量的字符串连接操作（因为 Go 中字符串是不可变的）。我们再看一下标准库的实现：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Join(a []string, sep string) string {
+  if len(a) == 0 {
+      return &amp;quot;&amp;quot;
+  }
+  if len(a) == 1 {
+      return a[0]
+  }
+  n := len(sep) * (len(a) - 1)
+  for i := 0; i &amp;lt; len(a); i++ {
+      n += len(a[i])
+  }
+
+  b := make([]byte, n)
+  bp := copy(b, a[0])
+  for _, s := range a[1:] {
+      bp += copy(b[bp:], sep)
+      bp += copy(b[bp:], s)
+  }
+  return string(b)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;标准库的实现没有用 bytes 包，当然也不会简单的通过 + 号连接字符串。Go 中是不允许循环依赖的，标准库中很多时候会出现代码拷贝，而不是引入某个包。这里 Join 的实现方式挺好，我个人观点认为，不直接使用 bytes 包，也是不想依赖 bytes 包（其实 bytes 中的实现也是 copy 方式）。&lt;/p&gt;
+
+&lt;p&gt;简单使用示例：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Println(Join([]string{&amp;quot;name=xxx&amp;quot;, &amp;quot;age=xx&amp;quot;}, &amp;quot;&amp;amp;&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;name=xxx&amp;amp;age=xx
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;字符串重复几次&#34;&gt;字符串重复几次&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;func Repeat(s string, count int) string
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;将 s 重复 count 次，如果 count 为负数或返回值长度 len(s)*count 超出 string 上限会导致 panic，这个函数使用很简单：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Println(&amp;quot;ba&amp;quot; + strings.Repeat(&amp;quot;na&amp;quot;, 2))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;banana
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;字符替换&#34;&gt;字符替换&lt;/h2&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;map&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;func Map(mapping func(rune) rune, s string) string
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Map 函数，将 s 的每一个字符按照 mapping 的规则做映射替换，如果 mapping 返回值 &amp;lt;0 ，则舍弃该字符。该方法只能对每一个字符做处理，但处理方式很灵活，可以方便的过滤，筛选汉字等。&lt;/p&gt;
+
+&lt;p&gt;示例：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;mapping := func(r rune) rune {
+    switch {
+    case r &amp;gt;= &#39;A&#39; &amp;amp;&amp;amp; r &amp;lt;= &#39;Z&#39;: // 大写字母转小写
+        return r + 32
+    case r &amp;gt;= &#39;a&#39; &amp;amp;&amp;amp; r &amp;lt;= &#39;z&#39;: // 小写字母不处理
+        return r
+    case unicode.Is(unicode.Han, r): // 汉字换行
+        return &#39;\n&#39;
+    }
+    return -1 // 过滤所有非字母、汉字的字符
+}
+fmt.Println(strings.Map(mapping, &amp;quot;Hello你#￥%……\n（&#39;World\n,好Hello^(&amp;amp;(*界gopher...&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;hello
+world
+hello
+gopher
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;replace&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;进行字符串替换时，考虑到性能问题，能不用正则尽量别用，应该用这里的函数。&lt;/p&gt;
+
+&lt;p&gt;字符串替换的函数签名如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// 用 new 替换 s 中的 old，一共替换 n 个。
+// 如果 n &amp;lt; 0，则不限制替换次数，即全部替换
+func Replace(s, old, new string, n int) string
+// 该函数内部直接调用了函数 Replace(s, old, new , -1)
+func ReplaceAll(s, old, new string) string
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;使用示例：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Println(strings.Replace(&amp;quot;oink oink oink&amp;quot;, &amp;quot;k&amp;quot;, &amp;quot;ky&amp;quot;, 2))
+fmt.Println(strings.Replace(&amp;quot;oink oink oink&amp;quot;, &amp;quot;oink&amp;quot;, &amp;quot;moo&amp;quot;, -1))
+fmt.Println(strings.ReplaceAll(&amp;quot;oink oink oink&amp;quot;, &amp;quot;oink&amp;quot;, &amp;quot;moo&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;oinky oinky oink
+moo moo moo
+moo moo moo
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果我们希望一次替换多个，比如我们希望替换 This is &lt;b&gt;HTML&lt;/b&gt; 中的 &amp;lt; 和 &amp;gt; 为 &amp;lt; 和 &amp;gt;，可以调用上面的函数两次。但标准库提供了另外的方法进行这种替换。&lt;/p&gt;
+
+&lt;h2 id=&#34;大小写转换&#34;&gt;大小写转换&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;func ToLower(s string) string
+func ToLowerSpecial(c unicode.SpecialCase, s string) string
+func ToUpper(s string) string
+func ToUpperSpecial(c unicode.SpecialCase, s string) string
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;大小写转换包含了 4 个相关函数，ToLower,ToUpper 用于大小写转换。ToLowerSpecial,ToUpperSpecial 可以转换特殊字符的大小写。 举个例子：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Println(strings.ToLower(&amp;quot;HELLO WORLD&amp;quot;))
+fmt.Println(strings.ToLower(&amp;quot;Ā Á Ǎ À&amp;quot;))
+fmt.Println(strings.ToLowerSpecial(unicode.TurkishCase, &amp;quot;壹&amp;quot;))
+fmt.Println(strings.ToLowerSpecial(unicode.TurkishCase, &amp;quot;HELLO WORLD&amp;quot;))
+fmt.Println(strings.ToLower(&amp;quot;Önnek İş&amp;quot;))
+fmt.Println(strings.ToLowerSpecial(unicode.TurkishCase, &amp;quot;Önnek İş&amp;quot;))
+
+fmt.Println(strings.ToUpper(&amp;quot;hello world&amp;quot;))
+fmt.Println(strings.ToUpper(&amp;quot;ā á ǎ à&amp;quot;))
+fmt.Println(strings.ToUpperSpecial(unicode.TurkishCase, &amp;quot;一&amp;quot;))
+fmt.Println(strings.ToUpperSpecial(unicode.TurkishCase, &amp;quot;hello world&amp;quot;))
+fmt.Println(strings.ToUpper(&amp;quot;örnek iş&amp;quot;))
+fmt.Println(strings.ToUpperSpecial(unicode.TurkishCase, &amp;quot;örnek iş&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;hello world
+ā á ǎ à
+壹
+hello world
+önnek iş
+önnek iş
+HELLO WORLD
+Ā Á Ǎ À       // 汉字拼音有效
+一           //  汉字无效
+HELLO WORLD
+ÖRNEK IŞ
+ÖRNEK İŞ    // 有细微差别
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;标题处理&#34;&gt;标题处理&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;func Title(s string) string
+func ToTitle(s string) string
+func ToTitleSpecial(c unicode.SpecialCase, s string) string
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;标题处理包含 3 个相关函数，其中 Title 会将 s 每个单词的首字母大写，不处理该单词的后续字符。ToTitle 将 s 的每个字母大写。ToTitleSpecial 将 s 的每个字母大写，并且会将一些特殊字母转换为其对应的特殊大写字母。&lt;/p&gt;
+
+&lt;p&gt;举个例子：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fmt.Println(strings.Title(&amp;quot;hElLo wOrLd&amp;quot;))
+fmt.Println(strings.ToTitle(&amp;quot;hElLo wOrLd&amp;quot;))
+fmt.Println(strings.ToTitleSpecial(unicode.TurkishCase, &amp;quot;hElLo wOrLd&amp;quot;))
+fmt.Println(strings.Title(&amp;quot;āáǎà ōóǒò êēéěè&amp;quot;))
+fmt.Println(strings.ToTitle(&amp;quot;āáǎà ōóǒò êēéěè&amp;quot;))
+fmt.Println(strings.ToTitleSpecial(unicode.TurkishCase, &amp;quot;āáǎà ōóǒò êēéěè&amp;quot;))
+fmt.Println(strings.Title(&amp;quot;dünyanın ilk borsa yapısı Aizonai kabul edilir&amp;quot;))
+fmt.Println(strings.ToTitle(&amp;quot;dünyanın ilk borsa yapısı Aizonai kabul edilir&amp;quot;))
+fmt.Println(strings.ToTitleSpecial(unicode.TurkishCase, &amp;quot;dünyanın ilk borsa yapısı Aizonai kabul edilir&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;HElLo WOrLd
+HELLO WORLD
+HELLO WORLD
+Āáǎà Ōóǒò Êēéěè
+ĀÁǍÀ ŌÓǑÒ ÊĒÉĚÈ
+ĀÁǍÀ ŌÓǑÒ ÊĒÉĚÈ
+Dünyanın Ilk Borsa Yapısı Aizonai Kabul Edilir
+DÜNYANIN ILK BORSA YAPISI AIZONAI KABUL EDILIR
+DÜNYANIN İLK BORSA YAPISI AİZONAİ KABUL EDİLİR
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;修剪&#34;&gt;修剪&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;// 将 s 左侧和右侧中匹配 cutset 中的任一字符的字符去掉
+func Trim(s string, cutset string) string
+// 将 s 左侧的匹配 cutset 中的任一字符的字符去掉
+func TrimLeft(s string, cutset string) string
+// 将 s 右侧的匹配 cutset 中的任一字符的字符去掉
+func TrimRight(s string, cutset string) string
+// 如果 s 的前缀为 prefix 则返回去掉前缀后的 string , 否则 s 没有变化。
+func TrimPrefix(s, prefix string) string
+// 如果 s 的后缀为 suffix 则返回去掉后缀后的 string , 否则 s 没有变化。
+func TrimSuffix(s, suffix string) string
+// 将 s 左侧和右侧的间隔符去掉。常见间隔符包括：&#39;\t&#39;, &#39;\n&#39;, &#39;\v&#39;, &#39;\f&#39;, &#39;\r&#39;, &#39; &#39;, U+0085 (NEL)
+func TrimSpace(s string) string
+// 将 s 左侧和右侧的匹配 f 的字符去掉
+func TrimFunc(s string, f func(rune) bool) string
+// 将 s 左侧的匹配 f 的字符去掉
+func TrimLeftFunc(s string, f func(rune) bool) string
+// 将 s 右侧的匹配 f 的字符去掉
+func TrimRightFunc(s string, f func(rune) bool) string
+包含了 9 个相关函数用于修剪字符串。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;举个例子：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;x := &amp;quot;!!!@@@你好,!@#$ Gophers###$$$&amp;quot;
+fmt.Println(strings.Trim(x, &amp;quot;@#$!%^&amp;amp;*()_+=-&amp;quot;))
+fmt.Println(strings.TrimLeft(x, &amp;quot;@#$!%^&amp;amp;*()_+=-&amp;quot;))
+fmt.Println(strings.TrimRight(x, &amp;quot;@#$!%^&amp;amp;*()_+=-&amp;quot;))
+fmt.Println(strings.TrimSpace(&amp;quot; \t\n Hello, Gophers \n\t\r\n&amp;quot;))
+fmt.Println(strings.TrimPrefix(x, &amp;quot;!&amp;quot;))
+fmt.Println(strings.TrimSuffix(x, &amp;quot;$&amp;quot;))
+
+f := func(r rune) bool {
+    return !unicode.Is(unicode.Han, r) // 非汉字返回 true
+}
+fmt.Println(strings.TrimFunc(x, f))
+fmt.Println(strings.TrimLeftFunc(x, f))
+fmt.Println(strings.TrimRightFunc(x, f))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;你好,!@#$ Gophers
+你好,!@#$ Gophers###$$$
+!!!@@@你好,!@#$ Gophers
+Hello, Gophers
+!!@@@你好,!@#$ Gophers###$$$
+!!!@@@你好,!@#$ Gophers###$$
+你好
+你好,!@#$ Gophers###$$$
+!!!@@@你好
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;类型&#34;&gt;类型&lt;/h1&gt;
+
+&lt;h2 id=&#34;replacer-类型&#34;&gt;Replacer 类型&lt;/h2&gt;
+
+&lt;p&gt;这是一个结构，没有导出任何字段，实例化通过 func NewReplacer(oldnew &amp;hellip;string) *Replacer 函数进行，其中不定参数 oldnew 是 old-new 对，即进行多个替换。如果 oldnew 长度与奇数，会导致 panic.&lt;/p&gt;
+
+&lt;p&gt;示例：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;r := strings.NewReplacer(&amp;quot;&amp;lt;&amp;quot;, &amp;quot;&amp;amp;lt;&amp;quot;, &amp;quot;&amp;gt;&amp;quot;, &amp;quot;&amp;amp;gt;&amp;quot;)
+fmt.Println(r.Replace(&amp;quot;This is &amp;lt;b&amp;gt;HTML&amp;lt;/b&amp;gt;!&amp;quot;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;This is &amp;amp;lt;b&amp;amp;gt;HTML&amp;amp;lt;/b&amp;amp;gt;!
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;另外，Replacer 还提供了另外一个方法，它在替换之后将结果写入 io.Writer 中。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *Replacer) WriteString(w io.Writer, s string) (n int, err error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;reader-类型&#34;&gt;Reader 类型&lt;/h2&gt;
+
+&lt;p&gt;看到名字就能猜到，这是实现了 io 包中的接口。其实这就是缓存io，对缓存中的string进行读写操作。&lt;/p&gt;
+
+&lt;p&gt;它实现了 io.Reader（Read 方法），io.ReaderAt（ReadAt 方法），io.Seeker（Seek 方法），io.WriterTo（WriteTo 方法），io.ByteReader（ReadByte 方法），io.ByteScanner（ReadByte 和 UnreadByte 方法），io.RuneReader（ReadRune 方法） 和 io.RuneScanner（ReadRune 和 UnreadRune 方法）。&lt;/p&gt;
+
+&lt;p&gt;Reader 结构如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Reader struct {
+    s        string    // Reader 读取的数据来源
+    i        int // current reading index（当前读的索引位置）
+    prevRune int // index of previous rune; or &amp;lt; 0（前一个读取的 rune 索引位置）
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可见 Reader 结构没有导出任何字段，而是提供一个实例化方法：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func NewReader(s string) *Reader
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;该方法接收一个字符串，返回的 Reader 实例就是从该参数字符串读数据。&lt;/p&gt;
+
+&lt;p&gt;在后面学习了 &lt;a href=&#34;https://kingjcy.github.io/post/golang/go-bytes/#reader-类型&#34;&gt;bytes&lt;/a&gt; 包之后，可以知道 bytes.NewBufferString 有类似的功能，不过，如果只是为了读取，NewReader 会更高效。&lt;/p&gt;
+
+&lt;h2 id=&#34;builder-类型&#34;&gt;Builder 类型&lt;/h2&gt;
+
+&lt;p&gt;这个类型也是缓存io的一种实现方式。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Builder struct {
+    addr *Builder // of receiver, to detect copies by value
+    buf  []byte
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;该类型实现了 io 包下的 Writer, ByteWriter, StringWriter 等接口，可以向该对象内写入数据，Builder 没有实现 Reader 等接口，所以该类型不可读，但提供了 String 方法可以获取对象内的数据。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// 该方法向 b 写入一个字节
+func (b *Builder) WriteByte(c byte) error
+// WriteRune 方法向 b 写入一个字符
+func (b *Builder) WriteRune(r rune) (int, error)
+// WriteRune 方法向 b 写入字节数组 p
+func (b *Builder) Write(p []byte) (int, error)
+// WriteRune 方法向 b 写入字符串 s
+func (b *Builder) WriteString(s string) (int, error)
+// Len 方法返回 b 的数据长度。
+func (b *Builder) Len() int
+// Cap 方法返回 b 的 cap。
+func (b *Builder) Cap() int
+// Grow 方法将 b 的 cap 至少增加 n (可能会更多)。如果 n 为负数，会导致 panic。
+func (b *Builder) Grow(n int)
+// Reset 方法将 b 清空 b 的所有内容。
+func (b *Builder) Reset()
+// String 方法将 b 的数据以 string 类型返回。
+func (b *Builder) String() string
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Builder 有 4 个与写入相关的方法，这 4 个方法的 error 都总是为 nil.&lt;/p&gt;
+
+&lt;p&gt;Builder 的 cap 会自动增长，一般不需要手动调用 Grow 方法。&lt;/p&gt;
+
+&lt;p&gt;String 方法可以方便的获取 Builder 的内容。&lt;/p&gt;
+
+&lt;p&gt;举个例子：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;b := strings.Builder{}
+_ = b.WriteByte(&#39;7&#39;)
+n, _ := b.WriteRune(&#39;夕&#39;)
+fmt.Println(n)
+n, _ = b.Write([]byte(&amp;quot;Hello, World&amp;quot;))
+fmt.Println(n)
+n, _ = b.WriteString(&amp;quot;你好，世界&amp;quot;)
+fmt.Println(n)
+fmt.Println(b.Len())
+fmt.Println(b.Cap())
+b.Grow(100)
+fmt.Println(b.Len())
+fmt.Println(b.Cap())
+fmt.Println(b.String())
+b.Reset()
+fmt.Println(b.String())
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;3
+12
+15
+31
+32
+31
+164
+7夕Hello, World你好，世界
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;strong&gt;这边主要是要注意，使用返回值作为新值，原来值是不变的。&lt;/strong&gt;&lt;/p&gt;</description>
         </item>
       
     

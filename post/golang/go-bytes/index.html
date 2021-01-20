@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="该包定义了一些操作 byte slice 的便利操作。因为字符串可以表示为 []byte，因此，bytes 包定义的函数、方法等和 strings 包很类似，所以讲解时会和 strings 包类似甚至可以直接参考。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Golang使用系列---- Bytes - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Golang使用系列---- Bytes
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年12月25日 
+                </div>
+                <h1 class="post-title">Golang使用系列---- Bytes</h1>
+            </header>
+
+            <div class="post-content">
+                <p>该包定义了一些操作 byte slice 的便利操作。因为字符串可以表示为 []byte，因此，bytes 包定义的函数、方法等和 strings 包很类似，所以讲解时会和 strings 包类似甚至可以直接参考。</p>
+
+<h1 id="基本使用">基本使用</h1>
+
+<h2 id="是否存在某个子-slice">是否存在某个子 slice</h2>
+
+<pre><code>// 子 slice subslice 在 b 中，返回 true
+func Contains(b, subslice []byte) bool
+</code></pre>
+
+<p>该函数的内部调用了 bytes.Index 函数（在后面会讲解）:</p>
+
+<pre><code>func Contains(b, subslice []byte) bool {
+    return Index(b, subslice) != -1
+}
+</code></pre>
+
+<p>题外：对比 strings.Contains 你会发现，一个判断 &gt;=0，一个判断 != -1，可见库不是一个人写的，没有做到一致性。</p>
+
+<h2 id="byte-出现次数">[]byte 出现次数</h2>
+
+<pre><code>// slice sep 在 s 中出现的次数（无重叠）
+func Count(s, sep []byte) int
+</code></pre>
+
+<p>和 strings 实现不同，此包中的 Count 核心代码如下：</p>
+
+<pre><code>count := 0
+c := sep[0]
+i := 0
+t := s[:len(s)-n+1]
+for i &lt; len(t) {
+    // 判断 sep 第一个字节是否在 t[i:] 中
+    // 如果在，则比较之后相应的字节
+    if t[i] != c {
+        o := IndexByte(t[i:], c)
+        if o &lt; 0 {
+            break
+        }
+        i += o
+    }
+    // 执行到这里表示 sep[0] == t[i]
+    if n == 1 || Equal(s[i:i+n], sep) {
+        count++
+        i += n
+        continue
+    }
+    i++
+}
+</code></pre>
+
+<h2 id="runes-类型转换">Runes 类型转换</h2>
+
+<pre><code>// 将 []byte 转换为 []rune
+func Runes(s []byte) []rune
+</code></pre>
+
+<p>该函数将 []byte 转换为 []rune ，适用于汉字等多字节字符，示例：</p>
+
+<pre><code>b:=[]byte(&quot;你好，世界&quot;)
+for k,v:=range b{
+    fmt.Printf(&quot;%d:%s |&quot;,k,string(v))
+}
+r:=bytes.Runes(b)
+for k,v:=range r{
+    fmt.Printf(&quot;%d:%s|&quot;,k,string(v))
+}
+</code></pre>
+
+<p>运行结果：</p>
+
+<pre><code>0:ä |1:½ |2:  |3:å |4:¥ |5:½ |6:ï |7:¼ |8:  |9:ä |10:¸ |11:  |12:ç |13:  |14: |
+0:你|1:好|2:，|3:世|4:界|
+</code></pre>
+
+<h2 id="其它函数">其它函数</h2>
+
+<p>其它大部分函数、方法与 strings 包下的函数、方法类似，只是数据源从 string 变为了 []byte ，请参考 strings 包的用法。</p>
+
+<h1 id="类型">类型</h1>
+
+<h2 id="reader-类型">Reader 类型</h2>
+
+<p>看到名字就能猜到，这是实现了 io 包中的接口。其实这就是缓存io，对缓存中的[]byte进行读写操作。</p>
+
+<pre><code>type Reader struct {
+    s        []byte
+    i        int64 // 当前读取下标
+    prevRune int   // 前一个字符的下标，也可能 &lt; 0
+}
+</code></pre>
+
+<p>bytes 包下的 Reader 类型实现了 io 包下的 Reader, ReaderAt, RuneReader, RuneScanner, ByteReader, ByteScanner, ReadSeeker, Seeker, WriterTo 等多个接口。主要用于 Read 数据。</p>
+
+<p>我们需要在通过 bytes.NewReader 方法来初始化 bytes.Reader 类型的对象。初始化时传入 []byte 类型的数据。NewReader 函数签名如下：</p>
+
+<pre><code>func NewReader(b []byte) *Reader
+</code></pre>
+
+<p>如果直接声明该对象了，可以通过 Reset 方法重新写入数据，示例：</p>
+
+<pre><code>x:=[]byte(&quot;你好，世界&quot;)
+
+r1:=bytes.NewReader(x)
+d1:=make([]byte,len(x))
+n,_:=r1.Read(d1)
+fmt.Println(n,string(d1))
+
+r2:=bytes.Reader{}
+r2.Reset(x)
+d2:=make([]byte,len(x))
+n,_=r2.Read(d2)
+fmt.Println(n,string(d2))
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>15 你好，世界
+15 你好，世界
+</code></pre>
+
+<p>Reader 包含了 8 个读取相关的方法，实现了前面提到的 io 包下的 9 个接口（ReadSeeker 接口内嵌 Reader 和 Seeker 两个接口）：</p>
+
+<pre><code>// 读取数据至 b
+func (r *Reader) Read(b []byte) (n int, err error)
+// 读取一个字节
+func (r *Reader) ReadByte() (byte, error)
+// 读取一个字符
+func (r *Reader) ReadRune() (ch rune, size int, err error)
+// 读取数据至 w
+func (r *Reader) WriteTo(w io.Writer) (n int64, err error)
+// 进度下标指向前一个字节，如果 r.i &lt;= 0 返回错误。
+func (r *Reader) UnreadByte()
+// 进度下标指向前一个字符，如果 r.i &lt;= 0 返回错误，且只能在每次 ReadRune 方法后使用一次，否则返回错误。
+func (r *Reader) UnreadRune()
+// 读取 r.s[off:] 的数据至b，该方法忽略进度下标 i，不使用也不修改。
+func (r *Reader) ReadAt(b []byte, off int64) (n int, err error)
+// 根据 whence 的值，修改并返回进度下标 i ，当 whence == 0 ，进度下标修改为 off，当 whence == 1 ，进度下标修改为 i+off，当 whence == 2 ，进度下标修改为 len[s]+off.
+// off 可以为负数，whence 的只能为 0，1，2，当 whence 为其他值或计算后的进度下标越界，则返回错误。
+func (r *Reader) Seek(offset int64, whence int) (int64, error)
+</code></pre>
+
+<p>示例：</p>
+
+<pre><code>x := []byte(&quot;你好，世界&quot;)
+r1 := bytes.NewReader(x)
+
+ch, size, _ := r1.ReadRune()
+fmt.Println(size, string(ch))
+_ = r1.UnreadRune()
+ch, size, _ = r1.ReadRune()
+fmt.Println(size, string(ch))
+_ = r1.UnreadRune()
+
+by, _ := r1.ReadByte()
+fmt.Println(by)
+_ = r1.UnreadByte()
+by, _ = r1.ReadByte()
+fmt.Println(by)
+_ = r1.UnreadByte()
+
+d1 := make([]byte, 6)
+n, _ := r1.Read(d1)
+fmt.Println(n, string(d1))
+
+d2 := make([]byte, 6)
+n, _ = r1.ReadAt(d2, 0)
+fmt.Println(n, string(d2))
+
+w1 := &amp;bytes.Buffer{}
+_, _ = r1.Seek(0, 0)
+_, _ = r1.WriteTo(w1)
+fmt.Println(w1.String())
+</code></pre>
+
+<p>运行结果：</p>
+
+<pre><code>3 你
+3 你
+228
+228
+6 你好
+6 你好
+你好，世界
+</code></pre>
+
+<h2 id="buffer-类型">Buffer 类型</h2>
+
+<p>buffer类型也实现了缓存io，也是对[]byte进行读写操作，提供了多种实现化函数对象，个人感觉是对string，byte的reader的综合使用实现。</p>
+
+<pre><code>type Buffer struct {
+    buf      []byte
+    off      int
+    lastRead readOp
+}
+</code></pre>
+
+<p>在上一个示例的最后，我们使用了 bytes.Buffer 类型，该类型实现了 io 包下的 ByteScanner, ByteWriter, ReadWriter, Reader, ReaderFrom, RuneReader, RuneScanner, StringWriter, Writer, WriterTo 等接口，可以方便的进行读写操作。</p>
+
+<p>对象可读取数据为 buf[off : len(buf)], off 表示进度下标，lastRead 表示最后读取的一个字符所占字节数，方便 Unread* 相关操作。</p>
+
+<p>Buffer 可以通过 3 中方法初始化对象：</p>
+
+<pre><code>a := bytes.NewBufferString(&quot;Hello World&quot;)
+b := bytes.NewBuffer([]byte(&quot;Hello World&quot;))
+c := bytes.Buffer{}
+
+fmt.Println(a)
+fmt.Println(b)
+fmt.Println(c)
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>Hello World
+Hello World
+{[] 0 0}
+</code></pre>
+
+<p>Buffer 包含了 21 个读写相关的方法，大部分同名方法的用法与前面讲的类似，这里只讲演示其中的 3 个方法：</p>
+
+<pre><code>// 读取到字节 delim 后，以字节数组的形式返回该字节及前面读取到的字节。如果遍历 b.buf 也找不到匹配的字节，则返回错误(一般是 EOF)
+func (b *Buffer) ReadBytes(delim byte) (line []byte, err error)
+// 读取到字节 delim 后，以字符串的形式返回该字节及前面读取到的字节。如果遍历 b.buf 也找不到匹配的字节，则返回错误(一般是 EOF)
+func (b *Buffer) ReadString(delim byte) (line string, err error)
+// 截断 b.buf , 舍弃 b.off+n 之后的数据。n == 0 时，调用 Reset 方法重置该对象，当 n 越界时（n &lt; 0 || n &gt; b.Len() ）方法会触发 panic.
+func (b *Buffer) Truncate(n int)
+</code></pre>
+
+<p>示例：</p>
+
+<pre><code>a := bytes.NewBufferString(&quot;Good Night&quot;)
+
+x, err := a.ReadBytes('t')
+if err != nil {
+    fmt.Println(&quot;delim:t err:&quot;, err)
+} else {
+    fmt.Println(string(x))
+}
+
+a.Truncate(0)
+a.WriteString(&quot;Good Night&quot;)
+fmt.Println(a.Len())
+a.Truncate(5)
+fmt.Println(a.Len())
+y, err := a.ReadString('N')
+if err != nil {
+    fmt.Println(&quot;delim:N err:&quot;, err)
+} else {
+    fmt.Println(y)
+}
+</code></pre>
+
+<p>输出结果：</p>
+
+<pre><code>Good Night
+10
+5
+delim:N err: EOF
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-bytes/">https://kingjcy.github.io/post/golang/go-bytes/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/bytes/">
+                            <i class="fa fa-tags"></i>
+                            bytes
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-net-http/">Golang使用系列---- Net/Http 应用层</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年09月26日)</span></li><li id="li-rels"><a href="/post/golang/go-strings/">Golang使用系列---- Strings</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年10月12日)</span></li><li id="li-rels"><a href="/post/golang/go-io/">Golang使用系列---- Io</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年07月30日)</span></li><li id="li-rels"><a href="/post/golang/go-net/">Golang使用系列---- Go Net 协议层</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年07月11日)</span></li><li id="li-rels"><a href="/post/golang/go-os/">Golang使用系列---- Os</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年06月02日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous disabled"><a href="#"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/map/uml/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本使用">基本使用</a>
+<ul>
+<li><a href="#是否存在某个子-slice">是否存在某个子 slice</a></li>
+<li><a href="#byte-出现次数">[]byte 出现次数</a></li>
+<li><a href="#runes-类型转换">Runes 类型转换</a></li>
+<li><a href="#其它函数">其它函数</a></li>
+</ul></li>
+<li><a href="#类型">类型</a>
+<ul>
+<li><a href="#reader-类型">Reader 类型</a></li>
+<li><a href="#buffer-类型">Buffer 类型</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2017  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
