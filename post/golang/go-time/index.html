@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="time包中包括两类时间：时间点（某一时刻）和时长（某一段时间）的基本操作。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="golang使用系列---- Time - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    golang使用系列---- Time
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年04月12日 
+                </div>
+                <h1 class="post-title">golang使用系列---- Time</h1>
+            </header>
+
+            <div class="post-content">
+                <p>time包中包括两类时间：时间点（某一时刻）和时长（某一段时间）的基本操作。</p>
+
+<h1 id="time">time</h1>
+
+<h2 id="基本结构">基本结构</h2>
+
+<blockquote>
+<p>Time</p>
+</blockquote>
+
+<pre><code>type Time struct {
+    wall uint64
+    ext  int64
+    loc *Location
+}
+</code></pre>
+
+<ul>
+<li>wall  秒</li>
+<li>ext   纳秒</li>
+<li>loc *Location
+
+<ul>
+<li>time.UTC utc时间</li>
+<li>time.Local 本地时间</li>
+<li>FixedZone(name string, offset int) *Location   设置时区名,以及与UTC0的时间偏差.返回Location</li>
+</ul></li>
+</ul>
+
+<blockquote>
+<p>Duration</p>
+</blockquote>
+
+<pre><code>type Duration int64
+</code></pre>
+
+<p>Duration类型代表两个时间点之间经过的时间，以纳秒为单位。可表示的最长时间段大约290年。</p>
+
+<blockquote>
+<p>时间常量</p>
+</blockquote>
+
+<p>Duration的单位为 nanosecond，为了便于使用，time中定义了时间常量：</p>
+
+<pre><code>const (
+    Nanosecond Duration = 1
+    Microsecond = 1000 * Nanosecond
+    Millisecond = 1000 * Microsecond
+    Second = 1000 * Millisecond
+    Minute = 60 * Second
+    Hour = 60 * Minute
+)
+</code></pre>
+
+<blockquote>
+<p>Ticker</p>
+</blockquote>
+
+<pre><code>type Ticker
+type Ticker struct {
+    C &lt;-chan Time // 周期性传递时间信息的通道
+    // 内含隐藏或非导出字段
+}
+</code></pre>
+
+<p>Ticker保管一个通道，并每隔一段时间向其传递&rdquo;tick&rdquo;。</p>
+
+<pre><code>func NewTicker
+func NewTicker(d Duration) *Ticker
+</code></pre>
+
+<p>NewTicker返回一个新的Ticker，该Ticker包含一个通道字段，并会每隔时间段d就向该通道发送当时的时间。它会调整时间间隔或者丢弃tick信息以适应反应慢的接收者。如果d&lt;=0会panic。关闭该Ticker可以释放相关资源。</p>
+
+<pre><code>func (*Ticker) Stop
+func (t *Ticker) Stop()
+</code></pre>
+
+<p>Stop关闭一个Ticker。在关闭后，将不会发送更多的tick信息。Stop不会关闭通道t.C，以避免从该通道的读取不正确的成功。</p>
+
+<blockquote>
+<p>总结</p>
+</blockquote>
+
+<ul>
+<li>time.Duration（时长，耗时）</li>
+<li>time.Time（时间点）</li>
+<li>time.C（放时间点的管道）[ Time.C:=make(chan time.Time) ]</li>
+</ul>
+
+<h2 id="基本函数">基本函数</h2>
+
+<p>time包提供了时间的显示和测量用的函数。日历的计算采用的是公历。</p>
+
+<pre><code>func Now
+func Now() Time
+</code></pre>
+
+<p>Now返回当前本地时间。</p>
+
+<pre><code>func (Time) Before
+func (t Time) Before(u Time) bool
+</code></pre>
+
+<p>如果t代表的时间点在u之前，返回真；否则返回假。</p>
+
+<pre><code>func (Time) Add
+func (t Time) Add(d Duration) Time
+</code></pre>
+
+<p>Add返回时间点t+d。</p>
+
+<pre><code>func (Time) Second
+func (t Time) Second() int
+</code></pre>
+
+<p>返回t对应的那一分钟的第几秒，范围[0, 59]。</p>
+
+<h1 id="常规使用">常规使用</h1>
+
+<h2 id="sleep">sleep</h2>
+
+<p>golang的休眠可以使用time包中的sleep。</p>
+
+<p>函数原型为：</p>
+
+<pre><code>func Sleep(d Duration)
+</code></pre>
+
+<p>下面实现休眠2秒功能。</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;time&quot;
+)
+
+func main() {
+
+    fmt.Println(&quot;begin&quot;)
+    time.Sleep(time.Duration(2)*time.Second)
+    fmt.Println(&quot;end&quot;)
+}
+</code></pre>
+
+<p>time使用变量的时候需要强制转换</p>
+
+<pre><code>time.Duration(cfg.CTimeOut) * time.Second
+</code></pre>
+
+<h2 id="定时器">定时器</h2>
+
+<p>定时器只会传达一次到期事件，</p>
+
+<pre><code>type Timer struct {
+    C &lt;-chan Time
+    r runtimeTimer
+}
+</code></pre>
+
+<p>每天定时0点执行</p>
+
+<pre><code>import (
+    &quot;time&quot;
+    &quot;fmt&quot;
+)
+
+//定时结算Boottime表数据
+func BoottimeTimingSettlement() {
+    for {
+        now := time.Now()
+        // 计算下一个零点
+        next := now.Add(time.Hour * 24)
+        next = time.Date(next.Year(), next.Month(), next.Day(), 0, 0, 0, 0, next.Location())
+        t := time.NewTimer(next.Sub(now))
+        &lt;-t.C
+        Printf(&quot;定时结算Boottime表数据，结算完成: %v\n&quot;,time.Now())
+        //以下为定时执行的操作
+        BoottimeSettlement()
+    }
+}
+</code></pre>
+
+<h2 id="断续器">断续器</h2>
+
+<p>周期性的传达到期事件的装置，定时器只会传达一次到期事件，断续器会持续工作直到停止。</p>
+
+<pre><code>type Ticker struct {
+    C &lt;-chan Time // The channel on which the ticks are delivered.
+    r runtimeTimer
+}
+</code></pre>
+
+<p>初始化</p>
+
+<pre><code>func NewTicker(d Duration) *Ticker
+</code></pre>
+
+<p>NewTicker返回一个新的Ticker，该Ticker包含一个通道字段，并会每隔时间段d就向该通道发送当时的时间。它会调整时间间隔或者丢弃tick信息以适应反应慢的接收者。如果d&lt;=0会panic。关闭该Ticker可以释放相关资源。</p>
+
+<pre><code>ticker := time.NewTicker(time.Millisecond * 500)
+go func() {
+    for t := range ticker.C {
+        fmt.Println(&quot;Tick at&quot;, t)
+    }
+}()
+
+time.Sleep(time.Millisecond * 1500)   //阻塞，则执行次数为sleep的休眠时间/ticker的时间
+ticker.Stop()    
+fmt.Println(&quot;Ticker stopped&quot;)
+</code></pre>
+
+<h2 id="获取时间">获取时间</h2>
+
+<p>各种现有时间的获取</p>
+
+<pre><code>func main() {
+    fmt.Printf(&quot;时间戳（秒）：%v;\n&quot;, time.Now().Unix())
+    fmt.Printf(&quot;时间戳（纳秒）：%v;\n&quot;,time.Now().UnixNano())
+    fmt.Printf(&quot;时间戳（毫秒）：%v;\n&quot;,time.Now().UnixNano() / 1e6)
+    fmt.Printf(&quot;时间戳（纳秒转换为秒）：%v;\n&quot;,time.Now().UnixNano() / 1e9)
+}
+
+
+时间戳（秒）：1530027865;
+时间戳（纳秒）：1530027865231834600;
+时间戳（毫秒）：1530027865231;
+时间戳（纳秒转换为秒）：1530027865;
+</code></pre>
+
+<h2 id="时间转化">时间转化</h2>
+
+<p>处理时间单位自动转化问题</p>
+
+<pre><code>func ParseDuration(s string) (Duration, error)
+</code></pre>
+
+<p>传入字符串，返回响应的时间，其中传入的字符串中的有效时间单位如下：h,m,s,ms,us,ns，其他单位均无效，如果传入无效时间单位，则会返回０</p>
+
+<p>获取前n天的时间</p>
+
+<pre><code>//获取两天前的时间
+currentTime := time.Now()
+oldTime := currentTime.AddDate(0, 0, -2)        //若要获取3天前的时间，则应将-2改为-3
+//oldTime 的结果为go的时间time类型，2018-09-25 13:24:58.287714118 +0000 UTC
+</code></pre>
+
+<p>比较时间，使用before</p>
+
+<pre><code>time1 := &quot;2015-03-20 08:50:29&quot;
+time2 := &quot;2015-03-21 09:04:25&quot;
+//先把时间字符串格式化成相同的时间类型
+t1, err := time.Parse(&quot;2006-01-02 15:04:05&quot;, time1)
+t2, err := time.Parse(&quot;2006-01-02 15:04:05&quot;, time2)
+if err == nil &amp;&amp; t1.Before(t2) {
+    //处理逻辑
+    fmt.Println(&quot;true&quot;)
+}
+</code></pre>
+
+<h2 id="获取文件的各种时间">获取文件的各种时间</h2>
+
+<pre><code>func main() {
+    finfo, _ := os.Stat(filename)
+    // Sys()返回的是interface{}，所以需要类型断言，不同平台需要的类型不一样，linux上为*syscall.Stat_t
+    stat_t := finfo.Sys().(*syscall.Stat_t)
+    fmt.Println(stat_t)
+    // atime，ctime，mtime分别是访问时间，创建时间和修改时间，具体参见man 2 stat
+    fmt.Println(timespecToTime(stat_t.Atim))
+    fmt.Println(timespecToTime(stat_t.Ctim))
+    fmt.Println(timespecToTime(stat_t.Mtim))
+}
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-time/">https://kingjcy.github.io/post/golang/go-time/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/time/">
+                            <i class="fa fa-tags"></i>
+                            time
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-bufio/">Golang使用系列---- Bufio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-ioutil/">Golang使用系列---- Ioutil</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年01月13日)</span></li><li id="li-rels"><a href="/post/golang/go-bytes/">Golang使用系列---- Bytes</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-net-http/">Golang使用系列---- Net/Http 应用层</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年09月26日)</span></li><li id="li-rels"><a href="/post/golang/go-strings/">Golang使用系列---- Strings</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年10月12日)</span></li><li id="li-rels"><a href="/post/golang/go-strconv/">Golang使用系列---- Strconv</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年10月12日)</span></li><li id="li-rels"><a href="/post/golang/go-io/">Golang使用系列---- Io</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年07月30日)</span></li><li id="li-rels"><a href="/post/golang/go-net/">Golang使用系列---- Go Net 协议层</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年07月11日)</span></li><li id="li-rels"><a href="/post/golang/go-os/">Golang使用系列---- Os</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年06月02日)</span></li><li id="li-rels"><a href="/post/golang/go-fmt/">Golang使用系列---- Fmt</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年05月30日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-fmt/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/tool/hugo-blog-build/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#time">time</a>
+<ul>
+<li><a href="#基本结构">基本结构</a></li>
+<li><a href="#基本函数">基本函数</a></li>
+</ul></li>
+<li><a href="#常规使用">常规使用</a>
+<ul>
+<li><a href="#sleep">sleep</a></li>
+<li><a href="#定时器">定时器</a></li>
+<li><a href="#断续器">断续器</a></li>
+<li><a href="#获取时间">获取时间</a></li>
+<li><a href="#时间转化">时间转化</a></li>
+<li><a href="#获取文件的各种时间">获取文件的各种时间</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2018  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

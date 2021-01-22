@@ -564,6 +564,140 @@ func (b *Writer) WriteString(s string) (int, error)
     
       
         <item>
+          <title>Golang使用系列---- Ioutil</title>
+          <link>https://kingjcy.github.io/post/golang/go-ioutil/</link>
+          <pubDate>Sat, 13 Jan 2018 11:04:07 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-ioutil/</guid>
+          <description>&lt;p&gt;ioutil主要是提供了一些常用、方便的IO操作函数。&lt;/p&gt;
+
+&lt;h1 id=&#34;ioutil&#34;&gt;ioutil&lt;/h1&gt;
+
+&lt;p&gt;ioutil针对reader和writer这两个接口封装的基础操作&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// Discard 是一个 io.Writer 接口，调用它的 Write 方法将不做任何事情
+// 并且始终成功返回。
+var Discard io.Writer = devNull(0)
+
+// ReadAll 读取 r 中的所有数据，返回读取的数据和遇到的错误。
+// 如果读取成功，则 err 返回 nil，而不是 EOF，因为 ReadAll 定义为读取
+// 所有数据，所以不会把 EOF 当做错误处理。
+func ReadAll(r io.Reader) ([]byte, error)
+
+// ReadFile 读取文件中的所有数据，返回读取的数据和遇到的错误。
+// 如果读取成功，则 err 返回 nil，而不是 EOF
+func ReadFile(filename string) ([]byte, error)
+
+// WriteFile 向文件中写入数据，写入前会清空文件。
+// 如果文件不存在，则会以指定的权限创建该文件。
+// 返回遇到的错误。
+func WriteFile(filename string, data []byte, perm os.FileMode) error
+
+// ReadDir 读取指定目录中的所有目录和文件（不包括子目录）。
+// 返回读取到的文件信息列表和遇到的错误，列表是经过排序的。
+func ReadDir(dirname string) ([]os.FileInfo, error)
+
+// NopCloser 将 r 包装为一个 ReadCloser 类型，但 Close 方法不做任何事情。
+func NopCloser(r io.Reader) io.ReadCloser
+
+// TempFile 在 dir 目录中创建一个以 prefix 为前缀的临时文件，并将其以读
+// 写模式打开。返回创建的文件对象和遇到的错误。
+// 如果 dir 为空，则在默认的临时目录中创建文件（参见 os.TempDir），多次
+// 调用会创建不同的临时文件，调用者可以通过 f.Name() 获取文件的完整路径。
+// 调用本函数所创建的临时文件，应该由调用者自己删除。
+func TempFile(dir, prefix string) (f *os.File, err error)
+
+// TempDir 功能同 TempFile，只不过创建的是目录，返回目录的完整路径。
+func TempDir(dir, prefix string) (name string, err error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;示例&#34;&gt;示例&lt;/h1&gt;
+
+&lt;h2 id=&#34;读取目录&#34;&gt;读取目录&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;func main() {
+    rd, err := ioutil.ReadDir(&amp;quot;/&amp;quot;)
+    fmt.Println(err)
+    for _, fi := range rd {
+        if fi.IsDir() {
+            fmt.Printf(&amp;quot;[%s]\n&amp;quot;, fi.Name())
+
+        } else {
+            fmt.Println(fi.Name())
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;临时目录-临时文件&#34;&gt;临时目录、临时文件&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;func main() {
+    // 创建临时目录
+    dir, err := ioutil.TempDir(&amp;quot;&amp;quot;, &amp;quot;Test&amp;quot;)
+    if err != nil {
+        fmt.Println(err)
+    }
+    defer os.Remove(dir) // 用完删除
+    fmt.Printf(&amp;quot;%s\n&amp;quot;, dir)
+
+    // 创建临时文件
+    f, err := ioutil.TempFile(dir, &amp;quot;Test&amp;quot;)
+    if err != nil {
+        fmt.Println(err)
+    }
+    defer os.Remove(f.Name()) // 用完删除
+    fmt.Printf(&amp;quot;%s\n&amp;quot;, f.Name())
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;读取文件&#34;&gt;读取文件&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;io/ioutil&amp;quot;
+)
+
+func main() {
+    b, err := ioutil.ReadFile(&amp;quot;test.log&amp;quot;)
+    if err != nil {
+        fmt.Print(err)
+    }
+    fmt.Println(b)
+    str := string(b)
+    fmt.Println(str)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;写文件&#34;&gt;写文件&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+   &amp;quot;io/ioutil&amp;quot;
+)
+
+func check(e error) {
+   if e != nil {
+       panic(e)
+   }
+}
+
+func main() {
+
+   d1 := []byte(&amp;quot;hello\ngo\n&amp;quot;)
+   err := ioutil.WriteFile(&amp;quot;test.txt&amp;quot;, d1, 0644)
+   check(err)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;读取文件和写文件内容还可以使用&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-os/#文件io&#34;&gt;os包&lt;/a&gt;来处理。一般也是使用os标准库来处理。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>Golang使用系列---- Bytes</title>
           <link>https://kingjcy.github.io/post/golang/go-bytes/</link>
           <pubDate>Mon, 25 Dec 2017 14:28:17 CST</pubDate>
@@ -3836,6 +3970,101 @@ fmt.Println(b.String())
     
       
         <item>
+          <title>Golang使用系列---- Strconv</title>
+          <link>https://kingjcy.github.io/post/golang/go-strconv/</link>
+          <pubDate>Wed, 12 Oct 2016 19:33:24 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-strconv/</guid>
+          <description>&lt;p&gt;strconv包实现了基本数据类型和其字符串表示的相互转换。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本使用&#34;&gt;基本使用&lt;/h1&gt;
+
+&lt;p&gt;strconv主要就是字符之间的转化，我们直接看我们经常的使用就好。&lt;/p&gt;
+
+&lt;h2 id=&#34;parseint&#34;&gt;ParseInt&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;func ParseInt(s string, base int, bitSize int) (i int64, err error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回字符串表示的整数值，接受正负号。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;base指定进制（2到36），如果base为0，则会从字符串前置判断，&amp;rdquo;0x&amp;rdquo;是16进制，&amp;rdquo;0&amp;rdquo;是8进制，否则是10进制；&lt;/li&gt;
+&lt;li&gt;bitSize指定结果必须能无溢出赋值的整数类型，0、8、16、32、64 分别代表 int、int8、int16、int32、int64；返回的err是*NumErr类型的，如果语法有误，err.Error = ErrSyntax；如果结果超出类型范围err.Error = ErrRange。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;int和string的转化&#34;&gt;int和string的转化&lt;/h2&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;int转string&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;s := strconv.Itoa(i)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;等价于&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;s := strconv.FormatInt(int64(i), 10)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;int64转string&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;i := int64(123)
+s := strconv.FormatInt(i, 10)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;第二个参数为基数，可选2~36&lt;/p&gt;
+
+&lt;p&gt;注：对于无符号整形，可以使用FormatUint(i uint64, base int)&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;string转int&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;i, err := strconv.Atoi(s)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;string转int64&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;i, err := strconv.ParseInt(s, 10, 64)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;第二个参数为基数（2~36），第三个参数位大小表示期望转换的结果类型，其值可以为0, 8, 16, 32和64，分别对应 int, int8, int16, int32和int64&lt;/p&gt;
+
+&lt;h2 id=&#34;float相关&#34;&gt;float相关&lt;/h2&gt;
+
+&lt;p&gt;float转string：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;v := 3.1415926535
+s1 := strconv.FormatFloat(v, &#39;E&#39;, -1, 32)//float32s2 := strconv.FormatFloat(v, &#39;E&#39;, -1, 64)//float64
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;函数原型及参数含义具体可查看：&lt;a href=&#34;https://golang.org/pkg/strconv/#FormatFloat&#34;&gt;https://golang.org/pkg/strconv/#FormatFloat&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;string转float：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;s := &amp;quot;3.1415926535&amp;quot;
+v1, err := strconv.ParseFloat(v, 32)
+v2, err := strconv.ParseFloat(v, 64)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;error相关&#34;&gt;error相关&lt;/h2&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;error转string&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;err.Error()
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>Golang使用系列---- Io</title>
           <link>https://kingjcy.github.io/post/golang/go-io/</link>
           <pubDate>Sat, 30 Jul 2016 20:39:03 CST</pubDate>
@@ -6838,6 +7067,693 @@ func main() {
 == 测试 LookupId 异常情况 ==
 错误信息: user: unknown userid 10000
 错误类型: user.UnknownUserIdError
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>Golang使用系列---- Fmt</title>
+          <link>https://kingjcy.github.io/post/golang/go-fmt/</link>
+          <pubDate>Mon, 30 May 2016 11:57:05 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-fmt/</guid>
+          <description>&lt;p&gt;fmt是实现了格式化的I/O函数，这点类似Ｃ语言中的printf和scanf，但是更加简单。&lt;/p&gt;
+
+&lt;h1 id=&#34;print&#34;&gt;Print&lt;/h1&gt;
+
+&lt;h2 id=&#34;基本函数&#34;&gt;基本函数&lt;/h2&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Print&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;// Print 将参数列表 a 中的各个参数转换为字符串并写入到标准输出中。
+// 非字符串参数之间会添加空格，返回写入的字节数。
+func Print(a ...interface{}) (n int, err error)
+
+// Println 功能类似 Print，只不过最后会添加一个换行符。
+// 所有参数之间会添加空格，返回写入的字节数。
+func Println(a ...interface{}) (n int, err error)
+
+// Printf 将参数列表 a 填写到格式字符串 format 的占位符中。
+// 填写后的结果写入到标准输出中，返回写入的字节数。
+func Printf(format string, a ...interface{}) (n int, err error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Fprint&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;功能同上面三个函数，只不过将转换结果写入到 w 中。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Fprint(w io.Writer, a ...interface{}) (n int, err error)
+func Fprintln(w io.Writer, a ...interface{}) (n int, err error)
+func Fprintf(w io.Writer, format string, a ...interface{}) (n int, err error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Sprint&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;功能同上面三个函数，只不过将转换结果以字符串形式返回。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Sprint(a ...interface{}) string
+func Sprintln(a ...interface{}) string
+func Sprintf(format string, a ...interface{}) string
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Errorf&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;功能同 Sprintf，只不过结果字符串被包装成了 error 类型。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Errorf(format string, a ...interface{}) error
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;示例&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;func main() {
+    fmt.Print(&amp;quot;a&amp;quot;, &amp;quot;b&amp;quot;, 1, 2, 3, &amp;quot;c&amp;quot;, &amp;quot;d&amp;quot;, &amp;quot;\n&amp;quot;)
+    fmt.Println(&amp;quot;a&amp;quot;, &amp;quot;b&amp;quot;, 1, 2, 3, &amp;quot;c&amp;quot;, &amp;quot;d&amp;quot;)
+    fmt.Printf(&amp;quot;ab %d %d %d cd\n&amp;quot;, 1, 2, 3)
+    // ab1 2 3cd
+    // a b 1 2 3 c d
+    // ab 1 2 3 cd
+
+    if err := percent(30, 70, 90, 160); err != nil {
+        fmt.Println(err)
+    }
+    // 30%
+    // 70%
+    // 90%
+    // 数值 160 超出范围（100）
+}
+
+func percent(i ...int) error {
+    for _, n := range i {
+        if n &amp;gt; 100 {
+            return fmt.Errorf(&amp;quot;数值 %d 超出范围（100）&amp;quot;, n)
+        }
+        fmt.Print(n, &amp;quot;%\n&amp;quot;)
+    }
+    return nil
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;自定义format类型&#34;&gt;自定义format类型&lt;/h2&gt;
+
+&lt;p&gt;Formatter 由自定义类型实现，用于实现该类型的自定义格式化过程。&lt;/p&gt;
+
+&lt;p&gt;当格式化器需要格式化该类型的变量时，会调用其 Format 方法。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Formatter interface {
+    // f 用于获取占位符的旗标、宽度、精度等信息，也用于输出格式化的结果
+    // c 是占位符中的动词
+    Format(f State, c rune)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;由格式化器（Print 之类的函数）实现，用于给自定义格式化过程提供信息&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type State interface {
+    // Formatter 通过 Write 方法将格式化结果写入格式化器中，以便输出。
+    Write(b []byte) (ret int, err error)
+    // Formatter 通过 Width 方法获取占位符中的宽度信息及其是否被设置。
+    Width() (wid int, ok bool)
+    // Formatter 通过 Precision 方法获取占位符中的精度信息及其是否被设置。
+    Precision() (prec int, ok bool)
+    // Formatter 通过 Flag 方法获取占位符中的旗标[+- 0#]是否被设置。
+    Flag(c int) bool
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Stringer 由自定义类型实现，用于实现该类型的自定义格式化过程。&lt;/p&gt;
+
+&lt;p&gt;当格式化器需要输出该类型的字符串格式时就会调用其 String 方法。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Stringer interface {
+    String() string
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Stringer 由自定义类型实现，用于实现该类型的自定义格式化过程。&lt;/p&gt;
+
+&lt;p&gt;当格式化器需要输出该类型的 Go 语法字符串（%#v）时就会调用其 String 方法。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type GoStringer interface {
+    GoString() string
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;示例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Ustr string
+
+func (us Ustr) String() string {
+    return strings.ToUpper(string(us))
+}
+
+func (us Ustr) GoString() string {
+    return `&amp;quot;` + strings.ToUpper(string(us)) + `&amp;quot;`
+}
+
+func (u Ustr) Format(f fmt.State, c rune) {
+    write := func(s string) {
+        f.Write([]byte(s))
+    }
+    switch c {
+    case &#39;m&#39;, &#39;M&#39;:
+        write(&amp;quot;旗标：[&amp;quot;)
+        for s := &amp;quot;+- 0#&amp;quot;; len(s) &amp;gt; 0; s = s[1:] {
+            if f.Flag(int(s[0])) {
+                write(s[:1])
+            }
+        }
+        write(&amp;quot;]&amp;quot;)
+        if v, ok := f.Width(); ok {
+            write(&amp;quot; | 宽度：&amp;quot; + strconv.FormatInt(int64(v), 10))
+        }
+        if v, ok := f.Precision(); ok {
+            write(&amp;quot; | 精度：&amp;quot; + strconv.FormatInt(int64(v), 10))
+        }
+    case &#39;s&#39;, &#39;v&#39;: // 如果使用 Format 函数，则必须自己处理所有格式，包括 %#v
+        if c == &#39;v&#39; &amp;amp;&amp;amp; f.Flag(&#39;#&#39;) {
+            write(u.GoString())
+        } else {
+            write(u.String())
+        }
+    default: // 如果使用 Format 函数，则必须自己处理默认输出
+        write(&amp;quot;无效格式：&amp;quot; + string(c))
+    }
+}
+
+func main() {
+    u := Ustr(&amp;quot;Hello World!&amp;quot;)
+    // &amp;quot;-&amp;quot; 标记和 &amp;quot;0&amp;quot; 标记不能同时存在
+    fmt.Printf(&amp;quot;%-+ 0#8.5m\n&amp;quot;, u) // 旗标：[+- #] | 宽度：8 | 精度：5
+    fmt.Printf(&amp;quot;%+ 0#8.5M\n&amp;quot;, u)  // 旗标：[+ 0#] | 宽度：8 | 精度：5
+    fmt.Println(u)                // HELLO WORLD!
+    fmt.Printf(&amp;quot;%s\n&amp;quot;, u)         // HELLO WORLD!
+    fmt.Printf(&amp;quot;%#v\n&amp;quot;, u)        // &amp;quot;HELLO WORLD!&amp;quot;
+    fmt.Printf(&amp;quot;%d\n&amp;quot;, u)         // 无效格式：d
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;scan&#34;&gt;Scan&lt;/h1&gt;
+
+&lt;h2 id=&#34;基本函数-1&#34;&gt;基本函数&lt;/h2&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Scan&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Scan 从标准输入中读取数据，并将数据用空白分割并解析后存入 a 提供的变量中（换行符会被当作空白处理），变量必须以指针传入。当读到 EOF 或所有变量都填写完毕则停止扫描。返回成功解析的参数数量。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Scan(a ...interface{}) (n int, err error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Scanln 和 Scan 类似，只不过遇到换行符就停止扫描。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Scanln(a ...interface{}) (n int, err error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Scanf 从标准输入中读取数据，并根据格式字符串 format 对数据进行解析，将解析结果存入参数 a 所提供的变量中，变量必须以指针传入。输入端的换行符必须和 format 中的换行符相对应（如果格式字符串中有换行符，则输入端必须输入相应的换行符）。占位符 %c 总是匹配下一个字符，包括空白，比如空格符、制表符、换行符。返回成功解析的参数数量。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Scanf(format string, a ...interface{}) (n int, err error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Fscan&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;功能同上面三个函数，只不过从 r 中读取数据。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Fscan(r io.Reader, a ...interface{}) (n int, err error)
+func Fscanln(r io.Reader, a ...interface{}) (n int, err error)
+func Fscanf(r io.Reader, format string, a ...interface{}) (n int, err error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Sscan&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;功能同上面三个函数，只不过从 str 中读取数据。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Sscan(str string, a ...interface{}) (n int, err error)
+func Sscanln(str string, a ...interface{}) (n int, err error)
+func Sscanf(str string, format string, a ...interface{}) (n int, err error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;示例&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;// 对于 Scan 而言，回车视为空白
+func main() {
+    a, b, c := &amp;quot;&amp;quot;, 0, false
+    fmt.Scan(&amp;amp;a, &amp;amp;b, &amp;amp;c)
+    fmt.Println(a, b, c)
+    // 在终端执行后，输入 abc 1 回车 true 回车
+    // 结果 abc 1 true
+}
+
+// 对于 Scanln 而言，回车结束扫描
+func main() {
+    a, b, c := &amp;quot;&amp;quot;, 0, false
+    fmt.Scanln(&amp;amp;a, &amp;amp;b, &amp;amp;c)
+    fmt.Println(a, b, c)
+    // 在终端执行后，输入 abc 1 true 回车
+    // 结果 abc 1 true
+}
+
+// 格式字符串可以指定宽度
+func main() {
+    a, b, c := &amp;quot;&amp;quot;, 0, false
+    fmt.Scanf(&amp;quot;%4s%d%t&amp;quot;, &amp;amp;a, &amp;amp;b, &amp;amp;c)
+    fmt.Println(a, b, c)
+    // 在终端执行后，输入 1234567true 回车
+    // 结果 1234 567 true
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;从键盘和标准输入 os.Stdin 读取输入，最简单的办法是使用 fmt 包提供的 Scan 和 Sscan 开头的函数。&lt;/p&gt;
+
+&lt;p&gt;从控制台读取输入:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+import &amp;quot;fmt&amp;quot;
+
+var (
+   firstName, lastName, s string
+   i int
+   f float32
+   input = &amp;quot;56.12 / 5212 / Go&amp;quot;
+   format = &amp;quot;%f / %d / %s&amp;quot;
+)
+
+func main() {
+   fmt.Println(&amp;quot;Please enter your full name: &amp;quot;)
+   fmt.Scanln(&amp;amp;firstName, &amp;amp;lastName)
+   // fmt.Scanf(&amp;quot;%s %s&amp;quot;, &amp;amp;firstName, &amp;amp;lastName)
+   fmt.Printf(&amp;quot;Hi %s %s!\n&amp;quot;, firstName, lastName) // Hi Chris Naegels
+   fmt.Sscanf(input, format, &amp;amp;f, &amp;amp;i, &amp;amp;s)
+   fmt.Println(&amp;quot;From the string we read: &amp;quot;, f, i, s)
+    // 输出结果: From the string we read: 56.12 5212 Go
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Scanln 扫描来自标准输入的文本，将空格分隔的值依次存放到后续的参数内，直到碰到换行。&lt;/p&gt;
+
+&lt;p&gt;Scanf 与其类似，除了 Scanf 的第一个参数用作格式字符串，用来决定如何读取。&lt;/p&gt;
+
+&lt;p&gt;Sscan 和以 Sscan 开头的函数则是从字符串读取，除此之外，与 Scanf相同。如果这些函数读取到的结果与您预想的不同，您可以检查成功读入数据的个数和返回的错误。&lt;/p&gt;
+
+&lt;p&gt;也可以使用 bufio 包提供的缓冲读取（buffered reader）来读取数据&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;bufio&amp;quot;
+    &amp;quot;os&amp;quot;
+)
+
+var inputReader *bufio.Reader
+var input string
+var err error
+
+func main() {
+    inputReader = bufio.NewReader(os.Stdin)
+    fmt.Println(&amp;quot;Please enter some input: &amp;quot;)
+    input, err = inputReader.ReadString(&#39;\n&#39;)
+    if err == nil {
+        fmt.Printf(&amp;quot;The input was: %s\n&amp;quot;, input)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;自定义format类型-1&#34;&gt;自定义format类型&lt;/h2&gt;
+
+&lt;p&gt;Scanner 由自定义类型实现，用于实现该类型的自定义扫描过程。&lt;/p&gt;
+
+&lt;p&gt;当扫描器需要解析该类型的数据时，会调用其 Scan 方法。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Scanner interface {
+    // state 用于获取占位符中的宽度信息，也用于从扫描器中读取数据进行解析。
+    // verb 是占位符中的动词
+    Scan(state ScanState, verb rune) error
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;由扫描器（Scan 之类的函数）实现，用于给自定义扫描过程提供数据和信息。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type ScanState interface {
+    // ReadRune 从扫描器中读取一个字符，如果用在 Scanln 类的扫描器中，
+    // 则该方法会在读到第一个换行符之后或读到指定宽度之后返回 EOF。
+    // 返回“读取的字符”和“字符编码所占用的字节数”
+    ReadRune() (r rune, size int, err error)
+    // UnreadRune 撤消最后一次的 ReadRune 操作，
+    // 使下次的 ReadRune 操作得到与前一次 ReadRune 相同的结果。
+    UnreadRune() error
+    // SkipSpace 为 Scan 方法提供跳过开头空白的能力。
+    // 根据扫描器的不同（Scan 或 Scanln）决定是否跳过换行符。
+    SkipSpace()
+    // Token 用于从扫描器中读取符合要求的字符串，
+    // Token 从扫描器中读取连续的符合 f(c) 的字符 c，准备解析。
+    // 如果 f 为 nil，则使用 !unicode.IsSpace(c) 代替 f(c)。
+    // skipSpace：是否跳过开头的连续空白。返回读取到的数据。
+    // 注意：token 指向共享的数据，下次的 Token 操作可能会覆盖本次的结果。
+    Token(skipSpace bool, f func(rune) bool) (token []byte, err error)
+    // Width 返回占位符中的宽度值以及宽度值是否被设置
+    Width() (wid int, ok bool)
+    // 因为上面实现了 ReadRune 方法，所以 Read 方法永远不应该被调用。
+    // 一个好的 ScanState 应该让 Read 直接返回相应的错误信息。
+    Read(buf []byte) (n int, err error)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;示例&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;type Ustr string
+
+func (u *Ustr) Scan(state fmt.ScanState, verb rune) (err error) {
+    var s []byte
+    switch verb {
+    case &#39;S&#39;:
+        s, err = state.Token(true, func(c rune) bool { return &#39;A&#39; &amp;lt;= c &amp;amp;&amp;amp; c &amp;lt;= &#39;Z&#39; })
+        if err != nil {
+            return
+        }
+    case &#39;s&#39;, &#39;v&#39;:
+        s, err = state.Token(true, func(c rune) bool { return &#39;a&#39; &amp;lt;= c &amp;amp;&amp;amp; c &amp;lt;= &#39;z&#39; })
+        if err != nil {
+            return
+        }
+    default:
+        return fmt.Errorf(&amp;quot;无效格式：%c&amp;quot;, verb)
+    }
+    *u = Ustr(s)
+    return nil
+}
+
+func main() {
+    var a, b, c, d, e Ustr
+    n, err := fmt.Scanf(&amp;quot;%3S%S%3s%2v%x&amp;quot;, &amp;amp;a, &amp;amp;b, &amp;amp;c, &amp;amp;d, &amp;amp;e)
+    fmt.Println(a, b, c, d, e)
+    fmt.Println(n, err)
+    // 在终端执行后，输入 ABCDEFGabcdefg 回车
+    // 结果：
+    // ABC DEFG abc de
+    // 4 无效格式：x
+}
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>golang使用系列---- Time</title>
+          <link>https://kingjcy.github.io/post/golang/go-time/</link>
+          <pubDate>Tue, 12 Apr 2016 20:11:01 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-time/</guid>
+          <description>&lt;p&gt;time包中包括两类时间：时间点（某一时刻）和时长（某一段时间）的基本操作。&lt;/p&gt;
+
+&lt;h1 id=&#34;time&#34;&gt;time&lt;/h1&gt;
+
+&lt;h2 id=&#34;基本结构&#34;&gt;基本结构&lt;/h2&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Time&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;type Time struct {
+    wall uint64
+    ext  int64
+    loc *Location
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;wall  秒&lt;/li&gt;
+&lt;li&gt;ext   纳秒&lt;/li&gt;
+&lt;li&gt;loc *Location
+
+&lt;ul&gt;
+&lt;li&gt;time.UTC utc时间&lt;/li&gt;
+&lt;li&gt;time.Local 本地时间&lt;/li&gt;
+&lt;li&gt;FixedZone(name string, offset int) *Location   设置时区名,以及与UTC0的时间偏差.返回Location&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Duration&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;type Duration int64
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Duration类型代表两个时间点之间经过的时间，以纳秒为单位。可表示的最长时间段大约290年。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;时间常量&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Duration的单位为 nanosecond，为了便于使用，time中定义了时间常量：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;const (
+    Nanosecond Duration = 1
+    Microsecond = 1000 * Nanosecond
+    Millisecond = 1000 * Microsecond
+    Second = 1000 * Millisecond
+    Minute = 60 * Second
+    Hour = 60 * Minute
+)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Ticker&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;type Ticker
+type Ticker struct {
+    C &amp;lt;-chan Time // 周期性传递时间信息的通道
+    // 内含隐藏或非导出字段
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Ticker保管一个通道，并每隔一段时间向其传递&amp;rdquo;tick&amp;rdquo;。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func NewTicker
+func NewTicker(d Duration) *Ticker
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;NewTicker返回一个新的Ticker，该Ticker包含一个通道字段，并会每隔时间段d就向该通道发送当时的时间。它会调整时间间隔或者丢弃tick信息以适应反应慢的接收者。如果d&amp;lt;=0会panic。关闭该Ticker可以释放相关资源。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (*Ticker) Stop
+func (t *Ticker) Stop()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Stop关闭一个Ticker。在关闭后，将不会发送更多的tick信息。Stop不会关闭通道t.C，以避免从该通道的读取不正确的成功。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;总结&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;ul&gt;
+&lt;li&gt;time.Duration（时长，耗时）&lt;/li&gt;
+&lt;li&gt;time.Time（时间点）&lt;/li&gt;
+&lt;li&gt;time.C（放时间点的管道）[ Time.C:=make(chan time.Time) ]&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;基本函数&#34;&gt;基本函数&lt;/h2&gt;
+
+&lt;p&gt;time包提供了时间的显示和测量用的函数。日历的计算采用的是公历。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Now
+func Now() Time
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now返回当前本地时间。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (Time) Before
+func (t Time) Before(u Time) bool
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果t代表的时间点在u之前，返回真；否则返回假。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (Time) Add
+func (t Time) Add(d Duration) Time
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Add返回时间点t+d。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (Time) Second
+func (t Time) Second() int
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回t对应的那一分钟的第几秒，范围[0, 59]。&lt;/p&gt;
+
+&lt;h1 id=&#34;常规使用&#34;&gt;常规使用&lt;/h1&gt;
+
+&lt;h2 id=&#34;sleep&#34;&gt;sleep&lt;/h2&gt;
+
+&lt;p&gt;golang的休眠可以使用time包中的sleep。&lt;/p&gt;
+
+&lt;p&gt;函数原型为：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Sleep(d Duration)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;下面实现休眠2秒功能。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;time&amp;quot;
+)
+
+func main() {
+
+    fmt.Println(&amp;quot;begin&amp;quot;)
+    time.Sleep(time.Duration(2)*time.Second)
+    fmt.Println(&amp;quot;end&amp;quot;)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;time使用变量的时候需要强制转换&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;time.Duration(cfg.CTimeOut) * time.Second
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;定时器&#34;&gt;定时器&lt;/h2&gt;
+
+&lt;p&gt;定时器只会传达一次到期事件，&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Timer struct {
+    C &amp;lt;-chan Time
+    r runtimeTimer
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;每天定时0点执行&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;import (
+    &amp;quot;time&amp;quot;
+    &amp;quot;fmt&amp;quot;
+)
+
+//定时结算Boottime表数据
+func BoottimeTimingSettlement() {
+    for {
+        now := time.Now()
+        // 计算下一个零点
+        next := now.Add(time.Hour * 24)
+        next = time.Date(next.Year(), next.Month(), next.Day(), 0, 0, 0, 0, next.Location())
+        t := time.NewTimer(next.Sub(now))
+        &amp;lt;-t.C
+        Printf(&amp;quot;定时结算Boottime表数据，结算完成: %v\n&amp;quot;,time.Now())
+        //以下为定时执行的操作
+        BoottimeSettlement()
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;断续器&#34;&gt;断续器&lt;/h2&gt;
+
+&lt;p&gt;周期性的传达到期事件的装置，定时器只会传达一次到期事件，断续器会持续工作直到停止。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Ticker struct {
+    C &amp;lt;-chan Time // The channel on which the ticks are delivered.
+    r runtimeTimer
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;初始化&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func NewTicker(d Duration) *Ticker
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;NewTicker返回一个新的Ticker，该Ticker包含一个通道字段，并会每隔时间段d就向该通道发送当时的时间。它会调整时间间隔或者丢弃tick信息以适应反应慢的接收者。如果d&amp;lt;=0会panic。关闭该Ticker可以释放相关资源。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ticker := time.NewTicker(time.Millisecond * 500)
+go func() {
+    for t := range ticker.C {
+        fmt.Println(&amp;quot;Tick at&amp;quot;, t)
+    }
+}()
+
+time.Sleep(time.Millisecond * 1500)   //阻塞，则执行次数为sleep的休眠时间/ticker的时间
+ticker.Stop()    
+fmt.Println(&amp;quot;Ticker stopped&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;获取时间&#34;&gt;获取时间&lt;/h2&gt;
+
+&lt;p&gt;各种现有时间的获取&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func main() {
+    fmt.Printf(&amp;quot;时间戳（秒）：%v;\n&amp;quot;, time.Now().Unix())
+    fmt.Printf(&amp;quot;时间戳（纳秒）：%v;\n&amp;quot;,time.Now().UnixNano())
+    fmt.Printf(&amp;quot;时间戳（毫秒）：%v;\n&amp;quot;,time.Now().UnixNano() / 1e6)
+    fmt.Printf(&amp;quot;时间戳（纳秒转换为秒）：%v;\n&amp;quot;,time.Now().UnixNano() / 1e9)
+}
+
+
+时间戳（秒）：1530027865;
+时间戳（纳秒）：1530027865231834600;
+时间戳（毫秒）：1530027865231;
+时间戳（纳秒转换为秒）：1530027865;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;时间转化&#34;&gt;时间转化&lt;/h2&gt;
+
+&lt;p&gt;处理时间单位自动转化问题&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func ParseDuration(s string) (Duration, error)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;传入字符串，返回响应的时间，其中传入的字符串中的有效时间单位如下：h,m,s,ms,us,ns，其他单位均无效，如果传入无效时间单位，则会返回０&lt;/p&gt;
+
+&lt;p&gt;获取前n天的时间&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//获取两天前的时间
+currentTime := time.Now()
+oldTime := currentTime.AddDate(0, 0, -2)        //若要获取3天前的时间，则应将-2改为-3
+//oldTime 的结果为go的时间time类型，2018-09-25 13:24:58.287714118 +0000 UTC
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;比较时间，使用before&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;time1 := &amp;quot;2015-03-20 08:50:29&amp;quot;
+time2 := &amp;quot;2015-03-21 09:04:25&amp;quot;
+//先把时间字符串格式化成相同的时间类型
+t1, err := time.Parse(&amp;quot;2006-01-02 15:04:05&amp;quot;, time1)
+t2, err := time.Parse(&amp;quot;2006-01-02 15:04:05&amp;quot;, time2)
+if err == nil &amp;amp;&amp;amp; t1.Before(t2) {
+    //处理逻辑
+    fmt.Println(&amp;quot;true&amp;quot;)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;获取文件的各种时间&#34;&gt;获取文件的各种时间&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;func main() {
+    finfo, _ := os.Stat(filename)
+    // Sys()返回的是interface{}，所以需要类型断言，不同平台需要的类型不一样，linux上为*syscall.Stat_t
+    stat_t := finfo.Sys().(*syscall.Stat_t)
+    fmt.Println(stat_t)
+    // atime，ctime，mtime分别是访问时间，创建时间和修改时间，具体参见man 2 stat
+    fmt.Println(timespecToTime(stat_t.Atim))
+    fmt.Println(timespecToTime(stat_t.Ctim))
+    fmt.Println(timespecToTime(stat_t.Mtim))
+}
 &lt;/code&gt;&lt;/pre&gt;</description>
         </item>
       
