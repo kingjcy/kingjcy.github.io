@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="容器由于其特殊性，在日志采集上有着不同的解决方案，目前主要还是以探针采集为主。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="日志系列---- 容器日志采集方案 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    日志系列---- 容器日志采集方案
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年07月08日 
+                </div>
+                <h1 class="post-title">日志系列---- 容器日志采集方案</h1>
+            </header>
+
+            <div class="post-content">
+                <p>容器由于其特殊性，在日志采集上有着不同的解决方案，目前主要还是以探针采集为主。</p>
+
+<h1 id="日志采集演进">日志采集演进</h1>
+
+<p>容器日志采集方案一直不断的演进，纵览当前容器日志收集的场景，无非就是两种方式：一是直接采集Docker标准输出，容器内的服务将日志信息写到标准输出，这样通过Docker的log driver可以发送到相应的收集程序中；二是延续传统的日志写入方式，容器内的服务将日志直接写到普通文件中，通过Docker volume将日志文件映射到Host上，日志采集程序就可以收集它。</p>
+
+<h2 id="docker-log-driver">docker log driver</h2>
+
+<blockquote>
+<p>docker logs</p>
+</blockquote>
+
+<pre><code>docker logs edc-k8s-demo
+</code></pre>
+
+<p>默认情况下，Docker的日志会发送到容器的标准输出设备（STDOUT）和标准错误设备（STDERR），其中STDOUT和STDERR实际上就是容器的控制台终端。如果想要持续看到新打印出的日志信息，那么可以加上 -f 参数</p>
+
+<pre><code>docker logs -f edc-k8s-demo
+</code></pre>
+
+<blockquote>
+<p>Docker logging driver</p>
+</blockquote>
+
+<p>Docker还提供了其他的一些机制允许我们从运行的容器中提取日志，这些机制统称为 logging driver。</p>
+
+<p>对Docker而言，其默认的logging driver是json-file，如果在启动时没有特别指定，都会使用这个默认的logging driver。json-file会将我们在控制台通过docker logs命名看到的日志都保存在一个json文件中，我们可以在服务器Host上的容器目录中找到这个json文件。</p>
+
+<pre><code>容器日志路径：/var/lib/docker/containers/&lt;container-id&gt;/&lt;container-id&gt;-json.log
+</code></pre>
+
+<p>除了json-file，Docker还支持以下多种logging dirver</p>
+
+<ul>
+<li>none  No logs are available for the container and docker logs does not return any output.</li>
+<li>local Logs are stored in a custom format designed for minimal overhead.</li>
+<li>json-file The logs are formatted as JSON. The default logging driver for Docker.</li>
+<li>syslog    Writes logging messages to the syslog facility. The syslog daemon must be running on the host machine.</li>
+<li>journald  Writes log messages to journald. The journald daemon must be running on the host machine.</li>
+<li>gelf  Writes log messages to a Graylog Extended Log Format (GELF) endpoint such as Graylog or Logstash.</li>
+<li>fluentd   Writes log messages to fluentd (forward input). The fluentd daemon must be running on the host machine.</li>
+<li>awslogs   Writes log messages to Amazon CloudWatch Logs.</li>
+<li>splunk    Writes log messages to splunk using the HTTP Event Collector.</li>
+<li>etwlogs   Writes log messages as Event Tracing for Windows (ETW) events. Only available on Windows platforms.</li>
+<li>gcplogs   Writes log messages to Google Cloud Platform (GCP) Logging.</li>
+<li>logentries    Writes log messages to Rapid7 Logentries.</li>
+</ul>
+
+<p>我们可以在容器启动时通过加上 &ndash;log-driver 来指定使用哪个具体的 logging driver，例如：</p>
+
+<pre><code>docker run -d --log-driver=syslog ......
+</code></pre>
+
+<p>如果想要设置默认的logging driver，那么则需要修改Docker daemon的启动脚本，例如：</p>
+
+<pre><code>{
+  &quot;log-driver&quot;: &quot;json-file&quot;,
+  &quot;log-opts&quot;: {
+    &quot;labels&quot;: &quot;production_status&quot;,
+    &quot;env&quot;: &quot;os,customer&quot;
+  }
+}
+</code></pre>
+
+<p>每个logging driver都有一些自己特定的log-opt，使用时可以参考具体官方文档。</p>
+
+<p>可见，第一种方式足够简单，直接配置相关的Log Driver就可以，但是这种方式也有些劣势：</p>
+
+<ul>
+<li>当主机的容器密度比较高的时候，对Docker Engine的压力比较大，毕竟容器标准输出都要通过Docker Engine来处理。</li>
+<li>尽管原则上，我们希望遵循一容器部署一个服务的原则，但是有时候特殊情况不可避免容器内有多个业务服务，这时候很难做到所有服务都向标准输出写日志，这就需要用到前面所说的第二种场景模式。</li>
+<li>虽然我们可以先选择很多种Log Driver，但是有些Log Driver会破坏Docker原生的体验，比如docker logs无法直接看到容器日志。</li>
+</ul>
+
+<h2 id="docker-volume">docker volume</h2>
+
+<p>通过对第一种方案的摸索，存在着很多的问题与不方便，所以目前我们大多数采集还是使用第二种方案，文件采集的方式。</p>
+
+<blockquote>
+<p>第三方采集方案</p>
+</blockquote>
+
+<p>上面都是将日志文件落到STDOUT和STDERR，我们采集都是基于这个，其实在我们应用编程的时候，完全可以将日志文件落到容器的对应的目录下，落盘然后使用第三方采集组件比如filebeat、fluentd等采集，统一管理。</p>
+
+<h1 id="容器日志采集方案">容器日志采集方案</h1>
+
+<p>根据上面的基本描述，容器日志采集有很多种方式，每种方式都用不同实现方案，适用于不同的场景。</p>
+
+<h2 id="logdriver">LogDriver</h2>
+
+<p>DockerEngine 本身具有 LogDriver 功能，可通过配置不同的 LogDriver 将容器的 stdout 通过 DockerEngine 写入到远端存储，以此达到日志采集的目的。这种方式的可定制化、灵活性、资源隔离性都很低，一般不建议在生产环境中使用，上面我们已经说明不使用的原因。</p>
+
+<h2 id="http">http</h2>
+
+<p>业务直写是在应用中集成日志采集的 SDK，通过 SDK 直接将日志发送到服务端。这种方式省去了落盘采集的逻辑，也不需要额外部署 Agent，对于系统的资源消耗最低，但由于业务和日志 SDK 强绑定，整体灵活性很低，一般只有日志量极大的场景中使用，这是一种特殊的场景，我们会在特殊情况下使用。</p>
+
+<h2 id="deamonset模式">deamonset模式</h2>
+
+<p>DaemonSet 方式在每个 node 节点上只运行一个日志 agent(<a href="/post/monitor/log/collect/filebeat/filebeat/">filebeat</a>,fluentd,flume,fluentbit)，采集这个节点上所有的日志。DaemonSet 相对资源占用要小很多，但扩展性、租户隔离性受限，比较适用于功能单一或业务不是很多的集群；</p>
+
+<p>正常规模的采集可以适应，日志分类明确、功能较单一的集群，大规模的集群采集速度就跟不上了，而且没有办法做到垂直扩展无上限。</p>
+
+<p>当然完整的方案还是有很多需要做的工作，比如如何做发现，如何动态变更，这就是一个完成的平台建设了，这些每个公司都有自己的建设，就不太好说了。</p>
+
+<h2 id="sidecar模式">sidecar模式</h2>
+
+<p>Sidecar 方式为每个 POD 单独部署日志 agent，这个 agent 只负责一个业务应用的日志采集。Sidecar 相对资源占用较多，但灵活性以及多租户隔离性较强，建议大型的 K8s 集群或作为 PaaS 平台为多个业务方服务的集群使用该方式。</p>
+
+<p>适用于大型、混合型、PAAS型集群的日志采集，是一种水平扩展消耗更多资源来增加采集速度的方案，但是方案就比较复杂。</p>
+
+<p>当然完整的方案还是有很多需要做的工作，比如如何做发现，如何动态变更，这就是一个完成的平台建设了，这些每个公司都有自己的建设，也就不太好说了。</p>
+
+<h1 id="网络采集性能数据">网络采集性能数据</h1>
+
+<blockquote>
+<p>有赞</p>
+</blockquote>
+
+<p>重flume发展到自研rsyslog-hub和http服务</p>
+
+<p>17年平均每秒产生日志1.1万条，峰值1.5万条，每天的日志量约9亿条，占用空间2.4T左右</p>
+
+<p>19年每天都会产生百亿级别的日志量（据统计，平均每秒产生 50 万条日志，峰值每秒可达 80 万条）</p>
+
+<blockquote>
+<p>七牛云</p>
+</blockquote>
+
+<p>自研logkit</p>
+
+<p>17年现在日均数据流入量超 250 TB，3650 亿条，其中最大的客户日均数据流入量超过 45 TB。</p>
+
+<blockquote>
+<p>b站</p>
+</blockquote>
+
+<p>17年目前集群规模20台机器，接入业务200+，单日日志量10T+。</p>
+
+<blockquote>
+<p>阿里云</p>
+</blockquote>
+
+<p>自研logtail（重内核都得到的优化和充分利用）</p>
+
+<p>速度达到160M/s</p>
+
+<p>为什么选择filebeat</p>
+
+<ul>
+<li>性能好</li>
+<li>基于golang的技术站，对于容器生态友好</li>
+<li>使用部署方便，功能齐全</li>
+<li>其他技术方案，主要是社区的fluentd，使用的ruby+c，使用起来很复杂，各种功能都需要写插件来完成。</li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/log/collect/collect-scheme/">https://kingjcy.github.io/post/monitor/log/collect/collect-scheme/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/scheme/">
+                            <i class="fa fa-tags"></i>
+                            scheme
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/log/">
+                            <i class="fa fa-tags"></i>
+                            log
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/collect/">
+                            <i class="fa fa-tags"></i>
+                            collect
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">日志监控系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat/">监控日志系列---- Filebeat</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat-principle/">监控日志系列---- Filebeat原理</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-bufio/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/log/collect/filebeat/filebeat/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#日志采集演进">日志采集演进</a>
+<ul>
+<li><a href="#docker-log-driver">docker log driver</a></li>
+<li><a href="#docker-volume">docker volume</a></li>
+</ul></li>
+<li><a href="#容器日志采集方案">容器日志采集方案</a>
+<ul>
+<li><a href="#logdriver">LogDriver</a></li>
+<li><a href="#http">http</a></li>
+<li><a href="#deamonset模式">deamonset模式</a></li>
+<li><a href="#sidecar模式">sidecar模式</a></li>
+</ul></li>
+<li><a href="#网络采集性能数据">网络采集性能数据</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
