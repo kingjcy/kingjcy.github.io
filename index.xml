@@ -1330,6 +1330,437 @@ limits_config:
     
       
         <item>
+          <title>数据库系列---- Elasticsearch</title>
+          <link>https://kingjcy.github.io/post/database/elasticsearch/</link>
+          <pubDate>Thu, 21 Feb 2019 19:28:32 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/database/elasticsearch/</guid>
+          <description>&lt;p&gt;开源的 Elasticsearch （以下简称 Elastic）是目前全文搜索引擎的首选。它可以快速地储存、搜索和分析海量数据。并且支持分布式，解决Lucene（支持全文索引的数据库系统）单机问题，目前维基百科、Stack Overflow、Github 都采用它。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本概念&#34;&gt;基本概念&lt;/h1&gt;
+
+&lt;h2 id=&#34;存储结构&#34;&gt;存储结构&lt;/h2&gt;
+
+&lt;p&gt;在ES中，存储结构主要有四种，与传统的关系型数据库对比如下：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;index（Indices）相当于一个database&lt;/li&gt;
+&lt;li&gt;type相当于一个table&lt;/li&gt;
+&lt;li&gt;document相当于一个row&lt;/li&gt;
+&lt;li&gt;properties（Fields）相当于一个column&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;我们可以如下对比&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Relational DB -&amp;gt; Databases -&amp;gt; Tables -&amp;gt; Rows -&amp;gt; Columns
+Elasticsearch -&amp;gt; Indices -&amp;gt; Types -&amp;gt; Documents -&amp;gt; Fields
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Node 与 Cluster&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Elastic 本质上是一个分布式数据库，允许多台服务器协同工作，每台服务器可以运行多个 Elastic 实例。&lt;/p&gt;
+
+&lt;p&gt;单个 Elastic 实例称为一个节点（node）。一组节点构成一个集群（cluster）。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Index&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Elastic 会索引所有字段，经过处理后写入一个反向索引（Inverted Index）。查找数据的时候，直接查找该索引。&lt;/p&gt;
+
+&lt;p&gt;所以，Elastic 数据管理的顶层单位就叫做 Index（索引）。它是单个数据库的同义词。每个 Index （即数据库）的名字必须是小写。&lt;/p&gt;
+
+&lt;p&gt;下面的命令可以查看当前节点的所有 Index。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl -X GET &#39;http://localhost:9200/_cat/indices?v&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Document&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Index 里面单条的记录称为 Document（文档）。许多条 Document 构成了一个 Index。&lt;/p&gt;
+
+&lt;p&gt;Document 使用 JSON 格式表示，下面是一个例子。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;user&amp;quot;: &amp;quot;张三&amp;quot;,
+  &amp;quot;title&amp;quot;: &amp;quot;工程师&amp;quot;,
+  &amp;quot;desc&amp;quot;: &amp;quot;数据库管理&amp;quot;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;同一个 Index 里面的 Document，不要求有相同的结构（scheme），但是最好保持相同，这样有利于提高搜索效率。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Type&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Document 可以分组，比如weather这个 Index 里面，可以按城市分组（北京和上海），也可以按气候分组（晴天和雨天）。这种分组就叫做 Type，它是虚拟的逻辑分组，用来过滤 Document。&lt;/p&gt;
+
+&lt;p&gt;不同的 Type 应该有相似的结构（schema），举例来说，id字段不能在这个组是字符串，在另一个组是数值。这是与关系型数据库的表的一个区别。性质完全不同的数据（比如products和logs）应该存成两个 Index，而不是一个 Index 里面的两个 Type（虽然可以做到）。&lt;/p&gt;
+
+&lt;p&gt;下面的命令可以列出每个 Index 所包含的 Type。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl &#39;localhost:9200/_mapping?pretty=true&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;根据规划，Elastic 6.x 版只允许每个 Index 包含一个 Type，7.x 版将会彻底移除 Type。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本操作&#34;&gt;基本操作&lt;/h1&gt;
+
+&lt;h2 id=&#34;新建和删除-index&#34;&gt;新建和删除 Index&lt;/h2&gt;
+
+&lt;p&gt;新建 Index，可以直接向 Elastic 服务器发出 PUT 请求。下面的例子是新建一个名叫weather的 Index。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl -X PUT &#39;localhost:9200/weather&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;服务器返回一个 JSON 对象，里面的acknowledged字段表示操作成功。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;acknowledged&amp;quot;:true,
+  &amp;quot;shards_acknowledged&amp;quot;:true
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后，我们发出 DELETE 请求，删除这个 Index。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl -X DELETE &#39;localhost:9200/weather&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;中文分词设置&#34;&gt;中文分词设置&lt;/h2&gt;
+
+&lt;p&gt;首先，安装中文分词插件。这里使用的是 ik，也可以考虑其他插件（比如 smartcn）。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ ./bin/elasticsearch-plugin install https://github.com/medcl/elasticsearch-analysis-ik/releases/download/v5.5.1/elasticsearch-analysis-ik-5.5.1.zip
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面代码安装的是5.5.1版的插件，与 Elastic 5.5.1 配合使用。&lt;/p&gt;
+
+&lt;p&gt;接着，重新启动 Elastic，就会自动加载这个新安装的插件。&lt;/p&gt;
+
+&lt;p&gt;然后，新建一个 Index，指定需要分词的字段。这一步根据数据结构而异，下面的命令只针对本文。基本上，凡是需要搜索的中文字段，都要单独设置一下。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl -X PUT &#39;localhost:9200/accounts&#39; -d &#39;
+{
+  &amp;quot;mappings&amp;quot;: {
+    &amp;quot;person&amp;quot;: {
+      &amp;quot;properties&amp;quot;: {
+        &amp;quot;user&amp;quot;: {
+          &amp;quot;type&amp;quot;: &amp;quot;text&amp;quot;,
+          &amp;quot;analyzer&amp;quot;: &amp;quot;ik_max_word&amp;quot;,
+          &amp;quot;search_analyzer&amp;quot;: &amp;quot;ik_max_word&amp;quot;
+        },
+        &amp;quot;title&amp;quot;: {
+          &amp;quot;type&amp;quot;: &amp;quot;text&amp;quot;,
+          &amp;quot;analyzer&amp;quot;: &amp;quot;ik_max_word&amp;quot;,
+          &amp;quot;search_analyzer&amp;quot;: &amp;quot;ik_max_word&amp;quot;
+        },
+        &amp;quot;desc&amp;quot;: {
+          &amp;quot;type&amp;quot;: &amp;quot;text&amp;quot;,
+          &amp;quot;analyzer&amp;quot;: &amp;quot;ik_max_word&amp;quot;,
+          &amp;quot;search_analyzer&amp;quot;: &amp;quot;ik_max_word&amp;quot;
+        }
+      }
+    }
+  }
+}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面代码中，首先新建一个名称为accounts的 Index，里面有一个名称为person的 Type。person有三个字段。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;user
+title
+desc
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这三个字段都是中文，而且类型都是文本（text），所以需要指定中文分词器，不能使用默认的英文分词器。&lt;/p&gt;
+
+&lt;p&gt;Elastic 的分词器称为 analyzer。我们对每个字段指定分词器。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&amp;quot;user&amp;quot;: {
+  &amp;quot;type&amp;quot;: &amp;quot;text&amp;quot;,
+  &amp;quot;analyzer&amp;quot;: &amp;quot;ik_max_word&amp;quot;,
+  &amp;quot;search_analyzer&amp;quot;: &amp;quot;ik_max_word&amp;quot;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面代码中，analyzer是字段文本的分词器，search_analyzer是搜索词的分词器。ik_max_word分词器是插件ik提供的，可以对文本进行最大数量的分词。&lt;/p&gt;
+
+&lt;h2 id=&#34;新增记录&#34;&gt;新增记录&lt;/h2&gt;
+
+&lt;p&gt;向指定的 /Index/Type 发送 PUT 请求，就可以在 Index 里面新增一条记录。比如，向/accounts/person发送请求，就可以新增一条人员记录。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl -X PUT &#39;localhost:9200/accounts/person/1&#39; -d &#39;
+{
+  &amp;quot;user&amp;quot;: &amp;quot;张三&amp;quot;,
+  &amp;quot;title&amp;quot;: &amp;quot;工程师&amp;quot;,
+  &amp;quot;desc&amp;quot;: &amp;quot;数据库管理&amp;quot;
+}&#39; 
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;服务器返回的 JSON 对象，会给出 Index、Type、Id、Version 等信息。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;_index&amp;quot;:&amp;quot;accounts&amp;quot;,
+  &amp;quot;_type&amp;quot;:&amp;quot;person&amp;quot;,
+  &amp;quot;_id&amp;quot;:&amp;quot;1&amp;quot;,
+  &amp;quot;_version&amp;quot;:1,
+  &amp;quot;result&amp;quot;:&amp;quot;created&amp;quot;,
+  &amp;quot;_shards&amp;quot;:{&amp;quot;total&amp;quot;:2,&amp;quot;successful&amp;quot;:1,&amp;quot;failed&amp;quot;:0},
+  &amp;quot;created&amp;quot;:true
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果你仔细看，会发现请求路径是/accounts/person/1，最后的1是该条记录的 Id。它不一定是数字，任意字符串（比如abc）都可以。&lt;/p&gt;
+
+&lt;p&gt;新增记录的时候，也可以不指定 Id，这时要改成 POST 请求。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl -X POST &#39;localhost:9200/accounts/person&#39; -d &#39;
+{
+  &amp;quot;user&amp;quot;: &amp;quot;李四&amp;quot;,
+  &amp;quot;title&amp;quot;: &amp;quot;工程师&amp;quot;,
+  &amp;quot;desc&amp;quot;: &amp;quot;系统管理&amp;quot;
+}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面代码中，向/accounts/person发出一个 POST 请求，添加一个记录。这时，服务器返回的 JSON 对象里面，_id字段就是一个随机字符串。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;_index&amp;quot;:&amp;quot;accounts&amp;quot;,
+  &amp;quot;_type&amp;quot;:&amp;quot;person&amp;quot;,
+  &amp;quot;_id&amp;quot;:&amp;quot;AV3qGfrC6jMbsbXb6k1p&amp;quot;,
+  &amp;quot;_version&amp;quot;:1,
+  &amp;quot;result&amp;quot;:&amp;quot;created&amp;quot;,
+  &amp;quot;_shards&amp;quot;:{&amp;quot;total&amp;quot;:2,&amp;quot;successful&amp;quot;:1,&amp;quot;failed&amp;quot;:0},
+  &amp;quot;created&amp;quot;:true
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;注意，如果没有先创建 Index（这个例子是accounts），直接执行上面的命令，Elastic 也不会报错，而是直接生成指定的 Index。所以，打字的时候要小心，不要写错 Index 的名称。&lt;/p&gt;
+
+&lt;h2 id=&#34;查看记录&#34;&gt;查看记录&lt;/h2&gt;
+
+&lt;p&gt;向/Index/Type/Id发出 GET 请求，就可以查看这条记录。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl &#39;localhost:9200/accounts/person/1?pretty=true&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面代码请求查看/accounts/person/1这条记录，URL 的参数pretty=true表示以易读的格式返回。&lt;/p&gt;
+
+&lt;p&gt;返回的数据中，found字段表示查询成功，_source字段返回原始记录。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;_index&amp;quot; : &amp;quot;accounts&amp;quot;,
+  &amp;quot;_type&amp;quot; : &amp;quot;person&amp;quot;,
+  &amp;quot;_id&amp;quot; : &amp;quot;1&amp;quot;,
+  &amp;quot;_version&amp;quot; : 1,
+  &amp;quot;found&amp;quot; : true,
+  &amp;quot;_source&amp;quot; : {
+    &amp;quot;user&amp;quot; : &amp;quot;张三&amp;quot;,
+    &amp;quot;title&amp;quot; : &amp;quot;工程师&amp;quot;,
+    &amp;quot;desc&amp;quot; : &amp;quot;数据库管理&amp;quot;
+  }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果 Id 不正确，就查不到数据，found字段就是false。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl &#39;localhost:9200/weather/beijing/abc?pretty=true&#39;
+
+{
+  &amp;quot;_index&amp;quot; : &amp;quot;accounts&amp;quot;,
+  &amp;quot;_type&amp;quot; : &amp;quot;person&amp;quot;,
+  &amp;quot;_id&amp;quot; : &amp;quot;abc&amp;quot;,
+  &amp;quot;found&amp;quot; : false
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;删除记录&#34;&gt;删除记录&lt;/h2&gt;
+
+&lt;p&gt;删除记录就是发出 DELETE 请求。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl -X DELETE &#39;localhost:9200/accounts/person/1&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这里先不要删除这条记录，后面还要用到。&lt;/p&gt;
+
+&lt;h2 id=&#34;更新记录&#34;&gt;更新记录&lt;/h2&gt;
+
+&lt;p&gt;更新记录就是使用 PUT 请求，重新发送一次数据。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl -X PUT &#39;localhost:9200/accounts/person/1&#39; -d &#39;
+{
+    &amp;quot;user&amp;quot; : &amp;quot;张三&amp;quot;,
+    &amp;quot;title&amp;quot; : &amp;quot;工程师&amp;quot;,
+    &amp;quot;desc&amp;quot; : &amp;quot;数据库管理，软件开发&amp;quot;
+}&#39; 
+
+{
+  &amp;quot;_index&amp;quot;:&amp;quot;accounts&amp;quot;,
+  &amp;quot;_type&amp;quot;:&amp;quot;person&amp;quot;,
+  &amp;quot;_id&amp;quot;:&amp;quot;1&amp;quot;,
+  &amp;quot;_version&amp;quot;:2,
+  &amp;quot;result&amp;quot;:&amp;quot;updated&amp;quot;,
+  &amp;quot;_shards&amp;quot;:{&amp;quot;total&amp;quot;:2,&amp;quot;successful&amp;quot;:1,&amp;quot;failed&amp;quot;:0},
+  &amp;quot;created&amp;quot;:false
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面代码中，我们将原始数据从&amp;rdquo;数据库管理&amp;rdquo;改成&amp;rdquo;数据库管理，软件开发&amp;rdquo;。 返回结果里面，有几个字段发生了变化。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&amp;quot;_version&amp;quot; : 2,
+&amp;quot;result&amp;quot; : &amp;quot;updated&amp;quot;,
+&amp;quot;created&amp;quot; : false
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以看到，记录的 Id 没变，但是版本（version）从1变成2，操作类型（result）从created变成updated，created字段变成false，因为这次不是新建记录。&lt;/p&gt;
+
+&lt;h2 id=&#34;数据查询&#34;&gt;数据查询&lt;/h2&gt;
+
+&lt;p&gt;返回所有记录&lt;/p&gt;
+
+&lt;p&gt;使用 GET 方法，直接请求/Index/Type/_search，就会返回所有记录。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl &#39;localhost:9200/accounts/person/_search&#39;
+
+{
+  &amp;quot;took&amp;quot;:2,
+  &amp;quot;timed_out&amp;quot;:false,
+  &amp;quot;_shards&amp;quot;:{&amp;quot;total&amp;quot;:5,&amp;quot;successful&amp;quot;:5,&amp;quot;failed&amp;quot;:0},
+  &amp;quot;hits&amp;quot;:{
+    &amp;quot;total&amp;quot;:2,
+    &amp;quot;max_score&amp;quot;:1.0,
+    &amp;quot;hits&amp;quot;:[
+      {
+        &amp;quot;_index&amp;quot;:&amp;quot;accounts&amp;quot;,
+        &amp;quot;_type&amp;quot;:&amp;quot;person&amp;quot;,
+        &amp;quot;_id&amp;quot;:&amp;quot;AV3qGfrC6jMbsbXb6k1p&amp;quot;,
+        &amp;quot;_score&amp;quot;:1.0,
+        &amp;quot;_source&amp;quot;: {
+          &amp;quot;user&amp;quot;: &amp;quot;李四&amp;quot;,
+          &amp;quot;title&amp;quot;: &amp;quot;工程师&amp;quot;,
+          &amp;quot;desc&amp;quot;: &amp;quot;系统管理&amp;quot;
+        }
+      },
+      {
+        &amp;quot;_index&amp;quot;:&amp;quot;accounts&amp;quot;,
+        &amp;quot;_type&amp;quot;:&amp;quot;person&amp;quot;,
+        &amp;quot;_id&amp;quot;:&amp;quot;1&amp;quot;,
+        &amp;quot;_score&amp;quot;:1.0,
+        &amp;quot;_source&amp;quot;: {
+          &amp;quot;user&amp;quot; : &amp;quot;张三&amp;quot;,
+          &amp;quot;title&amp;quot; : &amp;quot;工程师&amp;quot;,
+          &amp;quot;desc&amp;quot; : &amp;quot;数据库管理，软件开发&amp;quot;
+        }
+      }
+    ]
+  }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面代码中，返回结果的 took字段表示该操作的耗时（单位为毫秒），timed_out字段表示是否超时，hits字段表示命中的记录，里面子字段的含义如下。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;total：返回记录数，本例是2条。
+max_score：最高的匹配程度，本例是1.0。
+hits：返回的记录组成的数组。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回的记录中，每条记录都有一个_score字段，表示匹配的程序，默认是按照这个字段降序排列。&lt;/p&gt;
+
+&lt;h2 id=&#34;全文搜索&#34;&gt;全文搜索&lt;/h2&gt;
+
+&lt;p&gt;Elastic 的查询非常特别，使用自己的查询语法，要求 GET 请求带有数据体。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl &#39;localhost:9200/accounts/person/_search&#39;  -d &#39;
+{
+  &amp;quot;query&amp;quot; : { &amp;quot;match&amp;quot; : { &amp;quot;desc&amp;quot; : &amp;quot;软件&amp;quot; }}
+}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面代码使用 Match 查询，指定的匹配条件是desc字段里面包含&amp;rdquo;软件&amp;rdquo;这个词。返回结果如下。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;took&amp;quot;:3,
+  &amp;quot;timed_out&amp;quot;:false,
+  &amp;quot;_shards&amp;quot;:{&amp;quot;total&amp;quot;:5,&amp;quot;successful&amp;quot;:5,&amp;quot;failed&amp;quot;:0},
+  &amp;quot;hits&amp;quot;:{
+    &amp;quot;total&amp;quot;:1,
+    &amp;quot;max_score&amp;quot;:0.28582606,
+    &amp;quot;hits&amp;quot;:[
+      {
+        &amp;quot;_index&amp;quot;:&amp;quot;accounts&amp;quot;,
+        &amp;quot;_type&amp;quot;:&amp;quot;person&amp;quot;,
+        &amp;quot;_id&amp;quot;:&amp;quot;1&amp;quot;,
+        &amp;quot;_score&amp;quot;:0.28582606,
+        &amp;quot;_source&amp;quot;: {
+          &amp;quot;user&amp;quot; : &amp;quot;张三&amp;quot;,
+          &amp;quot;title&amp;quot; : &amp;quot;工程师&amp;quot;,
+          &amp;quot;desc&amp;quot; : &amp;quot;数据库管理，软件开发&amp;quot;
+        }
+      }
+    ]
+  }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Elastic 默认一次返回10条结果，可以通过size字段改变这个设置。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl &#39;localhost:9200/accounts/person/_search&#39;  -d &#39;
+{
+  &amp;quot;query&amp;quot; : { &amp;quot;match&amp;quot; : { &amp;quot;desc&amp;quot; : &amp;quot;管理&amp;quot; }},
+  &amp;quot;size&amp;quot;: 1
+}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面代码指定，每次只返回一条结果。&lt;/p&gt;
+
+&lt;p&gt;还可以通过from字段，指定位移。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl &#39;localhost:9200/accounts/person/_search&#39;  -d &#39;
+{
+  &amp;quot;query&amp;quot; : { &amp;quot;match&amp;quot; : { &amp;quot;desc&amp;quot; : &amp;quot;管理&amp;quot; }},
+  &amp;quot;from&amp;quot;: 1,
+  &amp;quot;size&amp;quot;: 1
+}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面代码指定，从位置1开始（默认是从位置0开始），只返回一条结果。&lt;/p&gt;
+
+&lt;h2 id=&#34;逻辑运算&#34;&gt;逻辑运算&lt;/h2&gt;
+
+&lt;p&gt;如果有多个搜索关键字， Elastic 认为它们是or关系。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl &#39;localhost:9200/accounts/person/_search&#39;  -d &#39;
+{
+  &amp;quot;query&amp;quot; : { &amp;quot;match&amp;quot; : { &amp;quot;desc&amp;quot; : &amp;quot;软件 系统&amp;quot; }}
+}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面代码搜索的是软件 or 系统。&lt;/p&gt;
+
+&lt;p&gt;如果要执行多个关键词的and搜索，必须使用布尔查询。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl &#39;localhost:9200/accounts/person/_search&#39;  -d &#39;
+{
+  &amp;quot;query&amp;quot;: {
+    &amp;quot;bool&amp;quot;: {
+      &amp;quot;must&amp;quot;: [
+        { &amp;quot;match&amp;quot;: { &amp;quot;desc&amp;quot;: &amp;quot;软件&amp;quot; } },
+        { &amp;quot;match&amp;quot;: { &amp;quot;desc&amp;quot;: &amp;quot;系统&amp;quot; } }
+      ]
+    }
+  }
+}&#39;
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>Golang使用系列---- Bufio</title>
           <link>https://kingjcy.github.io/post/golang/go-bufio/</link>
           <pubDate>Tue, 25 Dec 2018 14:27:45 CST</pubDate>
@@ -1878,6 +2309,66 @@ func (b *Writer) WriteString(s string) (int, error)
     return &amp;amp;ReadWriter{r, w}
 }
 &lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控系列---- log</title>
+          <link>https://kingjcy.github.io/post/monitor/log/log-scheme/</link>
+          <pubDate>Mon, 13 Aug 2018 11:16:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/log/log-scheme/</guid>
+          <description>&lt;p&gt;日志是设备或者程序对自身状态和运作行为的记录，日志监控平台是包括日志采集，存储，分析，索引查询，告警以及各种流程管理的一站式日志服务，日志监控是监控体系中核心的建设，而且可以说是量最大的一项监控。&lt;/p&gt;
+
+&lt;h1 id=&#34;日志&#34;&gt;日志&lt;/h1&gt;
+
+&lt;p&gt;日志是设备或者程序对自身状态和运作行为的记录。日志记录了事件，通过日志就可以看到设备和程序运行的历史信息，通过这些信息，可以了解设备和程序运行情况的变化，以更好的对于设备和程序进行维护。主要是在系统出现问题的时候，通过对于运行过程中发生的历史事件，可以查找问题出现的原因。&lt;/p&gt;
+
+&lt;p&gt;我们可以通过下图来对日志有一个直观的概念&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/log/log&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&#34;日志平台&#34;&gt;日志平台&lt;/h1&gt;
+
+&lt;p&gt;业内最常见的日志采集方案就是 ELK，在 ELK 出来之前，日志管理基本上都是通过登陆日志所在机器然后使用 Linux 命令或人为查看和统计 ，这样是非常没有效率的。&lt;/p&gt;
+
+&lt;h2 id=&#34;架构&#34;&gt;架构&lt;/h2&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/log/log1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这是一个最简化版的日志收集架构，很多基于ELK的日志架构是从它演化而来，比如中加上kafka等队列缓存，核心的问题就是日志数据都保存到ElasticSearch中。其实核心的是四大模块&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;数据采集模块：负责从各节点上实时采集数据，建议选用filebeat来实现。&lt;/li&gt;
+&lt;li&gt;数据接入模块：由于采集数据的速度和数据处理的速度不一定同步，因此添加一个消息中间件来作为缓冲，建议选用Kafka来实现。&lt;/li&gt;
+&lt;li&gt;存储计算模块：对采集到的数据进行实时存储分析，建议选用ES来实现。&lt;/li&gt;
+&lt;li&gt;数据输出模块：对分析后的结果展示，一般使用kibana。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;采集&#34;&gt;采集&lt;/h2&gt;
+
+&lt;p&gt;在日志采集方面，可以说是有很多项目的支持，从以一开始的logstash，Rsyslog到后来Flume，Fluentd，Filebeat等。采集越来越倾向于轻量级，性能越来越高。容器日志采集和寻常的采集也不一样，&lt;a href=&#34;https://kingjcy.github.io/post/monitor/log/collect/collect-scheme/&#34;&gt;不同的方案&lt;/a&gt;有不同的适用场景。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;2020.02.20&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;今天调研了grafana推出的loki也是处理日志,这边采集是promtail，具体可以查看&lt;a href=&#34;https://kingjcy.github.io/post/monitor/log/loki/loki/&#34;&gt;loki调研&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h2 id=&#34;存储&#34;&gt;存储&lt;/h2&gt;
+
+&lt;p&gt;在日志存储索引查询方面，目前只有&lt;a href=&#34;https://kingjcy.github.io/post/database/elasticsearch/&#34;&gt;ES&lt;/a&gt;一个核心技术站，并没有过多的选择。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;2020.02.20&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;今天调研了grafana推出的loki也是处理日志，借鉴了prometheus的label和metrics理念，通过label完成检索，具体可以查看&lt;a href=&#34;https://kingjcy.github.io/post/monitor/log/loki/loki/&#34;&gt;loki调研&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h2 id=&#34;展示&#34;&gt;展示&lt;/h2&gt;
+
+&lt;p&gt;在数据展示报表方面，目前对日志也没有什么选择，只有kibana。Kibana主要负责读取ElasticSearch中的数据，并进行可视化展示。并且，它还自带Tool，可以方便调用ElasticSearch的Rest API。在日志平台中，我们通过Kibana查看日志。&lt;/p&gt;</description>
         </item>
       
     
