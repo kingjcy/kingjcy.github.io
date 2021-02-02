@@ -1330,6 +1330,170 @@ limits_config:
     
       
         <item>
+          <title>监控metrics系列---- Cortex</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/cortex/</link>
+          <pubDate>Thu, 13 Jun 2019 14:28:39 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/cortex/</guid>
+          <description>&lt;p&gt;crotex是一个为了支持prometheus扩展的服务，支持水平扩展，高可用，多租户，长期存储。主要开发者也是promehteus的开发者&lt;/p&gt;
+
+&lt;h1 id=&#34;架构&#34;&gt;架构&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/prometheus/cluster/cortex/architecture.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;组件&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;Distributor&lt;/p&gt;
+
+&lt;p&gt;Distributor就是负责接收promtheus发送过来的数据，然后将数据分发给lngester。&lt;/p&gt;
+
+&lt;p&gt;Distributor只要和lngester进行交互，使用的是grpc&lt;/p&gt;
+
+&lt;p&gt;Distributor使用一致性hash来将数据分发给哪个lngester实例，consistent hash ring is stored in Consul&lt;/p&gt;
+
+&lt;p&gt;建议使用负载均衡来运行多个distributors实例。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;lngester&lt;/p&gt;
+
+&lt;p&gt;lngester组件主要是接受Distributor发来的数据，然后发送到后段的数据库存储&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;ruler&lt;/p&gt;
+
+&lt;p&gt;ruler组件主要是负责处理alertmanager产生的告警&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Query frontend&lt;/p&gt;
+
+&lt;p&gt;Query frontend组件主要是接受http请求，把他们按着tenant ID排列，并且重试一些返回错误的请求，比如large query&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Querier&lt;/p&gt;
+
+&lt;p&gt;Querier组件主要是处理promql&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Chunk store&lt;/p&gt;
+
+&lt;p&gt;Chunk store组件就是长期存储&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;原理&#34;&gt;原理&lt;/h1&gt;
+
+&lt;p&gt;就是我们常用的集群架构：聚合，将所有数据都发送到一个节点，用于存储+查询&lt;/p&gt;
+
+&lt;h1 id=&#34;安装使用&#34;&gt;安装使用&lt;/h1&gt;
+
+&lt;p&gt;编译启动&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ go build ./cmd/cortex
+$ ./cortex -config.file=./docs/single-process-config.yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;配置prometheus的远程写，将prometheus数据写入到cortex中去&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;remote_write:
+- url: http://localhost:9009/api/prom/push
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;启动脚本&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;nohup /opt/promes/cortex/cortex -config.file=/opt/promes/cortex/config/single-process-config.yaml -distributor.ingestion-rate-limit=100000 -ring.store=consul -consul.hostname=10.47.182.224:9996 -distributor.replication-factor=2 &amp;gt;&amp;gt;/opt/promes/cortex/logs/start.log 2&amp;gt;&amp;amp;1 &amp;amp;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;-distributor.ingestion-rate-limit=100000：限制数据量为100000，其实达不到这个量，prometheus默认remote_write的10000个并发，每个包含100个数据，这个时候会大量出错，所以在写入性能上达不到这个量，测试最大每个包含25个数据可以处理，同样的机器上victoria-metrics可以达到10000个数据而不出错。&lt;/li&gt;
+&lt;li&gt;-ring.store=consul -consul.hostname=10.47.182.224:9996：一个令牌存储在consul上，用我们现有的consul&lt;/li&gt;
+&lt;li&gt;-distributor.replication-factor=2：集群节点的数量，这边主要是高可用，两个节点互相复制，完成一致性哈希&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;目前没有看到cortex的可扩展的优秀的方面，可能是社区开发还没有完成，等release。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- M3db</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/m3db/</link>
+          <pubDate>Wed, 13 Mar 2019 17:13:10 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/m3db/</guid>
+          <description>&lt;p&gt;Uber开发了指标平台M3和分布式时间序列数据库M3DB。来解决Uber在发展过程当中遇到的问题：使用开源软件后，因为可靠性，成本等问题，在操做密集型方面没法大规模使用这些开源软件。因此Uber逐步构建了本身的指标平台。咱们利用经验来帮助咱们构建本地分布式时间序列数据库，高度动态和高性能的聚合服务，查询引擎以及其余支持基础架构。&lt;/p&gt;
+
+&lt;h1 id=&#34;架构&#34;&gt;架构&lt;/h1&gt;
+
+&lt;p&gt;M3包括了以下的组件：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;M3DB &amp;ndash; M3db是一个使用TSDB（时间数据库），保存全部Prometheus指标，M3db是分布式，高可用性和复制的数据库，它使用Etcd做为共识算法。&lt;/li&gt;
+&lt;li&gt;M3Coordinator &amp;ndash; 是Prometheus实例与M3db之间的适配器，它公开了Prometheus用来从数据库中推送和提取数据的读/写端点。&lt;/li&gt;
+&lt;li&gt;M3Query &amp;ndash; 众所周知，Prometheus努力处理显示大量数据的查询，而不是从Prometheus提取数据，M3Query实现了相同的PromQL并能够响应此类请求。&lt;/li&gt;
+&lt;li&gt;M3Aggregator &amp;ndash; 可选但很重要，此服务将下降指标的采样率，为长期存储作好准备。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;总体架构图以下：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/prometheus/cluster/m3/m3&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;关于M3，咱们目前积累了一些生产实践。目前的问题是，社区不够活跃，文档也不够丰富。不少时候遇到问题，只能去研究代码。M3query对PromSql支持的不够，因此M3query并不能生产环境使用。&lt;/p&gt;
+
+&lt;h1 id=&#34;调研&#34;&gt;调研&lt;/h1&gt;
+
+&lt;p&gt;首先，我们想把大量的数据存储到m3中，给prometheus进行查询告警。但是数据量很大，m3db数据插入性能是有必要进行保证的。&lt;/p&gt;
+
+&lt;p&gt;之前写过一个adapter，将数据转化为json调用json api将数据已经插入了m3db中，当时对数据性能没有要求，这次使用json api进行压测的时候，发现性能很差，而且在数据并发达到100个goroutine，一个goroutine发送100条数据，m3db就崩溃了，不接受连接。然后简单的测试了一下得到以下的数据&lt;/p&gt;
+
+&lt;p&gt;这个远远达不到要求啊，于是看看有没有批量操作的接口，官方文档说明，有两种方式插入数据&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Test RPC
+To test out some of the functionality of M3DB there are some user friendly HTTP JSON APIs that you can use. These use the DB node cluster service endpoints.
+
+Note: performance sensitive users are expected to use the more performant endpoints via either the Go src/dbnode/client/Session API, or the GRPC endpoints exposed via src/coordinator.
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;go api（src/dbnode/client/Session），session看代码使用的是apache的thrift rpc。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;GRPC（src/coordinator）&lt;/p&gt;
+
+&lt;p&gt;官方提供了benchmark（src/query/benchmark），于是去编译进行测试，但是m3开源的太差了，很多第三方库都是使用的老版本，兼容性很差，各种api对不上，也不把自己的vendor包一同开源，踩了许多坑：&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;github.com/thrift &amp;mdash;0.10.0&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;github.com/uber-go/tally&amp;mdash;3.3.7&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;client_golang&amp;mdash;0.8.0&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;github.com/coreos/etcd&amp;mdash;&amp;ndash;3.2.0，还是缺少参数，坑&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;google.golang.org/grpc&amp;ndash;laster&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;golang.org/x/text&amp;mdash;&amp;mdash;laster&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;github.com/satori/go.uuid&amp;mdash;-1.2.0&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;github.com/couchbase/vellum&amp;mdash;&amp;ndash;master&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;github.com/pilosa/pilosa-最新班都缺少参数&lt;/p&gt;&lt;/li&gt;
+&lt;/ol&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;还是没有编译完成，后续持续跟进，看看官方有没有继续开源和改进。&lt;/p&gt;
+
+&lt;p&gt;目前得到以下结论&lt;/p&gt;
+
+&lt;p&gt;m3db目前没有发现批量处理的方式&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;Coordinator的方式最后还是一条一条的发送（通过查看代码，未能运行）&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;session方式，其中一个包github.com/pilosa/pilosa/roaring目前最新版本都没有m3中使用的参数，最终无法编译使用。网上使用session运行成功的，我未能找到他使用了什么版本的github.com/pilosa/pilosa/roaring包。但是通过他运行的结果来看（结合代码api），也是一条一条发送的。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;m3中很多都是老版本的库，兼容性很差，api很多不兼容，官方也未推出他使用了什么库，如果继续，应该需要大量的时间去校验和编译&lt;/p&gt;&lt;/li&gt;
+&lt;/ol&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>数据库系列---- Elasticsearch</title>
           <link>https://kingjcy.github.io/post/database/elasticsearch/</link>
           <pubDate>Thu, 21 Feb 2019 19:28:32 CST</pubDate>

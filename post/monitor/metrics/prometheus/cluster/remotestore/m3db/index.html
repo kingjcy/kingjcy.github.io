@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Uber开发了指标平台M3和分布式时间序列数据库M3DB。来解决Uber在发展过程当中遇到的问题：使用开源软件后，因为可靠性，成本等问题，在操做密集型方面没法大规模使用这些开源软件。因此Uber逐步构建了本身的指标平台。咱们利用经验来帮助咱们构建本地分布式时间序列数据库，高度动态和高性能的聚合服务，查询引擎以及其余支持基础架构。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控metrics系列---- M3db - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控metrics系列---- M3db
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年03月13日 
+                </div>
+                <h1 class="post-title">监控metrics系列---- M3db</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Uber开发了指标平台M3和分布式时间序列数据库M3DB。来解决Uber在发展过程当中遇到的问题：使用开源软件后，因为可靠性，成本等问题，在操做密集型方面没法大规模使用这些开源软件。因此Uber逐步构建了本身的指标平台。咱们利用经验来帮助咱们构建本地分布式时间序列数据库，高度动态和高性能的聚合服务，查询引擎以及其余支持基础架构。</p>
+
+<h1 id="架构">架构</h1>
+
+<p>M3包括了以下的组件：</p>
+
+<ul>
+<li>M3DB &ndash; M3db是一个使用TSDB（时间数据库），保存全部Prometheus指标，M3db是分布式，高可用性和复制的数据库，它使用Etcd做为共识算法。</li>
+<li>M3Coordinator &ndash; 是Prometheus实例与M3db之间的适配器，它公开了Prometheus用来从数据库中推送和提取数据的读/写端点。</li>
+<li>M3Query &ndash; 众所周知，Prometheus努力处理显示大量数据的查询，而不是从Prometheus提取数据，M3Query实现了相同的PromQL并能够响应此类请求。</li>
+<li>M3Aggregator &ndash; 可选但很重要，此服务将下降指标的采样率，为长期存储作好准备。</li>
+</ul>
+
+<p>总体架构图以下：</p>
+
+<p><img src="/media/monitor/prometheus/cluster/m3/m3" alt="" /></p>
+
+<p>关于M3，咱们目前积累了一些生产实践。目前的问题是，社区不够活跃，文档也不够丰富。不少时候遇到问题，只能去研究代码。M3query对PromSql支持的不够，因此M3query并不能生产环境使用。</p>
+
+<h1 id="调研">调研</h1>
+
+<p>首先，我们想把大量的数据存储到m3中，给prometheus进行查询告警。但是数据量很大，m3db数据插入性能是有必要进行保证的。</p>
+
+<p>之前写过一个adapter，将数据转化为json调用json api将数据已经插入了m3db中，当时对数据性能没有要求，这次使用json api进行压测的时候，发现性能很差，而且在数据并发达到100个goroutine，一个goroutine发送100条数据，m3db就崩溃了，不接受连接。然后简单的测试了一下得到以下的数据</p>
+
+<p>这个远远达不到要求啊，于是看看有没有批量操作的接口，官方文档说明，有两种方式插入数据</p>
+
+<pre><code>Test RPC
+To test out some of the functionality of M3DB there are some user friendly HTTP JSON APIs that you can use. These use the DB node cluster service endpoints.
+
+Note: performance sensitive users are expected to use the more performant endpoints via either the Go src/dbnode/client/Session API, or the GRPC endpoints exposed via src/coordinator.
+</code></pre>
+
+<ol>
+<li><p>go api（src/dbnode/client/Session），session看代码使用的是apache的thrift rpc。</p></li>
+
+<li><p>GRPC（src/coordinator）</p>
+
+<p>官方提供了benchmark（src/query/benchmark），于是去编译进行测试，但是m3开源的太差了，很多第三方库都是使用的老版本，兼容性很差，各种api对不上，也不把自己的vendor包一同开源，踩了许多坑：</p>
+
+<ol>
+<li><p>github.com/thrift &mdash;0.10.0</p></li>
+
+<li><p>github.com/uber-go/tally&mdash;3.3.7</p></li>
+
+<li><p>client_golang&mdash;0.8.0</p></li>
+
+<li><p>github.com/coreos/etcd&mdash;&ndash;3.2.0，还是缺少参数，坑</p></li>
+
+<li><p>google.golang.org/grpc&ndash;laster</p></li>
+
+<li><p>golang.org/x/text&mdash;&mdash;laster</p></li>
+
+<li><p>github.com/satori/go.uuid&mdash;-1.2.0</p></li>
+
+<li><p>github.com/couchbase/vellum&mdash;&ndash;master</p></li>
+
+<li><p>github.com/pilosa/pilosa-最新班都缺少参数</p></li>
+</ol></li>
+</ol>
+
+<p>还是没有编译完成，后续持续跟进，看看官方有没有继续开源和改进。</p>
+
+<p>目前得到以下结论</p>
+
+<p>m3db目前没有发现批量处理的方式</p>
+
+<ol>
+<li><p>Coordinator的方式最后还是一条一条的发送（通过查看代码，未能运行）</p></li>
+
+<li><p>session方式，其中一个包github.com/pilosa/pilosa/roaring目前最新版本都没有m3中使用的参数，最终无法编译使用。网上使用session运行成功的，我未能找到他使用了什么版本的github.com/pilosa/pilosa/roaring包。但是通过他运行的结果来看（结合代码api），也是一条一条发送的。</p></li>
+
+<li><p>m3中很多都是老版本的库，兼容性很差，api很多不兼容，官方也未推出他使用了什么库，如果继续，应该需要大量的时间去校验和编译</p></li>
+</ol>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/m3db/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/m3db/">
+                            <i class="fa fa-tags"></i>
+                            m3db
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cluster/">
+                            <i class="fa fa-tags"></i>
+                            cluster
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/remotestore/">
+                            <i class="fa fa-tags"></i>
+                            remotestore
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/log-scheme/">监控系列---- log</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbixcode/">监控系列---- zabbix源码阅读</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年11月25日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbix/">监控系列---- Zabbix基本使用</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年03月04日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbix-scheme/">监控系列---- Zabbix监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年03月04日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/database/elasticsearch/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#架构">架构</a></li>
+<li><a href="#调研">调研</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

@@ -6,13 +6,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <meta name="author" content="fatedier">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<meta name="description" content="zabbix是目前各大互联网公司使用最广泛的开源监控之一,其历史最早可追溯到1998年,在业内拥有各种成熟的解决方案，但是对容器的监控还是比较薄弱，我们也不多说，主要用于基础设施VM的监控。">
+<meta name="description" content="crotex是一个为了支持prometheus扩展的服务，支持水平扩展，高可用，多租户，长期存储。主要开发者也是promehteus的开发者">
 <meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
-<meta property="og:title" content="监控系列---- Zabbix监控方案 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+<meta property="og:title" content="监控metrics系列---- Cortex - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
 
 <title>
     
-    监控系列---- Zabbix监控方案
+    监控metrics系列---- Cortex
     
 </title>
 
@@ -66,82 +66,88 @@
 
             <header>
                 <div class="post-date">
-                    2016年03月04日 
+                    2019年06月13日 
                 </div>
-                <h1 class="post-title">监控系列---- Zabbix监控方案</h1>
+                <h1 class="post-title">监控metrics系列---- Cortex</h1>
             </header>
 
             <div class="post-content">
-                <p>zabbix是目前各大互联网公司使用最广泛的开源监控之一,其历史最早可追溯到1998年,在业内拥有各种成熟的解决方案，但是对容器的监控还是比较薄弱，我们也不多说，主要用于基础设施VM的监控。</p>
+                <p>crotex是一个为了支持prometheus扩展的服务，支持水平扩展，高可用，多租户，长期存储。主要开发者也是promehteus的开发者</p>
 
 <h1 id="架构">架构</h1>
 
-<p><img src="/media/monitor/zabbix/zabbix.jpg" alt="" /></p>
+<p><img src="/media/monitor/prometheus/cluster/cortex/architecture.png" alt="" /></p>
 
-<p>详细说明</p>
+<p>组件</p>
 
 <ul>
-<li>agent：负载采集数据，所有的采集都在这一个进程中，不像prometheus的exporter有很多。</li>
-<li>proxy：是一个汇聚层，将数据聚合后发送到server。</li>
-<li>server：服务端，用于存储数据，对外进行查询展示。</li>
-<li>DB：数据库，存储数据</li>
+<li><p>Distributor</p>
+
+<p>Distributor就是负责接收promtheus发送过来的数据，然后将数据分发给lngester。</p>
+
+<p>Distributor只要和lngester进行交互，使用的是grpc</p>
+
+<p>Distributor使用一致性hash来将数据分发给哪个lngester实例，consistent hash ring is stored in Consul</p>
+
+<p>建议使用负载均衡来运行多个distributors实例。</p></li>
+
+<li><p>lngester</p>
+
+<p>lngester组件主要是接受Distributor发来的数据，然后发送到后段的数据库存储</p></li>
+
+<li><p>ruler</p>
+
+<p>ruler组件主要是负责处理alertmanager产生的告警</p></li>
+
+<li><p>Query frontend</p>
+
+<p>Query frontend组件主要是接受http请求，把他们按着tenant ID排列，并且重试一些返回错误的请求，比如large query</p></li>
+
+<li><p>Querier</p>
+
+<p>Querier组件主要是处理promql</p></li>
+
+<li><p>Chunk store</p>
+
+<p>Chunk store组件就是长期存储</p></li>
 </ul>
 
-<h1 id="zabbix的核心组件">zabbix的核心组件</h1>
+<h1 id="原理">原理</h1>
 
-<p>1、zabbix server 负责采集和收取agent采集的信息。</p>
+<p>就是我们常用的集群架构：聚合，将所有数据都发送到一个节点，用于存储+查询</p>
 
-<p>2、zabbix database   用于存储zabbix的配置信息，监控数据</p>
+<h1 id="安装使用">安装使用</h1>
 
-<p>3、zabbix web zabbix的管理界面，监控界面，可以独立部署，只要能连接到database就可以</p>
+<p>编译启动</p>
 
-<p>4、zabbix agent 不数据监控主机主机上，负责采集数据，把数据推送到server或者server来去数据（主动和被动模式，可以同时设置）</p>
-
-<p>5、zabbix proxy 用于分布式监控，作用就是用于聚合部分数据，最后统一发完server</p>
-
-<p>zabbix对分布式的数据采集非常好,支持两种分布式架构,一种是Proxy,一种是Node.Proxy作为zabbix server的代理去监控服务器,并发数据汇聚到Zabbix server.而Node本身就是一个完整的Zabbix server, 使用Node可以将多个Zabbix server组成一个具有基层关系的分布式架构.</p>
-
-<p>两者的区别如下:</p>
-
-<pre><code>                proxy   Node
-轻量级         √       ×
-GUI前端           ×       √
-是否可以独立运行    √       ×
-容易运维            √       ×
-本地Admin管理   ×       √
-中心化配置       √       ×
-产生通知            ×       √
+<pre><code>$ go build ./cmd/cortex
+$ ./cortex -config.file=./docs/single-process-config.yaml
 </code></pre>
 
-<p>6、zabbix get 安装服务器上，来测试获取agent的数据的工具</p>
+<p>配置prometheus的远程写，将prometheus数据写入到cortex中去</p>
 
-<p>7、zabbix sender 安装在客户端机器上，用于测试推送数据到server的的工具</p>
+<pre><code>remote_write:
+- url: http://localhost:9009/api/prom/push
+</code></pre>
 
-<h1 id="zabbix监控方式">Zabbix监控方式</h1>
+<p>启动脚本</p>
 
-<p>1、被动模式</p>
+<pre><code>nohup /opt/promes/cortex/cortex -config.file=/opt/promes/cortex/config/single-process-config.yaml -distributor.ingestion-rate-limit=100000 -ring.store=consul -consul.hostname=10.47.182.224:9996 -distributor.replication-factor=2 &gt;&gt;/opt/promes/cortex/logs/start.log 2&gt;&amp;1 &amp;
+</code></pre>
 
-<p>被动检测：相对于agent而言；agent, server向agent请求获取配置的各监控项相关的数据，agent接收请求、获取数据并响应给server；</p>
+<ul>
+<li>-distributor.ingestion-rate-limit=100000：限制数据量为100000，其实达不到这个量，prometheus默认remote_write的10000个并发，每个包含100个数据，这个时候会大量出错，所以在写入性能上达不到这个量，测试最大每个包含25个数据可以处理，同样的机器上victoria-metrics可以达到10000个数据而不出错。</li>
+<li>-ring.store=consul -consul.hostname=10.47.182.224:9996：一个令牌存储在consul上，用我们现有的consul</li>
+<li>-distributor.replication-factor=2：集群节点的数量，这边主要是高可用，两个节点互相复制，完成一致性哈希</li>
+</ul>
 
-<p>2、主动模式</p>
-
-<p>主动检测：相对于agent而言；agent(active),agent向server请求与自己相关监控项配置，主动地将server配置的监控项相关的数据发送给server；</p>
-
-<p>主动监控能极大节约监控server 的资源。</p>
-
-<h1 id="zabbix的使用">zabbix的使用</h1>
-
-<p>基本安装使用可以看<a href="/post/monitor/metrics/zabbix/zabbix/">这里</a>,相关源码解析可以看<a href="/post/monitor/metrics/zabbix/zabbixcode/">这里</a>,这些就不多说了。</p>
-
-<h1 id="扩展">扩展</h1>
-
-<p>随着系统监控规模的越来越大，zabbix出现越来越多的瓶颈，随着时序数据库的广泛使用，监控已经渐渐切换到了时序数据库，对于原始的zabbix监控项，监控数据如何处理？我们可以将zabbix数据存到时序数据库中，统一使用，相关<a href="/post/monitor/metrics/zabbix/zabbix2tsdb/">实现方案</a>就需要自己实现了。</p>
+<p>目前没有看到cortex的可扩展的优秀的方面，可能是社区开发还没有完成，等release。</p>
             </div>
             
             <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
                 <div>
                     <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
-                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix-scheme/">https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix-scheme/</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/cortex/</a>
                     <br />
                     文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
                 </div>
@@ -152,9 +158,9 @@ GUI前端           ×       √
                 <ul class="list-inline post-tags">
                     
                     <li>
-                        <a href="/tags/zabbix/">
+                        <a href="/tags/cortex/">
                             <i class="fa fa-tags"></i>
-                            zabbix
+                            Cortex
                         </a>
                     </li>
                     
@@ -165,12 +171,33 @@ GUI前端           ×       √
                         </a>
                     </li>
                     
+                    <li>
+                        <a href="/tags/cluster/">
+                            <i class="fa fa-tags"></i>
+                            cluster
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/remotestore/">
+                            <i class="fa fa-tags"></i>
+                            remotestore
+                        </a>
+                    </li>
+                    
                 </ul>
 
                 
                 
                 <h4 id="real-rels">相关文章</h4>
-                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/log-scheme/">监控系列---- log</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbixcode/">监控系列---- zabbix源码阅读</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年11月25日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbix/">监控系列---- Zabbix基本使用</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年03月04日)</span></li></ul>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/log-scheme/">监控系列---- log</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbixcode/">监控系列---- zabbix源码阅读</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年11月25日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbix/">监控系列---- Zabbix基本使用</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年03月04日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbix-scheme/">监控系列---- Zabbix监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年03月04日)</span></li></ul>
             </aside>
                 
             
@@ -179,13 +206,13 @@ GUI前端           ×       √
                     <ul class="pager">
 
                         
-                        <li class="previous"><a href="/post/golang/go-time/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        <li class="previous"><a href="/post/monitor/log/loki/loki/"><span aria-hidden="true">&larr;</span> Prev</a></li>
                         
 
                         <li><a href="/post/">All Posts</a></li>
 
                         
-                        <li class="next"><a href="/post/tool/hugo-blog-build/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">Next <span aria-hidden="true">&rarr;</span></a></li>
                         
 
                     </ul>
@@ -205,10 +232,8 @@ GUI前端           ×       √
             <nav id="TableOfContents">
 <ul>
 <li><a href="#架构">架构</a></li>
-<li><a href="#zabbix的核心组件">zabbix的核心组件</a></li>
-<li><a href="#zabbix监控方式">Zabbix监控方式</a></li>
-<li><a href="#zabbix的使用">zabbix的使用</a></li>
-<li><a href="#扩展">扩展</a></li>
+<li><a href="#原理">原理</a></li>
+<li><a href="#安装使用">安装使用</a></li>
 </ul>
 </nav>
         </div>
