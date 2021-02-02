@@ -8955,6 +8955,234 @@ delim:N err: EOF
     
       
         <item>
+          <title>监控系列---- zabbix源码阅读</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbixcode/</link>
+          <pubDate>Sat, 25 Nov 2017 09:52:47 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbixcode/</guid>
+          <description>&lt;p&gt;阅读源码，解析基本原理。&lt;/p&gt;
+
+&lt;h1 id=&#34;流程&#34;&gt;流程&lt;/h1&gt;
+
+&lt;p&gt;一个监控系统运行的大概的流程是这样的：&lt;/p&gt;
+
+&lt;p&gt;agentd需要安装到被监控的主机上，它负责定期收集各项数据，并发送到zabbix server端，zabbix server将数据存储到数据库中，zabbix web根据数据在前端进行展现和绘图。这里agentd收集数据分为主动和被动两种模式：&lt;/p&gt;
+
+&lt;p&gt;主动：agent请求server获取主动的监控项列表，并主动将监控项内需要检测的数据提交给server/proxy&lt;/p&gt;
+
+&lt;p&gt;被动：server向agent请求获取监控项的数据，agent返回数据。&lt;/p&gt;
+
+&lt;h1 id=&#34;主动监测&#34;&gt;主动监测&lt;/h1&gt;
+
+&lt;p&gt;通信过程如下：&lt;/p&gt;
+
+&lt;p&gt;zabbix首先向ServerActive配置的IP请求获取active items，获取并提交active tiems数据值server或者proxy。很多人会提出疑问：zabbix多久获取一次active items？它会根据配置文件中的RefreshActiveChecks的频率进行，如果获取失败，那么将会在60秒之后重试。分两个部分：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/zabbix/z1.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;1.获取ACTIVE ITEMS列表&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Agent打开TCP连接（主动检测变成Agent打开）&lt;/li&gt;
+&lt;li&gt;Agent请求items检测列表&lt;/li&gt;
+&lt;li&gt;Server返回items列表&lt;/li&gt;
+&lt;li&gt;Agent 处理响应&lt;/li&gt;
+&lt;li&gt;关闭TCP连接&lt;/li&gt;
+&lt;li&gt;Agent开始收集数据&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;2.主动检测提交数据过程如下：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Agent建立TCP连接&lt;/li&gt;
+&lt;li&gt;Agent提交items列表收集的数据&lt;/li&gt;
+&lt;li&gt;Server处理数据，并返回响应状态&lt;/li&gt;
+&lt;li&gt;关闭TCP连接&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;被动监测&#34;&gt;被动监测&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/zabbix/z2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;通信过程如下：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Server打开一个TCP连接&lt;/li&gt;
+&lt;li&gt;Server发送请求agent.ping\n&lt;/li&gt;
+&lt;li&gt;Agent接收到请求并且响应&lt;code&gt;&amp;lt;HEADER&amp;gt;&amp;lt;DATALEN&amp;gt;1&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Server处理接收到的数据1&lt;/li&gt;
+&lt;li&gt;关闭TCP连接&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这里，有人可以看出来，被动模式每次都需要打开一个tcp连接，这样当监控项越来越多时，就会出现server端性能问题了。&lt;/p&gt;
+
+&lt;p&gt;比如not supported items通信过程&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Server打开一个TCP连接&lt;/li&gt;
+&lt;li&gt;Server发送请求&lt;code&gt;vfs.fs.size[ no]\n&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Agent接收请求并且返回响应数据 &lt;code&gt;&amp;lt;HEADER&amp;gt;&amp;lt;DATALEN&amp;gt;ZBX_NOTSUPPORTED\0Cannot obtain filesystem information: [2] No such file or directory&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Server接收并处理数据, 将item的状态改为“ not supported ”&lt;/li&gt;
+&lt;li&gt;关闭TCP连接&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;还有人会问，那实际监控中是用主动的还是被动的呢？这里主要涉及两个地方：&lt;/p&gt;
+
+&lt;p&gt;1、新建监控项目时，选择的是zabbix代理还是zabbix端点代理程式（主动式），前者是被动模式，后者是主动模式。&lt;/p&gt;
+
+&lt;p&gt;2、agentd配置文件中StartAgents参数的设置，如果为0，表示禁止被动模式，否则开启。一般建议不要设置为0，因为监控项目很多时，可以部分使用主动，部分使用被动模式。&lt;/p&gt;
+
+&lt;h1 id=&#34;常用的监控架构平台&#34;&gt;常用的监控架构平台&lt;/h1&gt;
+
+&lt;p&gt;1、server-agentd模式：&lt;/p&gt;
+
+&lt;p&gt;这个是最简单的架构了，常用于监控主机比较少的情况下。&lt;/p&gt;
+
+&lt;p&gt;2、server-proxy-agentd模式：&lt;/p&gt;
+
+&lt;p&gt;这个常用于比较多的机器，使用proxy进行分布式监控，有效的减轻server端的压力。&lt;/p&gt;
+
+&lt;h1 id=&#34;组件解析&#34;&gt;组件解析&lt;/h1&gt;
+
+&lt;h2 id=&#34;agent&#34;&gt;Agent&lt;/h2&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;入口函数：zabbix_agentd.c:MAIN_ZABBIX_ENTRY&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;采集线程：stats.c: ZBX_THREAD_ENTRY(collector_thread, args)，采集数据&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;监听线程：listener.c: ZBX_THREAD_ENTRY(listener_thread, args)，监听端口（根据加密格式）&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;发送线程：active.c:ZBX_THREAD_ENTRY(active_checks_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.发送报文函数: active.c:send_buffer，消息体为消息头+json格式的消息体，根据加密配置，分为不加密，cert加密和psk加密。Json的编码可以在这个函数里看。
+2.加密可以使用openssl的库，主要实现在tls.c:zbx_tls_connect函数中。
+3.消息头的编码：comms.c:zbx_tcp_send_ext，包括” ZBXD”+1字节flag+32位json消息长度+32位0x00，在发送json体的时候，使用了zlib的compress函数进行压缩，对端接收的时候使用uncompress进行了解压缩。
+4.1字节flag有以下取值：
+
+        {
+        ZBX_TCP_PROTOCOL(0x01)
+        ZBX_TCP_PROTOCOL |ZBX_TCP_COMPRESS (0x03)
+        0x00
+        }
+        当flag&amp;amp; ZBX_TCP_COMPRESS!=0时，发送报文需要对消息体进行compress压缩，接收报文需要对消息体进行uncompress解压缩
+        #define ZBX_TCP_PROTOCOL        0x01
+        #define ZBX_TCP_COMPRESS        0x02
+        当flag==0时，报文没有消息头，只有json消息体
+
+5.消息长度
+
+        发送报文时，如果加密，消息体最长16K
+        #define ZBX_TLS_MAX_REC_LEN 16384
+        如果不加密，没有限制，写json串时动态申请内存
+        接收报文时，最大长度128M，根据接收的消息长度循环动态申请内存
+        #define ZBX_MAX_RECV_DATA_SIZE  (128 * ZBX_MEBIBYTE)
+
+6.json编码中request的类型
+
+        #define ZBX_PROTO_VALUE_GET_ACTIVE_CHECKS   &amp;quot;active checks&amp;quot;
+        #define ZBX_PROTO_VALUE_PROXY_CONFIG        &amp;quot;proxy config&amp;quot;
+        #define ZBX_PROTO_VALUE_PROXY_HEARTBEAT     &amp;quot;proxy heartbeat&amp;quot;
+        #define ZBX_PROTO_VALUE_SENDER_DATA     &amp;quot;sender data&amp;quot;
+        #define ZBX_PROTO_VALUE_AGENT_DATA      &amp;quot;agent data&amp;quot;
+        #define ZBX_PROTO_VALUE_COMMAND         &amp;quot;command&amp;quot;
+        #define ZBX_PROTO_VALUE_JAVA_GATEWAY_INTERNAL   &amp;quot;java gateway internal&amp;quot;
+        #define ZBX_PROTO_VALUE_JAVA_GATEWAY_JMX    &amp;quot;java gateway jmx&amp;quot;
+        #define ZBX_PROTO_VALUE_GET_QUEUE       &amp;quot;queue.get&amp;quot;
+        #define ZBX_PROTO_VALUE_GET_STATUS      &amp;quot;status.get&amp;quot;
+        #define ZBX_PROTO_VALUE_PROXY_DATA      &amp;quot;proxy data&amp;quot;
+        #define ZBX_PROTO_VALUE_PROXY_TASKS     &amp;quot;proxy tasks&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;proxy&#34;&gt;Proxy&lt;/h2&gt;
+
+&lt;ol&gt;
+&lt;li&gt;入口函数：zabbix_proxy.c:MAIN_ZABBIX_ENTRY&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;配置同步线程：proxyconfig.c: ZBX_THREAD_ENTRY(proxyconfig_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.主要处理函数：proxyconfig.c: process_configuration_sync
+2.发送request为#define ZBX_PROTO_VALUE_PROXY_CONFIG        &amp;quot;proxy config&amp;quot;的配置同步请求消息，消息头和消息体的格式和agent消息格式一样，见agent段落的第3节
+3.接收对端的配置同步响应消息，并解析消息体中的json段
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;心跳线程：heartbeat.c:ZBX_THREAD_ENTRY(heart_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;发送request为#define ZBX_PROTO_VALUE_PROXY_HEARTBEAT       &amp;quot;proxy heartbeat&amp;quot;的心跳消息
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;发送线程：datasender.c: ZBX_THREAD_ENTRY(datasender_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.主要处理函数：datasender.c: proxy_data_sender
+2.发送request为#define ZBX_PROTO_VALUE_PROXY_DATA      &amp;quot;proxy data&amp;quot;的消息，消息头和消息体的格式和agent消息格式一样，见agent段落的第3节
+3.发送的消息体包括下面4个类型的数据，数据源主要从db中获取
+    #define ZBX_DATASENDER_AVAILABILITY     0x0001
+    #define ZBX_DATASENDER_HISTORY          0x0002
+    #define ZBX_DATASENDER_DISCOVERY        0x0004
+    #define ZBX_DATASENDER_AUTOREGISTRATION     0x0008
+4.从数据库中获取remotetasks，zbx_tm_get_remote_tasks，根据获取的task组织json消息体zbx_tm_json_serialize_tasks
+5.接收对端的响应消息，解析消息体中的json段，并更新db中的task数据
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;poller线程：poller.c: ZBX_THREAD_ENTRY(poller_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.poller.c: get_values，从队列中获取数据项串并解析substitute_simple_macros，根据接口类型(snmp,java等)获取数值get_values_snmp，get_values_java
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;trapper线程：trapper.c:ZBX_THREAD_ENTRY(trapper_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.解析各类响应消息并对应处理：trapper.c:process_trap
+2.消息体格式分为json格式，ZBX_GET_ACTIVE_CHECKS开头格式，xml格式，host:key:value格式
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;pinger线程：pinger.c:ZBX_THREAD_ENTRY(pinger_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.从snmp或者java接口中获取数据
+2.Icmp.c:process_ping，写数据到zbx_get_thread_id()i.pinger文件中
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;housekeeper_thread线程：housekeeper.c:ZBX_THREAD_ENTRY(pinger_thread, args)
+    1.连接数据库删除历史数据&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;discoverer线程：httppoller.c:ZBX_THREAD_ENTRY(httppoller_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.数据库操作，获取新主机
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;dbsyncer线程：dbsyncer.c:ZBX_THREAD_ENTRY(dbsyncer_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.同步数据库和内存
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;snmptrapper线程：snmptrapper.c: ZBX_THREAD_ENTRY(snmptrapper_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.读取snmptrapper文件中的数据
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;selfmon线程：selfmon.c: ZBX_THREAD_ENTRY(selfmon_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.收集selfmon统计数据
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;vmware线程：selfmon.c: ZBX_THREAD_ENTRY(vmware_thread, args)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.收集vmware统计数据，使用soap协议
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;sever-proxy的交互&#34;&gt;Sever: proxy的交互&lt;/h2&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;入口函数Proxypoll.c:ZBX_THREAD_ENTRY(proxypoller_thread, args)&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;主要处理函数process_proxy，发送报文send_data_to_proxy，接收报文recv_data_from_proxy，回proxy响应zbx_send_proxy_data_response，报文格式仍然为json格式，同agent的第3部分&lt;/p&gt;&lt;/li&gt;
+&lt;/ol&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>UML</title>
           <link>https://kingjcy.github.io/post/architecture/map/uml/</link>
           <pubDate>Wed, 08 Nov 2017 11:40:49 CST</pubDate>
@@ -11260,6 +11488,788 @@ func (srv *Server) ListenAndServeTLS(certFile, keyFile string) error
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;ListenAndServeTLS监听srv.Addr确定的TCP地址，并且会调用Serve方法处理接收到的连接。必须提供证书文件和对应的私钥文件。如果证书是由权威机构签发的，certFile参数必须是顺序串联的服务端证书和CA证书。如果srv.Addr为空字符串，会使用&amp;rdquo;:https&amp;rdquo;。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控系列---- Zabbix基本使用</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix/</link>
+          <pubDate>Sat, 04 Mar 2017 17:54:04 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix/</guid>
+          <description>&lt;p&gt;zabbix是目前各大互联网公司使用最广泛的开源监控之一,其历史最早可追溯到1998年,在业内拥有各种成熟的解决方案.&lt;/p&gt;
+
+&lt;h1 id=&#34;网站可用性&#34;&gt;网站可用性&lt;/h1&gt;
+
+&lt;p&gt;在软件系统的高可靠性（也称为可用性，英文描述为HA，High Available）里有个衡量其可靠性的标准——X个9，这个X是代表数字3~5。X个9表示在软件系统1年时间的使用过程中，系统可以正常使用时间与总时间（1年）之比，我们通过下面的计算来感受下X个9在不同级别的可靠性差异。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1个9：(1-90%)*365=36.5天，表示该软件系统在连续运行1年时间里最多可能的业务中断时间是36.5天
+2个9：(1-99%)*365=3.65天 ， 表示该软件系统在连续运行1年时间里最多可能的业务中断时间是3.65天
+3个9：(1-99.9%)*365*24=8.76小时，表示该软件系统在连续运行1年时间里最多可能的业务中断时间是8.76小时。
+4个9：(1-99.99%)*365*24=0.876小时=52.6分钟，表示该软件系统在连续运行1年时间里最多可能的业务中断时间是52.6分钟。
+5个9：(1-99.999%)*365*24*60=5.26分钟，表示该软件系统在连续运行1年时间里最多可能的业务中断时间是5.26分钟。
+6个9：(1-99.9999%)*365*24*60*60=31秒， 示该软件系统在连续运行1年时间里最多可能的业务中断时间是31秒
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;目前能达到4个9就很好了。&lt;/p&gt;
+
+&lt;h1 id=&#34;组件&#34;&gt;组件&lt;/h1&gt;
+
+&lt;p&gt;zabbix属于CS架构,Server端基于C语言编写,相比其他语言具有一定的性能优势(在数据量不大的情况下!).Web管理端则使用了PHP. 而其client端有各种流行语言的库实现,方便使用其API&lt;/p&gt;
+
+&lt;p&gt;在数据的存储方面,zabbix使用了关系性数据库,包括SQLite,MySQL,PostgreSQL,Oracle,DB2&lt;/p&gt;
+
+&lt;h1 id=&#34;安装&#34;&gt;安装&lt;/h1&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;yum安装&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;zabbix的安装比较繁琐,但也不算困难(主要是因为网上提供的资料足够多)&lt;/p&gt;
+
+&lt;p&gt;我们需要一种关系型关系型数据库,目前提供的选择有MySQL,SQLite, PostgreSQL,Oracle,DB2&lt;/p&gt;
+
+&lt;p&gt;接下来需要安装PHP的运行环境,Web服务器可是使用Apache或者Nginx都可以.&lt;/p&gt;
+
+&lt;p&gt;最后一步是安装zabbix服务.&lt;/p&gt;
+
+&lt;p&gt;完整的安装教程可以参考:&lt;a href=&#34;http://support.supermap.com.cn/DataWarehouse/WebDocHelp/icm/Appdix/Zabbix_server/Zabbix_Installation.htm&#34;&gt;zabbix安装指南&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;主要步骤&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;配置zabbix官方yum源，还有base和epel源&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;安装server&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;yum install zabbix-server-mysql zabbix-get
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;初始化database&lt;/p&gt;
+
+&lt;p&gt;导入zabbix-server-mysql包中的create.sql来初始化数据库&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;rpm -ql zabbix-server-mysql
+mysql -uroot -p -Dzabbix &amp;lt; create.sql
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后就可以查看表了。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;配置服务端配置文件并启动&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;安装web&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;yum install httpd php php-mysql php-mbstring php-gd php-bamath php-ladp php-xml
+yum install zabbix-web-mysql zabbix-web
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;然后访问　　&lt;a href=&#34;http://zabbix-web-ip/zabbix/setup.php进行zabbix初始化&#34;&gt;http://zabbix-web-ip/zabbix/setup.php进行zabbix初始化&lt;/a&gt;&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;安装zabbix-agent&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;yum install zabbix-agent zabbix-sender
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;配置客户端端配置文件并启动&lt;/p&gt;
+
+&lt;p&gt;服务端快速安装脚本&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/bin/bash
+#clsn
+
+#设置解析 注意：网络条件较好时，可以不用自建yum源
+# echo &#39;10.0.0.1 mirrors.aliyuncs.com mirrors.aliyun.com repo.zabbix.com&#39; &amp;gt;&amp;gt; /etc/hosts
+
+#安装zabbix源、aliyun YUM源
+curl -o /etc/yum.repos.d/CentOS-Base.repo http://mirrors.aliyun.com/repo/Centos-7.repo
+curl -o /etc/yum.repos.d/epel.repo http://mirrors.aliyun.com/repo/epel-7.repo
+rpm -ivh http://repo.zabbix.com/zabbix/3.0/rhel/7/x86_64/zabbix-release-3.0-1.el7.noarch.rpm
+
+#安装zabbix
+yum install -y zabbix-server-mysql zabbix-web-mysql
+
+#安装启动 mariadb数据库
+yum install -y  mariadb-server
+systemctl start mariadb.service
+
+#创建数据库
+mysql -e &#39;create database zabbix character set utf8 collate utf8_bin;&#39;
+mysql -e &#39;grant all privileges on zabbix.* to zabbix@localhost identified by &amp;quot;zabbix&amp;quot;;&#39;
+
+#导入数据
+zcat /usr/share/doc/zabbix-server-mysql-3.0.13/create.sql.gz|mysql -uzabbix -pzabbix zabbix
+
+#配置zabbixserver连接mysql
+sed -i.ori &#39;115a DBPassword=zabbix&#39; /etc/zabbix/zabbix_server.conf
+
+#添加时区
+sed -i.ori &#39;18a php_value date.timezone  Asia/Shanghai&#39; /etc/httpd/conf.d/zabbix.conf
+
+#解决中文乱码
+yum -y install wqy-microhei-fonts
+\cp /usr/share/fonts/wqy-microhei/wqy-microhei.ttc /usr/share/fonts/dejavu/DejaVuSans.ttf
+
+#启动服务
+systemctl start zabbix-server
+systemctl start httpd
+
+#写入开机自启动
+chmod +x /etc/rc.d/rc.local
+cat &amp;gt;&amp;gt;/etc/rc.d/rc.local&amp;lt;&amp;lt;EOF
+systemctl start mariadb.service
+systemctl start httpd
+systemctl start zabbix-server
+EOF
+
+#输出信息
+echo &amp;quot;浏览器访问 http://`hostname -I|awk &#39;{print $1}&#39;`/zabbix&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;客户端快速部署脚本&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/bin/bash
+#clsn
+
+#设置解析
+echo &#39;10.0.0.1 mirrors.aliyuncs.com mirrors.aliyun.com repo.zabbix.com&#39; &amp;gt;&amp;gt; /etc/hosts
+
+#安装zabbix源、aliyu nYUM源
+curl -o /etc/yum.repos.d/CentOS-Base.repo http://mirrors.aliyun.com/repo/Centos-7.repo
+curl -o /etc/yum.repos.d/epel.repo http://mirrors.aliyun.com/repo/epel-7.repo
+rpm -ivh http://repo.zabbix.com/zabbix/3.0/rhel/7/x86_64/zabbix-release-3.0-1.el7.noarch.rpm
+
+#安装zabbix客户端
+yum install zabbix-agent -y
+sed -i.ori &#39;s#Server=127.0.0.1#Server=172.16.1.61#&#39; /etc/zabbix/zabbix_agentd.conf
+systemctl start  zabbix-agent.service
+
+#写入开机自启动
+chmod +x /etc/rc.d/rc.local
+cat &amp;gt;&amp;gt;/etc/rc.d/rc.local&amp;lt;&amp;lt;EOF
+systemctl start  zabbix-agent.service
+EOF
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;编译安装&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;系统环境&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;    OS:         centos7.5
+    software：  zabbix 4.0 LTS
+    DBSever:    MariaDB-10.2.15
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;一、需要先把数据库装上，这里用到的是mariadb 二进制包安装&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1、下载二进制包，
+     官网的下载路径：
+  wget http://mirrors.neusoft.edu.cn/mariadb//mariadb-10.2.15/bintar-linux-x86_64/mariadb-10.2.15-linux-x86_64.tar.gz
+
+2、添加组和用户
+  [root@node2 ~]# groupadd -r -g 306 mysql
+  [root@node2 ~]# useradd -g mysql -u 306 -r mysql
+
+3、解压mariadb二进制包到/usr/local下去
+   [root@node2 ~]# tar xf mariadb-10.2.15-linux-x86_64.tar.gz -C /usr/local/
+
+4、进入到/usr/local下面创建mysql的软连接
+   [root@node2 ~]# cd /usr/local/
+   [root@node2 /usr/local]# ln -s mariadb-10.2.15-linux-x86_64/ mysql
+
+5、修改mysql的相对应的属主和属组权限
+    [root@node2 /usr/local]# chown -R root.mysql mysql/
+
+6、创建数据文件的存放路径，并修改所属组的权限为mysql
+     [root@node2 ~]#   cd /app/
+     [root@node2 /app]# mkdir mydata
+     [root@node2 ]#  chown -R mysql.mysql  /app
+
+7、初始化数据库，指定好数据文件的存放路径和用户
+       [root@node2 ]# cd /usr/local/mysql/
+       [root@node2 /usr/local/mysql/]# scripts/mysql_install_db --datadir=/app/mydata --user=mysql
+
+8、拷贝mariadb的启动脚本到/etc/rc.d/init.d下命名为mysqld
+       [root@node2 /usr/local/mysql/]# cp support-files/mysql.server /etc/rc.d/init.d/mysqld
+
+9、把mysqld设置为开机启动
+       [root@node2 /usr/local/mysql/]# chkconfig --add mysqld
+
+10、创建mariadb的配置文件存放路径，并拷贝模版文件到这个目录下命名为my.cnf
+      [root@node2 /usr/local/mysql/]# mkdir /etc/mysql
+      [root@node2 /usr/local/mysql/]#cp support-files/my-large.cnf /etc/mysql/my.cnf
+
+11、配置系统环境变量，重读配置文件让它生效
+      [root@node2 /usr/local/mysql/]# vim /etc/profile.d/mysql.sh
+      [root@node2 /usr/local/mysql/]#export PATH=/usr/local/mysql/bin:$PATH
+      [root@node2 /usr/local/mysql/]# . /etc/profile.d/mysql.sh
+
+12、修改mariadb的配置文件需要增加几条内容
+      [root@node2 /usr/local/mysql/]# vim /etc/mysql/my.cnf
+          lower_case_table_names = 1
+          character-set-server = utf8
+          datadir = /app/mydata
+          innodb_file_per_table = on
+          skip_name_resolve = o
+
+13、启动数据库服务
+      [root@node2 /usr/local/mysql/]#  service mysqld start
+
+14、查看mariadb的服务端口是否正常监听
+    [root@node2 /app]#ss -tnl
+    State      Recv-Q Send-Q       Local Address:Port                      Peer Address:Port
+    LISTEN     0      128                      *:52874                                *:*
+    LISTEN     0      128                      *:11211                                *:*
+    LISTEN     0      128                      *:111                                  *:*
+    LISTEN     0      128                      *:22                                   *:*
+    LISTEN     0      128              127.0.0.1:631                                  *:*
+    LISTEN     0      100              127.0.0.1:25                                   *:*
+    LISTEN     0      80                      :::3306                                :::*
+
+15、数据库的安全初始操作，设置完之后就可以先创建zabbix相关的库和用户
+    [root@node2 /app]#mysql_secure_installation
+    [root@node2 /app]#mysql -uroot -p
+16、创建zabbix库
+    MariaDB [(none)]&amp;gt; create database zabbix character set utf8 collate utf8_bin;
+17、给zabbix库授权并指定用户
+    MariaDB [(none)]&amp;gt; grant all privileges on zabbix.* to zabbix@&#39;192.168.137.%&#39; identified by &#39;123456&#39;;
+
+18、在另一台主机上测试用zabbix用是否能正常登陆数据库
+    [root@node7 ~]#mysql -uzabbix -p123456 -h192.168.137.54
+    Welcome to the MariaDB monitor.  Commands end with ; or \g.
+    Your MariaDB connection id is 12
+    Server version: 10.2.15-MariaDB-log MariaDB Server
+
+    Copyright (c) 2000, 2017, Oracle, MariaDB Corporation Ab and others.
+
+    Type &#39;help;&#39; or &#39;\h&#39; for help. Type &#39;\c&#39; to clear the current input statement.
+
+    MariaDB [(none)]&amp;gt; show databases;
+    +--------------------+
+    | Database           |
+    +--------------------+
+    | information_schema |
+    | zabbix             |
+    +--------------------+
+    2 rows in set (0.00 sec)
+    MariaDB [(none)]&amp;gt;
+19、在zabbix server主机上导入zabbix自带的三个表，路径在/root/zabbix-4.0.1/database/mysql下后缀为.sql的三个文件
+    [root@node6 ~/zabbix-4.0.1]#ls -l database/mysql/
+    total 5816
+    -rw-r--r-- 1 1001 1001 3795433 Oct 30 01:36 data.sql
+    -rw-r--r-- 1 1001 1001 1978341 Oct 30 01:36 images.sql
+    -rw-r--r-- 1 root root   15323 Nov 26 22:44 Makefile
+    -rw-r--r-- 1 1001 1001     392 Oct 30 01:36 Makefile.am
+    -rw-r--r-- 1 1001 1001   15711 Oct 30 01:36 Makefile.in
+    -rw-r--r-- 1 1001 1001  140265 Oct 30 01:36 schema.sql
+
+20、导入sql文件是有先后顺序的，先导schema.sql、images.sql、data.sql.
+    [root@node6 ~/zabbix-4.0.1/database/mysql]#mysql -uzabbix -h192.168.137.54 -p123456 zabbix &amp;lt; schema.sql
+    [root@node6 ~/zabbix-4.0.1/database/mysql]#mysql -uzabbix -h192.168.137.54 -p123456 zabbix &amp;lt; images.sql
+    [root@node6 ~/zabbix-4.0.1/database/mysql]#mysql -uzabbix -h192.168.137.54 -p123456 zabbix &amp;lt; data.sql
+
+21、进到数据库里面查看zabbix库是否导入成功
+    [root@node6 ~/zabbix-4.0.1/database/mysql]#mysql -uzabbix -h192.168.137.54 -p123456
+    MariaDB [(none)]&amp;gt; use zabbix
+    MariaDB [zabbix]&amp;gt; show tables;
+    +----------------------------+
+    | Tables_in_zabbix           |
+    +----------------------------+
+    | acknowledges               |
+    | actions                    |
+    | alerts                     |
+    | application_discovery      |
+    | application_prototype      |
+    | application_template       |
+    | applications               |
+    | auditlog                   |
+    | auditlog_details           |
+    | autoreg_host               |
+    | conditions                 |
+    | config                     |
+    | corr_condition             |
+    | corr_condition_group       |
+    .......
+    | users                      |
+    | users_groups               |
+    | usrgrp                     |
+    | valuemaps                  |
+    | widget                     |
+    | widget_field               |
+    +----------------------------+
+    144 rows in set (0.00 sec)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;二、编译zabbix&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1、安装编译环境所需要的依赖包组
+    [root@node6 ~]#yum install gcc  libxml2-devel libevent-devel net-snmp net-snmp-devel  curl  curl-devel php  php-bcmath  php-mbstring mariadb mariadb-devel –y
+
+    还需要安装一些php的依赖包后续在网页端安装zabbix时需要用到所以先提前安装好
+    [root@node6 ~]#yum install php-gettext php-session php-ctype php-xmlreader php-xmlwrer php-xml php-net-socket php-gd php-mysql -y
+
+2、安装jdk环境，装的是jdk-8u191-linux-x64.rpm的包，要不后面编译时会报Java找不到。
+    [root@node6 ~]#yum -y install jdk-8u191-linux-x64.rpm
+
+3、创建zabbix用户
+    [root@node6 ~]#useradd zabbix -s /sbin/nologin
+
+4、下载zabbix的源码包
+    [root@node6 ~]#wget http://192.168.137.53/yum/zabbix/zabbix-4.0.1.tar.gz
+
+5、解压源码包，并进入到解压后的目录里去
+    [root@node6 ~]#tar xf zabbix-4.0.1.tar.gz
+    [root@node6 ~]#cd zabbix-4.0.1/
+    [root@node6 ~/zabbix-4.0.1]#
+
+6、开始编译安装zabbix
+    [root@node6 ~/zabbix-4.0.1./configure  \
+    --prefix=/usr/local/zabbix  \
+    --enable-server  \
+    --enable-agent  \
+    --with-mysql   \
+    --with-net-snmp  \
+    --with-libcurl  \
+    --with-libxml2  \
+    --enable-java
+
+7、执行make install
+    [root@node6 ~/zabbix-4.0.1]#make -j 2 &amp;amp;&amp;amp; make install
+
+8、拷贝启动脚本文件到/etc/init.d目录下
+    [root@node6 ~/zabbix-4.0.1]#cp misc/init.d/fedora/core/* /etc/init.d/
+
+9、拷贝过去的脚本需要修改下目录路径，server和agent都需要改
+    [root@node6 ~/zabbix-4.0.1]#vim /etc/init.d/zabbix_server
+        22         BASEDIR=/usr/local
+    改成：
+        22         BASEDIR=/usr/local/zabbix
+
+    agent启动脚本修改也是一样
+        [root@node6 ~/zabbix-4.0.1vim /etc/init.d/zabbix_agentd
+        22         BASEDIR=/usr/local
+    改成：
+        22         BASEDIR=/usr/local/zabbix
+
+10、创建zabbix的日志存放路径和修改/usr/local/zabbix的所属主为zabbix
+    [root@node6 ~/zabbix-4.0.1]#mkdir /var/log/zabbix
+    [root@node6 ~/zabbix-4.0.1]#chown -R zabbix.zabbix /var/log/zabbix
+    [root@node6 ~/zabbix-4.0.1]#ll /var/log/zabbix/ -d
+    drwxr-xr-x 2 zabbix zabbix 6 Nov 27 09:17 /var/log/zabbix/
+    [root@node6 ~]#chown -R zabbix.zabbix /usr/local/zabbix/
+    [root@node6 ~]#ll -d /usr/local/zabbix/
+    drwxr-xr-x 7 zabbix zabbix 64 Nov 26 22:45 /usr/local/zabbix/
+
+11、修改配置文件
+    [root@node6 ~/zabbix-4.0.1]#vim /usr/local/zabbix/etc/zabbix_server.conf
+    ListenPort=10051   启用监听端口，不过默认也是启用的。
+
+    LogFile=/var/log/zabbix/zabbix_server.log    修改日志存放路径，默认是在/tmp下
+
+    LogFileSize=5   开启日志滚动，单位为MB、达到指定值之后就生成新的日志文件。
+    DebugLevel=4   日志级别等级，4为debug，利于排除错误，排错之后可以改成3级别的。
+    PidFile=/usr/local/zabbix/zabbix_server.pid   zabbix pid文件路径默认为tmp下需要改成安装目录，并且安装目录的所属组要改成zabbix用户
+    # SocketDir=/tmp
+    User=zabbix                    启动的用户默认也是zabbix,如果要改成root的话 还需要修改一项
+    # AllowRoot=0                  需要改成1才能使用root来启动，默认0的话是被禁止用root启动，不过最好别用root
+    SocketDir=/usr/local/zabbix   socket 文件存放路径默认在/tmp下
+    DBHost=192.168.137.54          数据库地址必须要填
+    DBName=zabbix                  数据库名称
+    DBUser=zabbix                  数据库连接用户
+    DBPassword=123456              数据库连接密码，建议在生产中密码不要太简单了。
+    DBPort=3306                    数据库端口，其实也不用开默认就是3306
+
+12、启动zabbix、并查看端口是否正常监听
+    [root@node6 ~/zabbix-4.0.1]#service zabbix_server start
+    Reloading systemd:                                         [  OK  ]
+    Starting zabbix_server (via systemctl):                    [  OK  ]
+    [root@node6 ~/zabbix-4.0.1]#ss -tnl
+    State       Recv-Q Send-Q          Local Address:Port                Peer Address:Port
+    LISTEN      0      128                         *:10051                    *:*
+    LISTEN      0      128                         *:111                      *:*
+    LISTEN      0      128                         *:22                       *:*
+    LISTEN      0      100                 127.0.0.1:25                       *:*
+
+13、装前端展示端
+    [root@node6 ~/zabbix-4.0.1]#yum -y install httpd
+
+14、在httpd的默认工作目录下创建一个zabbix目录
+    [root@node6 ~/zabbix-4.0.1]#mkdir /var/www/html/zabbix
+
+15、从zabbix解压包里面把php的所有文件拷贝到/var/www/html/zabbix目录下
+    [root@node6 ~/zabbix-4.0.1]#cp -a frontends/php/* /var/www/html/zabbix/
+
+16、启动httpd、查看端口是否正常监听
+    [root@node6 ~]#systemctl start httpd
+    [root@node6 ~]#ss -tnl
+    State       Recv-Q Send-Q          Local Address:Port                         Peer Address:Port
+    LISTEN      0      128                         *:10051                                   *:*
+    LISTEN      0      128                         *:111                                     *:*
+    LISTEN      0      128                         *:22                                      *:*
+    LISTEN      0      100                 127.0.0.1:25                                      *:*
+    LISTEN      0      128                        :::111                                    :::*
+    LISTEN      0      128                        :::80                                     :::*
+
+17、通过网页来安装zabbix
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;zabbix使用&#34;&gt;zabbix使用&lt;/h1&gt;
+
+&lt;p&gt;zabbix的使用基本上都是在界面完成操作的，比较简单，基本使用流程&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;添加需要监控的主机&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;为监控的主机添加监控项，也就是key，zabbix自身带有很多设定好的监控项，直接选择就好，比如cpu，内存，都是界面操作&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;监控项中可以直接输入参数，来获取指定的数据&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;监控项可以自定义key，主要设定key，和执行的脚本命令command，可见zabbix都是通过执行命令来获取监控数据的&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;zabbix有对应的告警机制，也就是触发器，设置触发器也就是表达式，达到阈值，就会产生事件，然后可以通过各种通信方式发送，都是支持界面操作。&lt;/p&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h1 id=&#34;zabbix对比promethes&#34;&gt;zabbix对比promethes&lt;/h1&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;zabbix采集数据只能通过脚本命令，比较局限，基本都是物理机上的一些命令，所以zabbix比较适合物理机的监控，prometheus不但能够监控物理机，更适合云环境（频繁变动），比如k8s，&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;数据存储在mysql等关系型数据库中，存储有限，而且很难扩展监控维度，prometheus则是一个时序数据库，还可以远程存储，更适合&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;zabbix监控界面不够实时，相比于grafana也是一点都不美观，而且定制化特别难，而grafana则是得到公认的可编辑可扩展美观软件。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;zabbix集群规模有限，上线为10000个节点，但是promtheus监控节点可以有更大的规模，速度也快。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;zabbix已经发展比较成熟，确实在管理界面上比较完善。但是prometheus比较灵活。&lt;/p&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h1 id=&#34;zabbix的报文协议&#34;&gt;zabbix的报文协议&lt;/h1&gt;
+
+&lt;ol&gt;
+&lt;li&gt;cmppingloss[&lt;target&gt;,&lt;packets&gt;,&lt;interval&gt;,&lt;size&gt;,&lt;timeout&gt;] 目标服务器，包数量，包发送间隔，包大小，超时&lt;/li&gt;
+&lt;li&gt;value是string，一般是出错信息&lt;/li&gt;
+&lt;li&gt;redis.cpunu.discovery这个是一个做发现的配置，最后生成了如下的配置可以舍去  ￼&lt;/li&gt;
+&lt;li&gt;state表示在key不支持，或者是监控数据的过程中出错时候会出来&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h1 id=&#34;zabbix配置文件&#34;&gt;zabbix配置文件&lt;/h1&gt;
+
+&lt;p&gt;zabbix的配置文件一般有三种：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;zabbixserver的配置文件zabbix_server.conf
+
+zabbixproxy的配置文件zabbix_proxy.conf
+
+zabbix_agentd的配置文件zabbix_agentd.conf
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;1.zabbixserver的配置文件：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;NodeID=0 #分布式节点id号，0代表是独立服务器，默认是被注释掉的，不强制配置
+ListenPort=10051 #zabbix server的端口，默认是10051，可以自行修改，
+范围是1024-32767 ，一般默认即可
+SourceIP=  #连接的源ip地址，默认为空，默认即可
+LogFile=/tmp/zabbix_server.log #日志文件的存放位置
+LogFileSize=1 #日志文件的大小，单位为MB，当设置为0时，表示不仅行日志轮询，
+默认设置为1，默认即可
+DebugLevel=3 #指定调试级别，默认即可
+PidFile=/tmp/zabbix_server.pid #pid文件的存放位置
+DBHost=localhost #数据库主机名，当设置为localhost时，连接mysql通过sock
+DBName=zabbix #指定存放zabbix数据数据库的名字
+DBUser=zabbix #指定连接数据库的用户名
+DBPassword=123456 #用户连接数据库需要的密码
+DBSocket=/var/lib/mysql/mysql.sock #前文主机设置为localhost，用户
+连接数据库所用的sock位置，
+DBPort=3306 #数据库的端口号，当用sock连接时，无关紧要，当通过网络连接时需设置
+StartPollers=5 #默认即可
+StartIPMIPollers=0 #使用IPMI协议时，用到的参数
+StartTrappers=5 #打开的进程数，
+StartPingers=1 同上
+StartDiscoverers=1
+StartHTTPPollers=1
+JavaGateway=127.0.0.1 #JavaGateway的ip地址或主机名
+JavaGatewayPort=10052 #JavaGateway的端口号
+StartJavaPollers=5 #开启连接javagatey的进程数
+SNMPTrapperFile=/tmp/zabbix_traps.tmp
+StartSNMPTrapper=0 #如果设置为1，snmp trapper进程就会开启
+ListenIP=0.0.0.0 #监听来自trapper的ip地址
+ListenIP=127.0.0.1
+HousekeepingFrequency=1 #zabbix执行Housekeeping的频率，单位为hours
+MaxHousekeeperDelete=500 #每次最多删除历史数据的行
+SenderFrequency=30 #zabbix试图发送未发送的警报的时间，单位为秒
+CacheSize=8M #缓存的大小
+CacheUpdateFrequency=60#执行更新缓存配置的时间，单位为秒数
+StartDBSyncers=4
+HistoryCacheSize=8M
+TrendCacheSize=4M
+HistoryTextCacheSize=16M
+NodeNoEvents=0
+NodeNoHistory=0
+Timeout=3
+TrapperTimeout=300
+UnreachablePeriod=45
+UnavailableDelay=60
+UnreachableDelay=15
+AlertScriptsPath=/usr/local/zabbix/shell #脚本的存放路径
+FpingLocation=/usr/local/sbin/fping #fping指令的绝对路径
+SSHKeyLocation=
+LogSlowQueries=0
+TmpDir=/tmp
+Include=/usr/local/etc/zabbix_server.general.conf
+Include=/usr/local/etc/zabbix_server.conf.d/ #子配置文件路径
+StartProxyPollers=1 #在zabbix proxy被动模式下用此参数
+ProxyConfigFrequency=3600#同上
+ProxyDataFrequency=1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;实际使用&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ListenPort=10051 #监听端口
+
+
+
+LogFile=/opt/zabbix/logs/zabbix_server.log
+
+LogFileSize=1024
+
+DebugLevel=3
+
+PidFile=/var/run/zabbix/zabbix_server.pid
+
+#mysql 数据库配置
+DBHost=10.243.51.107
+DBName=zabbix
+DBUser=zabbix
+DBPassword=zabbix@suning
+DBPort=3306
+
+
+StartPollers=500
+
+StartIPMIPollers=1
+
+StartPollersUnreachable=100
+
+StartTrappers=100
+
+StartPingers=50
+
+StartDiscoverers=10
+
+StartHTTPPollers=10
+
+StartTimers=10
+
+
+
+
+
+
+
+
+
+
+SNMPTrapperFile=/opt/zabbix/zabbix_traps.tmp
+
+StartSNMPTrapper=1
+
+# 监听地址
+ListenIP=0.0.0.0
+
+CacheSize=8G
+
+CacheUpdateFrequency=3600
+
+StartDBSyncers=50
+
+HistoryCacheSize=2G
+
+TrendCacheSize=2G
+
+
+ValueCacheSize=10G
+
+
+Timeout=25
+TrapperTimeout=120
+UnreachablePeriod=300
+UnavailableDelay=60
+UnreachableDelay=60
+AlertScriptsPath=/opt/zabbix/alertscripts
+ExternalScripts=/opt/zabbix/externalscripts
+FpingLocation=/usr/sbin/fping
+
+
+LogSlowQueries=10
+
+StartProxyPollers=100
+ProxyConfigFrequency=3600
+ProxyDataFrequency=30
+AllowRoot=1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2.zabbixagentd的配置文件&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;PidFile=/tmp/zabbix_agentd.pid #pid文件的存放位置
+LogFile=/tmp/zabbix_agentd.log #日志文件的位置
+LogFileSize=1 #当日志文件达到多大时进行轮询操作
+DebugLevel=3 #日志信息级别
+SourceIP= #连接的源ip地址，默认为空，即可
+EnableRemoteCommands=0 #是否允许zabbix server端的远程指令，
+0表示不允许，
+1表示允许
+LogRemoteCommands=0 #是否开启日志记录shell命令作为警告 0表示不允许，1表示允许
+Server=127.0.0.1 #zabbix server的ip地址或主机名，可同时列出多个，需要用逗号隔开
+ListenPort=10050 #zabbix agent监听的端口
+ListenIP=0.0.0.0 #zabbix agent监听的ip地址
+StartAgents=3 #zabbix agent开启进程数
+ServerActive=127.0.0.1 #开启主动检查
+Hostname=Zabbix server#在zabbix server前端配置时指定的主机名要相同，最重要的配置
+RefreshActiveChecks=120 #主动检查刷新的时间，单位为秒数
+BufferSend=5 #数据缓冲的时间
+BufferSize=100 #zabbix agent数据缓冲区的大小，当达到该值便会发送所有的数据到zabbix server
+MaxLinesPerSecond=100 #zabbix agent发送给zabbix server最大的数据行
+AllowRoot=0 #是否允许zabbix agent 以root用户运行
+Timeout=3 #设定处理超时的时间
+Include=/usr/local/etc/zabbix_agentd.userparams.conf
+Include=/usr/local/etc/zabbix_agentd.conf.d/ #包含子配置文件的路径
+UnsafeUserParameters=0 #是否允许所有字符参数的传递
+UserParameter= #指定用户自定义参数
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;实际使用&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;PidFile=/var/run/zabbix/zabbix_agentd.pid
+
+LogFile=/var/log/zabbix/zabbix_agentd.log
+
+LogFileSize=0
+Server=10.243.51.50
+
+# 推送指标连接的服务器，格式如下addr:port
+ServerActive=10.243.51.48
+
+Hostname=10.243.51.50
+
+HostMetadataItem=system.uname
+Timeout=15
+
+AllowRoot=1
+
+Include=/etc/zabbix/zabbix_agentd.d/
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;3.zabbixproxy的配置文件&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Server=192.168.70.133 #指定zabbix server的ip地址或主机名
+Hostname=zabbix-proxy-1.35 #定义监控代理的主机名，需和zabbix server前端配置时指定的节点名相同
+LogFile=/tmp/zabbix_proxy.log #指定日志文件的位置
+PidFile=/tmp/zabbix_proxy.pid #pid文件的位置
+DBName=zabbix_proxy #数据库名
+DBUser=zabbix #连接数据库的用户
+DBPassword=123456#连接数据库用户的密码
+ConfigFrequency=60 #zabbix proxy从zabbix server取得配置数据的频率
+DataSenderFrequency=60 #zabbix proxy发送监控到的数据给zabbix server的频率
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;实际使用&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#连接server的地址
+Server=10.243.51.48
+
+ServerPort=10052
+
+Hostname=10.243.51.48
+
+#启动监听的地址和端口
+ListenPort=10051
+ListenIP=0.0.0.0
+
+LogFile=/opt/zabbix/logs/zabbix_proxy.log
+
+LogFileSize=1024
+
+DebugLevel=3
+
+PidFile=/var/run/zabbix/zabbix_proxy.pid
+
+#自带数据库
+DBHost=localhost
+DBName=zabbix_proxy
+DBUser=zabbix
+DBPassword=zabbix@suning
+DBSocket=/opt/mysql/run/mysqld.sock
+DBPort=3306
+
+
+
+ProxyOfflineBuffer=1
+
+
+ConfigFrequency=3600
+
+DataSenderFrequency=20
+
+
+StartPollers=300
+
+StartIPMIPollers=10
+
+StartPollersUnreachable=100
+
+StartTrappers=100
+
+StartPingers=20
+
+StartDiscoverers=50
+
+StartHTTPPollers=100
+
+
+
+
+StartVMwareCollectors=10
+
+VMwareFrequency=60
+
+VMwareCacheSize=256M
+
+CacheSize=8G
+
+StartDBSyncers=10
+
+HistoryCacheSize=2G
+
+HistoryTextCacheSize=2G
+
+Timeout=30
+
+TrapperTimeout=300
+
+UnreachablePeriod=300
+
+UnavailableDelay=60
+
+UnreachableDelay=15
+
+ExternalScripts=/opt/zabbix/externalscripts
+
+FpingLocation=/usr/sbin/fping
+
+LogSlowQueries=0
+
+
+AllowRoot=1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;官网配置文件：&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://www.zabbix.com/documentation/2.2/manual/appendix/config/zabbix_proxy&#34;&gt;https://www.zabbix.com/documentation/2.2/manual/appendix/config/zabbix_proxy&lt;/a&gt;
+&lt;a href=&#34;https://www.zabbix.com/documentation/2.2/manual/appendix/config/zabbix_server&#34;&gt;https://www.zabbix.com/documentation/2.2/manual/appendix/config/zabbix_server&lt;/a&gt;
+&lt;a href=&#34;https://www.zabbix.com/documentation/2.2/manual/appendix/config/zabbix_agentd&#34;&gt;https://www.zabbix.com/documentation/2.2/manual/appendix/config/zabbix_agentd&lt;/a&gt;&lt;/p&gt;</description>
         </item>
       
     
@@ -15742,6 +16752,80 @@ if err == nil &amp;amp;&amp;amp; t1.Before(t2) {
     fmt.Println(timespecToTime(stat_t.Mtim))
 }
 &lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控系列---- Zabbix监控方案</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix-scheme/</link>
+          <pubDate>Fri, 04 Mar 2016 17:54:04 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix-scheme/</guid>
+          <description>&lt;p&gt;zabbix是目前各大互联网公司使用最广泛的开源监控之一,其历史最早可追溯到1998年,在业内拥有各种成熟的解决方案，但是对容器的监控还是比较薄弱，我们也不多说，主要用于基础设施VM的监控。&lt;/p&gt;
+
+&lt;h1 id=&#34;架构&#34;&gt;架构&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/zabbix/zabbix.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;详细说明&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;agent：负载采集数据，所有的采集都在这一个进程中，不像prometheus的exporter有很多。&lt;/li&gt;
+&lt;li&gt;proxy：是一个汇聚层，将数据聚合后发送到server。&lt;/li&gt;
+&lt;li&gt;server：服务端，用于存储数据，对外进行查询展示。&lt;/li&gt;
+&lt;li&gt;DB：数据库，存储数据&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;zabbix的核心组件&#34;&gt;zabbix的核心组件&lt;/h1&gt;
+
+&lt;p&gt;1、zabbix server 负责采集和收取agent采集的信息。&lt;/p&gt;
+
+&lt;p&gt;2、zabbix database   用于存储zabbix的配置信息，监控数据&lt;/p&gt;
+
+&lt;p&gt;3、zabbix web zabbix的管理界面，监控界面，可以独立部署，只要能连接到database就可以&lt;/p&gt;
+
+&lt;p&gt;4、zabbix agent 不数据监控主机主机上，负责采集数据，把数据推送到server或者server来去数据（主动和被动模式，可以同时设置）&lt;/p&gt;
+
+&lt;p&gt;5、zabbix proxy 用于分布式监控，作用就是用于聚合部分数据，最后统一发完server&lt;/p&gt;
+
+&lt;p&gt;zabbix对分布式的数据采集非常好,支持两种分布式架构,一种是Proxy,一种是Node.Proxy作为zabbix server的代理去监控服务器,并发数据汇聚到Zabbix server.而Node本身就是一个完整的Zabbix server, 使用Node可以将多个Zabbix server组成一个具有基层关系的分布式架构.&lt;/p&gt;
+
+&lt;p&gt;两者的区别如下:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;                proxy   Node
+轻量级         √       ×
+GUI前端           ×       √
+是否可以独立运行    √       ×
+容易运维            √       ×
+本地Admin管理   ×       √
+中心化配置       √       ×
+产生通知            ×       √
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;6、zabbix get 安装服务器上，来测试获取agent的数据的工具&lt;/p&gt;
+
+&lt;p&gt;7、zabbix sender 安装在客户端机器上，用于测试推送数据到server的的工具&lt;/p&gt;
+
+&lt;h1 id=&#34;zabbix监控方式&#34;&gt;Zabbix监控方式&lt;/h1&gt;
+
+&lt;p&gt;1、被动模式&lt;/p&gt;
+
+&lt;p&gt;被动检测：相对于agent而言；agent, server向agent请求获取配置的各监控项相关的数据，agent接收请求、获取数据并响应给server；&lt;/p&gt;
+
+&lt;p&gt;2、主动模式&lt;/p&gt;
+
+&lt;p&gt;主动检测：相对于agent而言；agent(active),agent向server请求与自己相关监控项配置，主动地将server配置的监控项相关的数据发送给server；&lt;/p&gt;
+
+&lt;p&gt;主动监控能极大节约监控server 的资源。&lt;/p&gt;
+
+&lt;h1 id=&#34;zabbix的使用&#34;&gt;zabbix的使用&lt;/h1&gt;
+
+&lt;p&gt;基本安装使用可以看&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix/&#34;&gt;这里&lt;/a&gt;,相关源码解析可以看&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbixcode/&#34;&gt;这里&lt;/a&gt;,这些就不多说了。&lt;/p&gt;
+
+&lt;h1 id=&#34;扩展&#34;&gt;扩展&lt;/h1&gt;
+
+&lt;p&gt;随着系统监控规模的越来越大，zabbix出现越来越多的瓶颈，随着时序数据库的广泛使用，监控已经渐渐切换到了时序数据库，对于原始的zabbix监控项，监控数据如何处理？我们可以将zabbix数据存到时序数据库中，统一使用，相关&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix2tsdb/&#34;&gt;实现方案&lt;/a&gt;就需要自己实现了。&lt;/p&gt;</description>
         </item>
       
     

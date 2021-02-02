@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="zabbix是目前各大互联网公司使用最广泛的开源监控之一,其历史最早可追溯到1998年,在业内拥有各种成熟的解决方案，但是对容器的监控还是比较薄弱，我们也不多说，主要用于基础设施VM的监控。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控系列---- Zabbix监控方案 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控系列---- Zabbix监控方案
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年03月04日 
+                </div>
+                <h1 class="post-title">监控系列---- Zabbix监控方案</h1>
+            </header>
+
+            <div class="post-content">
+                <p>zabbix是目前各大互联网公司使用最广泛的开源监控之一,其历史最早可追溯到1998年,在业内拥有各种成熟的解决方案，但是对容器的监控还是比较薄弱，我们也不多说，主要用于基础设施VM的监控。</p>
+
+<h1 id="架构">架构</h1>
+
+<p><img src="/media/monitor/zabbix/zabbix.jpg" alt="" /></p>
+
+<p>详细说明</p>
+
+<ul>
+<li>agent：负载采集数据，所有的采集都在这一个进程中，不像prometheus的exporter有很多。</li>
+<li>proxy：是一个汇聚层，将数据聚合后发送到server。</li>
+<li>server：服务端，用于存储数据，对外进行查询展示。</li>
+<li>DB：数据库，存储数据</li>
+</ul>
+
+<h1 id="zabbix的核心组件">zabbix的核心组件</h1>
+
+<p>1、zabbix server 负责采集和收取agent采集的信息。</p>
+
+<p>2、zabbix database   用于存储zabbix的配置信息，监控数据</p>
+
+<p>3、zabbix web zabbix的管理界面，监控界面，可以独立部署，只要能连接到database就可以</p>
+
+<p>4、zabbix agent 不数据监控主机主机上，负责采集数据，把数据推送到server或者server来去数据（主动和被动模式，可以同时设置）</p>
+
+<p>5、zabbix proxy 用于分布式监控，作用就是用于聚合部分数据，最后统一发完server</p>
+
+<p>zabbix对分布式的数据采集非常好,支持两种分布式架构,一种是Proxy,一种是Node.Proxy作为zabbix server的代理去监控服务器,并发数据汇聚到Zabbix server.而Node本身就是一个完整的Zabbix server, 使用Node可以将多个Zabbix server组成一个具有基层关系的分布式架构.</p>
+
+<p>两者的区别如下:</p>
+
+<pre><code>                proxy   Node
+轻量级         √       ×
+GUI前端           ×       √
+是否可以独立运行    √       ×
+容易运维            √       ×
+本地Admin管理   ×       √
+中心化配置       √       ×
+产生通知            ×       √
+</code></pre>
+
+<p>6、zabbix get 安装服务器上，来测试获取agent的数据的工具</p>
+
+<p>7、zabbix sender 安装在客户端机器上，用于测试推送数据到server的的工具</p>
+
+<h1 id="zabbix监控方式">Zabbix监控方式</h1>
+
+<p>1、被动模式</p>
+
+<p>被动检测：相对于agent而言；agent, server向agent请求获取配置的各监控项相关的数据，agent接收请求、获取数据并响应给server；</p>
+
+<p>2、主动模式</p>
+
+<p>主动检测：相对于agent而言；agent(active),agent向server请求与自己相关监控项配置，主动地将server配置的监控项相关的数据发送给server；</p>
+
+<p>主动监控能极大节约监控server 的资源。</p>
+
+<h1 id="zabbix的使用">zabbix的使用</h1>
+
+<p>基本安装使用可以看<a href="/post/monitor/metrics/zabbix/zabbix/">这里</a>,相关源码解析可以看<a href="/post/monitor/metrics/zabbix/zabbixcode/">这里</a>,这些就不多说了。</p>
+
+<h1 id="扩展">扩展</h1>
+
+<p>随着系统监控规模的越来越大，zabbix出现越来越多的瓶颈，随着时序数据库的广泛使用，监控已经渐渐切换到了时序数据库，对于原始的zabbix监控项，监控数据如何处理？我们可以将zabbix数据存到时序数据库中，统一使用，相关<a href="/post/monitor/metrics/zabbix/zabbix2tsdb/">实现方案</a>就需要自己实现了。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix-scheme/">https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix-scheme/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/zabbix/">
+                            <i class="fa fa-tags"></i>
+                            zabbix
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/log-scheme/">监控系列---- log</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbixcode/">监控系列---- zabbix源码阅读</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年11月25日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbix/">监控系列---- Zabbix基本使用</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年03月04日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-time/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/tool/hugo-blog-build/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#架构">架构</a></li>
+<li><a href="#zabbix的核心组件">zabbix的核心组件</a></li>
+<li><a href="#zabbix监控方式">Zabbix监控方式</a></li>
+<li><a href="#zabbix的使用">zabbix的使用</a></li>
+<li><a href="#扩展">扩展</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
