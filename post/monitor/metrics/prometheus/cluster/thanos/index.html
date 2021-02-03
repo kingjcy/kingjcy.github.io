@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Thanos，一组通过跨集群联合、跨集群无限存储和全局查询为Prometheus 增加高可用性的组件。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控系统---- Thanos - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控系统---- Thanos
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年07月13日 
+                </div>
+                <h1 class="post-title">监控系统---- Thanos</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Thanos，一组通过跨集群联合、跨集群无限存储和全局查询为Prometheus 增加高可用性的组件。</p>
+
+<h1 id="基本功能">基本功能</h1>
+
+<p>prometheus单点能够支持百万的metrics，但是在规模越来越大的系统中，已经不能满足要求，需要集群的功能来处理更加庞大的数据，基于这个情况，thanos诞生了，thanos的主要功能：</p>
+
+<ol>
+<li>去重，单点问题，可以让prometheus高可用，实现多采集情况下的数据查询，query是无状态的，可以使用负载均衡</li>
+<li>聚合，实现不同prometheus的数据的聚合，匹配prometheus的hashmode功能，实现集群的方式</li>
+<li>数据备份，主要是基于s3的，相当于远程存储，我们没有使用，直接将数据写入到了kafka</li>
+</ol>
+
+<h1 id="基本组件">基本组件</h1>
+
+<blockquote>
+<p>Sidecar</p>
+</blockquote>
+
+<p>Sidecar作为一个单独的进程和已有的Prometheus实例运行在一个server上，互不影响。Sidecar可以视为一个Proxy组件，所有对Prometheus的访问都通过Sidecar来代理进行。通过Sidecar还可以将采集到的数据直接备份到云端对象存储服务器。</p>
+
+<blockquote>
+<p>Querier</p>
+</blockquote>
+
+<p>所有的Sidecar与Querier直连，同时Querier实现了一套Prometheus官方的HTTP API从而保证对外提供与Prometheus一致的数据源接口，Grafana可以通过同一个查询接口请求不同集群的数据，Querier负责找到对应的集群并通过Sidecar获取数据。Querier本身无状态的也是水平可扩展的，因而可以实现高可部署，而且Querier可以实现对高可部署的Prometheus的数据进行合并从而保证多次查询结果的一致性，从而解决全局视图和高可用的问题。</p>
+
+<blockquote>
+<p>Store</p>
+</blockquote>
+
+<p>Store实现了一套和Sidecar完全一致的API提供给Querier用于查询Sidecar备份到云端对象存储的数据。因为Sidecar在完成数据备份后，Prometheus会清理掉本地数据保证本地空间可用。所以当监控人员需要调取历史数据时只能去对象存储空间获取，而Store就提供了这样一个接口。Store Gateway只会缓存对象存储的基本信息，例如存储块的索引，从而保证实现快速查询的同时占用较少本地空间。</p>
+
+<p>store和sidecar都提供了相同gprc的api，给外部client进行查询，其实是一回事。</p>
+
+<blockquote>
+<p>Comactor</p>
+</blockquote>
+
+<p>Compactor主要用于对采集到的数据进行压缩，实现将数据存储至对象存储时节省空间。单独使用，和集群没有什么关系。主要是将对象存储 Bucket 中的多个小 的相同的Block 合并成 大 Block</p>
+
+<h1 id="基本使用">基本使用</h1>
+
+<h2 id="sidecar">sidecar</h2>
+
+<p>sidecar部署在prometheus机器上,直接使用二进制文件配置不同的启动参数来启动</p>
+
+<pre><code>/opt/promes/thanos-sidecar/thanos sidecar --log.level=debug --tsdb.path=/data --prometheus.url=http://localhost:9099
+</code></pre>
+
+<h2 id="query">query</h2>
+
+<p>query用于查询，单独部署，然后和prometheus一样使用</p>
+
+<pre><code>/opt/promes/thanos-query/thanos query --query.timeout=15s --store.response-timeout=15s --log.level=debug --store=10.243.53.96:19091 --store=10.243.53.100:19091 --store=10.243.53.101:19091 --store=10.243.53.186:19091
+</code></pre>
+
+<h2 id="sd">sd</h2>
+
+<p>thanos有三种sd的方式</p>
+
+<ul>
+<li><p>Static Flags</p>
+
+<p>最简单的就是在参数中配置列表，就是我们上面使用的方式</p>
+
+<p>&ndash;store参数指定的是每个sidecar的grpc端口，query会根据&ndash;store参数列表找到对应的prometheus进行查询，所有组件的端口都是有默认值的，如果需要修改则指定参数</p>
+
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Interface</th>
+<th>Port</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>Sidecar</td>
+<td>gRPC</td>
+<td>10901</td>
+</tr>
+
+<tr>
+<td>Sidecar</td>
+<td>HTTP</td>
+<td>10902</td>
+</tr>
+
+<tr>
+<td>Query</td>
+<td>gRPC</td>
+<td>10903</td>
+</tr>
+
+<tr>
+<td>Query</td>
+<td>HTTP</td>
+<td>10904</td>
+</tr>
+
+<tr>
+<td>Store</td>
+<td>gRPC</td>
+<td>10905</td>
+</tr>
+
+<tr>
+<td>Store</td>
+<td>HTTP</td>
+<td>10906</td>
+</tr>
+
+<tr>
+<td>Receive</td>
+<td>gRPC (store API)</td>
+<td>10907</td>
+</tr>
+
+<tr>
+<td>Receive</td>
+<td>HTTP (remote write API)</td>
+<td>10908</td>
+</tr>
+
+<tr>
+<td>Receive</td>
+<td>HTTP</td>
+<td>10909</td>
+</tr>
+
+<tr>
+<td>Rule</td>
+<td>gRPC</td>
+<td>10910</td>
+</tr>
+
+<tr>
+<td>Rule</td>
+<td>HTTP</td>
+<td>10911</td>
+</tr>
+
+<tr>
+<td>Compact</td>
+<td>HTTP</td>
+<td>10912</td>
+</tr>
+</tbody>
+</table></li>
+
+<li><p>File SD</p>
+
+<p>&ndash;store.sd-files=<path>和 &ndash;store.sd-interval=<5m>来获取对应的prometheus列表</p></li>
+
+<li><p>DNS SD</p>
+
+<p>&ndash;store=dns+stores.thanos.mycompany.org:9090
+&ndash;store=dnssrv+_thanosstores._tcp.mycompany.org
+&ndash;store=dnssrvnoa+_thanosstores._tcp.mycompany.org</p></li>
+</ul>
+
+<h1 id="基本原理">基本原理</h1>
+
+<p>Thanos 在每一台 Prometheus 服务器上运行一个sidecar组件，并提供了一个用于处理 PromQL 查询的中央 Querier 组件，因而在所有服务器之间引入了一个中央查询层。这些组件构成了一个 Thanos 部署，并基于 memberlist gossip 协议实现组件间通信。Querier 可以水平扩展，因为它是无状态的，并且可充当智能逆向代理，将请求转发给sidecar，汇总它们的响应，并对 PromQL 查询进行评估。</p>
+
+<blockquote>
+<p>实现细节</p>
+</blockquote>
+
+<ol>
+<li>Thanos 通过使用后端的对象存储来解决数据保留问题。Prometheus 在将数据写入磁盘时，sidecar的 StoreAPI 组件会检测到，并将数据上传到对象存储器中。Store 组件还可以作为一个基于 gossip 协议的检索代理，让 Querier 组件与它进行通信以获取数据。</li>
+<li>我们使用基本的过滤器（基于时间范围和外部标签）过滤掉不会提供所需数据的 StoreAPI（叶子），然后执行剩余的查询。然后将来自不同来源的数据按照时间顺序追加的方式合并在一起。</li>
+<li>Querier 组件可以基于用户规模自动调整密度（例如 5 分钟、1 小时或 24 小时）</li>
+<li>StoreAPI 组件了解 Prometheus 的数据格式，因此它可以优化查询执行计划，并缓存数据块的特定索引，以对用户查询做出足够快的响应，避免了缓存大量数据的必要。</li>
+
+<li><p>我们通过为所有 Prometheus+ sidecar实例提供唯一的外部标签来解决多个边车试图将相同的数据块上传到对象存储的问题，例如：</p>
+
+<pre><code>First:
+
+&quot;cluster&quot;: &quot;prod1&quot;
+
+&quot;replica&quot;: &quot;0&quot;
+
+Second:
+
+&quot;cluster&quot;:&quot;prod1&quot;
+
+&quot;replica&quot;: &quot;1&quot;
+</code></pre>
+
+<p>由于标签集是唯一的，所以不会有什么问题。不过，如果指定了副本，查询层可以在运行时通过“replica”标签进行除重操作。</p></li>
+
+<li><p>Thanos 还提供了时间序列数据的压缩和降采样（downsample）存储。Prometheus 提供了一个内置的压缩​​模型，现有较小的数据块被重写为较大的数据块，并进行结构重组以提高查询性能。Thanos 在Compactor 组件（作为批次作业运行）中使用了相同的机制，并压缩对象存储数据。Płotka 说，Compactor 也对数据进行降采样，“目前降采样时间间隔不可配置，不过我们选择了一些合理的时间间隔——5 分钟和1 小时”。压缩也是其他时间序列数据库（如 InfluxDB 和 OpenTSDB ）的常见功能。</p></li>
+</ol>
+
+<h1 id="遇到的问题">遇到的问题</h1>
+
+<ol>
+<li>查询速度较慢，在数据量基本特别大的时候，查询会超时。</li>
+<li>thanos 目前还不能支持默认查询lookback时间，promehteus可以设置默认查询时间，thanos默认是根据规模自动调整的，目前发现有10m，20m等，这边可以暂时表达式加时间处理这个问题。</li>
+<li>sidecar的启动参数&ndash;cluster-peers是什么作用</li>
+</ol>
+
+<h1 id="扩展">扩展</h1>
+
+<p>在prometheus的聚合和集群发展中，出现了很多的相同的项目，大部分都是使用了远程存储的概念，比如<a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">cortex</a>，<a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">M3DB</a>，<a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">victoriametrics</a>，thanos在调研落地的过程中，各方面还是相对做到比较好的，适合做为prometheus的扩展和聚合方案。</p>
+
+<p><img src="/media/monitor/prometheus/cluster/thanos/thanos" alt="" /></p>
+
+<blockquote>
+<p>2019.9.9</p>
+</blockquote>
+
+<p><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">victoriametrics</a>在存储和查询上更加的优秀，目前比较推荐victoriametrics。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/thanos/">https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/thanos/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/thanos/">
+                            <i class="fa fa-tags"></i>
+                            thanos
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/metrics/">
+                            <i class="fa fa-tags"></i>
+                            metrics
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cluster/">
+                            <i class="fa fa-tags"></i>
+                            cluster
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">日志监控系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/log-scheme/">监控系列---- log</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/collect-scheme/">日志系列---- 容器日志采集方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat/">监控日志系列---- Filebeat</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat-principle/">监控日志系列---- Filebeat原理</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbixcode/">监控系列---- zabbix源码阅读</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年11月25日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbix/">监控系列---- Zabbix基本使用</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年03月04日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/log/log-scheme/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/log/collect/collect-scheme/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本功能">基本功能</a></li>
+<li><a href="#基本组件">基本组件</a></li>
+<li><a href="#基本使用">基本使用</a>
+<ul>
+<li><a href="#sidecar">sidecar</a></li>
+<li><a href="#query">query</a></li>
+<li><a href="#sd">sd</a></li>
+</ul></li>
+<li><a href="#基本原理">基本原理</a></li>
+<li><a href="#遇到的问题">遇到的问题</a></li>
+<li><a href="#扩展">扩展</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

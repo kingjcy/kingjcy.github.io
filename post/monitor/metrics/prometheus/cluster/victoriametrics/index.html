@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="VictoriaMetrics是一个高性能的，长期存储的prometheus的远程解决方案，实现集群使用的federation的方式，只不过性能很优秀，包括write和query，聚合数据也解决了查询问题。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控metrics系列----VictoriaMetrics - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控metrics系列----VictoriaMetrics
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年06月13日 
+                </div>
+                <h1 class="post-title">监控metrics系列----VictoriaMetrics</h1>
+            </header>
+
+            <div class="post-content">
+                <p>VictoriaMetrics是一个高性能的，长期存储的prometheus的远程解决方案，实现集群使用的federation的方式，只不过性能很优秀，包括write和query，聚合数据也解决了查询问题。</p>
+
+<h1 id="优势">优势</h1>
+
+<p>VictoriaMetrics不仅仅是时序数据库,它的优势主要体现在一下几点:</p>
+
+<ol>
+<li>对外支持Prometheus相关的API，所以它可以直接用于Grafana作为Prometheus数据源使用, 同时扩展了PromQL, 详细使用可参考<a href="https://github.com/VictoriaMetrics/VictoriaMetrics/wiki/ExtendedPromQL">https://github.com/VictoriaMetrics/VictoriaMetrics/wiki/ExtendedPromQL</a>。</li>
+<li>针对Prometheus的Metrics插入查询具备高性能和良好的扩展性。甚至性能比InfluxDB和TimescaleDB高出20x</li>
+<li>内存占用方面也做出了优化, 比InfluxDB少10x</li>
+<li>高性能的数据压缩方式,使存入存储的数据量比TimescaleDB多达70x</li>
+<li>优化了高延迟IO和低iops的存储</li>
+<li>操作简单</li>
+<li>支持从第三方时序数据库获取数据源</li>
+<li>异常关闭情况下可以保护存储数据损坏</li>
+</ol>
+
+<h1 id="部署">部署</h1>
+
+<h2 id="单点">单点</h2>
+
+<h3 id="编译">编译</h3>
+
+<p>1、二进制</p>
+
+<pre><code>make victoria-metrics
+</code></pre>
+
+<p>2、docker</p>
+
+<pre><code>make victoria-metrics-prod
+</code></pre>
+
+<h3 id="启动">启动</h3>
+
+<p>直接使用二进制文件进行启动</p>
+
+<pre><code>nohup /opt/victoria-metrics/victoria-metrics-prod -storageDataPath=&quot;/data/victoria&quot; -retentionPeriod=2  &gt;&gt;/opt/promes/victoria-metrics/logs/start.log 2&gt;&amp;1 &amp;
+</code></pre>
+
+<ul>
+<li>-storageDataPath - path to data directory. VictoriaMetrics stores all the data in this directory.</li>
+<li>-retentionPeriod - retention period in months for the data. Older data is automatically deleted.</li>
+<li>-httpListenAddr - TCP address to listen to for http requests. By default it listens port 8428 on all the network interfaces.</li>
+<li>-graphiteListenAddr - TCP and UDP address to listen to for Graphite data. By default it is disabled.</li>
+<li>-opentsdbListenAddr - TCP and UDP address to listen to for OpenTSDB data. By default it is disabled.</li>
+</ul>
+
+<p>可见他也是一个时序数据库，支持将prometheus，influxdb，graphite，opentsdb的数据的写入，比如使用的是prometheus，只使用了http的端口，在我们对应的prometheus文件中配置远程写入，将数据写入到victoria-metrics中去，配置如下</p>
+
+<pre><code>remote_write:
+  - url: http://&lt;victoriametrics-addr&gt;:8428/api/v1/write
+    queue_config:
+      max_samples_per_send: 10000
+</code></pre>
+
+<p>数据存储到victoria-metrics，我们还是通过8428端口来读取，我们在grafana中配置datasource：<a href="http://victoriametrics-addr-ip:8428">http://victoriametrics-addr-ip:8428</a></p>
+
+<h3 id="停止">停止</h3>
+
+<p>发送SIGINT给进程</p>
+
+<h3 id="高可用">高可用</h3>
+
+<p>启动多个实例，将prometheus的数据分别写入到这些节点中，加一层负载均衡，就可以实现高可用，解决单点问题，prometheus配置如下</p>
+
+<pre><code>remote_write:
+  - url: http://&lt;victoriametrics-addr-1&gt;:8428/api/v1/write
+    queue_config:
+      max_samples_per_send: 10000
+  # ...
+  - url: http://&lt;victoriametrics-addr-N&gt;:8428/api/v1/write
+    queue_config:
+      max_samples_per_send: 10000
+</code></pre>
+
+<p>这边讲一下高可用和水平扩展</p>
+
+<p>高可用是指多活，解决单点故障，正常就是多个相同的服务同时提供服务，来确保一个节点挂了，就能转移到其他的节点上，不影响外部整体的使用，比如redis的主备切换，sentinel机制，还有上面的virtoria-metrics的方式</p>
+
+<p>水平扩展是一种分布式的能力，一个节点不能处理，就多个节点一起处理，这样分担一下，整体的量就上去了，比如redis的cluster集群，理论上只要加节点，就可以存储月来越多的数据，实际集群内部交互还是有瓶颈的</p>
+
+<p>正常的服务，可以说在集群同时解决高可用和水平扩展是很困难的，正常的一个集群的作用</p>
+
+<ul>
+<li><p>集群内主节点都获取全部数据，然后其他节点都重主节点复制数据，对外一直提供主节点查询，当主节点出现问题的时候，主备切换，这样实现了高可用，但是有单节点数量瓶颈，不能水平扩展。</p></li>
+
+<li><p>集群内每个节点获取一部分数据，然后集群内节点相互复制，实现最终一致性，每个节点都保存完整的数据，这个时候一个节点挂了，会出问题，单个节点也会有瓶颈，所以在这个基础上收取前加一层负载均衡，这样当一个节点挂了之后，负载均衡会分配到其他节点上，这样实现了高可用，也实现了水平扩展，但是这个很难实现，而且还是有单节点瓶颈，一般是适用这种数据量很小的需要一致性的服务发现。</p></li>
+
+<li><p>集群内每个节点获取一部分数据，并且只存储这一部分数据，然后集群内使用一些数据库或者自身实现关系映射，然后对外查询会路由到对应的节点上去查询数据。这种模式就是支持水平扩展的，但是有一个节点
+出问题，查询就会出问题，没有实现高可用，所以在这个基础上实现高可用</p>
+
+<ul>
+<li>每个单节点的设置主从复制，相互切换</li>
+<li>完成集群间的复制</li>
+</ul></li>
+</ul>
+
+<p>最后可以说是目前比较好的解决方式。</p>
+
+<h3 id="其他操作">其他操作</h3>
+
+<ul>
+<li>可以删除数据</li>
+<li>可以导出数据</li>
+<li>目前不支持Downsampling，但是victoria-metrics的压缩率和查询效率足以使用</li>
+<li>单节点不支持水平扩展，但是单节点足以媲美thanos和M3，timescaleDB的性能，如果还是觉得不够用，可以尝试集群版本</li>
+<li>virtoria-metrics的参数基本不用调整，都是优化后的合理设计，自身也支持prometheus监控</li>
+</ul>
+
+<h3 id="测试">测试</h3>
+
+<p>启动脚本</p>
+
+<pre><code>[root@test victoria-metrics]# cat start.sh
+nohup /opt/victoria-metrics/victoria-metrics-prod -storageDataPath=&quot;/data/victoria&quot; -retentionPeriod=2  &gt;&gt;/opt/victoria-metrics/logs/start.log 2&gt;&amp;1 &amp;
+
+
+-storageDataPath=&quot;/data/victoria&quot;：数据存储目录
+
+-retentionPeriod=2：数据存储时间，两个月
+</code></pre>
+
+<p>11天的数据量</p>
+
+<pre><code>[root@test victoria-metrics]# du -sh /data/victoria
+20G /data/victoria
+</code></pre>
+
+<p>cpu和内存消耗</p>
+
+<pre><code>  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND
+21899 root      20   0 42.9g  26g 6280 S 188.5 20.8  13486:10 victoria-metric
+ 4560 root      20   0  159g  26g 365m S 1110.1 20.8   9846:56 prometheus
+</code></pre>
+
+<h2 id="集群">集群</h2>
+
+<p>集群模式是采用的分布式部署，将数据分别存储在不同的节点上，实现了水平扩展，目前还没有relaese版本，需要自己编译，但是解决了数据量的问题，同时在性能方面并没有发生太大的影响。</p>
+
+<h3 id="编译-1">编译</h3>
+
+<p>直接make就会在bin目录下生成可执行文件vmstorage, vmselect and vminsert。</p>
+
+<h3 id="架构原理图">架构原理图</h3>
+
+<p><img src="/media/monitor/prometheus/cluster/vm/vm.png" alt="" /></p>
+
+<p>组件</p>
+
+<ul>
+<li><p>vmstorage - stores the data</p>
+
+<p>vmstore其实就是我们数据存在的地方，需要先启动，否则insert会找不到插入的节点，导致数据丢失。</p></li>
+
+<li><p>vminsert - proxies the ingested data to vmstorage shards using consistent hashing</p>
+
+<p>vminsert对采集的提供的代理接口，同时选择将数据插入到我们指定的store节点，可以是单节点，也可以是集群上所有的机器都部署，通过nginx来负载均衡，可以减少节点压力，但是并不能解决单点问题。</p></li>
+
+<li><p>vmselect - performs incoming queries using the data from vmstorage</p>
+
+<p>vmselect是给外部进行查询的接口，同时也负责查询数据的聚合功能。负载均衡和vmisert一样，使用nginx。</p></li>
+</ul>
+
+<h3 id="http-api">HTTP api</h3>
+
+<blockquote>
+<p>insert</p>
+</blockquote>
+
+<pre><code>http://&lt;vminsert-ip&gt;:8480/insert/&lt;accountID&gt;/&lt;suffix&gt;:
+
+&lt;accountID&gt; is an arbitrary number identifying namespace for data ingestion (aka tenant)
+&lt;suffix&gt; may have the following values:
+
+    1.prometheus - for inserting data with Prometheus remote write API
+    2.influx/write or influx/api/v2/write - for inserting data with Influx line protocol
+</code></pre>
+
+<blockquote>
+<p>querying</p>
+</blockquote>
+
+<pre><code>http://&lt;vmselect-ip&gt;:8481/select/&lt;accountID&gt;/prometheus/&lt;suffix&gt;:
+
+&lt;accountID&gt; is an arbitrary number identifying data namespace for the query (aka tenant)
+&lt;suffix&gt; may have the following values:
+
+    1.api/v1/query - performs PromQL instant query
+    2.api/v1/query_range - performs PromQL range query
+    3.api/v1/series - performs series query
+    4.api/v1/labels - returns a list of label names
+    5.api/v1/label/&lt;label_name&gt;/values - returns values for the given &lt;label_name&gt; according to API
+    6.federate - returns federated metrics
+    7.api/v1/export - exports raw data. See this article for details
+</code></pre>
+
+<blockquote>
+<p>delete</p>
+</blockquote>
+
+<pre><code>http://&lt;vmselect-ip&gt;:8481/delete/&lt;accountID&gt;/prometheus/api/v1/admin/tsdb/delete_series?match[]=&lt;timeseries_selector_for_delete&gt;.
+</code></pre>
+
+<blockquote>
+<p>vmstorage</p>
+</blockquote>
+
+<p>vmstore保留了8482端口，提供一下URL：</p>
+
+<pre><code>/snapshot/create - create instant snapshot, which can be used for backups in background. Snapshots are created in &lt;storageDataPath&gt;/snapshots folder, where &lt;storageDataPath&gt; is the corresponding command-line flag value.
+/snapshot/list - list available snasphots.
+/snapshot/delete?snapshot=&lt;id&gt; - delete the given snapshot.
+/snapshot/delete_all - delete all the snapshots.
+Snapshots may be created independently on each vmstorage node. There is no need in synchronizing snapshots' creation across vmstorage nodes.
+</code></pre>
+
+<h3 id="扩展">扩展</h3>
+
+<p>1、vminsert and vmselect是可扩展的，无状态的，可以随时扩展或者缩容，并不影响，只是需要在负载均衡中将相关节点处理一下</p>
+
+<p>2、vmstore是有状态的，因为是分布式存储数据的，所以新增节点需要如下步骤</p>
+
+<ul>
+<li>Start new vmstorage node with the same -retentionPeriod as existing nodes in the cluster.</li>
+<li>Gradually restart all the vmselect nodes with new -storageNode arg containing <new_vmstorage_host>:8401.</li>
+<li>Gradually restart all the vminsert nodes with new -storageNode arg containing <new_vmstorage_host>:8400.</li>
+</ul>
+
+<h3 id="备份和恢复">备份和恢复</h3>
+
+<p>1、主要使用vmstore的url来进行备份</p>
+
+<pre><code>Create an instant snapshot by navigating to /snapshot/create HTTP handler. It will create snapshot and return its name.
+Archive the created snapshot from &lt;-storageDataPath&gt;/snapshots/&lt;snapshot_name&gt; folder using any suitable tool that follows symlinks. For instance, cp -L, rsync -L or scp -r. The archival process doesn't interfere with vmstorage work, so it may be performed at any suitable time. Incremental backups are possible with rsync --delete, which should remove extraneous files from backup dir.
+Delete unused snapshots via /snapshot/delete?snapshot=&lt;snapshot_name&gt; or /snapshot/delete_all in order to free up occupied storage space.
+There is no need in synchronizing backups among all the vmstorage nodes.
+</code></pre>
+
+<p>2、恢复</p>
+
+<ul>
+<li>Stop vmstorage node with kill -INT.</li>
+<li>Delete all the contents of the directory pointed by -storageDataPath command-line flag.</li>
+<li>Copy all the contents of the backup directory to -storageDataPath directory.</li>
+<li>Start vmstorage node.</li>
+</ul>
+
+<h1 id="实现原理">实现原理</h1>
+
+<h2 id="vminsert">vminsert</h2>
+
+<p>插入数据就比较简单了，使用了prometheus差不多的数据结构体来存储数据，只要将数据转化为对应的结构体直接存入数据就可以。对于其他的时序数据库比如influxdb都是差不多的数据结构，只要稍微进行转换，就可以将数据存储到存储节点去。</p>
+
+<h2 id="vmstore">vmstore</h2>
+
+<p>存储数据可以比常规的节省10倍的内存</p>
+
+<h2 id="vmselect">vmselect</h2>
+
+<p>查询数据很快</p>
+
+<h2 id="mergetree">MergeTree</h2>
+
+<p>VictoriaMetrics将数据存储在相似于ClickHouse的 MergeTree表 数据结构中。它是用于剖析数据和其余事件流的最快的数据库。在典型的剖析查问上，它的性能要比PostgreSQL和MySQL等传统数据库高10到1000倍。</p>
+
+<h1 id="特性">特性</h1>
+
+<h2 id="扩展了promeql">扩展了promeql</h2>
+
+<p>1 、模版</p>
+
+<pre><code>((node_memory_MemTotal_bytes{instance=~&quot;$node:$port&quot;, job=~&quot;$job&quot;} - node_memory_MemFree_bytes{instance=~&quot;$node:$port&quot;, job=~&quot;$job&quot;}) /
+node_memory_MemTotal_bytes{instance=~&quot;$node:$port&quot;, job=~&quot;$job&quot;}) * 100
+</code></pre>
+
+<p>使用模版</p>
+
+<pre><code>WITH (
+    commonFilters = {instance=~&quot;$node:$port&quot;,job=~&quot;$job&quot;}
+)
+(node_memory_MemTotal_bytes{commonFilters} - node_memory_MemFree_bytes{commonFilters}) /
+    node_memory_MemTotal_bytes{commonFilters} * 100
+</code></pre>
+
+<h1 id="发展">发展</h1>
+
+<h2 id="vmagent">vmagent</h2>
+
+<p>vmagent是一个很小巧但优秀的代理，它可以帮助您从各种来源收集指标并将其存储到VictoriaMetrics或任何其他支持remote_write协议的与Prometheus兼容的存储系统。</p>
+
+<p><img src="/media/monitor/prometheus/cluster/vm/vm2" alt="" /></p>
+
+<ul>
+<li>可以用作Prometheus的直接替代品，用于抓取目标（例如node_exporter）。</li>
+<li>可以像Prometheus那样，重新添加，删除和修改标签。可以在将数据发送到远程存储之前对其进行过滤。</li>
+<li>支持多种VictoriaMetrics支持的数据格式，比如Influx，OpenTSDB，Graphite，Prometheus等。</li>
+<li>可以将收集的指标同时复制到多个远程存储系统。在与远程存储连接不稳定的环境中工作。如果远程存储不可用，则将收集的指标缓存在-remoteWrite.tmpDataPath中。一旦恢复远程存储的连接，缓冲的metrcis即发送到远程存储。可以通过-remoteWrite.maxDiskUsagePerURL限制缓冲区的最大磁盘使用量。</li>
+<li>与Prometheus相比，使用较少的RAM，CPU，磁盘IO和网络带宽。</li>
+</ul>
+
+<p>目前来讲，Prometheus依旧不可或缺。vmagent 还处于开发阶段。但是vmagent有取代prometheus的想法是可以看出来的。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/victoriametrics/">https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/victoriametrics/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/metrics/">
+                            <i class="fa fa-tags"></i>
+                            metrics
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cluster/">
+                            <i class="fa fa-tags"></i>
+                            cluster
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/victoriametrics/">
+                            <i class="fa fa-tags"></i>
+                            VictoriaMetrics
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">日志监控系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/log-scheme/">监控系列---- log</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/thanos/">监控系统---- Thanos</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/collect-scheme/">日志系列---- 容器日志采集方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat/">监控日志系列---- Filebeat</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat-principle/">监控日志系列---- Filebeat原理</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbixcode/">监控系列---- zabbix源码阅读</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年11月25日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/zabbix/zabbix/">监控系列---- Zabbix基本使用</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年03月04日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/log/loki/loki/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#优势">优势</a></li>
+<li><a href="#部署">部署</a>
+<ul>
+<li><a href="#单点">单点</a>
+<ul>
+<li><a href="#编译">编译</a></li>
+<li><a href="#启动">启动</a></li>
+<li><a href="#停止">停止</a></li>
+<li><a href="#高可用">高可用</a></li>
+<li><a href="#其他操作">其他操作</a></li>
+<li><a href="#测试">测试</a></li>
+</ul></li>
+<li><a href="#集群">集群</a>
+<ul>
+<li><a href="#编译-1">编译</a></li>
+<li><a href="#架构原理图">架构原理图</a></li>
+<li><a href="#http-api">HTTP api</a></li>
+<li><a href="#扩展">扩展</a></li>
+<li><a href="#备份和恢复">备份和恢复</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#实现原理">实现原理</a>
+<ul>
+<li><a href="#vminsert">vminsert</a></li>
+<li><a href="#vmstore">vmstore</a></li>
+<li><a href="#vmselect">vmselect</a></li>
+<li><a href="#mergetree">MergeTree</a></li>
+</ul></li>
+<li><a href="#特性">特性</a>
+<ul>
+<li><a href="#扩展了promeql">扩展了promeql</a></li>
+</ul></li>
+<li><a href="#发展">发展</a>
+<ul>
+<li><a href="#vmagent">vmagent</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
