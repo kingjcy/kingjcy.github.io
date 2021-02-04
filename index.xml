@@ -11,7 +11,7 @@
     
       
         <item>
-          <title>日志监控系列---- loki</title>
+          <title>监控日志系列---- loki</title>
           <link>https://kingjcy.github.io/post/monitor/log/loki/loki/</link>
           <pubDate>Sat, 18 Jan 2020 19:45:30 CST</pubDate>
           <author></author>
@@ -3070,161 +3070,6 @@ Second:
 &lt;/blockquote&gt;
 
 &lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/victoriametrics/&#34;&gt;victoriametrics&lt;/a&gt;在存储和查询上更加的优秀，目前比较推荐victoriametrics。&lt;/p&gt;</description>
-        </item>
-      
-    
-      
-        <item>
-          <title>日志系列---- 容器日志采集方案</title>
-          <link>https://kingjcy.github.io/post/monitor/log/collect/collect-scheme/</link>
-          <pubDate>Sun, 08 Jul 2018 19:45:30 CST</pubDate>
-          <author></author>
-          <guid>https://kingjcy.github.io/post/monitor/log/collect/collect-scheme/</guid>
-          <description>&lt;p&gt;容器由于其特殊性，在日志采集上有着不同的解决方案，目前主要还是以探针采集为主。&lt;/p&gt;
-
-&lt;h1 id=&#34;日志采集演进&#34;&gt;日志采集演进&lt;/h1&gt;
-
-&lt;p&gt;容器日志采集方案一直不断的演进，纵览当前容器日志收集的场景，无非就是两种方式：一是直接采集Docker标准输出，容器内的服务将日志信息写到标准输出，这样通过Docker的log driver可以发送到相应的收集程序中；二是延续传统的日志写入方式，容器内的服务将日志直接写到普通文件中，通过Docker volume将日志文件映射到Host上，日志采集程序就可以收集它。&lt;/p&gt;
-
-&lt;h2 id=&#34;docker-log-driver&#34;&gt;docker log driver&lt;/h2&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;docker logs&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;pre&gt;&lt;code&gt;docker logs edc-k8s-demo
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;默认情况下，Docker的日志会发送到容器的标准输出设备（STDOUT）和标准错误设备（STDERR），其中STDOUT和STDERR实际上就是容器的控制台终端。如果想要持续看到新打印出的日志信息，那么可以加上 -f 参数&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;docker logs -f edc-k8s-demo
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;Docker logging driver&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;Docker还提供了其他的一些机制允许我们从运行的容器中提取日志，这些机制统称为 logging driver。&lt;/p&gt;
-
-&lt;p&gt;对Docker而言，其默认的logging driver是json-file，如果在启动时没有特别指定，都会使用这个默认的logging driver。json-file会将我们在控制台通过docker logs命名看到的日志都保存在一个json文件中，我们可以在服务器Host上的容器目录中找到这个json文件。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;容器日志路径：/var/lib/docker/containers/&amp;lt;container-id&amp;gt;/&amp;lt;container-id&amp;gt;-json.log
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;除了json-file，Docker还支持以下多种logging dirver&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;none  No logs are available for the container and docker logs does not return any output.&lt;/li&gt;
-&lt;li&gt;local Logs are stored in a custom format designed for minimal overhead.&lt;/li&gt;
-&lt;li&gt;json-file The logs are formatted as JSON. The default logging driver for Docker.&lt;/li&gt;
-&lt;li&gt;syslog    Writes logging messages to the syslog facility. The syslog daemon must be running on the host machine.&lt;/li&gt;
-&lt;li&gt;journald  Writes log messages to journald. The journald daemon must be running on the host machine.&lt;/li&gt;
-&lt;li&gt;gelf  Writes log messages to a Graylog Extended Log Format (GELF) endpoint such as Graylog or Logstash.&lt;/li&gt;
-&lt;li&gt;fluentd   Writes log messages to fluentd (forward input). The fluentd daemon must be running on the host machine.&lt;/li&gt;
-&lt;li&gt;awslogs   Writes log messages to Amazon CloudWatch Logs.&lt;/li&gt;
-&lt;li&gt;splunk    Writes log messages to splunk using the HTTP Event Collector.&lt;/li&gt;
-&lt;li&gt;etwlogs   Writes log messages as Event Tracing for Windows (ETW) events. Only available on Windows platforms.&lt;/li&gt;
-&lt;li&gt;gcplogs   Writes log messages to Google Cloud Platform (GCP) Logging.&lt;/li&gt;
-&lt;li&gt;logentries    Writes log messages to Rapid7 Logentries.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;我们可以在容器启动时通过加上 &amp;ndash;log-driver 来指定使用哪个具体的 logging driver，例如：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;docker run -d --log-driver=syslog ......
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;如果想要设置默认的logging driver，那么则需要修改Docker daemon的启动脚本，例如：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;{
-  &amp;quot;log-driver&amp;quot;: &amp;quot;json-file&amp;quot;,
-  &amp;quot;log-opts&amp;quot;: {
-    &amp;quot;labels&amp;quot;: &amp;quot;production_status&amp;quot;,
-    &amp;quot;env&amp;quot;: &amp;quot;os,customer&amp;quot;
-  }
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;每个logging driver都有一些自己特定的log-opt，使用时可以参考具体官方文档。&lt;/p&gt;
-
-&lt;p&gt;可见，第一种方式足够简单，直接配置相关的Log Driver就可以，但是这种方式也有些劣势：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;当主机的容器密度比较高的时候，对Docker Engine的压力比较大，毕竟容器标准输出都要通过Docker Engine来处理。&lt;/li&gt;
-&lt;li&gt;尽管原则上，我们希望遵循一容器部署一个服务的原则，但是有时候特殊情况不可避免容器内有多个业务服务，这时候很难做到所有服务都向标准输出写日志，这就需要用到前面所说的第二种场景模式。&lt;/li&gt;
-&lt;li&gt;虽然我们可以先选择很多种Log Driver，但是有些Log Driver会破坏Docker原生的体验，比如docker logs无法直接看到容器日志。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;h2 id=&#34;docker-volume&#34;&gt;docker volume&lt;/h2&gt;
-
-&lt;p&gt;通过对第一种方案的摸索，存在着很多的问题与不方便，所以目前我们大多数采集还是使用第二种方案，文件采集的方式。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;第三方采集方案&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;上面都是将日志文件落到STDOUT和STDERR，我们采集都是基于这个，其实在我们应用编程的时候，完全可以将日志文件落到容器的对应的目录下，落盘然后使用第三方采集组件比如filebeat、fluentd等采集，统一管理。&lt;/p&gt;
-
-&lt;h1 id=&#34;容器日志采集方案&#34;&gt;容器日志采集方案&lt;/h1&gt;
-
-&lt;p&gt;根据上面的基本描述，容器日志采集有很多种方式，每种方式都用不同实现方案，适用于不同的场景。&lt;/p&gt;
-
-&lt;h2 id=&#34;logdriver&#34;&gt;LogDriver&lt;/h2&gt;
-
-&lt;p&gt;DockerEngine 本身具有 LogDriver 功能，可通过配置不同的 LogDriver 将容器的 stdout 通过 DockerEngine 写入到远端存储，以此达到日志采集的目的。这种方式的可定制化、灵活性、资源隔离性都很低，一般不建议在生产环境中使用，上面我们已经说明不使用的原因。&lt;/p&gt;
-
-&lt;h2 id=&#34;http&#34;&gt;http&lt;/h2&gt;
-
-&lt;p&gt;业务直写是在应用中集成日志采集的 SDK，通过 SDK 直接将日志发送到服务端。这种方式省去了落盘采集的逻辑，也不需要额外部署 Agent，对于系统的资源消耗最低，但由于业务和日志 SDK 强绑定，整体灵活性很低，一般只有日志量极大的场景中使用，这是一种特殊的场景，我们会在特殊情况下使用。&lt;/p&gt;
-
-&lt;h2 id=&#34;deamonset模式&#34;&gt;deamonset模式&lt;/h2&gt;
-
-&lt;p&gt;DaemonSet 方式在每个 node 节点上只运行一个日志 agent(&lt;a href=&#34;https://kingjcy.github.io/post/monitor/log/collect/filebeat/filebeat/&#34;&gt;filebeat&lt;/a&gt;,fluentd,flume,fluentbit)，采集这个节点上所有的日志。DaemonSet 相对资源占用要小很多，但扩展性、租户隔离性受限，比较适用于功能单一或业务不是很多的集群；&lt;/p&gt;
-
-&lt;p&gt;正常规模的采集可以适应，日志分类明确、功能较单一的集群，大规模的集群采集速度就跟不上了，而且没有办法做到垂直扩展无上限。&lt;/p&gt;
-
-&lt;p&gt;当然完整的方案还是有很多需要做的工作，比如如何做发现，如何动态变更，这就是一个完成的平台建设了，这些每个公司都有自己的建设，就不太好说了。&lt;/p&gt;
-
-&lt;h2 id=&#34;sidecar模式&#34;&gt;sidecar模式&lt;/h2&gt;
-
-&lt;p&gt;Sidecar 方式为每个 POD 单独部署日志 agent，这个 agent 只负责一个业务应用的日志采集。Sidecar 相对资源占用较多，但灵活性以及多租户隔离性较强，建议大型的 K8s 集群或作为 PaaS 平台为多个业务方服务的集群使用该方式。&lt;/p&gt;
-
-&lt;p&gt;适用于大型、混合型、PAAS型集群的日志采集，是一种水平扩展消耗更多资源来增加采集速度的方案，但是方案就比较复杂。&lt;/p&gt;
-
-&lt;p&gt;当然完整的方案还是有很多需要做的工作，比如如何做发现，如何动态变更，这就是一个完成的平台建设了，这些每个公司都有自己的建设，也就不太好说了。&lt;/p&gt;
-
-&lt;h1 id=&#34;网络采集性能数据&#34;&gt;网络采集性能数据&lt;/h1&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;有赞&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;重flume发展到自研rsyslog-hub和http服务&lt;/p&gt;
-
-&lt;p&gt;17年平均每秒产生日志1.1万条，峰值1.5万条，每天的日志量约9亿条，占用空间2.4T左右&lt;/p&gt;
-
-&lt;p&gt;19年每天都会产生百亿级别的日志量（据统计，平均每秒产生 50 万条日志，峰值每秒可达 80 万条）&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;七牛云&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;自研logkit&lt;/p&gt;
-
-&lt;p&gt;17年现在日均数据流入量超 250 TB，3650 亿条，其中最大的客户日均数据流入量超过 45 TB。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;b站&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;17年目前集群规模20台机器，接入业务200+，单日日志量10T+。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;阿里云&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;自研logtail（重内核都得到的优化和充分利用）&lt;/p&gt;
-
-&lt;p&gt;速度达到160M/s&lt;/p&gt;</description>
         </item>
       
     
@@ -9252,6 +9097,1623 @@ beats目前只提供了像elasticsearch、kafka、logstash等几类output客户�
     
       
         <item>
+          <title>监控日志系列---- 容器日志采集方案</title>
+          <link>https://kingjcy.github.io/post/monitor/log/collect/collect-scheme/</link>
+          <pubDate>Sun, 08 Jul 2018 19:45:30 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/log/collect/collect-scheme/</guid>
+          <description>&lt;p&gt;容器由于其特殊性，在日志采集上有着不同的解决方案，目前主要还是以探针采集为主。&lt;/p&gt;
+
+&lt;h1 id=&#34;日志采集演进&#34;&gt;日志采集演进&lt;/h1&gt;
+
+&lt;p&gt;容器日志采集方案一直不断的演进，纵览当前容器日志收集的场景，无非就是两种方式：一是直接采集Docker标准输出，容器内的服务将日志信息写到标准输出，这样通过Docker的log driver可以发送到相应的收集程序中；二是延续传统的日志写入方式，容器内的服务将日志直接写到普通文件中，通过Docker volume将日志文件映射到Host上，日志采集程序就可以收集它。&lt;/p&gt;
+
+&lt;h2 id=&#34;docker-log-driver&#34;&gt;docker log driver&lt;/h2&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;docker logs&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;docker logs edc-k8s-demo
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;默认情况下，Docker的日志会发送到容器的标准输出设备（STDOUT）和标准错误设备（STDERR），其中STDOUT和STDERR实际上就是容器的控制台终端。如果想要持续看到新打印出的日志信息，那么可以加上 -f 参数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;docker logs -f edc-k8s-demo
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Docker logging driver&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Docker还提供了其他的一些机制允许我们从运行的容器中提取日志，这些机制统称为 logging driver。&lt;/p&gt;
+
+&lt;p&gt;对Docker而言，其默认的logging driver是json-file，如果在启动时没有特别指定，都会使用这个默认的logging driver。json-file会将我们在控制台通过docker logs命名看到的日志都保存在一个json文件中，我们可以在服务器Host上的容器目录中找到这个json文件。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;容器日志路径：/var/lib/docker/containers/&amp;lt;container-id&amp;gt;/&amp;lt;container-id&amp;gt;-json.log
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;除了json-file，Docker还支持以下多种logging dirver&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;none  No logs are available for the container and docker logs does not return any output.&lt;/li&gt;
+&lt;li&gt;local Logs are stored in a custom format designed for minimal overhead.&lt;/li&gt;
+&lt;li&gt;json-file The logs are formatted as JSON. The default logging driver for Docker.&lt;/li&gt;
+&lt;li&gt;syslog    Writes logging messages to the syslog facility. The syslog daemon must be running on the host machine.&lt;/li&gt;
+&lt;li&gt;journald  Writes log messages to journald. The journald daemon must be running on the host machine.&lt;/li&gt;
+&lt;li&gt;gelf  Writes log messages to a Graylog Extended Log Format (GELF) endpoint such as Graylog or Logstash.&lt;/li&gt;
+&lt;li&gt;fluentd   Writes log messages to fluentd (forward input). The fluentd daemon must be running on the host machine.&lt;/li&gt;
+&lt;li&gt;awslogs   Writes log messages to Amazon CloudWatch Logs.&lt;/li&gt;
+&lt;li&gt;splunk    Writes log messages to splunk using the HTTP Event Collector.&lt;/li&gt;
+&lt;li&gt;etwlogs   Writes log messages as Event Tracing for Windows (ETW) events. Only available on Windows platforms.&lt;/li&gt;
+&lt;li&gt;gcplogs   Writes log messages to Google Cloud Platform (GCP) Logging.&lt;/li&gt;
+&lt;li&gt;logentries    Writes log messages to Rapid7 Logentries.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;我们可以在容器启动时通过加上 &amp;ndash;log-driver 来指定使用哪个具体的 logging driver，例如：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;docker run -d --log-driver=syslog ......
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果想要设置默认的logging driver，那么则需要修改Docker daemon的启动脚本，例如：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;log-driver&amp;quot;: &amp;quot;json-file&amp;quot;,
+  &amp;quot;log-opts&amp;quot;: {
+    &amp;quot;labels&amp;quot;: &amp;quot;production_status&amp;quot;,
+    &amp;quot;env&amp;quot;: &amp;quot;os,customer&amp;quot;
+  }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;每个logging driver都有一些自己特定的log-opt，使用时可以参考具体官方文档。&lt;/p&gt;
+
+&lt;p&gt;可见，第一种方式足够简单，直接配置相关的Log Driver就可以，但是这种方式也有些劣势：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;当主机的容器密度比较高的时候，对Docker Engine的压力比较大，毕竟容器标准输出都要通过Docker Engine来处理。&lt;/li&gt;
+&lt;li&gt;尽管原则上，我们希望遵循一容器部署一个服务的原则，但是有时候特殊情况不可避免容器内有多个业务服务，这时候很难做到所有服务都向标准输出写日志，这就需要用到前面所说的第二种场景模式。&lt;/li&gt;
+&lt;li&gt;虽然我们可以先选择很多种Log Driver，但是有些Log Driver会破坏Docker原生的体验，比如docker logs无法直接看到容器日志。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;docker-volume&#34;&gt;docker volume&lt;/h2&gt;
+
+&lt;p&gt;通过对第一种方案的摸索，存在着很多的问题与不方便，所以目前我们大多数采集还是使用第二种方案，文件采集的方式。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;第三方采集方案&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;上面都是将日志文件落到STDOUT和STDERR，我们采集都是基于这个，其实在我们应用编程的时候，完全可以将日志文件落到容器的对应的目录下，落盘然后使用第三方采集组件比如filebeat、fluentd等采集，统一管理。&lt;/p&gt;
+
+&lt;h1 id=&#34;容器日志采集方案&#34;&gt;容器日志采集方案&lt;/h1&gt;
+
+&lt;p&gt;根据上面的基本描述，容器日志采集有很多种方式，每种方式都用不同实现方案，适用于不同的场景。&lt;/p&gt;
+
+&lt;h2 id=&#34;logdriver&#34;&gt;LogDriver&lt;/h2&gt;
+
+&lt;p&gt;DockerEngine 本身具有 LogDriver 功能，可通过配置不同的 LogDriver 将容器的 stdout 通过 DockerEngine 写入到远端存储，以此达到日志采集的目的。这种方式的可定制化、灵活性、资源隔离性都很低，一般不建议在生产环境中使用，上面我们已经说明不使用的原因。&lt;/p&gt;
+
+&lt;h2 id=&#34;http&#34;&gt;http&lt;/h2&gt;
+
+&lt;p&gt;业务直写是在应用中集成日志采集的 SDK，通过 SDK 直接将日志发送到服务端。这种方式省去了落盘采集的逻辑，也不需要额外部署 Agent，对于系统的资源消耗最低，但由于业务和日志 SDK 强绑定，整体灵活性很低，一般只有日志量极大的场景中使用，这是一种特殊的场景，我们会在特殊情况下使用。&lt;/p&gt;
+
+&lt;h2 id=&#34;deamonset模式&#34;&gt;deamonset模式&lt;/h2&gt;
+
+&lt;p&gt;DaemonSet 方式在每个 node 节点上只运行一个日志 agent(&lt;a href=&#34;https://kingjcy.github.io/post/monitor/log/collect/filebeat/filebeat/&#34;&gt;filebeat&lt;/a&gt;,fluentd,flume,fluentbit)，采集这个节点上所有的日志。DaemonSet 相对资源占用要小很多，但扩展性、租户隔离性受限，比较适用于功能单一或业务不是很多的集群；&lt;/p&gt;
+
+&lt;p&gt;正常规模的采集可以适应，日志分类明确、功能较单一的集群，大规模的集群采集速度就跟不上了，而且没有办法做到垂直扩展无上限。&lt;/p&gt;
+
+&lt;p&gt;当然完整的方案还是有很多需要做的工作，比如如何做发现，如何动态变更，这就是一个完成的平台建设了，这些每个公司都有自己的建设，就不太好说了。&lt;/p&gt;
+
+&lt;h2 id=&#34;sidecar模式&#34;&gt;sidecar模式&lt;/h2&gt;
+
+&lt;p&gt;Sidecar 方式为每个 POD 单独部署日志 agent，这个 agent 只负责一个业务应用的日志采集。Sidecar 相对资源占用较多，但灵活性以及多租户隔离性较强，建议大型的 K8s 集群或作为 PaaS 平台为多个业务方服务的集群使用该方式。&lt;/p&gt;
+
+&lt;p&gt;适用于大型、混合型、PAAS型集群的日志采集，是一种水平扩展消耗更多资源来增加采集速度的方案，但是方案就比较复杂。&lt;/p&gt;
+
+&lt;p&gt;当然完整的方案还是有很多需要做的工作，比如如何做发现，如何动态变更，这就是一个完成的平台建设了，这些每个公司都有自己的建设，也就不太好说了。&lt;/p&gt;
+
+&lt;h1 id=&#34;网络采集性能数据&#34;&gt;网络采集性能数据&lt;/h1&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;有赞&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;重flume发展到自研rsyslog-hub和http服务&lt;/p&gt;
+
+&lt;p&gt;17年平均每秒产生日志1.1万条，峰值1.5万条，每天的日志量约9亿条，占用空间2.4T左右&lt;/p&gt;
+
+&lt;p&gt;19年每天都会产生百亿级别的日志量（据统计，平均每秒产生 50 万条日志，峰值每秒可达 80 万条）&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;七牛云&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;自研logkit&lt;/p&gt;
+
+&lt;p&gt;17年现在日均数据流入量超 250 TB，3650 亿条，其中最大的客户日均数据流入量超过 45 TB。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;b站&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;17年目前集群规模20台机器，接入业务200+，单日日志量10T+。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;阿里云&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;自研logtail（重内核都得到的优化和充分利用）&lt;/p&gt;
+
+&lt;p&gt;速度达到160M/s&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus Operator</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/prometheus-operater/</link>
+          <pubDate>Tue, 12 Jun 2018 16:57:05 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/prometheus-operater/</guid>
+          <description>&lt;p&gt;Prometheus-Operator是一套为了方便整合prometheus和kubernetes的开源方案，使用Prometheus-Operator可以非常简单的在kubernetes集群中部署Prometheus服务，用户能够使用简单的声明性配置来配置和管理Prometheus实例，这些配置将响应、创建、配置和管理Prometheus监控实例。&lt;/p&gt;
+
+&lt;h1 id=&#34;operator&#34;&gt;operator&lt;/h1&gt;
+
+&lt;p&gt;Operator是由CoreOS公司开发的，用来扩展 Kubernetes API，特定的应用程序控制器，它用来创建、配置和管理复杂的有状态应用，如数据库、缓存和监控系统。Operator基于 Kubernetes 的资源和控制器概念之上构建，但同时又包含了应用程序特定的一些专业知识，比如创建一个数据库的Operator，则必须对创建的数据库的各种运维方式非常了解，创建Operator的关键是CRD（自定义资源）的设计。&lt;/p&gt;
+
+&lt;p&gt;CRD是对 Kubernetes API 的扩展，Kubernetes 中的每个资源都是一个 API 对象的集合，例如我们在YAML文件里定义的那些spec都是对 Kubernetes 中的资源对象的定义，所有的自定义资源可以跟 Kubernetes 中内建的资源一样使用 kubectl 操作。&lt;/p&gt;
+
+&lt;p&gt;Operator是将运维人员对软件操作的知识给代码化，同时利用 Kubernetes 强大的抽象来管理大规模的软件应用。目前CoreOS官方提供了几种Operator的实现，其中就包括我们今天的主角：Prometheus Operator，Operator的核心实现就是基于 Kubernetes 的以下两个概念：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;资源：对象的状态定义&lt;/li&gt;
+&lt;li&gt;控制器：观测、分析和行动，以调节资源的分布&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;当然我们如果有对应的需求也完全可以自己去实现一个Operator，接下来我们就来给大家详细介绍下Prometheus-Operator的使用方法&lt;/p&gt;
+
+&lt;h1 id=&#34;原理&#34;&gt;原理&lt;/h1&gt;
+
+&lt;h2 id=&#34;基本架构&#34;&gt;基本架构&lt;/h2&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/prometheus/operator/operator.jpeg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;1、Operator： 根据自定义资源（Custom Resource Definition / CRDs）来部署和管理 Prometheus Server，同时监控这些自定义资源事件的变化来做相应的处理，是整个系统的控制中心，也就是我们常用的控制器，可见operater让prometheus更加k8s。&lt;/p&gt;
+
+&lt;p&gt;2、Prometheus：声明 Prometheus deployment 期望的状态，Operator 确保这个 deployment 运行时一直与定义保持一致。这边是一个资源类型，和下一个具体的prometheus是有区别的。&lt;/p&gt;
+
+&lt;p&gt;3、Prometheus Server： Operator 根据自定义资源 Prometheus 类型中定义的内容而部署的 Prometheus Server 集群，这些自定义资源可以看作是用来管理 Prometheus Server 集群的 StatefulSets 资源。&lt;/p&gt;
+
+&lt;p&gt;4、ServiceMonitor：声明指定监控的服务，描述了一组被 Prometheus 监控的目标列表。该资源通过 Labels 来选取对应的 Service Endpoint，让 Prometheus Server 通过选取的 Service 来获取 Metrics 信息。&lt;/p&gt;
+
+&lt;p&gt;5、Service：简单的说就是 Prometheus 监控的对象。&lt;/p&gt;
+
+&lt;p&gt;6、Alertmanager：定义 AlertManager deployment 期望的状态，Operator 确保这个 deployment 运行时一直与定义保持一致。&lt;/p&gt;
+
+&lt;p&gt;这边涉及来operater定义的几种crd类型。&lt;/p&gt;
+
+&lt;h2 id=&#34;crd&#34;&gt;CRD&lt;/h2&gt;
+
+&lt;p&gt;Prometheus Operater 定义了如下的六类自定义资源（CRD）&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Prometheus：部署prometheus
+ServiceMonitor：服务发现拉去列表基于service
+Alertmanager：部署alertmanager
+PrometheusRule：告警规则
+ThanosRuler：部署thanos
+PodMonitor：服务发现拉去列表基于pod
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;prometheus&#34;&gt;Prometheus&lt;/h3&gt;
+
+&lt;p&gt;Prometheus 自定义资源（CRD）声明了在 Kubernetes 集群中运行的 Prometheus 的期望设置。包含了副本数量，持久化存储，以及 Prometheus 实例发送警告到的 Alertmanagers等配置选项。&lt;/p&gt;
+
+&lt;p&gt;每一个 Prometheus 资源，Operator 都会在相同 namespace 下部署成一个正确配置的 StatefulSet，Prometheus 的 Pod 都会挂载一个名为 &lt;prometheus-name&gt; 的 Secret，里面包含了 Prometheus 的配置。Operator 根据包含的 ServiceMonitor 生成配置，并且更新含有配置的 Secret。无论是对 ServiceMonitors 或者 Prometheus 的修改，都会持续不断的被按照前面的步骤更新。&lt;/p&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kind: Prometheus
+metadata: # 略
+spec:
+  alerting:
+    alertmanagers:
+    - name: prometheus-prometheus-oper-alertmanager # 定义该 Prometheus 对接的 Alertmanager 集群的名字, 在 default 这个 namespace 中
+      namespace: default
+      pathPrefix: /
+      port: web
+  baseImage: quay.io/prometheus/prometheus
+  replicas: 2 # 定义该 Proemtheus “集群”有两个副本，说是集群，其实 Prometheus 自身不带集群功能，这里只是起两个完全一样的 Prometheus 来避免单点故障
+  ruleSelector: # 定义这个 Prometheus 需要使用带有 prometheus=k8s 且 role=alert-rules 标签的 PrometheusRule
+    matchLabels:
+      prometheus: k8s
+      role: alert-rules
+  serviceMonitorNamespaceSelector: {} # 定义这些 Prometheus 在哪些 namespace 里寻找 ServiceMonitor
+  serviceMonitorSelector: # 定义这个 Prometheus 需要使用带有 k8s-app=node-exporter 标签的 ServiceMonitor，不声明则会全部选中
+    matchLabels:
+      k8s-app: node-exporter
+  version: v2.10.0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;servicemonitor&#34;&gt;ServiceMonitor&lt;/h3&gt;
+
+&lt;p&gt;ServiceMonitor 自定义资源(CRD)能够声明如何监控一组动态服务的定义。它使用标签选择定义一组需要被监控的服务。主要通过Selector来依据 Labels 选取对应的Service的endpoints，并让 Prometheus Server 通过 Service 进行拉取指标。&lt;/p&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kind: ServiceMonitor
+metadata:
+  labels:
+    k8s-app: node-exporter # 这个 ServiceMonitor 对象带有 k8s-app=node-exporter 标签，因此会被 Prometheus 选中
+  name: node-exporter
+  namespace: default
+spec:
+  selector:
+    matchLabels: # 定义需要监控的 Endpoints，带有 app=node-exporter 且 k8s-app=node-exporter标签的 Endpoints 会被选中
+      app: node-exporter
+      k8s-app: node-exporter
+  endpoints:
+  - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    interval: 30s # 定义这些 Endpoints 需要每 30 秒抓取一次
+    targetPort: 9100 # 定义这些 Endpoints 的指标端口为 9100
+    scheme: https
+  jobLabel: k8s-app
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Spec 的 endpoints 部分用于配置需要收集 metrics 的 Endpoints 的端口和其他参数。endpoints（小写）是 ServiceMonitor CRD 中的一个字段，而 Endpoints（大写）是 Kubernetes 资源类型。&lt;/p&gt;
+
+&lt;p&gt;Spec 下的 namespaceSelector 可以现在允许发现 Endpoints 对象的命名空间。要发现所有命名空间下的目标，namespaceSelector 必须为空。&lt;/p&gt;
+
+&lt;h3 id=&#34;alertmanager&#34;&gt;Alertmanager&lt;/h3&gt;
+
+&lt;p&gt;Alertmanager 自定义资源(CRD)声明在 Kubernetes 集群中运行的 Alertmanager 的期望设置。它也提供了配置副本集和持久化存储的选项。&lt;/p&gt;
+
+&lt;p&gt;每一个 Alertmanager 资源，Operator 都会在相同 namespace 下部署成一个正确配置的 StatefulSet。Alertmanager pods 配置挂载一个名为 &lt;alertmanager-name&gt; 的 Secret， 使用 alertmanager.yaml key 对作为配置文件。&lt;/p&gt;
+
+&lt;p&gt;当有两个或更多配置的副本时，Operator 可以高可用性模式运行Alertmanager实例。&lt;/p&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kind: Alertmanager #  一个 Alertmanager 对象
+metadata:
+  name: prometheus-prometheus-oper-alertmanager
+spec:
+  baseImage: quay.io/prometheus/alertmanager
+  replicas: 3      # 定义该 Alertmanager 集群的节点数为 3
+  version: v0.17.0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;prometheusrule&#34;&gt;PrometheusRule&lt;/h3&gt;
+
+&lt;p&gt;PrometheusRule CRD 声明一个或多个 Prometheus 实例需要的 Prometheus rule。&lt;/p&gt;
+
+&lt;p&gt;Alerts 和 recording rules 可以保存并应用为 yaml 文件，可以被动态加载而不需要重启。&lt;/p&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kind: PrometheusRule
+metadata:
+  labels: # 定义该 PrometheusRule 的 label, 显然它会被 Prometheus 选中
+    prometheus: k8s
+    role: alert-rules
+  name: prometheus-k8s-rules
+spec:
+  groups:
+  - name: k8s.rules
+    rules: # 定义了一组规则，其中只有一条报警规则，用来报警 kubelet 是不是挂了
+    - alert: KubeletDown
+      annotations:
+        message: Kubelet has disappeared from Prometheus target discovery.
+      expr: |
+        absent(up{job=&amp;quot;kubelet&amp;quot;} == 1)
+      for: 15m
+      labels:
+        severity: critical
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;thanosruler&#34;&gt;ThanosRuler&lt;/h3&gt;
+
+&lt;p&gt;ThanosRuler 自定义资源(CRD)声明在 Kubernetes 集群中运行的 thanos 的期望设置。它也提供了配置副本集和持久化存储的选项。&lt;/p&gt;
+
+&lt;h3 id=&#34;podmonitor&#34;&gt;PodMonitor&lt;/h3&gt;
+
+&lt;p&gt;直接对接pod。&lt;/p&gt;
+
+&lt;h1 id=&#34;安装&#34;&gt;安装&lt;/h1&gt;
+
+&lt;h2 id=&#34;部署prometheus-operater&#34;&gt;部署prometheus-operater&lt;/h2&gt;
+
+&lt;p&gt;operater安装直接使用yaml安装就好了，先clone项目&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone https://github.com/coreos/prometheus-operator.git
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后在项目目录下有一个bundle.yaml定义了各种crd资源和operater的镜像启动配置清单，直接运行就好&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MacBook-Pro:prometheus-operator chunyinjiang$ kubectl apply -f bundle.yaml
+customresourcedefinition.apiextensions.k8s.io/alertmanagers.monitoring.coreos.com created
+customresourcedefinition.apiextensions.k8s.io/podmonitors.monitoring.coreos.com created
+customresourcedefinition.apiextensions.k8s.io/prometheuses.monitoring.coreos.com created
+customresourcedefinition.apiextensions.k8s.io/prometheusrules.monitoring.coreos.com created
+customresourcedefinition.apiextensions.k8s.io/servicemonitors.monitoring.coreos.com created
+customresourcedefinition.apiextensions.k8s.io/thanosrulers.monitoring.coreos.com created
+clusterrolebinding.rbac.authorization.k8s.io/prometheus-operator created
+clusterrole.rbac.authorization.k8s.io/prometheus-operator created
+deployment.apps/prometheus-operator created
+serviceaccount/prometheus-operator created
+service/prometheus-operator created
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可见在default的namespace下创建了prometheus-operator的sa，service，deployment应用，还有授权role以及CRD。&lt;/p&gt;
+
+&lt;p&gt;最新的版本官方将资源&lt;a href=&#34;https://github.com/coreos/prometheus-operator/tree/master/contrib/kube-prometheus&#34;&gt;https://github.com/coreos/prometheus-operator/tree/master/contrib/kube-prometheus&lt;/a&gt; 迁移到了独立的git仓库中：&lt;a href=&#34;https://github.com/coreos/kube-prometheus.git，&#34;&gt;https://github.com/coreos/kube-prometheus.git，&lt;/a&gt; 我们也可以直接使用这里面setup的yaml文件来部署prometheus-operater，这个项目中还有prometheus相关生态的部署yaml，可以参考使用。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone https://github.com/coreos/kube-prometheus.git
+cd manifests/setup
+$ ls
+00namespace-namespace.yaml                                         node-exporter-clusterRole.yaml
+0prometheus-operator-0alertmanagerCustomResourceDefinition.yaml    node-exporter-daemonset.yaml
+......
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后直接部署&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MacBook-Pro:setup chunyinjiang$ kubectl apply -f .
+namespace/monitoring created
+customresourcedefinition.apiextensions.k8s.io/alertmanagers.monitoring.coreos.com created
+customresourcedefinition.apiextensions.k8s.io/podmonitors.monitoring.coreos.com created
+customresourcedefinition.apiextensions.k8s.io/prometheuses.monitoring.coreos.com created
+customresourcedefinition.apiextensions.k8s.io/prometheusrules.monitoring.coreos.com created
+customresourcedefinition.apiextensions.k8s.io/servicemonitors.monitoring.coreos.com created
+customresourcedefinition.apiextensions.k8s.io/thanosrulers.monitoring.coreos.com created
+clusterrole.rbac.authorization.k8s.io/prometheus-operator created
+clusterrolebinding.rbac.authorization.k8s.io/prometheus-operator created
+deployment.apps/prometheus-operator created
+service/prometheus-operator created
+serviceaccount/prometheus-operator created
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看创建的资源&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MacBook-Pro:manifests chunyinjiang$ kubectl get all -n monitoring
+NAME                                       READY   STATUS    RESTARTS   AGE
+pod/prometheus-operator-6f98f66b89-dggn6   2/2     Running   0          20h
+
+NAME                          TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)    AGE
+service/prometheus-operator   ClusterIP   None         &amp;lt;none&amp;gt;        8443/TCP   20h
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/prometheus-operator   1/1     1            1           20h
+
+NAME                                             DESIRED   CURRENT   READY   AGE
+replicaset.apps/prometheus-operator-6f98f66b89   1         1         1       20h
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看crd&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MacBook-Pro:manifests chunyinjiang$ kubectl get crd | grep monitoring
+alertmanagers.monitoring.coreos.com     2020-06-19T11:34:06Z
+podmonitors.monitoring.coreos.com       2020-06-19T11:34:06Z
+prometheuses.monitoring.coreos.com      2020-06-19T11:34:06Z
+prometheusrules.monitoring.coreos.com   2020-06-19T11:34:06Z
+servicemonitors.monitoring.coreos.com   2020-06-19T11:34:07Z
+thanosrulers.monitoring.coreos.com      2020-06-19T11:34:07Z
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;部署prometheus生态&#34;&gt;部署prometheus生态&lt;/h2&gt;
+
+&lt;p&gt;直接使用kube-prometheus的yaml进行部署&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MacBook-Pro:manifests chunyinjiang$ kubectl apply -f .
+alertmanager.monitoring.coreos.com/main created
+secret/alertmanager-main created
+service/alertmanager-main created
+serviceaccount/alertmanager-main created
+servicemonitor.monitoring.coreos.com/alertmanager created
+secret/grafana-datasources created
+configmap/grafana-dashboard-apiserver created
+configmap/grafana-dashboard-cluster-total created
+configmap/grafana-dashboard-controller-manager created
+configmap/grafana-dashboard-k8s-resources-cluster created
+configmap/grafana-dashboard-k8s-resources-namespace created
+configmap/grafana-dashboard-k8s-resources-node created
+configmap/grafana-dashboard-k8s-resources-pod created
+configmap/grafana-dashboard-k8s-resources-workload created
+configmap/grafana-dashboard-k8s-resources-workloads-namespace created
+configmap/grafana-dashboard-kubelet created
+configmap/grafana-dashboard-namespace-by-pod created
+configmap/grafana-dashboard-namespace-by-workload created
+configmap/grafana-dashboard-node-cluster-rsrc-use created
+configmap/grafana-dashboard-node-rsrc-use created
+configmap/grafana-dashboard-nodes created
+configmap/grafana-dashboard-persistentvolumesusage created
+configmap/grafana-dashboard-pod-total created
+configmap/grafana-dashboard-prometheus-remote-write created
+configmap/grafana-dashboard-prometheus created
+configmap/grafana-dashboard-proxy created
+configmap/grafana-dashboard-scheduler created
+configmap/grafana-dashboard-statefulset created
+configmap/grafana-dashboard-workload-total created
+configmap/grafana-dashboards created
+deployment.apps/grafana created
+service/grafana created
+serviceaccount/grafana created
+servicemonitor.monitoring.coreos.com/grafana created
+clusterrole.rbac.authorization.k8s.io/kube-state-metrics created
+clusterrolebinding.rbac.authorization.k8s.io/kube-state-metrics created
+deployment.apps/kube-state-metrics created
+service/kube-state-metrics created
+serviceaccount/kube-state-metrics created
+servicemonitor.monitoring.coreos.com/kube-state-metrics created
+clusterrole.rbac.authorization.k8s.io/node-exporter created
+clusterrolebinding.rbac.authorization.k8s.io/node-exporter created
+daemonset.apps/node-exporter created
+service/node-exporter created
+serviceaccount/node-exporter created
+servicemonitor.monitoring.coreos.com/node-exporter created
+apiservice.apiregistration.k8s.io/v1beta1.metrics.k8s.io configured
+clusterrole.rbac.authorization.k8s.io/prometheus-adapter created
+clusterrole.rbac.authorization.k8s.io/system:aggregated-metrics-reader created
+clusterrolebinding.rbac.authorization.k8s.io/prometheus-adapter created
+clusterrolebinding.rbac.authorization.k8s.io/resource-metrics:system:auth-delegator created
+clusterrole.rbac.authorization.k8s.io/resource-metrics-server-resources created
+configmap/adapter-config created
+deployment.apps/prometheus-adapter created
+rolebinding.rbac.authorization.k8s.io/resource-metrics-auth-reader created
+service/prometheus-adapter created
+serviceaccount/prometheus-adapter created
+clusterrole.rbac.authorization.k8s.io/prometheus-k8s created
+clusterrolebinding.rbac.authorization.k8s.io/prometheus-k8s created
+servicemonitor.monitoring.coreos.com/prometheus-operator created
+prometheus.monitoring.coreos.com/k8s created
+rolebinding.rbac.authorization.k8s.io/prometheus-k8s-config created
+rolebinding.rbac.authorization.k8s.io/prometheus-k8s created
+rolebinding.rbac.authorization.k8s.io/prometheus-k8s created
+rolebinding.rbac.authorization.k8s.io/prometheus-k8s created
+role.rbac.authorization.k8s.io/prometheus-k8s-config created
+role.rbac.authorization.k8s.io/prometheus-k8s created
+role.rbac.authorization.k8s.io/prometheus-k8s created
+role.rbac.authorization.k8s.io/prometheus-k8s created
+prometheusrule.monitoring.coreos.com/prometheus-k8s-rules created
+service/prometheus-k8s created
+serviceaccount/prometheus-k8s created
+servicemonitor.monitoring.coreos.com/prometheus created
+servicemonitor.monitoring.coreos.com/kube-apiserver created
+servicemonitor.monitoring.coreos.com/coredns created
+servicemonitor.monitoring.coreos.com/kube-controller-manager created
+servicemonitor.monitoring.coreos.com/kube-scheduler created
+servicemonitor.monitoring.coreos.com/kubelet created
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看创建的资源&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MacBook-Pro:manifests chunyinjiang$ kubectl get all -n monitoring
+NAME                                       READY   STATUS              RESTARTS   AGE
+pod/alertmanager-main-0                    0/2     ContainerCreating   0          3m16s
+pod/alertmanager-main-1                    0/2     ContainerCreating   0          3m16s
+pod/alertmanager-main-2                    0/2     ContainerCreating   0          3m16s
+pod/grafana-5c55845445-7tdhk               0/1     ContainerCreating   0          3m15s
+pod/kube-state-metrics-957fd6c75-sqntg     0/3     ContainerCreating   0          3m14s
+pod/node-exporter-tnftm                    0/2     ContainerCreating   0          3m14s
+pod/prometheus-adapter-5cdcdf9c8d-xpxz4    1/1     Running             0          3m15s
+pod/prometheus-k8s-0                       0/3     ContainerCreating   0          3m13s
+pod/prometheus-k8s-1                       0/3     ContainerCreating   0          3m13s
+pod/prometheus-operator-6f98f66b89-dggn6   2/2     Running             0          20h
+
+NAME                            TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
+service/alertmanager-main       ClusterIP   10.106.202.8    &amp;lt;none&amp;gt;        9093/TCP                     3m17s
+service/alertmanager-operated   ClusterIP   None            &amp;lt;none&amp;gt;        9093/TCP,9094/TCP,9094/UDP   3m17s
+service/grafana                 ClusterIP   10.98.82.99     &amp;lt;none&amp;gt;        3000/TCP                     3m16s
+service/kube-state-metrics      ClusterIP   None            &amp;lt;none&amp;gt;        8443/TCP,9443/TCP            3m16s
+service/node-exporter           ClusterIP   None            &amp;lt;none&amp;gt;        9100/TCP                     3m15s
+service/prometheus-adapter      ClusterIP   10.98.119.241   &amp;lt;none&amp;gt;        443/TCP                      3m15s
+service/prometheus-k8s          ClusterIP   10.104.199.30   &amp;lt;none&amp;gt;        9090/TCP                     3m14s
+service/prometheus-operated     ClusterIP   None            &amp;lt;none&amp;gt;        9090/TCP                     3m15s
+service/prometheus-operator     ClusterIP   None            &amp;lt;none&amp;gt;        8443/TCP                     20h
+
+NAME                           DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+daemonset.apps/node-exporter   1         1         0       1            0           kubernetes.io/os=linux   3m15s
+
+NAME                                  READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/grafana               0/1     1            0           3m16s
+deployment.apps/kube-state-metrics    0/1     1            0           3m16s
+deployment.apps/prometheus-adapter    1/1     1            1           3m15s
+deployment.apps/prometheus-operator   1/1     1            1           20h
+
+NAME                                             DESIRED   CURRENT   READY   AGE
+replicaset.apps/grafana-5c55845445               1         1         0       3m16s
+replicaset.apps/kube-state-metrics-957fd6c75     1         1         0       3m16s
+replicaset.apps/prometheus-adapter-5cdcdf9c8d    1         1         1       3m15s
+replicaset.apps/prometheus-operator-6f98f66b89   1         1         1       20h
+
+NAME                                 READY   AGE
+statefulset.apps/alertmanager-main   0/3     3m17s
+statefulset.apps/prometheus-k8s      0/2     3m15s
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们可以看到资源正在创建，拉去镜像可能需要一点事件，其中 alertmanager 和 prometheus 是用 StatefulSet 控制器管理的。&lt;/p&gt;
+
+&lt;p&gt;可以看到上面针对 grafana 和 prometheus 都创建了一个类型为 ClusterIP 的 Service，当然如果我们想要在外网访问这两个服务的话可以通过创建对应的 Ingress 对象或者使用 NodePort 类型的 Service，我们这里为了简单，直接使用 NodePort 类型的服务即可，编辑 grafana 和 prometheus-k8s 这两个 Service，将服务类型更改为 NodePort:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type: ClusterIp   --&amp;gt; NodePort
+
+MacBook-Pro:manifests chunyinjiang$ kubectl edit svc prometheus-k8s -n monitoring
+service/prometheus-k8s edited
+MacBook-Pro:manifests chunyinjiang$ kubectl edit svc grafana -n monitoring
+service/grafana edited
+MacBook-Pro:manifests chunyinjiang$ kubectl get svc -n monitoring
+NAME                    TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
+alertmanager-main       ClusterIP   10.106.85.214   &amp;lt;none&amp;gt;        9093/TCP                     95m
+alertmanager-operated   ClusterIP   None            &amp;lt;none&amp;gt;        9093/TCP,9094/TCP,9094/UDP   95m
+grafana                 NodePort    10.106.80.1     &amp;lt;none&amp;gt;        3000:30267/TCP               95m
+kube-state-metrics      ClusterIP   None            &amp;lt;none&amp;gt;        8443/TCP,9443/TCP            95m
+node-exporter           ClusterIP   None            &amp;lt;none&amp;gt;        9100/TCP                     95m
+prometheus-adapter      ClusterIP   10.97.73.122    &amp;lt;none&amp;gt;        443/TCP                      95m
+prometheus-k8s          NodePort    10.103.177.44   &amp;lt;none&amp;gt;        9090:31174/TCP               95m
+prometheus-operated     ClusterIP   None            &amp;lt;none&amp;gt;        9090/TCP                     95m
+prometheus-operator     ClusterIP   None            &amp;lt;none&amp;gt;        8443/TCP                     22h
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;更改完成后，我们就可以通过NodeIP:NodePort去访问上面的两个服务了，比如查看 prometheus 的 targets 页面：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/prometheus/operator/operater.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;至此基本的prometheus生态组件就部署好了，但是可以看到kube-controller-manager 和 kube-scheduler 这两个系统组件并没有taeget，这就和 ServiceMonitor 的定义有关系了，我们刚好研究一下ServiceMonitor&lt;/p&gt;
+
+&lt;p&gt;我们查看ServiceMonitor这种crd的资源&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MacBook-Pro:manifests chunyinjiang$ kubectl get servicemonitors.monitoring.coreos.com -n monitoring
+NAME                      AGE
+alertmanager              101m
+coredns                   101m
+grafana                   101m
+kube-apiserver            101m
+kube-controller-manager   101m
+kube-scheduler            101m
+kube-state-metrics        101m
+kubelet                   101m
+node-exporter             101m
+prometheus                101m
+prometheus-operator       101m
+MacBook-Pro:manifests chunyinjiang$ kubectl describe servicemonitors.monitoring.coreos.com kube-scheduler -n monitoring
+Name:         kube-scheduler
+Namespace:    monitoring
+Labels:       k8s-app=kube-scheduler
+Annotations:  API Version:  monitoring.coreos.com/v1
+Kind:         ServiceMonitor
+Metadata:
+  Creation Timestamp:  2020-06-20T08:04:50Z
+  Generation:          1
+  Managed Fields:
+    API Version:  monitoring.coreos.com/v1
+    Fields Type:  FieldsV1
+    fieldsV1:
+      f:metadata:
+        f:annotations:
+          .:
+          f:kubectl.kubernetes.io/last-applied-configuration:
+        f:labels:
+          .:
+          f:k8s-app:
+      f:spec:
+        .:
+        f:endpoints:
+        f:jobLabel:
+        f:namespaceSelector:
+          .:
+          f:matchNames:
+        f:selector:
+          .:
+          f:matchLabels:
+            .:
+            f:k8s-app:
+    Manager:         kubectl
+    Operation:       Update
+    Time:            2020-06-20T08:04:50Z
+  Resource Version:  862846
+  Self Link:         /apis/monitoring.coreos.com/v1/namespaces/monitoring/servicemonitors/kube-scheduler
+  UID:               07132145-1db1-4847-a2a1-347cc014a80e
+Spec:
+  Endpoints:
+    Interval:  30s
+    Port:      http-metrics
+  Job Label:   k8s-app
+  Namespace Selector:
+    Match Names:
+      kube-system
+  Selector:
+    Match Labels:
+      k8s-app:  kube-scheduler
+Events:         &amp;lt;none&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以看到每个监控的应用都是使用ServiceMonitor部署了。我们再来看看对应的资源配置清单&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ cat prometheus-serviceMonitorKubeScheduler.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    k8s-app: kube-scheduler
+  name: kube-scheduler
+  namespace: monitoring
+spec:
+  endpoints:
+  - interval: 30s
+    port: http-metrics
+  jobLabel: k8s-app
+  namespaceSelector:
+    matchNames:
+    - kube-system
+  selector:
+    matchLabels:
+      k8s-app: kube-scheduler
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这就是一个典型的 ServiceMonitor 资源文件的声明方式，上面我们通过selector.matchLabels在 kube-system 这个命名空间下面匹配具有k8s-app=kube-scheduler这样的 Service，我们来看看service&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get svc -n kube-system -L k8s-app
+NAME             TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                        AGE    K8S-APP
+kube-dns         ClusterIP   10.96.0.10      &amp;lt;none&amp;gt;        53/UDP,53/TCP,9153/TCP         11d    kube-dns
+kubelet          ClusterIP   None            &amp;lt;none&amp;gt;        10250/TCP,10255/TCP,4194/TCP   26h    kubelet
+metrics-server   ClusterIP   10.111.196.64   &amp;lt;none&amp;gt;        443/TCP                        2d6h
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;但是我们系统中根本就没有对应的 Service，所以我们需要手动创建一个 Service：（prometheus-kubeSchedulerService.yaml）&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;apiVersion: v1
+kind: Service
+metadata:
+  namespace: kube-system
+  name: kube-scheduler
+  labels:
+    k8s-app: kube-scheduler
+spec:
+  selector:
+    component: kube-scheduler
+  ports:
+  - name: http-metrics
+    port: 10251
+    targetPort: 10251
+    protocol: TCP
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;10251是kube-scheduler组件 metrics 数据所在的端口，10252是kube-controller-manager组件的监控数据所在端口。&lt;/p&gt;
+
+&lt;p&gt;其中最重要的是上面 labels 和 selector 部分，labels 区域的配置必须和我们上面的 ServiceMonitor 对象中的 selector 保持一致，selector下面配置的是component=kube-scheduler，为什么会是这个 label 标签呢，我们可以去 describe 下 kube-scheduelr 这个 Pod：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl describe pod kube-scheduler-minikube -n kube-system
+Name:                 kube-scheduler-minikube
+Namespace:            kube-system
+Priority:             2000000000
+Priority Class Name:  system-cluster-critical
+Node:                 minikube/192.168.99.101
+Start Time:           Sat, 20 Jun 2020 17:25:48 +0800
+Labels:               component=kube-scheduler
+                      tier=control-plane
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们可以看到这个 Pod 具有component=kube-scheduler和tier=control-plane这两个标签，而前面这个标签具有更唯一的特性，所以使用前面这个标签较好，这样上面创建的 Service 就可以和我们的 Pod 进行关联了，直接创建即可：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MacBook-Pro:manifests chunyinjiang$ kubectl apply -f prometheus-kubeSchedulerService.yaml
+service/kube-scheduler created
+MacBook-Pro:manifests chunyinjiang$ kubectl get svc -n kube-system -L k8s-app
+NAME             TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                        AGE    K8S-APP
+kube-dns         ClusterIP   10.96.0.10       &amp;lt;none&amp;gt;        53/UDP,53/TCP,9153/TCP         14d    kube-dns
+kube-scheduler   ClusterIP   10.105.229.159   &amp;lt;none&amp;gt;        10251/TCP                      3m5s   kube-scheduler
+kubelet          ClusterIP   None             &amp;lt;none&amp;gt;        10250/TCP,10255/TCP,4194/TCP   4d1h   kubelet
+metrics-server   ClusterIP   10.111.196.64    &amp;lt;none&amp;gt;        443/TCP                        5d4h
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看 targets 下面 kube-scheduler 的状态，可以看到已经发现了，并且有数据了。&lt;/p&gt;
+
+&lt;p&gt;kube-controller-manager 也是一样的操作。下面我们就可以通过自定义的grafana视图来进行监控了。&lt;/p&gt;
+
+&lt;h2 id=&#34;部署详情&#34;&gt;部署详情&lt;/h2&gt;
+
+&lt;h3 id=&#34;prometheus-1&#34;&gt;prometheus&lt;/h3&gt;
+
+&lt;p&gt;prometheus的所有信息都能重prometheus的ui界面进行查看，主要查看status的状态，我们重容器中查看一下。&lt;/p&gt;
+
+&lt;p&gt;上面我们知道使用有状态的statefulset部署两个prometheus，我们来看一下他们的具体情况。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MacBook-Pro:manifests chunyinjiang$ kubectl get pod -n monitoring | grep prometheus-k8s
+prometheus-k8s-0                       3/3     Running   17         3d1h
+prometheus-k8s-1                       3/3     Running   17         3d1h
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;每个pod中有三个容器，可以使用 kubectl describe pod prometheus-k8s-0 -n monitoring来查看这三个容器分别是&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;prometheus：quay.io/prometheus/prometheus:v2.17.2
+prometheus-config-reloader：quay.io/coreos/prometheus-config-reloader:v0.39.0
+rules-configmap-reloader：jimmidyson/configmap-reload:v0.3.0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们到prometheus中看看，可以理解这个就是启动了prometheus的实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MacBook-Pro:manifests chunyinjiang$ kubectl exec -ti prometheus-k8s-0 -c prometheus -n monitoring -- sh
+/prometheus $ ps -ef | grep prome
+    1 1000     11:13 /bin/prometheus --web.console.templates=/etc/prometheus/consoles --web.console.libraries=/etc/prometheus/console_libraries --config.file=/etc/prometheus/config_out/prometheus.env.yaml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=24h --web.enable-lifecycle --storage.tsdb.no-lockfile --web.route-prefix=/
+   52 1000      0:00 grep prome
+/prometheus $ cat /etc/prometheus/config_out/prometheus.env.yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们在节点中可以看到&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;可以看到每个job就是监控的一个组件，也就是serviceMonitor。主要监听组件alertmanager，coredns，grafana，kube-apiserver，kube-controller-manager，kube-scheduler，kube-state-metrics，kubelet，node-exporter，prometheus，prometheus-operator。&lt;/li&gt;
+&lt;li&gt;在配置文件中并没有使用hash的模式来分集群进行采集，这边两个prometheus节点是双采，解决来单点问题&lt;/li&gt;
+&lt;li&gt;使用的是kubernetes_sd_configs的服务发现模式&lt;/li&gt;
+&lt;li&gt;数据存储24h，存储在/prometheus目录下&lt;/li&gt;
+&lt;li&gt;监听端口9090，我们可以使用nodeport或者ingress来对外暴露&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这个简单的部署只适合简单的小集群的使用，使用大集群的监控还需要将数据进行分片采集，远程存储聚合等方案。&lt;/p&gt;
+
+&lt;p&gt;我们再看看config的container是做什么的&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl exec -ti prometheus-k8s-0 -c prometheus-config-reloader -n monitoring -- sh
+/ $ ps -ef
+PID   USER     TIME  COMMAND
+    1 1000      0:01 /bin/prometheus-config-reloader --log-format=logfmt --reload-url=http://localhost:9090/-/reload --config-file=/etc/prometheus/config/prometheus.yaml.gz --config-envsubst-file=/etc/prometheus/config_out/pro
+$ kubectl exec -ti prometheus-k8s-0 -c rules-configmap-reloader -n monitoring -- sh
+/ $ ps -ef
+\PID   USER     TIME  COMMAND
+    1 1000      0:00 /configmap-reload --webhook-url=http://localhost:9090/-/reload --volume-dir=/etc/prometheus/rules/prometheus-k8s-rulefiles-0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;其实就是对配置文件和rule文件进行热加载。&lt;/p&gt;
+
+&lt;h3 id=&#34;grafana&#34;&gt;grafana&lt;/h3&gt;
+
+&lt;p&gt;grafana也是直接在k8s中用deployment进行部署的，只有一个节点&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get pod -n monitoring | grep grafana
+grafana-5c55845445-bnln8               1/1     Running   2          3d3h
+MacBook-Pro:manifests chunyinjiang$ kubectl exec -ti grafana-5c55845445-bnln8 -n monitoring -- sh
+/usr/share/grafana $ ps -ef | grep grafana
+    1 nobody    4:36 grafana-server --homepath=/usr/share/grafana --config=/etc/grafana/grafana.ini --packaging=docker cfg:default.log.mode=console cfg:default.paths.data=/var/lib/grafana cfg:default.paths.logs=/var/log/grafana cfg:default.paths.plugins=/var/lib/grafana/plugins cfg:default.paths.provisioning=/etc/grafana/provisioning
+   30 nobody    0:00 grep grafana
+/usr/share/grafana $ cat /etc/grafana/grafana.ini
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以看到一些内容&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;监听端口3000，我们可以使用nodeport或者ingress来对外暴露&lt;/li&gt;
+&lt;li&gt;没有使用mysql数据库，使用sqlite数据库&lt;/li&gt;
+&lt;li&gt;直接通过域名访问prometheus：&lt;a href=&#34;http://prometheus-k8s.monitoring.svc:9090&#34;&gt;http://prometheus-k8s.monitoring.svc:9090&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;alertmanager-1&#34;&gt;alertmanager&lt;/h3&gt;
+
+&lt;p&gt;alertmanager使用的也是statefulset的方式进行部署的，我们看一下&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MacBook-Pro:manifests chunyinjiang$ kubectl get pod -n monitoring | grep alert
+alertmanager-main-0                    2/2     Running   6          3d3h
+alertmanager-main-1                    2/2     Running   7          3d3h
+alertmanager-main-2                    2/2     Running   5          3d3h
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;每个pod也有两个container。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;alertmanager：quay.io/prometheus/alertmanager:v0.20.0
+config-reloader：jimmidyson/configmap-reload:v0.3.0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;config-reloader肯定就是配置加载，我们看看alertmanager的实例吧&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl exec -ti alertmanager-main-0 -c alertmanager -n monitoring -- sh
+/alertmanager $ ps
+PID   USER     TIME  COMMAND
+    1 1000      2:12 /bin/alertmanager --config.file=/etc/alertmanager/config/alertmanager.yaml --cluster.listen-address=[172.17.0.35]:9094 --storage.path=/alertmanager --data.retention=120h --web.listen-address=:9093 --web.ro
+   21 1000      0:00 sh
+   26 1000      0:00 ps
+/alertmanager $ cat /etc/alertmanager/config/alertmanager.yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;adapter&#34;&gt;adapter&lt;/h3&gt;
+
+&lt;p&gt;kubernetes apiserver 提供了两种 api 用于监控指标相关的操作，&lt;/p&gt;
+
+&lt;p&gt;k8s-prometheus-adapter是将prometheus的metrics数据格式转换成k8s API接口能识别的格式，同时通过apiservice扩展的模式（声明apiservice）注册到kube-apiserver来给k8s进行调用。&lt;/p&gt;
+
+&lt;p&gt;查看adapter&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get all -n monitoring | grep adapter
+pod/prometheus-adapter-66b9c9dd58-6bdbm    1/1     Running   0          14h
+service/prometheus-adapter      ClusterIP   10.97.73.122    &amp;lt;none&amp;gt;        443/TCP                      8d
+deployment.apps/prometheus-adapter    1/1     1            1           8d
+replicaset.apps/prometheus-adapter-5cdcdf9c8d    0         0         0       8d
+replicaset.apps/prometheus-adapter-66b9c9dd58    1         1         1       14h
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;使用deployment来部署了两个副本的k8s-prometheus-adapter，然后启动了一个service。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ ps -ef | grep adapter | grep -v grep
+dbus     23281 23263  0 00:13 ?        00:00:20 /adapter --cert-dir=/var/run/serving-cert --config=/etc/adapter/config.yaml --logtostderr=true --metrics-relist-interval=1m --prometheus-url=http://192.168.99.101:31174/ --secure-port=6443
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可见&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;--lister-kubeconfig=&amp;lt;path-to-kubeconfig&amp;gt;: 指定通信的kubeconfig
+--metrics-relist-interval=&amp;lt;duration&amp;gt;: 获取指标的间隔，应该大于prometheus的采集间隔时间。
+--prometheus-url=&amp;lt;url&amp;gt;: 连接到Prometheus的URL。
+--config=&amp;lt;yaml-file&amp;gt; (-c): 配置文件，主要是Prometheus指标和关联的Kubernetes资源，以及如何在自定义指标API中显示这些指标。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们再来看看配置文件&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;rules:
+- seriesQuery: &#39;nginx_vts_server_requests_total&#39;
+  seriesFilters: []
+  resources:
+    overrides:
+      kubernetes_namespace:
+        resource: namespace
+      kubernetes_pod_name:
+        resource: pod
+  name:
+    matches: &amp;quot;^(.*)_total&amp;quot;
+    as: &amp;quot;${1}_per_second&amp;quot;
+  metricsQuery: (sum(rate(&amp;lt;&amp;lt;.Series&amp;gt;&amp;gt;{&amp;lt;&amp;lt;.LabelMatchers&amp;gt;&amp;gt;}[1m])) by (&amp;lt;&amp;lt;.GroupBy&amp;gt;&amp;gt;))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这是一个带参数的 Prometheus 查询，其中：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;seriesQuery：查询 Prometheus 的语句，通过这个查询语句查询到的所有指标都可以用于 HPA
+seriesFilters：查询到的指标可能会存在不需要的，可以通过它过滤掉。
+resources：通过 seriesQuery 查询到的只是指标，如果需要查询某个 Pod 的指标，肯定要将它的名称和所在的命名空间作为指标的标签进行查询，resources 就是将指标的标签和 k8s 的资源类型关联起来，最常用的就是 pod 和 namespace。有两种添加标签的方式，一种是 overrides，另一种是 template。
+
+    overrides：它会将指标中的标签和 k8s 资源关联起来。上面示例中就是将指标中的 pod 和 namespace 标签和 k8s 中的 pod 和 namespace 关联起来，因为 pod 和 namespace 都属于核心 api 组，所以不需要指定 api 组。当我们查询某个 pod 的指标时，它会自动将 pod 的名称和名称空间作为标签加入到查询条件中。比如 nginx: {group: &amp;quot;apps&amp;quot;, resource: &amp;quot;deployment&amp;quot;} 这么写表示的就是将指标中 nginx 这个标签和 apps 这个 api 组中的 deployment 资源关联起来；
+    template：通过 go 模板的形式。比如template: &amp;quot;kube_&amp;lt;&amp;lt;.Group&amp;gt;&amp;gt;_&amp;lt;&amp;lt;.Resource&amp;gt;&amp;gt;&amp;quot; 这么写表示，假如 &amp;lt;&amp;lt;.Group&amp;gt;&amp;gt; 为 apps，&amp;lt;&amp;lt;.Resource&amp;gt;&amp;gt; 为 deployment，那么它就是将指标中 kube_apps_deployment 标签和 deployment 资源关联起来。
+
+name：用来给指标重命名的，之所以要给指标重命名是因为有些指标是只增的，比如以 total 结尾的指标。这些指标拿来做 HPA 是没有意义的，我们一般计算它的速率，以速率作为值，那么此时的名称就不能以 total 结尾了，所以要进行重命名。
+
+    matches：通过正则表达式来匹配指标名，可以进行分组
+    as：默认值为 $1，也就是第一个分组。as 为空就是使用默认值的意思。
+
+metricsQuery：这就是 Prometheus 的查询语句了，前面的 seriesQuery 查询是获得 HPA 指标。当我们要查某个指标的值时就要通过它指定的查询语句进行了。可以看到查询语句使用了速率和分组，这就是解决上面提到的只增指标的问题。
+
+    Series：表示指标名称
+    LabelMatchers：附加的标签，目前只有 pod 和 namespace 两种，因此我们要在之前使用 resources 进行关联
+    GroupBy：就是 pod 名称，同样需要使用 resources 进行关联。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看一下项目的的配置文件&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ cat prometheus-adapter-configMap.yaml
+apiVersion: v1
+data:
+  config.yaml: |-
+    &amp;quot;resourceRules&amp;quot;:
+      &amp;quot;cpu&amp;quot;:
+        &amp;quot;containerLabel&amp;quot;: &amp;quot;container&amp;quot;
+        &amp;quot;containerQuery&amp;quot;: &amp;quot;sum(irate(container_cpu_usage_seconds_total{&amp;lt;&amp;lt;.LabelMatchers&amp;gt;&amp;gt;,container!=\&amp;quot;POD\&amp;quot;,container!=\&amp;quot;\&amp;quot;,pod!=\&amp;quot;\&amp;quot;}[5m])) by (&amp;lt;&amp;lt;.GroupBy&amp;gt;&amp;gt;)&amp;quot;
+        &amp;quot;nodeQuery&amp;quot;: &amp;quot;sum(1 - irate(node_cpu_seconds_total{mode=\&amp;quot;idle\&amp;quot;}[5m]) * on(namespace, pod) group_left(node) node_namespace_pod:kube_pod_info:{&amp;lt;&amp;lt;.LabelMatchers&amp;gt;&amp;gt;}) by (&amp;lt;&amp;lt;.GroupBy&amp;gt;&amp;gt;)&amp;quot;
+        &amp;quot;resources&amp;quot;:
+          &amp;quot;overrides&amp;quot;:
+            &amp;quot;namespace&amp;quot;:
+              &amp;quot;resource&amp;quot;: &amp;quot;namespace&amp;quot;
+            &amp;quot;node&amp;quot;:
+              &amp;quot;resource&amp;quot;: &amp;quot;node&amp;quot;
+            &amp;quot;pod&amp;quot;:
+              &amp;quot;resource&amp;quot;: &amp;quot;pod&amp;quot;
+      &amp;quot;memory&amp;quot;:
+        &amp;quot;containerLabel&amp;quot;: &amp;quot;container&amp;quot;
+        &amp;quot;containerQuery&amp;quot;: &amp;quot;sum(container_memory_working_set_bytes{&amp;lt;&amp;lt;.LabelMatchers&amp;gt;&amp;gt;,container!=\&amp;quot;POD\&amp;quot;,container!=\&amp;quot;\&amp;quot;,pod!=\&amp;quot;\&amp;quot;}) by (&amp;lt;&amp;lt;.GroupBy&amp;gt;&amp;gt;)&amp;quot;
+        &amp;quot;nodeQuery&amp;quot;: &amp;quot;sum(node_memory_MemTotal_bytes{job=\&amp;quot;node-exporter\&amp;quot;,&amp;lt;&amp;lt;.LabelMatchers&amp;gt;&amp;gt;} - node_memory_MemAvailable_bytes{job=\&amp;quot;node-exporter\&amp;quot;,&amp;lt;&amp;lt;.LabelMatchers&amp;gt;&amp;gt;}) by (&amp;lt;&amp;lt;.GroupBy&amp;gt;&amp;gt;)&amp;quot;
+        &amp;quot;resources&amp;quot;:
+          &amp;quot;overrides&amp;quot;:
+            &amp;quot;instance&amp;quot;:
+              &amp;quot;resource&amp;quot;: &amp;quot;node&amp;quot;
+            &amp;quot;namespace&amp;quot;:
+              &amp;quot;resource&amp;quot;: &amp;quot;namespace&amp;quot;
+            &amp;quot;pod&amp;quot;:
+              &amp;quot;resource&amp;quot;: &amp;quot;pod&amp;quot;
+      &amp;quot;window&amp;quot;: &amp;quot;5m&amp;quot;
+kind: ConfigMap
+metadata:
+  name: adapter-config
+  namespace: monitoring
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;配置了两个规则，可以到prometheus的界面查看一下是可以查到的，下面我们需要提供给k8s，我们就需要使用聚合api，先注册apiservice&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl api-versions  | grep metrics
+metrics.k8s.io/v1beta1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们就可以重/apis/metrics.k8s.io/v1beta1这个URL来获取指标，这是给resource metrics 使用的,主要是提供核心指标，这边是指向k8s-prometheus-adapter，所以是prometheus的采集的指标。&lt;/p&gt;
+
+&lt;p&gt;还有是自定义指标，只要是prometheus采集的指标，都可以在上面的配置文件配置，然后都可以通过这个接口查询到，这种情况其实一般使用custom.metrics.k8s.io api接口来操作，&lt;a href=&#34;https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-autoscaler/#基于prometheus&#34;&gt;具体使用可以在hpa场景下查看&lt;/a&gt;。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get --raw=&amp;quot;/apis/metrics.k8s.io/v1beta1&amp;quot;
+{
+    &amp;quot;kind&amp;quot;:&amp;quot;APIResourceList&amp;quot;,
+    &amp;quot;apiVersion&amp;quot;:&amp;quot;v1&amp;quot;,
+    &amp;quot;groupVersion&amp;quot;:&amp;quot;metrics.k8s.io/v1beta1&amp;quot;,
+    &amp;quot;resources&amp;quot;:[
+        {
+            &amp;quot;name&amp;quot;:&amp;quot;nodes&amp;quot;,
+            &amp;quot;singularName&amp;quot;:&amp;quot;&amp;quot;,
+            &amp;quot;namespaced&amp;quot;:false,
+            &amp;quot;kind&amp;quot;:&amp;quot;NodeMetrics&amp;quot;,
+            &amp;quot;verbs&amp;quot;:[
+                &amp;quot;get&amp;quot;,
+                &amp;quot;list&amp;quot;
+            ]
+        },
+        {
+            &amp;quot;name&amp;quot;:&amp;quot;pods&amp;quot;,
+            &amp;quot;singularName&amp;quot;:&amp;quot;&amp;quot;,
+            &amp;quot;namespaced&amp;quot;:true,
+            &amp;quot;kind&amp;quot;:&amp;quot;PodMetrics&amp;quot;,
+            &amp;quot;verbs&amp;quot;:[
+                &amp;quot;get&amp;quot;,
+                &amp;quot;list&amp;quot;
+            ]
+        }
+    ]
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们可以看出来这个接口主要获取了核心资源指标，比如nodes，pods，可以具体去查看一下。&lt;/p&gt;
+
+&lt;h3 id=&#34;其他组件&#34;&gt;其他组件&lt;/h3&gt;
+
+&lt;p&gt;主要是给proemtheus的采集的探针&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kube-state-metrics主要是为了暴露集群的一些状态
+node-exporter主要是获取主机信息
+其他组件集成prometheus的库，通过端口直接暴露metrics
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;servicemonitor-1&#34;&gt;serviceMonitor&lt;/h3&gt;
+
+&lt;p&gt;将所有组件的监控通过serviceMonitor来暴露采集。&lt;/p&gt;
+
+&lt;h1 id=&#34;使用&#34;&gt;使用&lt;/h1&gt;
+
+&lt;h2 id=&#34;自定义servicemonitor&#34;&gt;自定义servicemonitor&lt;/h2&gt;
+
+&lt;p&gt;添加一个自定义监控的步骤&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;第一步建立一个 ServiceMonitor 对象，用于 Prometheus 添加监控项
+第二步为 ServiceMonitor 对象关联 metrics 数据接口的一个 Service 对象
+第三步确保 Service 对象可以正确获取到 metrics 数据
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们以监控etcd为实例&lt;/p&gt;
+
+&lt;p&gt;etcd 集群一般情况下，为了安全都会开启 https 证书认证的方式，所以要想让 Prometheus 访问到 etcd 集群的监控数据，就需要提供相应的证书校验。查看证书&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl describe pod etcd-minikube  -n kube-system
+...
+    Command:
+      etcd
+      --advertise-client-urls=https://192.168.99.101:2379
+      --cert-file=/var/lib/minikube/certs/etcd/server.crt
+      --client-cert-auth=true
+      --data-dir=/var/lib/minikube/etcd
+      --initial-advertise-peer-urls=https://192.168.99.101:2380
+      --initial-cluster=minikube=https://192.168.99.101:2380
+      --key-file=/var/lib/minikube/certs/etcd/server.key
+      --listen-client-urls=https://127.0.0.1:2379,https://192.168.99.101:2379
+      --listen-metrics-urls=http://127.0.0.1:2381
+      --listen-peer-urls=https://192.168.99.101:2380
+      --name=minikube
+      --peer-cert-file=/var/lib/minikube/certs/etcd/peer.crt
+      --peer-client-cert-auth=true
+      --peer-key-file=/var/lib/minikube/certs/etcd/peer.key
+      --peer-trusted-ca-file=/var/lib/minikube/certs/etcd/ca.crt
+      --snapshot-count=10000
+      --trusted-ca-file=/var/lib/minikube/certs/etcd/ca.crt
+...
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以看到证书都在/var/lib/minikube/certs/etcd/下面，我们也可以通过kubectl get pod etcd-minikube  -n kube-system -o yaml来获取对应的配置，我们再来看看这个目录下的证书&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ ls -lrth /var/lib/minikube/certs/etcd/
+total 32K
+-rw------- 1 root root 1.7K Jun  9 01:38 ca.key
+-rw-r--r-- 1 root root 1017 Jun  9 01:38 ca.crt
+-rw------- 1 root root 1.7K Jun  9 01:38 server.key
+-rw-r--r-- 1 root root 1.2K Jun  9 01:38 server.crt
+-rw------- 1 root root 1.7K Jun  9 01:38 peer.key
+-rw-r--r-- 1 root root 1.2K Jun  9 01:38 peer.crt
+-rw------- 1 root root 1.7K Jun  9 01:38 healthcheck-client.key
+-rw-r--r-- 1 root root 1.1K Jun  9 01:38 healthcheck-client.crt
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们需要将证书放到secret中给promehteus使用验证，创建secret就需要把这些证书拉到本地来进行创建&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl create secret generic etcd-certs -n monitoring --from-file=./healthcheck-client.crt --from-file=./healthcheck-client.key --from-file=./ca.crt
+secret/etcd-certs created
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后将上面创建的 etcd-certs 对象配置到 prometheus 资源对象中，直接更新 prometheus 资源对象即可&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get prometheus -n monitoring
+NAME   VERSION   REPLICAS   AGE
+k8s    v2.17.2   2          3d22h
+$ kubectl edit prometheus k8s -n monitoring
+prometheus.monitoring.coreos.com/k8s edited
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;主要在spec中新增secret给prometheus使用&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;nodeSelector:
+  beta.kubernetes.io/os: linux
+replicas: 2
+secrets:
+- etcd-certs
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;更新完成后，我们就可以在 Prometheus 的 Pod 中获取到上面创建的 etcd 证书文件了，具体的路径我们可以进入 Pod 中查看&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl exec -it prometheus-k8s-0 -c prometheus /bin/sh -n monitoring
+/prometheus $ ls -lrth /etc/prometheus/secrets/etcd-certs/
+total 0
+lrwxrwxrwx    1 root     root          29 Jun 24 06:48 healthcheck-client.key -&amp;gt; ..data/healthcheck-client.key
+lrwxrwxrwx    1 root     root          29 Jun 24 06:48 healthcheck-client.crt -&amp;gt; ..data/healthcheck-client.crt
+lrwxrwxrwx    1 root     root          13 Jun 24 06:48 ca.crt -&amp;gt; ..data/ca.crt
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;下面就是创建ServiceMonitor资源配置清单prometheus-serviceMonitorEtcd.yaml&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: etcd-k8s
+  namespace: monitoring
+  labels:
+    k8s-app: etcd-k8s
+spec:
+  jobLabel: k8s-app
+  endpoints:
+  - port: port
+    interval: 30s
+    scheme: https
+    tlsConfig:
+      caFile: /etc/prometheus/secrets/etcd-certs/ca.crt
+      certFile: /etc/prometheus/secrets/etcd-certs/healthcheck-client.crt
+      keyFile: /etc/prometheus/secrets/etcd-certs/healthcheck-client.key
+      insecureSkipVerify: true
+  selector:
+    matchLabels:
+      k8s-app: etcd
+  namespaceSelector:
+    matchNames:
+    - kube-system
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们在 monitoring 命名空间下面创建了名为 etcd-k8s 的 ServiceMonitor 对象&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;匹配 kube-system 这个命名空间下面的具有 k8s-app=etcd 这个 label 标签的 Service&lt;/li&gt;
+&lt;li&gt;jobLabel 表示用于检索 job 任务名称的标签&lt;/li&gt;
+&lt;li&gt;和前面不太一样的地方是 endpoints 属性的写法，配置上访问 etcd 的相关证书，endpoints 属性下面可以配置很多抓取的参数，比如 relabel、proxyUrl，tlsConfig 表示用于配置抓取监控数据端点的 tls 认证，由于证书 serverName 和 etcd 中签发的可能不匹配，所以加上了 insecureSkipVerify=true&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;然后就是创建来这个资源&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl create -f prometheus-serviceMonitorEtcd.yaml
+servicemonitor.monitoring.coreos.com &amp;quot;etcd-k8s&amp;quot; created
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个时候promehteus的配置文件中就新增一个job为etcd的监控，target是etcd的service，但是现在还没有关联的对应的 Service 对象，所以需要我们去手动创建一个 Service 对象prometheus-etcdService.yaml&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;apiVersion: v1
+kind: Service
+metadata:
+  name: etcd-k8s
+  namespace: kube-system
+  labels:
+    k8s-app: etcd
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: port
+    port: 2379
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: etcd-k8s
+  namespace: kube-system
+  labels:
+    k8s-app: etcd
+subsets:
+- addresses:
+  - ip: 10.151.30.57
+    nodeName: etc-master
+  ports:
+  - name: port
+    port: 2379
+    protocol: TCP
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们这里创建的 Service 没有采用前面通过 label 标签的形式去匹配 Pod 的做法，因为前面我们说过很多时候我们创建的 etcd 集群是独立于集群之外的，这种情况下面我们就需要自定义一个 Endpoints，要注意 metadata 区域的内容要和 Service 保持一致，Service 的 clusterIP 设置为 None&lt;/p&gt;
+
+&lt;p&gt;Endpoints 的 subsets 中填写 etcd 集群的地址即可&lt;/p&gt;
+
+&lt;p&gt;创建&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl create -f prometheus-etcdService.yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面讲解的是独立于k8s之外的监控访问，前提是需要把网络打通，也是可以直接使用endpoint进行配置的，当然在集群内的监控常规就是匹配的pod的label。&lt;/p&gt;
+
+&lt;p&gt;比如我们把etcd运行在k8s上，我们创建的service就是&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ cat prometheus-etcdService.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd-k8s
+  namespace: kube-system
+  labels:
+    k8s-app: etcd
+spec:
+  selector:
+    component: etcd
+  ports:
+  - name: port
+    port: 2379
+    protocol: TCP
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;具体在上面的schduler讲解过，不多说了，到此一个完整的监控就新增好了。&lt;/p&gt;
+
+&lt;h2 id=&#34;自定义告警规则&#34;&gt;自定义告警规则&lt;/h2&gt;
+
+&lt;p&gt;我们首先查看prometheus部署的时候的alert的配置，可以在prometheus的ui界面的config下查到&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;alerting:
+  alert_relabel_configs:
+  - separator: ;
+    regex: prometheus_replica
+    replacement: $1
+    action: labeldrop
+  alertmanagers:
+  - kubernetes_sd_configs:
+    - role: endpoints
+      namespaces:
+        names:
+        - monitoring
+    scheme: http
+    path_prefix: /
+    timeout: 10s
+    relabel_configs:
+    - source_labels: [__meta_kubernetes_service_name]
+      separator: ;
+      regex: alertmanager-main
+      replacement: $1
+      action: keep
+    - source_labels: [__meta_kubernetes_endpoint_port_name]
+      separator: ;
+      regex: web
+      replacement: $1
+      action: keep
+rule_files:
+- /etc/prometheus/rules/prometheus-k8s-rulefiles-0/*.yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以看出&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;通过角色为 endpoints 的 kubernetes 的服务发现机制来知道需要发送的alert的地址&lt;/li&gt;
+&lt;li&gt;匹配的是服务名为 alertmanager-main，端口名为 web 的 Service 服务&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;我们来看一下operator部署的svc&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get svc -n monitoring
+NAME                    TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)                      AGE
+alertmanager-main       ClusterIP   10.106.85.214   &amp;lt;none&amp;gt;        9093/TCP                     4d
+alertmanager-operated   ClusterIP   None            &amp;lt;none&amp;gt;        9093/TCP,9094/TCP,9094/UDP   4d
+grafana                 NodePort    10.106.80.1     &amp;lt;none&amp;gt;        3000:30267/TCP               4d
+kube-state-metrics      ClusterIP   None            &amp;lt;none&amp;gt;        8443/TCP,9443/TCP            4d
+node-exporter           ClusterIP   None            &amp;lt;none&amp;gt;        9100/TCP                     4d
+prometheus-adapter      ClusterIP   10.97.73.122    &amp;lt;none&amp;gt;        443/TCP                      4d
+prometheus-k8s          NodePort    10.103.177.44   &amp;lt;none&amp;gt;        9090:31174/TCP               4d
+prometheus-operated     ClusterIP   None            &amp;lt;none&amp;gt;        9090/TCP                     4d
+prometheus-operator     ClusterIP   None            &amp;lt;none&amp;gt;        8443/TCP                     4d20h
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;确实有一个alertmanager-main的svc，我们查看一下他的配置&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl describe svc alertmanager-main -n monitoring
+Name:              alertmanager-main
+Namespace:         monitoring
+Labels:            alertmanager=main
+Annotations:       Selector:  alertmanager=main,app=alertmanager
+Type:              ClusterIP
+IP:                10.106.85.214
+Port:              web  9093/TCP
+TargetPort:        web/TCP
+Endpoints:         172.17.0.22:9093,172.17.0.7:9093,172.17.0.9:9093
+Session Affinity:  ClientIP
+Events:            &amp;lt;none&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以看到服务名正是 alertmanager-main，Port 定义的名称也是 web，符合上面的规则，所以 Prometheus 和 AlertManager 组件就正确关联上了。我们就可以将告警发送到对应的alertmanaager了。&lt;/p&gt;
+
+&lt;p&gt;再来看告警规则在/etc/prometheus/rules/prometheus-k8s-rulefiles-0/目录下面所有的 YAML 文件。我们在部署prometheus的时候有一个规则资源配置清单prometheus-rules.yaml，就是我们现在看到的告警规则。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ cat prometheus-rules.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    prometheus: k8s
+    role: alert-rules
+  name: prometheus-k8s-rules
+  namespace: monitoring
+spec:
+  groups:
+  - name: k8s.rules
+    rules:
+    - expr: |
+        sum(rate(container_cpu_usage_seconds_total{job=&amp;quot;kubelet&amp;quot;, image!=&amp;quot;&amp;quot;, container_name!=&amp;quot;&amp;quot;}[5m])) by (namespace)
+      record: namespace:container_cpu_usage_seconds_total:sum_rate
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;PrometheusRule 的 name 为 prometheus-k8s-rules，namespace 为 monitoring，我们可以猜想到我们创建一个 PrometheusRule 资源对象后，会自动在上面的 prometheus-k8s-rulefiles-0 目录下面生成一个对应的&lt;namespace&gt;-&lt;name&gt;.yaml文件，所以如果以后我们需要自定义一个报警选项的话，只需要定义一个 PrometheusRule 资源对象即可。&lt;/p&gt;
+
+&lt;p&gt;至于为什么 Prometheus 能够识别这个 PrometheusRule 资源对象呢？&lt;/p&gt;
+
+&lt;p&gt;创建的 prometheus 这个资源对象里面有非常重要的一个属性 ruleSelector，用来匹配 rule 规则的过滤器，要求匹配具有 prometheus=k8s 和 role=alert-rules 标签的 PrometheusRule 资源对象&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ruleSelector:
+  matchLabels:
+    prometheus: k8s
+    role: alert-rules
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;所以自定义一个报警规则，还需要需要创建一个具有 prometheus=k8s 和 role=alert-rules 标签的 PrometheusRule 对象。&lt;/p&gt;
+
+&lt;p&gt;我们以etcd为例来自定义一个告警：如果不可用的 etcd 数量超过了一半那么就触发报警&lt;/p&gt;
+
+&lt;p&gt;创建文件 prometheus-etcdRules.yaml&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    prometheus: k8s
+    role: alert-rules
+  name: etcd-rules
+  namespace: monitoring
+spec:
+  groups:
+  - name: etcd
+    rules:
+    - alert: EtcdClusterUnavailable
+      annotations:
+        summary: etcd cluster small
+        description: If one more etcd peer goes down the cluster will be unavailable
+      expr: |
+        count(up{job=&amp;quot;etcd&amp;quot;} == 0) &amp;gt; (count(up{job=&amp;quot;etcd&amp;quot;}) / 2 - 1)
+      for: 3m
+      labels:
+        severity: critical
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;创建好了，我们就可以看到在对应目录下生成了一份yaml告警规则文件。&lt;/p&gt;
+
+&lt;h2 id=&#34;配置告警方式&#34;&gt;配置告警方式&lt;/h2&gt;
+
+&lt;p&gt;我们可以通过 AlertManager 的配置文件去配置各种报警接收器，首先我们将 alertmanager-main 这个 Service 改为 NodePort 类型的 Service，和前面的修改是一样的操作，修改完成后我们可以在页面上的 status 路径下面查看 AlertManager 的配置信息:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;global:
+  resolve_timeout: 5m
+  http_config: {}
+  smtp_hello: localhost
+  smtp_require_tls: true
+  pagerduty_url: https://events.pagerduty.com/v2/enqueue
+  hipchat_api_url: https://api.hipchat.com/
+  opsgenie_api_url: https://api.opsgenie.com/
+  wechat_api_url: https://qyapi.weixin.qq.com/cgi-bin/
+  victorops_api_url: https://alert.victorops.com/integrations/generic/20131114/alert/
+route:
+  receiver: Default
+  group_by:
+  - namespace
+  routes:
+  - receiver: Watchdog
+    match:
+      alertname: Watchdog
+  - receiver: Critical
+    match:
+      severity: critical
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+inhibit_rules:
+- source_match:
+    severity: critical
+  target_match_re:
+    severity: warning|info
+  equal:
+  - namespace
+  - alertname
+- source_match:
+    severity: warning
+  target_match_re:
+    severity: info
+  equal:
+  - namespace
+  - alertname
+receivers:
+- name: Default
+- name: Watchdog
+- name: Critical
+templates: []
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这些配置信息实际上是来自于我们之前在prometheus-operator/contrib/kube-prometheus/manifests目录下面创建的 alertmanager-secret.yaml 文件，将文件中 alertmanager.yaml 对应的 value 值做一个 base64 解码，内容和上面查看的配置信息是一致的。&lt;/p&gt;
+
+&lt;p&gt;果我们想要添加自己的接收器，或者模板消息，我们就可以更改这个文件，比如我们添加了两个接收器，默认的通过邮箱进行发送，对于 CoreDNSDown 这个报警我们通过 webhook 来进行发送。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;global:
+  resolve_timeout: 5m
+  smtp_smarthost: &#39;smtp.163.com:25&#39;
+  smtp_from: &#39;ych_1024@163.com&#39;
+  smtp_auth_username: &#39;ych_1024@163.com&#39;
+  smtp_auth_password: &#39;&amp;lt;邮箱密码&amp;gt;&#39;
+  smtp_hello: &#39;163.com&#39;
+  smtp_require_tls: false
+route:
+  group_by: [&#39;job&#39;, &#39;severity&#39;]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: default
+  routes:
+  - receiver: webhook
+    match:
+      alertname: CoreDNSDown
+receivers:
+- name: &#39;default&#39;
+  email_configs:
+  - to: &#39;517554016@qq.com&#39;
+    send_resolved: true
+- name: &#39;webhook&#39;
+  webhook_configs:
+  - url: &#39;http://dingtalk-hook.kube-ops:5000&#39;
+    send_resolved: true
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;将上面文件保存为 alertmanager.yaml，然后使用这个文件创建一个 Secret 对象：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# 先将之前的 secret 对象删除
+$ kubectl delete secret alertmanager-main -n monitoring
+secret &amp;quot;alertmanager-main&amp;quot; deleted
+$ kubectl create secret generic alertmanager-main --from-file=alertmanager.yaml -n monitoring
+secret &amp;quot;alertmanager-main&amp;quot; created
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这样就可以完成发送的配置了。&lt;/p&gt;
+
+&lt;h2 id=&#34;自动发现配置&#34;&gt;自动发现配置&lt;/h2&gt;
+
+&lt;p&gt;如果在我们的 Kubernetes 集群中有了很多的 Service/Pod，那么我们都需要一个一个的去建立一个对应的 ServiceMonitor 对象来进行监控吗？这样岂不是又变得麻烦起来了？&lt;/p&gt;
+
+&lt;p&gt;我们可以通过添加额外的配置来进行服务发现进行自动监控。配置如下&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;- job_name: &#39;kubernetes-service-endpoints&#39;
+  kubernetes_sd_configs:
+  - role: endpoints
+  relabel_configs:
+  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+    action: keep
+    regex: true
+  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+    action: replace
+    target_label: __scheme__
+    regex: (https?)
+  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+    action: replace
+    target_label: __metrics_path__
+    regex: (.+)
+  - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+    action: replace
+    target_label: __address__
+    regex: ([^:]+)(?::\d+)?;(\d+)
+    replacement: $1:$2
+  - action: labelmap
+    regex: __meta_kubernetes_service_label_(.+)
+  - source_labels: [__meta_kubernetes_namespace]
+    action: replace
+    target_label: kubernetes_namespace
+  - source_labels: [__meta_kubernetes_service_name]
+    action: replace
+    target_label: kubernetes_name
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;将上面文件直接保存为 prometheus-additional.yaml，然后通过这个文件创建一个对应的 Secret 对象&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl create secret generic additional-configs --from-file=prometheus-additional.yaml -n monitoring
+secret &amp;quot;additional-configs&amp;quot; created
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;创建完成后，会将上面配置信息进行 base64 编码后作为 prometheus-additional.yaml 这个 key 对应的值存在&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get secret additional-configs -n monitoring -o yaml
+apiVersion: v1
+data:
+  prometheus-additional.yaml: LSBqb2JfbmFtZTogJ2t1YmVybmV0ZXMtc2VydmljZS1lbmRwb2ludHMnCiAga3ViZXJuZXRlc19zZF9jb25maWdzOgogIC0gcm9sZTogZW5kcG9pbnRzCiAgcmVsYWJlbF9jb25maWdzOgogIC0gc291cmNlX2xhYmVsczogW19fbWV0YV9rdWJlcm5ldGVzX3NlcnZpY2VfYW5ub3RhdGlvbl9wcm9tZXRoZXVzX2lvX3NjcmFwZV0KICAgIGFjdGlvbjoga2VlcAogICAgcmVnZXg6IHRydWUKICAtIHNvdXJjZV9sYWJlbHM6IFtfX21ldGFfa3ViZXJuZXRlc19zZXJ2aWNlX2Fubm90YXRpb25fcHJvbWV0aGV1c19pb19zY2hlbWVdCiAgICBhY3Rpb246IHJlcGxhY2UKICAgIHRhcmdldF9sYWJlbDogX19zY2hlbWVfXwogICAgcmVnZXg6IChodHRwcz8pCiAgLSBzb3VyY2VfbGFiZWxzOiBbX19tZXRhX2t1YmVybmV0ZXNfc2VydmljZV9hbm5vdGF0aW9uX3Byb21ldGhldXNfaW9fcGF0aF0KICAgIGFjdGlvbjogcmVwbGFjZQogICAgdGFyZ2V0X2xhYmVsOiBfX21ldHJpY3NfcGF0aF9fCiAgICByZWdleDogKC4rKQogIC0gc291cmNlX2xhYmVsczogW19fYWRkcmVzc19fLCBfX21ldGFfa3ViZXJuZXRlc19zZXJ2aWNlX2Fubm90YXRpb25fcHJvbWV0aGV1c19pb19wb3J0XQogICAgYWN0aW9uOiByZXBsYWNlCiAgICB0YXJnZXRfbGFiZWw6IF9fYWRkcmVzc19fCiAgICByZWdleDogKFteOl0rKSg/OjpcZCspPzsoXGQrKQogICAgcmVwbGFjZW1lbnQ6ICQxOiQyCiAgLSBhY3Rpb246IGxhYmVsbWFwCiAgICByZWdleDogX19tZXRhX2t1YmVybmV0ZXNfc2VydmljZV9sYWJlbF8oLispCiAgLSBzb3VyY2VfbGFiZWxzOiBbX19tZXRhX2t1YmVybmV0ZXNfbmFtZXNwYWNlXQogICAgYWN0aW9uOiByZXBsYWNlCiAgICB0YXJnZXRfbGFiZWw6IGt1YmVybmV0ZXNfbmFtZXNwYWNlCiAgLSBzb3VyY2VfbGFiZWxzOiBbX19tZXRhX2t1YmVybmV0ZXNfc2VydmljZV9uYW1lXQogICAgYWN0aW9uOiByZXBsYWNlCiAgICB0YXJnZXRfbGFiZWw6IGt1YmVybmV0ZXNfbmFtZQo=
+kind: Secret
+metadata:
+  creationTimestamp: 2018-12-20T14:50:35Z
+  name: additional-configs
+  namespace: monitoring
+  resourceVersion: &amp;quot;41814998&amp;quot;
+  selfLink: /api/v1/namespaces/monitoring/secrets/additional-configs
+  uid: 9bbe22c5-0466-11e9-a777-525400db4df7
+type: Opaque
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后我们只需要在声明创建 prometheus 的资源对象文件中添加上这个额外的配置，其实就是通过secret将这段配置挂载到prometheus上去，作为prometheus的配置文件的一部分。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;securityContext:
+    fsGroup: 2000
+    runAsNonRoot: true
+    runAsUser: 1000
+  additionalScrapeConfigs:
+    name: additional-configs
+    key: prometheus-additional.yaml
+  serviceAccountName: prometheus-k8s
+  serviceMonitorNamespaceSelector: {}
+  serviceMonitorSelector: {}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这样就可以自动发现service信息了，这边还有一个权限的问题，Prometheus 绑定了一个名为 prometheus-k8s 的 ServiceAccount 对象，而这个对象绑定的是一个名为 prometheus-k8s 的 ClusterRole，有对 Service 或者 Pod 的 list 权限，所以报错了，要解决这个问题，我们只需要添加上需要的权限即可：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-k8s
+rules:
+- apiGroups:
+  - &amp;quot;&amp;quot;
+  resources:
+  - nodes
+  - services
+  - endpoints
+  - pods
+  - nodes/proxy
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - &amp;quot;&amp;quot;
+  resources:
+  - configmaps
+  - nodes/metrics
+  verbs:
+  - get
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这样就有权限了，只需要我们在 Service 的annotation区域添加prometheus.io/scrape=true的声明，就会在服务创建的时候被自动发现。&lt;/p&gt;
+
+&lt;h2 id=&#34;数据持久化&#34;&gt;数据持久化&lt;/h2&gt;
+
+&lt;p&gt;查看生成的 Prometheus Pod 的挂载情况。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get pod prometheus-k8s-0 -n monitoring -o yaml
+......
+    volumeMounts:
+    - mountPath: /etc/prometheus/config_out
+      name: config-out
+      readOnly: true
+    - mountPath: /prometheus
+      name: prometheus-k8s-db
+......
+  volumes:
+......
+  - emptyDir: {}
+    name: prometheus-k8s-db
+......
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们可以看到 Prometheus 的数据目录 /prometheus 实际上是通过 emptyDir 进行挂载的，我们知道 emptyDir 挂载的数据的生命周期和 Pod 生命周期一致的，所以如果 Pod 挂掉了，数据也就丢失了。&lt;/p&gt;
+
+&lt;p&gt;对应线上的监控数据肯定需要做数据的持久化的，们的 Prometheus 最终是通过 Statefulset 控制器进行部署的，所以我们这里需要通过 storageclass 来做数据持久化，首先创建一个 StorageClass 对象：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: prometheus-data-db
+provisioner: fuseim.pri/ifs
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;其中 provisioner=fuseim.pri/ifs，则是因为我们集群中使用的是 nfs 作为存储后端，将该文件保存为 prometheus-storageclass.yaml:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl create -f prometheus-storageclass.yaml
+storageclass.storage.k8s.io &amp;quot;prometheus-data-db&amp;quot; created
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后在 prometheus 的 CRD 资源对象中添加如下配置&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;storage:
+  volumeClaimTemplate:
+    spec:
+      storageClassName: prometheus-data-db
+      resources:
+        requests:
+          storage: 10Gi
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;注意这里的 storageClassName 名字为上面我们创建的 StorageClass 对象名称，然后更新 prometheus 这个 CRD 资源。更新完成后会自动生成两个 PVC 和 PV 资源对象：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get pvc -n monitoring
+NAME                                 STATUS    VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS         AGE
+prometheus-k8s-db-prometheus-k8s-0   Bound     pvc-0cc03d41-047a-11e9-a777-525400db4df7   10Gi       RWO            prometheus-data-db   8m
+prometheus-k8s-db-prometheus-k8s-1   Bound     pvc-1938de6b-047b-11e9-a777-525400db4df7   10Gi       RWO            prometheus-data-db   1m
+$ kubectl get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM                                           STORAGECLASS         REASON    AGE
+pvc-0cc03d41-047a-11e9-a777-525400db4df7   10Gi       RWO            Delete           Bound       monitoring/prometheus-k8s-db-prometheus-k8s-0   prometheus-data-db             2m
+pvc-1938de6b-047b-11e9-a777-525400db4df7   10Gi       RWO            Delete           Bound       monitoring/prometheus-k8s-db-prometheus-k8s-1   prometheus-data-db             1m
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;现在我们再去看 Prometheus Pod 的数据目录就可以看到是关联到一个 PVC 对象上了。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get pod prometheus-k8s-0 -n monitoring -o yaml
+......
+    volumeMounts:
+    - mountPath: /etc/prometheus/config_out
+      name: config-out
+      readOnly: true
+    - mountPath: /prometheus
+      name: prometheus-k8s-db
+......
+  volumes:
+......
+  - name: prometheus-k8s-db
+    persistentVolumeClaim:
+      claimName: prometheus-k8s-db-prometheus-k8s-0
+......
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;现在即使我们的 Pod 挂掉了，数据也不会丢失了。&lt;/p&gt;
+
+&lt;h1 id=&#34;使用场景&#34;&gt;使用场景&lt;/h1&gt;
+
+&lt;p&gt;什么时候prometheus使用的物理机部署的集群？&lt;/p&gt;
+
+&lt;p&gt;1、取决于生产环境，比如要求prometheus不光需要监控k8s还需要监控kvm的机器&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;k8s的服务发现主要是通过定义serviceMonitor，或者service配置备注做自动发现，本质其实就是通过service来暴露指标，但是对于kvm没有这些机制，如何对kvm环境下的机器做服务发现就是一个问题&lt;/li&gt;
+&lt;li&gt;k8s和kvm的网络打通也是一个问题。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;2、监控规模，数据量导致的稳定性&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;当集群规模小，监控数据少的情况下部署单点的prometheus是够用的，但是如果监控规模扩展，数据量很大的时候，对资源，比如cpu和memory的要求比较高，对k8s来说是一个很重的应用，对于本身的稳定性也是一个很重要的考验。&lt;/li&gt;
+&lt;li&gt;当规模达到一定的时候，需要分布式集群来处理，在k8s部署分布式集群也是有着很多的问题&lt;/li&gt;
+&lt;li&gt;当规模扩大时候，分组也是一个很大的问题，单个prometheus的的采集分配也是问题。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;所以如果只是监控k8s使用operator部署k8s上都可以优化，但是如果加上kvm是很有必要在物理机上部署prometheus的监控的，需要设计完成的架构和实现方案。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>Golang使用系列---- Ioutil</title>
           <link>https://kingjcy.github.io/post/golang/go-ioutil/</link>
           <pubDate>Sat, 13 Jan 2018 11:04:07 CST</pubDate>
@@ -9656,7 +11118,7 @@ delim:N err: EOF
     
       
         <item>
-          <title>监控系列---- zabbix源码阅读</title>
+          <title>监控metrics系列---- zabbix源码阅读</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbixcode/</link>
           <pubDate>Sat, 25 Nov 2017 09:52:47 CST</pubDate>
           <author></author>
@@ -12194,7 +13656,7 @@ func (srv *Server) ListenAndServeTLS(certFile, keyFile string) error
     
       
         <item>
-          <title>监控系列---- Zabbix基本使用</title>
+          <title>监控metrics系列---- Zabbix基本使用</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix/</link>
           <pubDate>Sat, 04 Mar 2017 17:54:04 CST</pubDate>
           <author></author>
@@ -17458,7 +18920,7 @@ if err == nil &amp;amp;&amp;amp; t1.Before(t2) {
     
       
         <item>
-          <title>监控系列---- Zabbix监控方案</title>
+          <title>监控metrics系列---- Zabbix监控方案</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix-scheme/</link>
           <pubDate>Fri, 04 Mar 2016 17:54:04 CST</pubDate>
           <author></author>
