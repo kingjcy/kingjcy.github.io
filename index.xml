@@ -1806,429 +1806,7 @@ Note: performance sensitive users are expected to use the more performant endpoi
     
       
         <item>
-          <title>Golang使用系列---- Sync</title>
-          <link>https://kingjcy.github.io/post/golang/go-sync/</link>
-          <pubDate>Thu, 28 Feb 2019 17:42:24 CST</pubDate>
-          <author></author>
-          <guid>https://kingjcy.github.io/post/golang/go-sync/</guid>
-          <description>&lt;p&gt;sync包提供了基本的同步基元，如锁，WaitGroup、Once 和 Cond等同步原语。除了Once和WaitGroup类型，大部分都是适用于普通程序线程，大型并发同步使用channel通信（csp）更好一些。&lt;/p&gt;
-
-&lt;h1 id=&#34;sync&#34;&gt;sync&lt;/h1&gt;
-
-&lt;p&gt;sync同步功能主要提供了once，mutex，cond，并发安全map，安全并发pool，waitgroup。&lt;/p&gt;
-
-&lt;h2 id=&#34;sync-once&#34;&gt;sync.Once&lt;/h2&gt;
-
-&lt;p&gt;sync.Once是一个简单而强大的原语，可确保一个函数仅执行一次。&lt;/p&gt;
-
-&lt;p&gt;定义&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;type Once struct {
-        // 非暴露字段
-}
-
-func (o *Once) Do(f func())
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;使用前先定义 Once 类型变量：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;var once Once
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;使用的时候向 Once 类型变量传入函数：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;once.Do(func() { init() })
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;多次调用 once.Do(f) 只会触发一次 f 的执行，即第一次 f 的执行。&lt;/p&gt;
-
-&lt;p&gt;用法实例&lt;/p&gt;
-
-&lt;p&gt;某些操作只需要执行一次（比如一些初始化动作），这时就可使用 Once，如：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;func main() {
-    var once sync.Once
-    onceBody := func() {
-        fmt.Println(&amp;quot;Only once&amp;quot;)
-    }
-    done := make(chan bool)
-
-    // 创建 10 个 goroutine，但是 onceBody 只会执行 1 次
-    for i := 0; i &amp;lt; 10; i++ {
-        go func() {
-            once.Do(onceBody)
-            done &amp;lt;- true
-        }()
-    }
-
-    // 等待 10 个 goroutine 结束
-    for i := 0; i &amp;lt; 10; i++ {
-        &amp;lt;-done
-    }
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;其实 Once 的实现非常简单，就是互斥锁+原子变量&lt;/p&gt;
-
-&lt;h2 id=&#34;sync-waitgroup&#34;&gt;sync.WaitGroup&lt;/h2&gt;
-
-&lt;p&gt;sync.WaitGroup拥有一个内部计数器。当计数器等于0时，则Wait()方法会立即返回。否则它将阻塞执行Wait()方法的goroutine直到计数器等于0时为止。&lt;/p&gt;
-
-&lt;p&gt;WaitGroup 的使用&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;type WaitGroup struct {
-    // 包含隐藏或非导出字段
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;WaitGroup用于等待一组线程的结束。父线程调用Add方法来设定应等待的线程的数量。每个被等待的线程在结束时应调用Done方法。同时，主线程里可以调用Wait方法阻塞至所有线程结束。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;func (*WaitGroup) Add
-func (wg *WaitGroup) Add(delta int)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Add方法向内部计数加上delta，delta可以是负数；如果内部计数器变为0，Wait方法阻塞等待的所有线程都会释放，如果计数器小于0，方法panic。注意Add加上正数的调用应在Wait之前，否则Wait可能只会等待很少的线程。一般来说本方法应在创建新的线程或者其他应等待的事件之前调用。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;func (*WaitGroup) Done
-func (wg *WaitGroup) Done()
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Done方法减少WaitGroup计数器的值，应在线程的最后执行。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;func (*WaitGroup) Wait
-func (wg *WaitGroup) Wait()
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Wait方法阻塞直到WaitGroup计数器减为0。&lt;/p&gt;
-
-&lt;h2 id=&#34;sync-pool&#34;&gt;sync.Pool&lt;/h2&gt;
-
-&lt;p&gt;sync.Pool是一个并发池，负责安全地保存一组对象。&lt;/p&gt;
-
-&lt;p&gt;定义&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;type Pool struct {
-        // 当 Get() 找不到一个对象时，会使用 New() 生成一个对象
-        New func() interface{}
-
-        // 剩下的是非暴露字段
-}
-
-// 任意从 pool 中挑选一个对象返回给客户端，如果找不到就使用 p.New 生成
-func (p *pool) Get() interface{}
-
-// 将对象 x 放回到 pool 中
-func (p *pool) Put(x interface{})
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;使用 Pool 可以用以管理一些临时对象供多个 package 的客户端使用，客户端对 Pool 的逻辑是无感知的：需要的时候 Get，不需要的时候 Put，而且 Pool 可根据当前负载自动调整对象池的大小。&lt;/p&gt;
-
-&lt;p&gt;一个典型的应用是日志，如：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;var bufPool = sync.Pool{
-    New: func() interface{} {
-        return new(bytes.Buffer)
-    },
-}
-
-func Log(w io.Writer, key, val string) {
-    // 从对象池中获取 buffer
-    b := bufPool.Get().(*bytes.Buffer)
-    b.Reset()
-    b.WriteString(time.Now().Format(time.RFC3339))
-    b.WriteByte(&#39; &#39;)
-    b.WriteString(key)
-    b.WriteByte(&#39;=&#39;)
-    b.WriteString(val)
-    w.Write(b.Bytes())
-    // 使用完毕，归还 buffer
-    bufPool.Put(b)
-}
-
-func main() {
-    Log(os.Stdout, &amp;quot;path&amp;quot;, &amp;quot;/search?q=flowers&amp;quot;)
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;那么什么时候使用sync.Pool？&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;第一个是当我们必须重用共享的和长期存在的对象（例如，数据库连接）时。&lt;/li&gt;
-&lt;li&gt;第二个是用于优化内存分配。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;h2 id=&#34;sync-mutex&#34;&gt;sync.Mutex&lt;/h2&gt;
-
-&lt;p&gt;sync.Mutex可能是sync包中使用最广泛的原语。它允许在共享资源上互斥访问（不能同时访问），&lt;a href=&#34;https://kingjcy.github.io/post/architecture/concurrencesafe/#如何做到并发安全&#34;&gt;锁&lt;/a&gt;在并发安全中有着很重要的作用。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;mutex := &amp;amp;sync.Mutex{}
-
-mutex.Lock()
-// Update共享变量 (比如切片，结构体指针等)
-mutex.Unlock()
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;sync.RWMutex是一个读写互斥锁，它提供了我们上面的刚刚看到的sync.Mutex的Lock和UnLock方法（因为这两个结构都实现了sync.Locker接口）。但是，它还允许使用RLock和RUnlock方法进行并发读取：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;mutex := &amp;amp;sync.RWMutex{}
-
-mutex.Lock()
-// Update 共享变量
-mutex.Unlock()
-
-mutex.RLock()
-// Read 共享变量
-mutex.RUnlock()
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;只有在频繁读取和不频繁写入的场景里，才应该使用sync.RWMutex。&lt;/p&gt;
-
-&lt;h2 id=&#34;sync-cond&#34;&gt;sync.Cond&lt;/h2&gt;
-
-&lt;p&gt;sync.Cond可能是sync包提供的同步原语中最不常用的一个，它用于发出信号（一对一）或广播信号（一对多）到goroutine。&lt;/p&gt;
-
-&lt;p&gt;条件变量做的事情很简单：让多个 goroutine 等待在某个条件上，如果条件不满足，进入等待状态；如果条件满足，继续运行。&lt;/p&gt;
-
-&lt;p&gt;Cond 内部维护着一个 notifyList，当条件不满足的时候，则将对应的 goroutine 添加到列表上然后进入等待状态。当条件满足时，一般会有其他执行者显式使用 Signal() 或者 Broadcast() 去唤醒 notifyList 上 goroutine。&lt;/p&gt;
-
-&lt;p&gt;当进行条件的判断时，必须使用互斥锁来保证条件的安全，即在判断的时候条件没有被其他人修改。所以 Cond 一般会与一个符合 Lock 接口的 Mutex 一起使用。&lt;/p&gt;
-
-&lt;p&gt;定义&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;type Cond struct {
-    // 读写条件状态需要加锁
-    L Locker
-    // 剩下的是非暴露字段
-}
-
-func NewCond(l Locker) *Cond
-
-// 广播所以等待的 goroutine，条件已经满足
-func (c *Cond) Broadcast()
-
-// 单播其中一个等待的 goroutine，条件已经满足
-func (c *Cond) Signal()
-
-// 如果条件不满足，调用 Wait() 进入等待状态
-func (c *Cond) Wait()
-此处要特别小心 Wait() 的使用。正如前文所说，条件的判断需要使用互斥锁来确保条件读取前后是一致的，即：
-
-    c.L.Lock() // 进行条件判断，加锁
-    if !condition() { // 如果不满足条件，进入 if 中
-        c.Wait() // Wait() 内部会自动解锁
-    }
-
-    ... 这里可能会对 condition 作出改变 ...
-    c.L.Unlock()
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;上述代码其实还有一个很严重的问题，为了说明这个问题，让我们来看看 Wait() 的实现：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;func (c *Cond) Wait() {
-    c.checker.check()
-    t := runtime_notifyListAdd(&amp;amp;c.notify) // 加入 notifyList
-    c.L.Unlock() // 解锁
-    runtime_notifyListWait(&amp;amp;c.notify, t) // 进入等待模式
-    c.L.Lock() // 运行到此处说明条件已经满足，开始获取互斥锁，如果锁已经被别人用了，开始等待
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;从上面的例子可以看出，当 Wait() 返回时（即已经获取到了互斥锁），有可能条件已经被其他先获取互斥锁的 goroutine 改变了，所以此时必须再次判断一下条件，即：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;c.L.Lock() // 进行条件判断，加锁
-if !condition() { // 如果不满足条件，进入 if 中
-    c.Wait() // Wait() 内部会自动解锁
-}
-
-if !condition() { // 如果不满足条件，进入 if 中
-    c.Wait() // Wait() 内部会自动解锁
-}
-... 这里可能会对 condition 作出改变 ...
-c.L.Unlock()
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;如果代码这么写，就太费劲了，上面代码可以简化为：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;c.L.Lock() // 进行条件判断，加锁
-for !condition() { // 如果不满足条件，进入 if 中
-    c.Wait() // Wait() 内部会自动解锁
-}
-
-... 这里可能会对 condition 作出改变 ...
-c.L.Unlock()
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;即将 if 替换为 for，从而当从 Wait() 返回时，再次判断条件是否满足。&lt;/p&gt;
-
-&lt;p&gt;用法实例&lt;/p&gt;
-
-&lt;p&gt;用一个简单的例子来介绍一下 Cond 如何使用，即：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;var (
-    wakeup    = false
-    workerNum = 3
-)
-
-func worker(workerID int, c *sync.Cond) {
-    fmt.Printf(&amp;quot;Worker [%d] is RUNNING\n&amp;quot;, workerID)
-    c.L.Lock()
-    for !wakeup {
-        fmt.Printf(&amp;quot;Worker [%d] check conditon\n&amp;quot;, workerID)
-        c.Wait()
-    }
-    fmt.Printf(&amp;quot;Worker [%d] wakeup, DO something\n&amp;quot;, workerID)
-    // 将唤醒标志改为 false
-    // 此时其他已经醒来并抢夺互斥锁的 goroutine 重新判断条件后
-    // 将再次进入 wait 状态
-    wakeup = false 
-    c.L.Unlock()
-}
-
-func main() {
-    cond := sync.NewCond(&amp;amp;sync.Mutex{})
-    for i := 0; i &amp;lt; workerNum; i++ {
-        go worker(i, cond)
-    }
-
-    time.Sleep(2 * time.Second)
-    wakeup = true
-    cond.Broadcast() // 向所有 goroutine 进行广播，条件已经满足，即 wakeup = true
-
-    time.Sleep(2 * time.Second)
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;执行后的输出为：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;Worker [0] is RUNNING
-Worker [1] is RUNNING
-Worker [0] check conditon
-Worker [1] check conditon
-Worker [2] is RUNNING
-Worker [2] check conditon
-Worker [0] wakeup, DO something
-Worker [1] check conditon
-Worker [2] check conditon
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;当 worker0 醒来后，又重新把条件变量进行了修改，从而导致 worker1 和 worker2 获取到互斥锁后重新检查到条件不满足，再次进入 wait 状态。&lt;/p&gt;
-
-&lt;h2 id=&#34;map&#34;&gt;map&lt;/h2&gt;
-
-&lt;p&gt;这是一个重点的数据结构，实现十分经典，具体看&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-map/&#34;&gt;map&lt;/a&gt;。&lt;/p&gt;
-
-&lt;h1 id=&#34;sync-atomic&#34;&gt;sync/atomic&lt;/h1&gt;
-
-&lt;p&gt;atomic包提供了底层的原子级内存操作，对于同步算法的实现很有用。支持类型共有六种：int32, int64, uint32, uint64, uintptr, unsafe.Pinter，实现的操作共五种：增减，比较并交换，载入，存储，交换。&lt;/p&gt;
-
-&lt;h2 id=&#34;增或减&#34;&gt;增或减&lt;/h2&gt;
-
-&lt;p&gt;顾名思义，原子增或减即可实现对被操作值的增大或减少。因此该操作只能操作数值类型。
-　　
-被用于进行增或减的原子操作都是以“Add”为前缀，并后面跟针对具体类型的名称。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;//方法源码
-func AddUint32(addr *uint32, delta uint32) (new uint32)
-
-func AddInt64(addr *int64, delta int64) (new int64)
-AddInt64原子性的将val的值添加到*addr并返回新值。
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;增&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;栗子：（在原来的基础上加n）
-atomic.AddUint32(&amp;amp;addr,n)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;减&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;栗子：(在原来的基础上加n（n为负数))
-atomic.AddUint32(*addr,uint32(int32(n)))
-//或
-atomic.AddUint32(&amp;amp;addr,^uint32(-n-1))
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;比较并交换&#34;&gt;比较并交换&lt;/h2&gt;
-
-&lt;p&gt;比较并交换&amp;mdash;-Compare And Swap 简称CAS&lt;/p&gt;
-
-&lt;p&gt;他是假设被操作的值未曾被改变（即与旧值相等），并一旦确定这个假设的真实性就立即进行值替换，这是典型的乐观实现思想。&lt;/p&gt;
-
-&lt;p&gt;如果想安全的并发一些类型的值，我们总是应该优先使用CAS&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;//方法源码
-func CompareAndSwapInt32(addr *int32, old, new int32) (swapped bool)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;栗子：（如果addr和old相同,就用new代替addr）&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;ok:=atomic.CompareAndSwapInt32(&amp;amp;addr,old,new)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;载入&#34;&gt;载入&lt;/h2&gt;
-
-&lt;p&gt;如果一个写操作未完成，有一个读操作就已经发生了，这样读操作使很糟糕的。&lt;/p&gt;
-
-&lt;p&gt;为了原子的读取某个值sync/atomic代码包同样为我们提供了一系列的函数。这些函数都以&amp;rdquo;Load&amp;rdquo;为前缀，意为载入。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;//方法源码
-func LoadInt32(addr *int32) (val int32)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;栗子&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;fun addValue(delta int32){
-    for{
-        v:=atomic.LoadInt32(&amp;amp;addr)
-        if atomic.CompareAndSwapInt32(&amp;amp;v,addr,(delta+v)){
-            break;
-        }
-    }
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;存储&#34;&gt;存储&lt;/h2&gt;
-
-&lt;p&gt;　　
-与读操作对应的是写入操作，sync/atomic也提供了与原子的值载入函数相对应的原子的值存储函数。这些函数的名称均以“Store”为前缀
-　　&lt;/p&gt;
-
-&lt;p&gt;在原子的存储某个值的过程中，任何cpu都不会进行针对进行同一个值的读或写操作。如果我们把所有针对此值的写操作都改为原子操作，那么就不会出现针对此值的读操作读操作因被并发的进行而读到修改了一半的情况。
-　　
-原子操作总会成功，因为他不必关心被操作值的旧值是什么。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;//方法源码
-func StoreInt32(addr *int32, val int32)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;栗子&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;atomic.StoreInt32(被操作值的指针,新值)
-atomic.StoreInt32(&amp;amp;value,newaddr)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;交换&#34;&gt;交换&lt;/h2&gt;
-
-&lt;p&gt;　　
-原子交换操作，这类函数的名称都以“Swap”为前缀，与CAS不同，交换操作直接赋予新值，不管旧值。
-　　
-会返回旧值&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;//方法源码
-func SwapInt32(addr *int32, new int32) (old int32)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;栗子&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;atomic.SwapInt32(被操作值的指针,新值)（返回旧值）
-oldval：=atomic.StoreInt32(&amp;amp;value,newaddr)
-&lt;/code&gt;&lt;/pre&gt;</description>
-        </item>
-      
-    
-      
-        <item>
-          <title>golang使用系列---- Map</title>
+          <title>Golang使用系列---- Map</title>
           <link>https://kingjcy.github.io/post/golang/go-map/</link>
           <pubDate>Thu, 28 Feb 2019 17:42:24 CST</pubDate>
           <author></author>
@@ -2887,6 +2465,428 @@ func (m *Map) LoadAndDelete(key interface{}) (value interface{}, loaded bool) {
 
 &lt;p&gt;由以上方法可得知，无论是读操作，还是更新操作，亦或者删除操作，都会先从read进行操作，因为read的读取更新不需要锁，是原子操作，这样既做到了并发安全，又做到了尽量减少锁的争用，虽然采用的是空间换时间的策略，通过两个冗余的map，实现了这一点，但是底层存的都是指针类型，所以对于空间占用，也是做到了最大程度的优化。
 但是同时也可以得知，当存在大量写操作时，会导致read中读不到数据，依然会频繁加锁，同时dirty升级为read，整体性能就会很低，所以sync.Map更加适合大量读、少量写的场景。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>Golang使用系列---- Sync</title>
+          <link>https://kingjcy.github.io/post/golang/go-sync/</link>
+          <pubDate>Thu, 28 Feb 2019 17:42:24 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-sync/</guid>
+          <description>&lt;p&gt;sync包提供了基本的同步基元，如锁，WaitGroup、Once 和 Cond等同步原语。除了Once和WaitGroup类型，大部分都是适用于普通程序线程，大型并发同步使用channel通信（csp）更好一些。&lt;/p&gt;
+
+&lt;h1 id=&#34;sync&#34;&gt;sync&lt;/h1&gt;
+
+&lt;p&gt;sync同步功能主要提供了once，mutex，cond，并发安全map，安全并发pool，waitgroup。&lt;/p&gt;
+
+&lt;h2 id=&#34;sync-once&#34;&gt;sync.Once&lt;/h2&gt;
+
+&lt;p&gt;sync.Once是一个简单而强大的原语，可确保一个函数仅执行一次。&lt;/p&gt;
+
+&lt;p&gt;定义&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Once struct {
+        // 非暴露字段
+}
+
+func (o *Once) Do(f func())
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;使用前先定义 Once 类型变量：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;var once Once
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;使用的时候向 Once 类型变量传入函数：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;once.Do(func() { init() })
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;多次调用 once.Do(f) 只会触发一次 f 的执行，即第一次 f 的执行。&lt;/p&gt;
+
+&lt;p&gt;用法实例&lt;/p&gt;
+
+&lt;p&gt;某些操作只需要执行一次（比如一些初始化动作），这时就可使用 Once，如：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func main() {
+    var once sync.Once
+    onceBody := func() {
+        fmt.Println(&amp;quot;Only once&amp;quot;)
+    }
+    done := make(chan bool)
+
+    // 创建 10 个 goroutine，但是 onceBody 只会执行 1 次
+    for i := 0; i &amp;lt; 10; i++ {
+        go func() {
+            once.Do(onceBody)
+            done &amp;lt;- true
+        }()
+    }
+
+    // 等待 10 个 goroutine 结束
+    for i := 0; i &amp;lt; 10; i++ {
+        &amp;lt;-done
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;其实 Once 的实现非常简单，就是互斥锁+原子变量&lt;/p&gt;
+
+&lt;h2 id=&#34;sync-waitgroup&#34;&gt;sync.WaitGroup&lt;/h2&gt;
+
+&lt;p&gt;sync.WaitGroup拥有一个内部计数器。当计数器等于0时，则Wait()方法会立即返回。否则它将阻塞执行Wait()方法的goroutine直到计数器等于0时为止。&lt;/p&gt;
+
+&lt;p&gt;WaitGroup 的使用&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type WaitGroup struct {
+    // 包含隐藏或非导出字段
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;WaitGroup用于等待一组线程的结束。父线程调用Add方法来设定应等待的线程的数量。每个被等待的线程在结束时应调用Done方法。同时，主线程里可以调用Wait方法阻塞至所有线程结束。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (*WaitGroup) Add
+func (wg *WaitGroup) Add(delta int)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Add方法向内部计数加上delta，delta可以是负数；如果内部计数器变为0，Wait方法阻塞等待的所有线程都会释放，如果计数器小于0，方法panic。注意Add加上正数的调用应在Wait之前，否则Wait可能只会等待很少的线程。一般来说本方法应在创建新的线程或者其他应等待的事件之前调用。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (*WaitGroup) Done
+func (wg *WaitGroup) Done()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Done方法减少WaitGroup计数器的值，应在线程的最后执行。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (*WaitGroup) Wait
+func (wg *WaitGroup) Wait()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Wait方法阻塞直到WaitGroup计数器减为0。&lt;/p&gt;
+
+&lt;h2 id=&#34;sync-pool&#34;&gt;sync.Pool&lt;/h2&gt;
+
+&lt;p&gt;sync.Pool是一个并发池，负责安全地保存一组对象。&lt;/p&gt;
+
+&lt;p&gt;定义&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Pool struct {
+        // 当 Get() 找不到一个对象时，会使用 New() 生成一个对象
+        New func() interface{}
+
+        // 剩下的是非暴露字段
+}
+
+// 任意从 pool 中挑选一个对象返回给客户端，如果找不到就使用 p.New 生成
+func (p *pool) Get() interface{}
+
+// 将对象 x 放回到 pool 中
+func (p *pool) Put(x interface{})
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;使用 Pool 可以用以管理一些临时对象供多个 package 的客户端使用，客户端对 Pool 的逻辑是无感知的：需要的时候 Get，不需要的时候 Put，而且 Pool 可根据当前负载自动调整对象池的大小。&lt;/p&gt;
+
+&lt;p&gt;一个典型的应用是日志，如：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;var bufPool = sync.Pool{
+    New: func() interface{} {
+        return new(bytes.Buffer)
+    },
+}
+
+func Log(w io.Writer, key, val string) {
+    // 从对象池中获取 buffer
+    b := bufPool.Get().(*bytes.Buffer)
+    b.Reset()
+    b.WriteString(time.Now().Format(time.RFC3339))
+    b.WriteByte(&#39; &#39;)
+    b.WriteString(key)
+    b.WriteByte(&#39;=&#39;)
+    b.WriteString(val)
+    w.Write(b.Bytes())
+    // 使用完毕，归还 buffer
+    bufPool.Put(b)
+}
+
+func main() {
+    Log(os.Stdout, &amp;quot;path&amp;quot;, &amp;quot;/search?q=flowers&amp;quot;)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;那么什么时候使用sync.Pool？&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;第一个是当我们必须重用共享的和长期存在的对象（例如，数据库连接）时。&lt;/li&gt;
+&lt;li&gt;第二个是用于优化内存分配。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;sync-mutex&#34;&gt;sync.Mutex&lt;/h2&gt;
+
+&lt;p&gt;sync.Mutex可能是sync包中使用最广泛的原语。它允许在共享资源上互斥访问（不能同时访问），&lt;a href=&#34;https://kingjcy.github.io/post/architecture/concurrencesafe/#如何做到并发安全&#34;&gt;锁&lt;/a&gt;在并发安全中有着很重要的作用。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;mutex := &amp;amp;sync.Mutex{}
+
+mutex.Lock()
+// Update共享变量 (比如切片，结构体指针等)
+mutex.Unlock()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;sync.RWMutex是一个读写互斥锁，它提供了我们上面的刚刚看到的sync.Mutex的Lock和UnLock方法（因为这两个结构都实现了sync.Locker接口）。但是，它还允许使用RLock和RUnlock方法进行并发读取：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;mutex := &amp;amp;sync.RWMutex{}
+
+mutex.Lock()
+// Update 共享变量
+mutex.Unlock()
+
+mutex.RLock()
+// Read 共享变量
+mutex.RUnlock()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;只有在频繁读取和不频繁写入的场景里，才应该使用sync.RWMutex。&lt;/p&gt;
+
+&lt;h2 id=&#34;sync-cond&#34;&gt;sync.Cond&lt;/h2&gt;
+
+&lt;p&gt;sync.Cond可能是sync包提供的同步原语中最不常用的一个，它用于发出信号（一对一）或广播信号（一对多）到goroutine。&lt;/p&gt;
+
+&lt;p&gt;条件变量做的事情很简单：让多个 goroutine 等待在某个条件上，如果条件不满足，进入等待状态；如果条件满足，继续运行。&lt;/p&gt;
+
+&lt;p&gt;Cond 内部维护着一个 notifyList，当条件不满足的时候，则将对应的 goroutine 添加到列表上然后进入等待状态。当条件满足时，一般会有其他执行者显式使用 Signal() 或者 Broadcast() 去唤醒 notifyList 上 goroutine。&lt;/p&gt;
+
+&lt;p&gt;当进行条件的判断时，必须使用互斥锁来保证条件的安全，即在判断的时候条件没有被其他人修改。所以 Cond 一般会与一个符合 Lock 接口的 Mutex 一起使用。&lt;/p&gt;
+
+&lt;p&gt;定义&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Cond struct {
+    // 读写条件状态需要加锁
+    L Locker
+    // 剩下的是非暴露字段
+}
+
+func NewCond(l Locker) *Cond
+
+// 广播所以等待的 goroutine，条件已经满足
+func (c *Cond) Broadcast()
+
+// 单播其中一个等待的 goroutine，条件已经满足
+func (c *Cond) Signal()
+
+// 如果条件不满足，调用 Wait() 进入等待状态
+func (c *Cond) Wait()
+此处要特别小心 Wait() 的使用。正如前文所说，条件的判断需要使用互斥锁来确保条件读取前后是一致的，即：
+
+    c.L.Lock() // 进行条件判断，加锁
+    if !condition() { // 如果不满足条件，进入 if 中
+        c.Wait() // Wait() 内部会自动解锁
+    }
+
+    ... 这里可能会对 condition 作出改变 ...
+    c.L.Unlock()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上述代码其实还有一个很严重的问题，为了说明这个问题，让我们来看看 Wait() 的实现：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (c *Cond) Wait() {
+    c.checker.check()
+    t := runtime_notifyListAdd(&amp;amp;c.notify) // 加入 notifyList
+    c.L.Unlock() // 解锁
+    runtime_notifyListWait(&amp;amp;c.notify, t) // 进入等待模式
+    c.L.Lock() // 运行到此处说明条件已经满足，开始获取互斥锁，如果锁已经被别人用了，开始等待
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;从上面的例子可以看出，当 Wait() 返回时（即已经获取到了互斥锁），有可能条件已经被其他先获取互斥锁的 goroutine 改变了，所以此时必须再次判断一下条件，即：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;c.L.Lock() // 进行条件判断，加锁
+if !condition() { // 如果不满足条件，进入 if 中
+    c.Wait() // Wait() 内部会自动解锁
+}
+
+if !condition() { // 如果不满足条件，进入 if 中
+    c.Wait() // Wait() 内部会自动解锁
+}
+... 这里可能会对 condition 作出改变 ...
+c.L.Unlock()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果代码这么写，就太费劲了，上面代码可以简化为：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;c.L.Lock() // 进行条件判断，加锁
+for !condition() { // 如果不满足条件，进入 if 中
+    c.Wait() // Wait() 内部会自动解锁
+}
+
+... 这里可能会对 condition 作出改变 ...
+c.L.Unlock()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;即将 if 替换为 for，从而当从 Wait() 返回时，再次判断条件是否满足。&lt;/p&gt;
+
+&lt;p&gt;用法实例&lt;/p&gt;
+
+&lt;p&gt;用一个简单的例子来介绍一下 Cond 如何使用，即：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;var (
+    wakeup    = false
+    workerNum = 3
+)
+
+func worker(workerID int, c *sync.Cond) {
+    fmt.Printf(&amp;quot;Worker [%d] is RUNNING\n&amp;quot;, workerID)
+    c.L.Lock()
+    for !wakeup {
+        fmt.Printf(&amp;quot;Worker [%d] check conditon\n&amp;quot;, workerID)
+        c.Wait()
+    }
+    fmt.Printf(&amp;quot;Worker [%d] wakeup, DO something\n&amp;quot;, workerID)
+    // 将唤醒标志改为 false
+    // 此时其他已经醒来并抢夺互斥锁的 goroutine 重新判断条件后
+    // 将再次进入 wait 状态
+    wakeup = false 
+    c.L.Unlock()
+}
+
+func main() {
+    cond := sync.NewCond(&amp;amp;sync.Mutex{})
+    for i := 0; i &amp;lt; workerNum; i++ {
+        go worker(i, cond)
+    }
+
+    time.Sleep(2 * time.Second)
+    wakeup = true
+    cond.Broadcast() // 向所有 goroutine 进行广播，条件已经满足，即 wakeup = true
+
+    time.Sleep(2 * time.Second)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;执行后的输出为：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Worker [0] is RUNNING
+Worker [1] is RUNNING
+Worker [0] check conditon
+Worker [1] check conditon
+Worker [2] is RUNNING
+Worker [2] check conditon
+Worker [0] wakeup, DO something
+Worker [1] check conditon
+Worker [2] check conditon
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;当 worker0 醒来后，又重新把条件变量进行了修改，从而导致 worker1 和 worker2 获取到互斥锁后重新检查到条件不满足，再次进入 wait 状态。&lt;/p&gt;
+
+&lt;h2 id=&#34;map&#34;&gt;map&lt;/h2&gt;
+
+&lt;p&gt;这是一个重点的数据结构，实现十分经典，具体看&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-map/&#34;&gt;map&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h1 id=&#34;sync-atomic&#34;&gt;sync/atomic&lt;/h1&gt;
+
+&lt;p&gt;atomic包提供了底层的原子级内存操作，对于同步算法的实现很有用。支持类型共有六种：int32, int64, uint32, uint64, uintptr, unsafe.Pinter，实现的操作共五种：增减，比较并交换，载入，存储，交换。&lt;/p&gt;
+
+&lt;h2 id=&#34;增或减&#34;&gt;增或减&lt;/h2&gt;
+
+&lt;p&gt;顾名思义，原子增或减即可实现对被操作值的增大或减少。因此该操作只能操作数值类型。
+　　
+被用于进行增或减的原子操作都是以“Add”为前缀，并后面跟针对具体类型的名称。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//方法源码
+func AddUint32(addr *uint32, delta uint32) (new uint32)
+
+func AddInt64(addr *int64, delta int64) (new int64)
+AddInt64原子性的将val的值添加到*addr并返回新值。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;增&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;栗子：（在原来的基础上加n）
+atomic.AddUint32(&amp;amp;addr,n)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;减&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;栗子：(在原来的基础上加n（n为负数))
+atomic.AddUint32(*addr,uint32(int32(n)))
+//或
+atomic.AddUint32(&amp;amp;addr,^uint32(-n-1))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;比较并交换&#34;&gt;比较并交换&lt;/h2&gt;
+
+&lt;p&gt;比较并交换&amp;mdash;-Compare And Swap 简称CAS&lt;/p&gt;
+
+&lt;p&gt;他是假设被操作的值未曾被改变（即与旧值相等），并一旦确定这个假设的真实性就立即进行值替换，这是典型的乐观实现思想。&lt;/p&gt;
+
+&lt;p&gt;如果想安全的并发一些类型的值，我们总是应该优先使用CAS&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//方法源码
+func CompareAndSwapInt32(addr *int32, old, new int32) (swapped bool)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;栗子：（如果addr和old相同,就用new代替addr）&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ok:=atomic.CompareAndSwapInt32(&amp;amp;addr,old,new)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;载入&#34;&gt;载入&lt;/h2&gt;
+
+&lt;p&gt;如果一个写操作未完成，有一个读操作就已经发生了，这样读操作使很糟糕的。&lt;/p&gt;
+
+&lt;p&gt;为了原子的读取某个值sync/atomic代码包同样为我们提供了一系列的函数。这些函数都以&amp;rdquo;Load&amp;rdquo;为前缀，意为载入。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//方法源码
+func LoadInt32(addr *int32) (val int32)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;栗子&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fun addValue(delta int32){
+    for{
+        v:=atomic.LoadInt32(&amp;amp;addr)
+        if atomic.CompareAndSwapInt32(&amp;amp;v,addr,(delta+v)){
+            break;
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;存储&#34;&gt;存储&lt;/h2&gt;
+
+&lt;p&gt;　　
+与读操作对应的是写入操作，sync/atomic也提供了与原子的值载入函数相对应的原子的值存储函数。这些函数的名称均以“Store”为前缀
+　　&lt;/p&gt;
+
+&lt;p&gt;在原子的存储某个值的过程中，任何cpu都不会进行针对进行同一个值的读或写操作。如果我们把所有针对此值的写操作都改为原子操作，那么就不会出现针对此值的读操作读操作因被并发的进行而读到修改了一半的情况。
+　　
+原子操作总会成功，因为他不必关心被操作值的旧值是什么。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//方法源码
+func StoreInt32(addr *int32, val int32)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;栗子&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;atomic.StoreInt32(被操作值的指针,新值)
+atomic.StoreInt32(&amp;amp;value,newaddr)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;交换&#34;&gt;交换&lt;/h2&gt;
+
+&lt;p&gt;　　
+原子交换操作，这类函数的名称都以“Swap”为前缀，与CAS不同，交换操作直接赋予新值，不管旧值。
+　　
+会返回旧值&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//方法源码
+func SwapInt32(addr *int32, new int32) (old int32)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;栗子&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;atomic.SwapInt32(被操作值的指针,新值)（返回旧值）
+oldval：=atomic.StoreInt32(&amp;amp;value,newaddr)
+&lt;/code&gt;&lt;/pre&gt;</description>
         </item>
       
     
