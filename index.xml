@@ -14078,6 +14078,1363 @@ func (srv *Server) ListenAndServeTLS(certFile, keyFile string) error
     
       
         <item>
+          <title>监控metrics系列---- Prometheus入门</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/prometheus/</link>
+          <pubDate>Thu, 29 Jun 2017 16:31:54 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/prometheus/</guid>
+          <description>&lt;p&gt;Prometheus，它最早是借鉴了 Google 的 Borgmon 系统，完全是开源的，也是CNCF 下继 K8S 之后第二个项目。它们的开发人员都是原 Google 的 SRE，通过 HTTP 的方式来做数据收集，对其最深远的应该是其被设计成一个 self sustained 的系统，也就是说它是完全独立的系统，不需要外部依赖。&lt;/p&gt;
+
+&lt;h1 id=&#34;时序数据库的发展&#34;&gt;时序数据库的发展&lt;/h1&gt;
+
+&lt;h2 id=&#34;时序数据&#34;&gt;时序数据&lt;/h2&gt;
+
+&lt;p&gt;时序数据的种类：常规和不规则。&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;开发人员比较常见和熟悉的是常规时间序列，它只在规定的时间间隔内进行测量，如每10秒钟一次，通常会发生在传感器中，定期读取数据。常规时间序列代表了一些基本的原始事件流或分发。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;不规则时间序列则对应离散事件，主要是针对API，例如股票交易。如果要以1分钟间隔计算API的平均响应时间，可以聚合各个请求以生成常规时间序列。&lt;/p&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;关系型数据库和nosql&#34;&gt;关系型数据库和nosql&lt;/h2&gt;
+
+&lt;p&gt;使用mysql或者分布式数据库cassandra等，数据频繁插入操作，数据量很大，查询困难，还需要不停的进行分区分表，在应用级获取的时候需要要大量的代码控制，所以需要一个时序数据库。&lt;/p&gt;
+
+&lt;p&gt;nosql可以很好的处理的大规模数据的处理查询，但是缺乏规范的sql，现在虽然每种nosql都得到了广泛的应用，但是其实都是缓存数据库的思想，每中nosql都要有自己学习的成本，当然这个并不是使用时序数据库的理由，相反，缓存数据库在很多场景下都是得到的重用，但是针对一些特殊场景，比如以时间为主轴的数据，观察变化趋势的，优化后的时序数据库则拥有了更好的数据存储处理查询能力&lt;/p&gt;
+
+&lt;p&gt;时间序列数据跟关系型数据库有太多不同，但是很多公司并不想放弃关系型数据库。于是就产生了一些特殊的用法，比如：用 MySQL 的 VividCortex, 用 Postgres 的 TimescaleDB；当然，还有人依赖K-V、NoSQL数据库或者列式数据库的，比如：OpenTSDB的HBase，而Druid则是一个不折不扣的列式存储系统；更多人觉得特殊的问题需要特殊的解决方法，于是很多时间序列数据库从头写起，不依赖任何现有的数据库, 比如： Graphite，InfluxDB。&lt;/p&gt;
+
+&lt;p&gt;时序数据库基本上是基于缓存（nosql思想）的基础上处理大规模的数据，并且在一些场景，比如以时间为主轴的数据变化趋势：自动驾驶，交易，监控等行业，就需要时序数据库进行大规模的数据处理，用于跟踪历史数据。&lt;/p&gt;
+
+&lt;p&gt;现在生活中时序的场景很多很多，所以时序数据库很受需要，已经成为发展最快的一种数据库。&lt;/p&gt;
+
+&lt;p&gt;下面我们来全面对比一下关系数据库和时序数据库&lt;/p&gt;
+
+&lt;p&gt;时序数据库&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;数据写入&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;时间是一个主坐标轴，数据通常按照时间顺序抵达&lt;/li&gt;
+&lt;li&gt;大多数测量是在观察后的几秒或几分钟内写入的，抵达的数据几乎总是作为新条目被记录&lt;/li&gt;
+&lt;li&gt;95％到99％的操作是写入，有时更高&lt;/li&gt;
+&lt;li&gt;更新几乎没有&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;数据读取&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;随机位置的单个测量读取、删除操作几乎没有&lt;/li&gt;
+&lt;li&gt;读取和删除是批量的，从某时间点开始的一段时间内&lt;/li&gt;
+&lt;li&gt;时间段内读取的数据有可能非常巨大&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;数据存储&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;数据结构简单，价值随时间推移迅速降低&lt;/li&gt;
+&lt;li&gt;通过压缩、移动、删除等手段降低存储成本&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;而关系数据库主要应对的数据特点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;数据写入：大多数操作都是DML操作，插入、更新、删除等；&lt;/li&gt;
+&lt;li&gt;数据读取：读取逻辑一般都比较复杂；&lt;/li&gt;
+&lt;li&gt;数据存储：很少压缩，一般也不设置数据生命周期管理。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;针对这些特点，致使我们使用时序数据库，我们来看一下需要使用时序数据库的主要的特点&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;基本上都是插入，没有更新的需求。&lt;/li&gt;
+&lt;li&gt;数据基本上都有时间属性，随着时间的推移不断产生新的数据。&lt;/li&gt;
+&lt;li&gt;数据量大，每秒钟需要写入千万、上亿条数据&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;总结&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;为什么要使用时序数据库？&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;因为数据量大，并且大部分都是写入的要求，并且要求性能特别高，并且有时间属性。这类数据使用时序数据库的特殊处理方式（以缓存为基础，以时间为主轴来存储数据），比较快捷高效&lt;/li&gt;
+&lt;li&gt;数据重复性特别大，使用压缩来降低存储成本。&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;时序数据库&#34;&gt;时序数据库&lt;/h2&gt;
+
+&lt;h3 id=&#34;基本概念&#34;&gt;基本概念&lt;/h3&gt;
+
+&lt;p&gt;一些基本概念(不同的时序数据库称呼略有不同)&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Metric:  度量，相当于关系型数据库中的 table。&lt;/li&gt;
+&lt;li&gt;Data point:  数据点，相当于关系型数据库中的 row。&lt;/li&gt;
+&lt;li&gt;Timestamp：时间戳，代表数据点产生的时间。&lt;/li&gt;
+&lt;li&gt;Field:  度量下的不同字段。比如位置这个度量具有经度和纬度两个 field。一般情况下存放的是随时间戳而变化的数据。&lt;/li&gt;
+&lt;li&gt;Tag:  标签。一般存放的是不随时间戳变化的信息。timestamp 加上所有的 tags 可以视为 table 的 primary key。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;例如采集有关风的数据，度量为 Wind，每条数据都有时间戳timestamp，两个字段 field：direction(风向)、speed(风速)，两个tag：sensor(传感器编号)、city(城市)。&lt;/p&gt;
+
+&lt;p&gt;业务方常见需求&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;获取最新状态，查询最近的数据(例如传感器最新的状态)&lt;/li&gt;
+&lt;li&gt;展示区间统计，指定时间范围，查询统计信息，例如平均值，最大值，最小值，计数等。。。&lt;/li&gt;
+&lt;li&gt;获取异常数据，根据指定条件，筛选异常数据&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;常见业务场景&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;监控软件系统： 虚拟机、容器、服务、应用&lt;/li&gt;
+&lt;li&gt;监控物理系统： 水文监控、制造业工厂中的设备监控、国家安全相关的数据监控、通讯监控、传感器数据、血糖仪、血压变化、心率等&lt;/li&gt;
+&lt;li&gt;资产跟踪应用： 汽车、卡车、物理容器、运货托盘&lt;/li&gt;
+&lt;li&gt;金融交易系统： 传统证券、新兴的加密数字货币&lt;/li&gt;
+&lt;li&gt;事件应用程序： 跟踪用户、客户的交互数据&lt;/li&gt;
+&lt;li&gt;商业智能工具： 跟踪关键指标和业务的总体健康情况&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;在互联网行业中，也有着非常多的时序数据，例如用户访问网站的行为轨迹，应用程序产生的日志数据等等。&lt;/p&gt;
+
+&lt;h3 id=&#34;主流时序数据库&#34;&gt;主流时序数据库&lt;/h3&gt;
+
+&lt;pre&gt;&lt;code&gt;influxdb，opentsdb，Graphite，prometheus，HiTSDB，LinDB
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;InfluxDB：很多公司都在用，包括饿了么有部分监控系统也是用的InfluxDB。其优点在于支持多维和多字段，存储也根据TSDB的特点做了优化，不过开源的部分并不支持。很多公司自己做集群化，但大多基于指标名来，这样就会有单指的热点问题。现在饿了么也是类似的做法，但热点问题很严重，大的指标已经用了最好的服务器，可查询性能还是不够理想，如果做成按Series Sharding，那成本还是有一点高；&lt;/li&gt;
+&lt;li&gt;Graphite：根据指标写入及查询，计算函数很多，但很难支持多维，包括机房或多集群的查询。原来饿了么把业务层的监控指标存储在Graphite中，并工作的很好，不过多活之后基本已经很难满足一些需求了，由于其存储结构的特点，很占IO，根据目前线上的数据写放大差不多几十倍以上；&lt;/li&gt;
+&lt;li&gt;OpenTSDB：基于HBase，优点在于存储层不用自己考虑，做好查询聚合就可以，也会存在HBase的热点问题等。在以前公司也用基于HBase实现的TSDB来解决OpenTSDB的一些问题， 如热点、部分查询聚合下放到HBase等，目的是优化其查询性能，但依赖HBase/HDFS还是很重；&lt;/li&gt;
+&lt;li&gt;HiTSDB：阿里提供的TSDB，存储也是用HBase，在数据结构及Index上面做了很多优化，具体没有研究。&lt;/li&gt;
+&lt;li&gt;LinDB：饿了么轻量级分布式时序数据库，基础组件如下
+
+&lt;ul&gt;
+&lt;li&gt;LinProxy主要做一些SQL的解析及一些中间结合的再聚合计算，如果不是跨集群，LinProxy可以不需要，对于单集群的每个节点都内嵌了一个LinProxy来提供查询服务；&lt;/li&gt;
+&lt;li&gt;LinDB Client主要用于数据的写入，也有一些查询的API；&lt;/li&gt;
+&lt;li&gt;LinStorage的每个节点组成一个集群，节点之间进行复制，并有副本的Leader节点提供读写服务，这点设计主要是参考Kafka的设计，可以把LinDB理解成类Kafka的数据写入复制+底层时间序列的存储层；&lt;/li&gt;
+&lt;li&gt;LinMaster主要负责database、shard、replica的分配，所以LinStorage存储的调度及MetaData（目前存储Zookeeper中）的管理；由于LinStorage Node都是对等的，所以我们基于Zookeeper在集群的节点选一个成为Master，每个Node把自身的状态以心跳的方式上报到Master上，Master根据这些状态进行调度，如果Master挂了，自动再选一个Master出来，这个过程基本对整个服务是无损的，所以用户基本无感知。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;prometheus&#34;&gt;prometheus&lt;/h1&gt;
+
+&lt;h2 id=&#34;安装编译&#34;&gt;安装编译&lt;/h2&gt;
+
+&lt;p&gt;可以通过源码编译也可以通过下载二进制包，还可以通过docker启动，如果是源码编译很简单，clone下代码make build一下就行，会产生二进制文件prometheus，&lt;/p&gt;
+
+&lt;p&gt;下载tar包二进制文件&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;tar xvfz prometheus-*.tar.gz
+cd prometheus-*
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;启动&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./prometheus --config.file=prometheus.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;常用启动参数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;--storage.tsdb.path指定的路径存储文件，默认为./data
+--web.listen-address=0.0.0.0:9090 指定监听的ip和端口
+--config.file=/opt/prometheus-2.4.2.linux-amd64-k8s/prometheus.yml 指定启动的配置文件
+--storage.tsdb.retention=10d 指定数据存储时间
+--log.level=info 指定日志等级
+--query.max-concurrency=2000 指定查询并发数量
+--web.max-connections=4096 指定连接数
+--web.read-timeout=40s 界面查询超时时间
+--query.timeout=40s 指定查询超时时间
+--query.lookback-delta=3600s 查询最长多少时间范围内的点
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;全部启动参数：2.4.2版本的详细说明，随着升级会有对应的变化&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@promessitapp05 k8s-prometheus-2.4.2.linux-amd64-k8s]# ./prometheus -h
+usage: prometheus [&amp;lt;flags&amp;gt;]
+
+The Prometheus monitoring server
+
+Flags:
+  -h, --help                     Show context-sensitive help (also try --help-long and --help-man).
+      --version                  Show application version.
+      --config.file=&amp;quot;prometheus.yml&amp;quot;
+                                 Prometheus configuration file path.
+      --web.listen-address=&amp;quot;0.0.0.0:9090&amp;quot;
+                                 Address to listen on for UI, API, and telemetry.
+      --web.read-timeout=5m      Maximum duration before timing out read of the request, and closing idle connections.
+      --web.max-connections=512  Maximum number of simultaneous connections.
+      --web.external-url=&amp;lt;URL&amp;gt;   The URL under which Prometheus is externally reachable (for example, if Prometheus is served via a reverse proxy). Used for generating relative and
+                                 absolute links back to Prometheus itself. If the URL has a path portion, it will be used to prefix all HTTP endpoints served by Prometheus. If
+                                 omitted, relevant URL components will be derived automatically.
+      --web.route-prefix=&amp;lt;path&amp;gt;  Prefix for the internal routes of web endpoints. Defaults to path of --web.external-url.
+      --web.user-assets=&amp;lt;path&amp;gt;   Path to static asset directory, available at /user.
+      --web.enable-lifecycle     Enable shutdown and reload via HTTP request.
+      --web.enable-admin-api     Enable API endpoints for admin control actions.
+      --web.console.templates=&amp;quot;consoles&amp;quot;
+                                 Path to the console template directory, available at /consoles.
+      --web.console.libraries=&amp;quot;console_libraries&amp;quot;
+                                 Path to the console library directory.
+      --storage.tsdb.path=&amp;quot;data/&amp;quot;
+                                 Base path for metrics storage.
+      --storage.tsdb.retention=15d
+                                 How long to retain samples in storage.
+      --storage.tsdb.no-lockfile
+                                 Do not create lockfile in data directory.
+      --storage.remote.flush-deadline=&amp;lt;duration&amp;gt;
+                                 How long to wait flushing sample on shutdown or config reload.
+      --storage.remote.read-sample-limit=5e7
+                                 Maximum overall number of samples to return via the remote read interface, in a single query. 0 means no limit.
+      --rules.alert.for-outage-tolerance=1h
+                                 Max time to tolerate prometheus outage for restoring &#39;for&#39; state of alert.
+      --rules.alert.for-grace-period=10m
+                                 Minimum duration between alert and restored &#39;for&#39; state. This is maintained only for alerts with configured &#39;for&#39; time greater than grace period.
+      --rules.alert.resend-delay=1m
+                                 Minimum amount of time to wait before resending an alert to Alertmanager.
+      --alertmanager.notification-queue-capacity=10000
+                                 The capacity of the queue for pending Alertmanager notifications.
+      --alertmanager.timeout=10s
+                                 Timeout for sending alerts to Alertmanager.
+      --query.lookback-delta=5m  The delta difference allowed for retrieving metrics during expression evaluations.就是查询当前时间前多长时间的数据中最新的一个数据，当配置较小的时候，可能采集间隔过大而获取不到数据。
+      --query.timeout=2m         Maximum time a query may take before being aborted.
+      --query.max-concurrency=20
+                                 Maximum number of queries executed concurrently.
+      --log.level=info           Only log messages with the given severity or above. One of: [debug, info, warn, error]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;docker&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;docker run -d--name=prometheus     --publish=9090:9090-v /etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml     -v /var/prometheus/storage:/prometheus     prom/prometheus
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;部署&#34;&gt;部署&lt;/h2&gt;
+
+&lt;p&gt;1、就是上面的二进制或者docker直接启动&lt;/p&gt;
+
+&lt;p&gt;2、k8s部署&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;直接使用这个项目中的yaml文件&lt;a href=&#34;https://github.com/giantswarm/prometheus&#34;&gt;https://github.com/giantswarm/prometheus&lt;/a&gt;&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Prometheus Operator部署&lt;/p&gt;
+
+&lt;p&gt;具体可以看&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/prometheus-operater/&#34;&gt;Prometheus Operator&lt;/a&gt;&lt;/p&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;配置文件&#34;&gt;配置文件&lt;/h2&gt;
+
+&lt;p&gt;通常的配置文件如下&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# my global config全局配置
+global:
+  scrape_interval:     15s # By default, scrape targets every 15 seconds.采集频率
+  evaluation_interval: 15s # By default, scrape targets every 15 seconds.规则计算的频率
+  # scrape_timeout is set to the global default (10s).
+
+  # Attach these labels to any time series or alerts when communicating with
+  # external systems (federation, remote storage, Alertmanager).
+  # 给全局指标增加一个label
+  external_labels:
+      monitor: &#39;codelab-monitor&#39;
+
+# Load and evaluate rules in this file every &#39;evaluation_interval&#39; seconds.
+# 告警规则文件
+rule_files:
+  # - &amp;quot;first.rules&amp;quot;
+  # - &amp;quot;second.rules&amp;quot;
+  - &amp;quot;alert.rules&amp;quot;
+  # - &amp;quot;record.rules&amp;quot;
+
+
+#lertmanager configuration
+# altermanager服务器的配置，所有的地址都要配置
+alerting:
+  alertmanagers:
+  - static_configs:
+    - targets: [&#39;10.242.182.161:9093&#39;,&#39;10.242.182.166:9093&#39;]
+
+
+# A scrape configuration containing exactly one endpoint to scrape:
+# Here it&#39;s Prometheus itself.
+# 采集配置
+scrape_configs:
+  # The job name is added as a label `job=&amp;lt;job_name&amp;gt;` to any timeseries scraped from this config.
+  # job的名字
+  - job_name: &#39;windows-test&#39;
+
+    # Override the global default and scrape targets from this job every 5 seconds.
+    # 每个job可以单独设置采集频率，但是这个不能在label中设置，也就是说只能一个job一个采集频率，不能一个target一个采集频率
+    scrape_interval: 1s
+
+    # metrics_path defaults to &#39;/metrics&#39;，
+    # 可以设置采集路经,默认是metrics，这个参数可以在label中设置
+    metrics_path: /probe
+
+    # Optional HTTP URL parameters.
+    # params:
+    #  [ &amp;lt;string&amp;gt;: [&amp;lt;string&amp;gt;, ...] ]
+    # target的URL的请求参数，比如http://10.27.241.4:10260/metrics?all，就是k/v结构
+    params:
+        all: [&amp;quot;&amp;quot;]
+
+    # 这边还有一个match的使用方法
+    # 只采集job是node_exporter_1的数据。
+    params:
+      match[]:
+        - &#39;{job=~&amp;quot;node_exporter_1&amp;quot;}&#39;
+
+    # scheme defaults to &#39;http&#39;.
+    # 可以设置http的方式，默认http，这个参数也可以在label中设置
+    scheme： http
+
+    # 静态target的配置，也可以使用其他的服务发现，但是都是job统一级别的
+    static_configs:
+      - targets: [&#39;192.168.3.1:9090&#39;,&#39;192.168.3.120:9090&#39;]
+      # 可以直接设置采集数据的标签
+        labels:
+            appid : &#39;mycat&#39;
+
+
+
+    # Sets the `Authorization` header on every scrape request with the
+    # configured username and password.
+    # password and password_file are mutually exclusive.
+    # basic_auth:
+    #  [ username: &amp;lt;string&amp;gt; ]
+    #  [ password: &amp;lt;secret&amp;gt; ]
+    #  [ password_file: &amp;lt;string&amp;gt; ]
+    # 访问https的时候可以带上用户名和密码
+
+    basic_auth:
+      username: &amp;quot;admin&amp;quot;
+      password: &amp;quot;Pwd123456&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面是默认的使用方式，使用的是static_configs直接静态配置ip，也可以使用一些服务发现来动态更新IP。&lt;/p&gt;
+
+&lt;h3 id=&#34;服务发现&#34;&gt;服务发现&lt;/h3&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;static_configs&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;static_configs直接静态配置ip&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;文件服务发现&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;file_sd_config&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;- job_name: &#39;node&#39;
+file_sd_configs:
+  - files:
+    - /opt/promes/harbor-prometheus-2.4.2.linux-amd64/discoveries/node/discovery.json
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个就是使用了json文件的服务发现，可以把对应的target和label写入json文件，这边就可以使用一些模版生产工具（consul-template）来生成对应的json文件&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;kubernetes_sd_configs&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;主要参考&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/monitor-scheme/k8s/#使用k8s的服务发现&#34;&gt;k8s监控方案中的prometheus in k8s的配置文件解析&lt;/a&gt;。&lt;/p&gt;
+
+&lt;p&gt;这里我们主要关注在kubernetes下的采集目标发现的配置，Prometheus支持通过kubernetes的Rest API动态发现采集的目标Target信息，包括kubernetes下的node,service,pod,endpoints等信息。&lt;/p&gt;
+
+&lt;p&gt;kubernets_sd_config下面role类型中的任何一个都能在发现目标上配置：&lt;/p&gt;
+
+&lt;p&gt;节点node&lt;/p&gt;
+
+&lt;p&gt;这个node角色发现带有地址的每一个集群节点一个目标，都指向Kublelet的HTTP端口。这个目标地址默认为Kubernetes节点对象的第一个现有地址，地址类型为NodeInernalIP, NodeExternalIP, NodeLegacyHostIP和NodeHostName。&lt;/p&gt;
+
+&lt;p&gt;可用的meta标签：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;__meta_kubernetes_node_name: 节点对象的名称
+__meta_kubernetes_node_label_&amp;lt;labelname&amp;gt;: 节点对象的每个标签
+__meta_kubernetes_node_annotation_&amp;lt;annotationname&amp;gt;: 节点对象的每个注释
+_meta_kubernetes_node_address&amp;lt;address_type&amp;gt;: 如果存在，每一个节点对象类型的第一个地址
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;另外，对于节点的instance标签，将会被设置成从API服务中获取的节点名称。&lt;/p&gt;
+
+&lt;p&gt;服务service&lt;/p&gt;
+
+&lt;p&gt;对于每个服务每个服务端口，service角色发现一个目标。对于一个服务的黑盒监控是通常有用的。这个地址被设置成这个服务的Kubernetes DNS域名, 以及各自的服务端口。&lt;/p&gt;
+
+&lt;p&gt;可用的meta标签：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;__meta_kubernetes_namespace: 服务对象的命名空间
+__meta_kubernetes_service_name: 服务对象的名称
+__meta_kubernetes_service_label_&amp;lt;labelname&amp;gt;: 服务对象的标签。
+__meta_kubernetes_service_annotation_&amp;lt;annotationname&amp;gt;: 服务对象的注释
+__meta_kubernetes_service_port_name: 目标服务端口的名称
+__meta_kubernetes_service_port_number: 目标服务端口的数量
+__meta_kubernetes_service_port_portocol: 目标服务端口的协议
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;note：这里Service中同样标注了 prometheus.io/scrape: ‘true’从而确保prometheus会采集数据。&lt;/p&gt;
+
+&lt;p&gt;pod&lt;/p&gt;
+
+&lt;p&gt;pod角色发现所有的pods，并暴露它们的容器作为目标。对于每一个容器的声明端口，单个目标被生成。 如果一个容器没有指定端口，每个容器的无端口目标都是通过relabeling手动添加端口而创建的。&lt;/p&gt;
+
+&lt;p&gt;可用的meta标签：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;__meta_kubernetes_namespace: pod对象的命名空间
+__meta_kubernetes_pod_name: pod对象的名称
+__meta_kubernetes_pod_ip: pod对象的IP地址
+__meta_kubernetes_pod_label_&amp;lt;labelname&amp;gt;: pod对象的标签
+__meta_kubernetes_pod_annotation_&amp;lt;annotationname&amp;gt;: pod对象的注释
+__meta_kubernetes_pod_container_name: 目标地址的容器名称
+__meta_kubernetes_pod_container_port_name: 容器端口名称
+__meta_kubernetes_pod_container_port_number: 容器端口的数量
+__meta_kubernetes_pod_container_port_protocol: 容器端口的协议
+__meta_kubernetes_pod_ready: 设置pod ready状态为true或者false
+__meta_kubernetes_pod_node_name: pod调度的node名称
+__meta_kubernetes_pod_host_ip: 节点对象的主机IP
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;endpoints端点&lt;/p&gt;
+
+&lt;p&gt;endpoints角色发现来自于一个服务的列表端点目标。对于每一个终端地址，一个目标被一个port发现。如果这个终端被写入到pod中，这个节点的所有其他容器端口，未绑定到端点的端口，也会被目标发现。&lt;/p&gt;
+
+&lt;p&gt;可用的meta标签：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;__meta_kubernetes_namespace: 端点对象的命名空间
+__meta_kubernetes_endpoints_name: 端点对象的名称
+对于直接从端点列表中获取的所有目标，下面的标签将会被附加上。
+__meta_kubernetes_endpoint_ready: endpoint ready状态设置为true或者false。
+__meta_kubernetes_endpoint_port_name: 端点的端口名称
+__meta_kubernetes_endpoint_port_protocol: 端点的端口协议
+
+如果端点属于一个服务，这个角色的所有标签：服务发现被附加上。
+对于在pod中的所有目标，这个角色的所有表掐你：pod发现被附加上
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;对于Kuberntes发现，看看下面的配置选项：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# The information to access the Kubernetes API.
+
+# The API server addresses. If left empty, Prometheus is assumed to run inside
+# of the cluster and will discover API servers automatically and use the pod&#39;s
+# CA certificate and bearer token file at /var/run/secrets/kubernetes.io/serviceaccount/.
+[ api_server: &amp;lt;host&amp;gt; ]
+
+# The Kubernetes role of entities that should be discovered.
+role: &amp;lt;role&amp;gt;
+
+# Optional authentication information used to authenticate to the API server.
+# Note that `basic_auth`, `bearer_token` and `bearer_token_file` options are
+# mutually exclusive.
+
+# Optional HTTP basic authentication information.
+basic_auth:
+  [ username: &amp;lt;string&amp;gt; ]
+  [ password: &amp;lt;string&amp;gt; ]
+
+# Optional bearer token authentication information.
+[ bearer_token: &amp;lt;string&amp;gt; ]
+
+# Optional bearer token file authentication information.
+[ bearer_token_file: &amp;lt;filename&amp;gt; ]
+
+# TLS configuration.
+tls_config:
+  [ &amp;lt;tls_config&amp;gt; ]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;code&gt;&amp;lt;role&amp;gt;&lt;/code&gt;必须是endpoints, service, pod或者node。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;consul服务发现&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;consul_sd_configs&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;- job_name: &#39;TEST_NEW_1&#39;
+    scrape_interval:     30s
+    consul_sd_configs:
+      - server: &#39;192.47.178.100:9996&#39;
+        services: [&#39;node_exporter_1&#39;]
+    relabel_configs:
+    - source_labels: [&#39;__meta_consul_service&#39;]
+      regex:         &#39;(.*)&#39;
+      target_label:  &#39;job&#39;
+      replacement:   &#39;PROMES_$1&#39;
+    - source_labels: [&#39;__meta_consul_node&#39;]
+      regex:         &#39;,(.*),(.*),(.*),(.*),(.*),(.*),(.*),(.*),&#39;
+      target_label:  &#39;instance&#39;
+      replacement:   &#39;$4&#39;
+    - source_labels: [&#39;__meta_consul_tags&#39;]
+      regex:         &#39;,(.*),(.*),(.*),(.*),(.*),(.*),(.*),(.*),&#39;
+      target_label:  &#39;appId&#39;
+      replacement:   &#39;$1&#39;
+    - source_labels: [&#39;__meta_consul_tags&#39;]
+      regex:         &#39;,(.*),(.*),(.*),(.*),(.*),(.*),(.*),(.*),&#39;
+      target_label:  &#39;ldc&#39;
+      replacement:   &#39;$2&#39;
+    - source_labels: [&#39;__meta_consul_tags&#39;]
+      regex:         &#39;,(.*),(.*),(.*),(.*),(.*),(.*),(.*),(.*),&#39;
+      target_label:  &#39;env&#39;
+      replacement:   &#39;$3&#39;
+    - source_labels: [&#39;__meta_consul_tags&#39;]
+      regex:         &#39;,(.*),(.*),(.*),(.*),(.*),(.*),(.*),(.*),&#39;
+      target_label:  &#39;ip&#39;
+      replacement:   &#39;$4&#39;
+    - source_labels: [&#39;__meta_consul_tags&#39;]
+      regex:         &#39;,(.*),(.*),(.*),(.*),(.*),(.*),(.*),(.*),&#39;
+      target_label:  &#39;softType&#39;
+      replacement:   &#39;$5&#39;
+    - source_labels: [&#39;__meta_consul_tags&#39;]
+      regex:         &#39;,(.*),(.*),(.*),(.*),(.*),(.*),(.*),(.*),&#39;
+      target_label:  &#39;software&#39;
+      replacement:   &#39;$6&#39;
+    - source_labels: [&#39;__meta_consul_tags&#39;]
+      regex:         &#39;,(.*),(.*),(.*),(.*),(.*),(.*),(.*),(.*),&#39;
+      target_label:  &#39;exporter&#39;
+      replacement:   &#39;$7&#39;
+    - source_labels: [&#39;__meta_consul_tags&#39;]
+      regex:         &#39;,(.*),(.*),(.*),(.*),(.*),(.*),(.*),(.*),&#39;
+      target_label:  &#39;exporterVersion&#39;
+      replacement:   &#39;$8&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;由上面的配置可见，配置consul的服务器的地址和对应的services的名字就可以匹配到api注册需要采集对应的配置。&lt;/p&gt;
+
+&lt;p&gt;consul服务发现中支持一下内部使用的metadata：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;__meta_consul_address: the address of the target
+__meta_consul_dc: the datacenter name for the target
+__meta_consul_tagged_address_&amp;lt;key&amp;gt;: each node tagged address key value of the target
+__meta_consul_metadata_&amp;lt;key&amp;gt;: each node metadata key value of the target
+__meta_consul_node: the node name defined for the target
+__meta_consul_service_address: the service address of the target
+__meta_consul_service_id: the service ID of the target
+__meta_consul_service_metadata_&amp;lt;key&amp;gt;: each service metadata key value of the target
+__meta_consul_service_port: the service port of the target
+__meta_consul_service: the name of the service the target belongs to
+__meta_consul_tags: the list of tags of the target joined by the tag separator
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后通过注册tags的编号来替换对应内部专门使用的变量的值，来完成label的注册。&lt;/p&gt;
+
+&lt;p&gt;这种注册和服务发现的模式，需要一直去请求consul的api，当数据量大的时候，会出现超时现象的性能瓶颈，影响采集的动态更新，小规模使用比较好，services还有自检的功能，但是大规模，直接使用k/v结构存储注册数据，作为数据来来使用，然后使用第三方模版工具(consul-template)生成json文件，来完成动态更新，etcd+confd也是类似的模式。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;其他还有很多服务发现，没有用过，先不做说明。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h3 id=&#34;prometheus的relabeling机制&#34;&gt;Prometheus的Relabeling机制&lt;/h3&gt;
+
+&lt;p&gt;在Prometheus所有的Target实例中，都包含一些默认的Metadata标签信息。可以通过Prometheus UI的Targets页面中查看这些实例的Metadata标签的内容：&lt;/p&gt;
+
+&lt;p&gt;默认情况下，当Prometheus加载Target实例完成后，这些Target时候都会包含一些默认的标签：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;__address__：当前Target实例的访问地址&amp;lt;host&amp;gt;:&amp;lt;port&amp;gt;
+__scheme__：采集目标服务访问地址的HTTP Scheme，HTTP或者HTTPS
+__metrics_path__：采集目标服务访问地址的访问路径
+__param_&amp;lt;name&amp;gt;：采集任务目标服务的中包含的请求参数
+__name__是特定的label标签，代表了metric name。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面这些标签将会告诉Prometheus如何从该Target实例中获取监控数据。除了这些默认的标签以外，我们还可以为Target添加自定义的标签，也就是我们平常使用的label&lt;/p&gt;
+
+&lt;p&gt;一般来说，Target以&lt;code&gt;__&lt;/code&gt;作为前置的标签是作为系统内部使用的，因此这些标签不会被写入到样本数据中。不过这里有一些例外，例如，我们会发现所有通过Prometheus采集的样本数据中都会包含一个名为instance的标签，该标签的内容对应到Target实例的&lt;code&gt;__address__&lt;/code&gt;。 这里实际上是发生了一次标签的重写处理。&lt;/p&gt;
+
+&lt;p&gt;这种发生在采集样本数据之前，对Target实例的标签进行重写的机制在Prometheus被称为Relabeling。&lt;/p&gt;
+
+&lt;p&gt;Promtheus允许用户在采集任务设置中通过relabel_configs来添加自定义的Relabeling过程。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;relabel_config&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;relabel_config的作用就是将时间序列中 label 的值做一个替换，具体的替换规则有配置决定，默认 job 的值是 job_name，&lt;code&gt;__address__&lt;/code&gt;的值为&lt;code&gt;&amp;lt;host&amp;gt;:&amp;lt;port&amp;gt;&lt;/code&gt;，instance的值默认就是 &lt;code&gt;__address__，__param_&amp;lt;name&amp;gt;&lt;/code&gt;的值就是请求url中&lt;code&gt;&amp;lt;name&amp;gt;&lt;/code&gt;的值 &lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;- job_name: &#39;blackbox&#39;
+metrics_path: /probe
+params:
+  module: [http_2xx]  # Look for a HTTP 200 response.
+static_configs:
+  - targets: [&amp;quot;https://test.com/api/projects&amp;quot;]
+relabel_configs:
+  - source_labels: [__address__]
+    target_label: __param_target
+  - source_labels: [__param_target]
+    target_label: instance
+  - target_label: __address__
+    replacement: 10.243.129.101:9115  # The blackbox exporter&#39;s real hostname:port.
+basic_auth:
+  username: &amp;quot;admin&amp;quot;
+  password: &amp;quot;Pwd123456&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上面这个配置的意思就是&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;__param_target = __address__ ，&amp;lt;- https://test.com/api/projects
+instance = __param_target &amp;lt;- https://test.com/api/projects
+__address__ = 10.243.129.101:9115。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;prometheus最后是根据&lt;code&gt;__address__&lt;/code&gt;来作为采集的地址来拉去数据的。可以看出默认情况下，targets将地址给了&lt;code&gt;__address__&lt;/code&gt;。&lt;/p&gt;
+
+&lt;p&gt;具体规则做一个简单的说明，其实就是relabel_action所决定的&lt;/p&gt;
+
+&lt;p&gt;&lt;relabel_action&gt; determines the relabeling action to take:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;replace: Match regex against the concatenated source_labels. Then, set target_label to replacement, with match group references (${1}, ${2}, &amp;hellip;) in replacement substituted by their value. If regex does not match, no replacement takes place.&lt;/li&gt;
+&lt;li&gt;keep: Drop targets for which regex does not match the concatenated source_labels.&lt;/li&gt;
+&lt;li&gt;drop: Drop targets for which regex matches the concatenated source_labels.&lt;/li&gt;
+&lt;li&gt;hashmod: Set target_label to the modulus of a hash of the concatenated source_labels.&lt;/li&gt;
+&lt;li&gt;labelmap: Match regex against all label names. Then copy the values of the matching labels to label names given by replacement with match group references (${1}, ${2}, &amp;hellip;) in replacement substituted by their value.&lt;/li&gt;
+&lt;li&gt;labeldrop: Match regex against all label names. Any label that matches will be removed from the set of labels.&lt;/li&gt;
+&lt;li&gt;labelkeep: Match regex against all label names. Any label that does not match will be removed from the set of labels.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;重新贴标签的工作如下（对应每行数据）：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;定义源标签列表。&lt;/li&gt;
+&lt;li&gt;对于每个目标，这些标签的值与分隔符连接。&lt;/li&gt;
+&lt;li&gt;正则表达式与结果字符串匹配。&lt;/li&gt;
+&lt;li&gt;基于这些匹配的新值被分配给另一个标签。&lt;/li&gt;
+&lt;li&gt;可以为每个刮擦配置定义多个重新标记规则。简单的将两个标签压成一个，&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;实例看起来如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;relabel_configs:
+- source_labels: [&#39;label_a&#39;, &#39;label_b&#39;]
+  separator:     &#39;;&#39;
+  regex:         &#39;(.*);(.*)&#39;
+  replacement:   &#39;${1}-${2}&#39;
+  target_label:  &#39;label_c&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这条规则用标签集转换目标：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;job&amp;quot;: &amp;quot;job1&amp;quot;,
+  &amp;quot;label_a&amp;quot;: &amp;quot;foo&amp;quot;,
+  &amp;quot;label_b&amp;quot;: &amp;quot;bar&amp;quot;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;成为标签集的目标：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;job&amp;quot;: &amp;quot;job1&amp;quot;,
+  &amp;quot;label_a&amp;quot;: &amp;quot;foo&amp;quot;,
+  &amp;quot;label_b&amp;quot;: &amp;quot;bar&amp;quot;,
+  &amp;quot;label_c&amp;quot;: &amp;quot;foo-bar&amp;quot;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;separator&lt;/p&gt;
+
+&lt;p&gt;意思是如果有多个&lt;code&gt;source_label([__address__,jod])&lt;/code&gt;的时候用separator去连接几个值&lt;/p&gt;
+
+&lt;p&gt;regex&lt;/p&gt;
+
+&lt;p&gt;意思是符合这个正则表达式的source_label会被赋值给replacement再赋值给target_label&lt;/p&gt;
+
+&lt;p&gt;也可以在采集的时候drop掉某些label&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#如下是删除一个原来的标签
+- action: labeldrop
+  regex: job
+- action: labeldrop
+  regex: soft.*
+- action: labeldrop
+  regex: exporter.*
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;也可以在采集的时候不采集一类指标符合正则表达式，使用的是一个新的域标签metric_relabel_configs&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;metric_relabel_configs:
+- source_labels: [ __name__ ]
+  regex: &#39;go.*&#39;
+  action: drop
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;hashmod&#34;&gt;hashmod&lt;/h3&gt;
+
+&lt;p&gt;hashmod是基于服务发现的基础中的一种分布式集群的实现方式，多个prometheus实例来平均分配采集任务，完成prometheus的水平扩展。&lt;/p&gt;
+
+&lt;p&gt;可以结合lb来负载均衡，也可以来指定ip去采集对应的数据。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;- job_name: ibmmq
+metrics_path: /metrics
+params:
+  module: [ibm-mq]
+file_sd_configs:
+  - files:
+    - /opt/prometheus/discoveries/discovery.json
+relabel_configs:
+- source_labels: [__address__]
+  modulus:       3    # 0 slaves
+  target_label:  __tmp_hash
+  action:        hashmod
+- source_labels: [__tmp_hash]
+  regex:         ^2$  # This is the 2nd slave
+  action:        keep
+- source_labels: [__address__]
+  target_label: __param_target
+- source_labels: [__param_target]
+  target_label: instance
+- target_label: __address__
+  replacement: 10.47.247.214:9115
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;当relabel_config设置为hashmod时，Promtheus会根据modulus的值作为系数，计算source_labels值的hash值。&lt;/p&gt;
+
+&lt;p&gt;根据当前Target实例&lt;strong&gt;address&lt;/strong&gt;的值以4作为系数，这样每个Target实例都会包含一个新的标签tmp_hash，并且该值的范围在1~4之间。&lt;/p&gt;
+
+&lt;p&gt;如果relabel的操作只是为了产生一个临时变量，以作为下一个relabel操作的输入，那么我们可以使用__tmp作为标签名的前缀，通过该前缀定义的标签就不会写入到Target或者采集到的样本的标签中。&lt;/p&gt;
+
+&lt;p&gt;上面的可以理解为&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;配置的第一个 souce_labels 是对同一个任务抓取目标的 LabelSet 进行预处理，具体而言就是将抓取目标地址进行 hashmod, 并将 hashmod 的值存到一个自定义字段 __tmp_hash 中。&lt;/li&gt;
+&lt;li&gt;配置的第二个 souce_labels 对预处理后的抓取目标进行筛选，只选取 __tmp_hash 值满足正则匹配的，例子中 hashmod != 2 将全部被忽略。&lt;/li&gt;
+&lt;li&gt;通过以上两步，就非常容易对相同 job 的抓取目标进行散列，从而抓取命中的部分。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;我们可以采用 hashmod 配置，使用同样的配置列表，将抓取目标散列到不同的 Prometheus server 中去, 从而很好实现 Prometheus 数据收集的水平扩展。&lt;/p&gt;
+
+&lt;h3 id=&#34;远程读写&#34;&gt;远程读写&lt;/h3&gt;
+
+&lt;p&gt;配置&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#remote_read:
+#  - url: &amp;quot;http://localhost:7201/api/v1/prom/remote/read&amp;quot;
+    # To test reading even when local Prometheus has the data
+#    read_recent: true
+#remote_write:
+#  - url: &amp;quot;http://localhost:7201/api/v1/prom/remote/write&amp;quot;
+#  - url: &amp;quot;http://10.47.178.80:9268/write&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个是m3db的远程读写的配置，prometheus采集的数据就会直接发生到prometheus的apadter中，然后通过调用m3db的接口，将数据存储在m3db中，查询也直接在m3db中查询数据。&lt;/p&gt;
+
+&lt;p&gt;远程读写是prometheus的一个扩展功能，prometheus自身主要是做时序数据库，关于存储提供了一个&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/prometheus-principle/#remote-storage&#34;&gt;可扩展性的方案&lt;/a&gt;，可以自己实现，目前已经有很多项目支持prometheus远程存储，比如&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/m3db/&#34;&gt;m3db&lt;/a&gt;，&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/cortex/&#34;&gt;cortex&lt;/a&gt;,&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/thanos/&#34;&gt;thanos&lt;/a&gt;，&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/victoriametrics/&#34;&gt;VM&lt;/a&gt;等，目前VM在这一块做的还是比较好的。&lt;/p&gt;
+
+&lt;h3 id=&#34;支持密钥文件校验-也可以跳过密钥校验&#34;&gt;支持密钥文件校验，也可以跳过密钥校验&lt;/h3&gt;
+
+&lt;p&gt;配置&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;- job_name: k8s-etcd
+file_sd_configs:
+  - files:
+    - /opt/prometheus/discoveries/discovery-etcd.json
+scheme: https
+tls_config:
+  ca_file: /opt/prometheus/ssl/etcd-ca.pem
+  cert_file: /opt/prometheus/ssl/etcd.pem
+  key_file:  /opt/k8s-prometheus/ssl/etcd-key.pem
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;带着etcd的密钥证书去验证采集。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;- job_name: k8s-other
+file_sd_configs:
+  - files:
+    - /opt/prometheus-2.4.2.linux-amd64/discoveries/discovery-k8s.json
+tls_config:
+  insecure_skip_verify: true
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;也可以直接跳过验证，前提是跳过验证能拉到数据。&lt;/p&gt;
+
+&lt;h3 id=&#34;prometheus支持yml文件的服务发现实现路径重新设置&#34;&gt;prometheus支持yml文件的服务发现实现路径重新设置&lt;/h3&gt;
+
+&lt;p&gt;I achieved this by using file_sd_config option. All targets are described in separate file(s), which can be either in YML or JSON format.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;prometheus.yml:
+
+scrape_configs:
+  - job_name: &#39;dummy&#39;  # This will be overridden in targets.yml
+    file_sd_configs:
+      - files:
+        - targets.yml
+
+
+
+targets.yml:
+
+- targets: [&#39;host1:9999&#39;]
+  labels:
+    job: my_job
+    __metrics_path__: /path1
+
+- targets: [&#39;host2:9999&#39;]
+  labels:
+    job: my_job  # can belong to the same job
+    __metrics_path__: /path2
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;reload&#34;&gt;reload&lt;/h3&gt;
+
+&lt;p&gt;Prometheus can reload its configuration at runtime.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kill -HUP pid
+curl -X POST http://IP/-/reload
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Prometheus可以在运行时重新加载它的配置。 如果新配置格式不正确，则更改将不会应用。 通过向Prometheus进程发送SIGHUP或向/-/reload端点发送HTTP POST请求（启用&amp;ndash;web.enable-lifecycle标志时）来触发配置reload。 这也将重新加载任何配置的规则文件。&lt;/p&gt;
+
+&lt;p&gt;我个人更倾向于采用 curl -X POST 的方式，因为每次 reload 过后， pid 会改变，使用 kill 方式需要找到当前进程号。
+从 2.0 开始，hot reload 功能是默认关闭的，如需开启，需要在启动 Prometheus 的时候，添加 &amp;ndash;web.enable-lifecycle 参数。&lt;/p&gt;
+
+&lt;h2 id=&#34;高级特性&#34;&gt;高级特性&lt;/h2&gt;
+
+&lt;h3 id=&#34;prometheus分布式&#34;&gt;prometheus分布式&lt;/h3&gt;
+
+&lt;p&gt;1、目前prometheus处理百万级的数据是完全没有问题的，也就是一千个服务器，一千个指标，以10S的频率去采集完全没有问题的，如果量级上去了，可以分业务进行多个prometheus进行采集使用，如果需要聚合，就需要使用prometheus的联邦集群，如果已经分业务但是量级还是不够，就是需要分group采集，然后聚合，其实也是分布式的概念。&lt;/p&gt;
+
+&lt;p&gt;2、&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/thanos/&#34;&gt;thanos&lt;/a&gt;+hashmod实现分布式采集聚合查询。&lt;/p&gt;
+
+&lt;p&gt;3、自己的想法，想开发一个类似于redis cluster的分片的集群，使用raft算法，目前并没有相关的实现方案。&lt;/p&gt;
+
+&lt;p&gt;4、使用远程读写，比如目前性能比较优秀的&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/victoriametrics/&#34;&gt;VM&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h3 id=&#34;federation-联合&#34;&gt;FEDERATION(联合)&lt;/h3&gt;
+
+&lt;p&gt;Federation允许一个Prometheus从另一个Prometheus中拉取某些指定的时序数据，Federation是Prometheus提供的扩展机制，允许Prometheus从一个节点扩展到多个节点，实际使用中一般会扩展成树状的层级结构。下面是Prometheus官方文档中对federation的配置示例：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;- job_name: &#39;federate&#39;
+  scrape_interval: 15s
+
+  honor_labels: true
+  metrics_path: &#39;/federate&#39;
+
+  params:
+    &#39;match[]&#39;:
+      - &#39;{job=&amp;quot;prometheus&amp;quot;}&#39;
+      - &#39;{__name__=~&amp;quot;job:.*&amp;quot;}&#39;
+
+  static_configs:
+    - targets:
+      - &#39;source-prometheus-1:9090&#39;
+      - &#39;source-prometheus-2:9090&#39;
+      - &#39;source-prometheus-3:9090&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这段配置所属的Prometheus将从source-prometheus-1 ~ 3这3个Prometheus的/federate端点拉取监控数据。 match[]参数指定了只拉取带有job=”prometheus标签的指标或者名称以job开头的指标。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;federation的使用&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、物理使用&lt;/p&gt;
+
+&lt;p&gt;就是上面使用方式，将几个prometheus的数据聚合到一个prometheus中，往往就是使用几个性能差的机器来采集部分数据，然后使用性能好的来聚合，也缓解了探针连接和拉去的压力。&lt;/p&gt;
+
+&lt;p&gt;2、k8s使用federation&lt;/p&gt;
+
+&lt;p&gt;要实现对Kubernetes集群的监控，因为Kubernetes的rbac机制以及证书认证，当然是把Prometheus部署在Kubernetes集群上最方便。可是很多监控系统是以k8s集群外部的Prometheus为主的，grafana和告警都是使用这个外部的Prometheus，如果还需要在Kubernetes集群内部部署一个Prometheus的话一定要把它连通外部的Prometheus联合起来，好在Prometheus支持Federation。&lt;/p&gt;
+
+&lt;p&gt;前面已经介绍了将使用Prometheus federation的形式，k8s集群外部的Prometheus从k8s集群中Prometheus拉取监控数据，外部的Prometheus才是监控数据的存储。 k8s集群中部署Prometheus的数据存储层可以简单的使用emptyDir,数据只保留24小时(或更短时间)即可，部署在k8s集群上的这个Prometheus实例即使发生故障也可以放心的让它在集群节点中漂移。&lt;/p&gt;
+
+&lt;p&gt;federation也只能在数据量不是太大的情况下使用，如果数据量太大，聚合到prometheus中单实例还是有着各种瓶颈，并不适合后期的聚合查询使用。&lt;/p&gt;
+
+&lt;h3 id=&#34;prometheus高可用&#34;&gt;prometheus高可用&lt;/h3&gt;
+
+&lt;p&gt;目前prometheus解决单点故障还是使用的是多份一致数据，启动多个prometheus对同一个数据进行采集，保留多分数据，但是数据是一致的，时序数据对一致性要求不高，可以容忍数据的部分丢失，对外是一个service。&lt;/p&gt;
+
+&lt;h3 id=&#34;adapter&#34;&gt;adapter&lt;/h3&gt;
+
+&lt;p&gt;adapter就是一个适配器，通用的功能就是为了适配，在prometheus中有很多需要使用的地方，在&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/prometheus-principle/#remote-storage&#34;&gt;远程存储&lt;/a&gt;中是一种使用方式，可以将数据转化到其他数据库适配的格式发送到对应的数据库中，还可以转换适配其他一些应用，还有我们使用的&lt;a href=&#34;https://github.com/DirectXMan12/k8s-prometheus-adapter&#34;&gt;k8s-prometheus-adapter&lt;/a&gt;也是一种&lt;a href=&#34;https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-autoscaler/#基于prometheus&#34;&gt;方式&lt;/a&gt;，用于k8s重prometheus拉去指标。&lt;/p&gt;
+
+&lt;h2 id=&#34;监控方案选择&#34;&gt;监控方案选择&lt;/h2&gt;
+
+&lt;p&gt;一直纠结于选择Prometheus还是Open-falcon。这两者都是非常棒的新一代监控解决方案，后者是小米公司开源的，目前包括小米、金山云、美团、京东金融、赶集网等都在使用Open-Falcon，最大区别在于前者采用的是pull的方式获取数据，后者使用push的方式，暂且不说这两种方式的优缺点。简单说下我喜欢Prometheus的原因：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;开箱即用，部署运维非常方便&lt;/li&gt;
+&lt;li&gt;prometheus的社区非常活跃&lt;/li&gt;
+&lt;li&gt;自带服务发现功能&lt;/li&gt;
+&lt;li&gt;简单的文本存储格式，进行二次开发非常方便。&lt;/li&gt;
+&lt;li&gt;最重要的一点，他的报警插件我非常喜欢，带有分组、报警抑制、静默提醒机制。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这里并没有贬低open-falcon的意思，还是那句老话适合自己的才是最好的。&lt;/p&gt;
+
+&lt;h2 id=&#34;prometheus二次开发项目&#34;&gt;prometheus二次开发项目&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://github.com/yunlzheng/prometheus-pusher&#34;&gt;prometheus改造&lt;/a&gt;&lt;/p&gt;
+
+&lt;h2 id=&#34;使用总结&#34;&gt;使用总结&lt;/h2&gt;
+
+&lt;p&gt;1、 正确关闭Prometheus有助于降低启动延迟的风险。那你怎么做的？&lt;/p&gt;
+
+&lt;p&gt;如果没有干净地关闭普罗米修斯理论上应该能够在启动时正常恢复，但是它可能需要更长的时间，或者你可能会在软件堆栈的某处遇到一个模糊的错误，这会导致问题。因此，最好让普罗米修斯自己一个个关闭对应程序，直接使用kill pid，不要加-9，然后等待停止所需的时间，这通常不会花费太多时间。&lt;/p&gt;
+
+&lt;p&gt;2、 prometheus只支持数值，可以为正可以为负，字符串只能作为标签。&lt;/p&gt;
+
+&lt;p&gt;在Prometheus的世界里面，所有的数值都是64bit的。每条时间序列里面记录的其实就是64bit timestamp(时间戳) + 64bit value(采样值)。&lt;/p&gt;
+
+&lt;p&gt;3、Prometheus有着非常高效的时间序列数据存储方法，每个采样数据仅仅占用3.5byte左右空间，上百万条时间序列，30秒间隔，保留60天，大概花了200多G（引用官方PPT）&lt;/p&gt;
+
+&lt;p&gt;我们实际环境中，Node Exporter 有 251 个测量点，Prometheus 服务本身有 775 个测量点。每一千个时间序列大约需要 1M 内存。每条数据占用了1K的空间，可见加了很多标签在里面，数据量还是很可观的。&lt;/p&gt;
+
+&lt;p&gt;4、metrics&lt;/p&gt;
+
+&lt;p&gt;指标名称只能由ASCII字符、数字、下划线以及冒号组成并必须符合正则表达式&lt;code&gt;[a-zA-Z:][a-zA-Z0-9_:]*&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;标签的名称只能由ASCII字符、数字以及下划线组成并满足正则表达式&lt;code&gt;[a-zA-Z_][a-zA-Z0-9_]*&lt;/code&gt;。&lt;/p&gt;
+
+&lt;p&gt;其中以&lt;code&gt;__&lt;/code&gt;作为前缀的标签，是系统保留的关键字，只能在系统内部使用。标签的值则可以包含任何Unicode编码的字符。在Prometheus的底层实现中指标名称实际上是以&lt;code&gt;__name__=&amp;lt;metric name&amp;gt;&lt;/code&gt;的形式保存在数据库中的，因此以下两种方式均表示的同一条time-series：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;api_http_requests_total{method=&amp;quot;POST&amp;quot;, handler=&amp;quot;/messages&amp;quot;}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;等同于：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{__name__=&amp;quot;api_http_requests_total&amp;quot;，method=&amp;quot;POST&amp;quot;, handler=&amp;quot;/messages&amp;quot;}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;pro将所有数据保存为timeseries data，用metric name和label区分，label是在metric name上的更细维度的划分，其中的每一个实例是由一个float64和timestamp组成，只不过timestamp是隐式加上去的，有时候不会显示出来，如下面所示(数据来源于pro暴露的监控数据，访问&lt;a href=&#34;http://localhost:9090/metrics&#34;&gt;http://localhost:9090/metrics&lt;/a&gt; 可得），其中go_gc_duration_seconds是metrics name,quantile=&amp;ldquo;0.5&amp;rdquo;是key-value pair的label，而后面的值是float64 value。
+pro为了方便client library的使用提供了四种数据类型： Counter, Gauge, Histogram, Summary, 简单理解就是Counter对数据只增不减，Gauage可增可减，Histogram,Summary提供跟多的统计信息。下面的实例中注释部分# TYPE go_gc_duration_seconds summary 标识出这是一个summary对象。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# HELP go_gc_duration_seconds A summary of the GC invocation durations.
+# TYPE go_gc_duration_seconds summary
+go_gc_duration_seconds{quantile=&amp;quot;0.5&amp;quot;} 0.000107458
+go_gc_duration_seconds{quantile=&amp;quot;0.75&amp;quot;} 0.000200112
+go_gc_duration_seconds{quantile=&amp;quot;1&amp;quot;} 0.000299278
+go_gc_duration_seconds_sum 0.002341738
+go_gc_duration_seconds_count 18
+# HELP go_goroutines Number of goroutines that currently exist.
+# TYPE go_goroutines gauge
+go_goroutines 107
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在我们的使用场景中，大部分监控使用Counter来记录，例如接口请求次数、消息队列数量、重试操作次数等。比较推荐多使用Counter类型采集，因为Counter类型不会在两次采集间隔中间丢失信息。&lt;/p&gt;
+
+&lt;p&gt;一小部分使用Gauge，如在线人数、协议流量、包大小等。Gauge模式比较适合记录无规律变化的数据，而且两次采集之间可能会丢失某些数值变化的情况。随着时间周期的粒度变大，丢失关键变化的情况也会增多。&lt;/p&gt;
+
+&lt;p&gt;还有一小部分使用Histogram和Summary，用于统计平均延迟、请求延迟占比和分布率。另外针对Historgram，不论是打点还是查询对服务器的CPU消耗比较高，通过查询时查询结果的返回耗时会有十分直观的感受。&lt;/p&gt;
+
+&lt;p&gt;5、PromQL&lt;/p&gt;
+
+&lt;p&gt;直接通过类似于PromQL表达式httprequeststotal查询时间序列时，返回值中只会包含该时间序列中的最新的一个样本值，这样的返回结果我们称之为瞬时向量。而相应的这样的表达式称之为瞬时向量表达式。&lt;/p&gt;
+
+&lt;p&gt;而如果我们想过去一段时间范围内的样本数据时，我们则需要使用区间向量表达式。区间向量表达式和瞬时向量表达式之间的差异在于在区间向量表达式中我们需要定义时间选择的范围，时间范围通过时间范围选择器[]进行定义。例如，通过以下表达式可以选择最近5分钟内的所有样本数据：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;http_request_total{}[5m]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;对比&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;http_request_total{} # 瞬时向量表达式，选择当前最新的数据
+http_request_total{}[5m] # 区间向量表达式，选择以当前时间为基准，5分钟内的数据
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;6、http api&lt;/p&gt;
+
+&lt;p&gt;Prometheus API使用了JSON格式的响应内容。 当API调用成功后将会返回2xx的HTTP状态码。&lt;/p&gt;
+
+&lt;p&gt;反之，当API调用失败时可能返回以下几种不同的HTTP状态码：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;404 Bad Request：当参数错误或者缺失时。
+
+422 Unprocessable Entity 当表达式无法执行时。
+
+503 Service Unavailiable 当请求超时或者被中断时。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;所有的API请求均使用以下的JSON格式：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;status&amp;quot;: &amp;quot;success&amp;quot; | &amp;quot;error&amp;quot;,
+  &amp;quot;data&amp;quot;: &amp;lt;data&amp;gt;,
+​
+  // Only set if status is &amp;quot;error&amp;quot;. The data field may still hold
+  // additional data.
+  &amp;quot;errorType&amp;quot;: &amp;quot;&amp;lt;string&amp;gt;&amp;quot;,
+  &amp;quot;error&amp;quot;: &amp;quot;&amp;lt;string&amp;gt;&amp;quot;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;瞬时数据查询&lt;/p&gt;
+
+&lt;p&gt;通过使用QUERY API我们可以查询PromQL在特定时间点下的计算结果。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;GET /api/v1/query
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;URL请求参数：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;query=：PromQL表达式。
+
+time=：用于指定用于计算PromQL的时间戳。可选参数，默认情况下使用当前系统时间。
+
+timeout=：超时设置。可选参数，默认情况下使用-query,timeout的全局设置。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;例如使用以下表达式查询表达式up在时间点2015-07-01T20:10:51.781Z的计算结果：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl &#39;http://localhost:9090/api/v1/query?query=up&amp;amp;time=2015-07-01T20:10:51.781Z&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;区间数据查询&lt;/p&gt;
+
+&lt;p&gt;使用QUERY_RANGE API我们则可以直接查询PromQL表达式在一段时间返回内的计算结果。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;GET /api/v1/query_range
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;URL请求参数：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;query=: PromQL表达式。
+
+start=: 起始时间。
+
+end=: 结束时间。
+
+step=: 查询步长。
+
+timeout=: 超时设置。可选参数，默认情况下使用-query,timeout的全局设置。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;当使用QUERY_RANGE API查询PromQL表达式时，返回结果一定是一个区间向量：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;resultType&amp;quot;: &amp;quot;matrix&amp;quot;,
+  &amp;quot;result&amp;quot;: &amp;lt;value&amp;gt;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;需要注意的是，在QUERY_RANGE API中PromQL只能使用瞬时向量选择器类型的表达式。&lt;/p&gt;
+
+&lt;p&gt;7、sum&lt;/p&gt;
+
+&lt;p&gt;sum_over_time(range-vector): 范围向量内每个度量指标的求和值。&lt;/p&gt;
+
+&lt;p&gt;sum不能用于时间范围的求和，只能用于不同维度之间的求和&lt;/p&gt;
+
+&lt;p&gt;8、编码方式和压缩比&lt;/p&gt;
+
+&lt;p&gt;prometheus目前提供了三种算法(主要是为了压缩数据)用于块的编码,可以通过-storage.local.chunk-encoding-version进行配置.参数的有效值为0,1,2.&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;chunk-encoding为0时,采用的是一种叫做delta encoding的算法.早期的prometheus存储层用的就是该实现.&lt;/li&gt;
+&lt;li&gt;chunk-encoding为1时,是一种改进型的double-delta encoding算法,目前的额prometheus默认使用该编码方式.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这两种编码方式对每个块使用固定的字节长度,这样有利于随机读取.&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;chunk-encoding为2时,使用的则是可变长的编码方式.这种编码比起上面两种方式,特点在于牺牲压缩速度换取了压缩率.facebook的时间序列数据库Beringei采用的编码方式&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;下面展示了压缩同样大小的数据对比(文档说样本很大,但没说具体多少):&lt;/p&gt;
+
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;编码类型&lt;/th&gt;
+&lt;th&gt;压缩后样本大小&lt;/th&gt;
+&lt;th&gt;所用时间&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;1&lt;/td&gt;
+&lt;td&gt;3.3bytes&lt;/td&gt;
+&lt;td&gt;2.9s&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;2&lt;/td&gt;
+&lt;td&gt;1.3bytes&lt;/td&gt;
+&lt;td&gt;4.9s&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;测试:&lt;/p&gt;
+
+&lt;p&gt;官方给出在生产环境中,每个样本加上索引信息后的大小一般为3-4bytes,我们可以做下测试看看实际的样本有多大,因为数据文件是经过处理后写入磁盘的,所以没办法查看单个样本的大小,只能采集一段时间的数据后计算.&lt;/p&gt;
+
+&lt;p&gt;测试的监控目标的有两个,一个是prometheus本身的信息,一个是node-exporter输出的硬件数据,我们的分别访问host:port/metrics获取采集到的数据内容.在这个例子中,每进行一次采集,prometheus server就会取回145756 bytes的数据.(即访问两个/metrics接口返回的数据相加)&lt;/p&gt;
+
+&lt;p&gt;五次测试得出的结果为:&lt;/p&gt;
+
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;用时&lt;/th&gt;
+&lt;th&gt;抓取频率&lt;/th&gt;
+&lt;th&gt;数据变化量(bytes)&lt;/th&gt;
+&lt;th&gt;原始大小(bytes)&lt;/th&gt;
+&lt;th&gt;压缩率&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;第一次&lt;/td&gt;
+&lt;td&gt;10min&lt;/td&gt;
+&lt;td&gt;5s +1003520&lt;/td&gt;
+&lt;td&gt;17490720&lt;/td&gt;
+&lt;td&gt;94%&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;第二次&lt;/td&gt;
+&lt;td&gt;20min&lt;/td&gt;
+&lt;td&gt;5s +1597440&lt;/td&gt;
+&lt;td&gt;34981440&lt;/td&gt;
+&lt;td&gt;95%&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;第三次&lt;/td&gt;
+&lt;td&gt;155min&lt;/td&gt;
+&lt;td&gt;5s +4243456&lt;/td&gt;
+&lt;td&gt;271106160&lt;/td&gt;
+&lt;td&gt;98%&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;第四次&lt;/td&gt;
+&lt;td&gt;10min&lt;/td&gt;
+&lt;td&gt;1s +1658880&lt;/td&gt;
+&lt;td&gt;17490720&lt;/td&gt;
+&lt;td&gt;90%&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;第五次&lt;/td&gt;
+&lt;td&gt;20min&lt;/td&gt;
+&lt;td&gt;1s +3481600&lt;/td&gt;
+&lt;td&gt;34981440&lt;/td&gt;
+&lt;td&gt;90%&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;按照抓取频率5s,压缩率90%进行粗略估算.&lt;/p&gt;
+
+&lt;p&gt;假设检测的数据为系统的硬件指标,即node-exporter的输出(145756个字节),且集群中有10台机器,那么24个小时的数据量将不超过200m.假设监控数据保留1个月,那么大概需要6-7G左右的空间&lt;/p&gt;
+
+&lt;p&gt;9、内存使用&lt;/p&gt;
+
+&lt;p&gt;prometheus在内存里保存了最近使用的chunks，具体chunks的最大个数可以通过storage.local.memory-chunks来设定，默认值为1048576，即1048576个chunk，大小为1G。 除了采用的数据，prometheus还需要对数据进行各种运算，因此整体内存开销肯定会比配置的local.memory-chunks大小要来的大，因此官方建议要预留3倍的local.memory-chunks的内存大小。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;As a rule of thumb, you should have at least three times more RAM available than needed by the memory chunks alone
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以通过server的metrics去查看prometheus_local_storage_memory_chunks以及process_resident_memory_byte两个指标值。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.prometheus_local_storage_memory_chunks
+
+    The current number of chunks in memory, excluding cloned chunks 目前内存中暴露的chunks的个数
+
+2.process_resident_memory_byte
+
+    Resident memory size in bytes 驻存在内存的数据大小
+
+3.prometheus_local_storage_persistence_urgency_score 介于0-1之间，当该值小于等于0.7时，prometheus离开rushed模式。 当大于0.8的时候，进入rushed模式
+
+4.prometheus_local_storage_rushed_mode 1表示进入了rushed mode，0表示没有。进入了rushed模式的话，prometheus会利用storage.local.series-sync-strategy以及storage.local.checkpoint-interval的配置加速chunks的持久化。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;监测当前使用的内存量：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;prometheus_local_storage_memory_chunks
+process_resident_memory_bytes
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;监测当前使用的存储指标：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;prometheus_local_storage_memory_series: 时间序列持有的内存当前块数量
+prometheus_local_storage_memory_chunks: 在内存中持久块的当前数量
+
+
+prometheus_local_storage_chunks_to_persist: 当前仍然需要持久化到磁盘的的内存块数量
+prometheus_local_storage_persistence_urgency_score: 紧急程度分数
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;10、prometheus的target采用的是长连接的方式，会和target的机器端口一直保持连接。&lt;/p&gt;
+
+&lt;p&gt;11、一般我们可以使用prometheus_egine_query_duration_seconds来评估prometheus整体的响应时间，如果响应过慢，可能是promql使用不当造成的，比如&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;大量使用join来组合指标或者增加label&lt;/li&gt;
+&lt;li&gt;大范围时间查询，step很小，导致数据量很大&lt;/li&gt;
+&lt;li&gt;rate时，range duration要大于step，否则会丢失数据&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;12、wal中文件太多，句柄不够用&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;level=error ts=2019-07-05T02:29:56.706Z caller=main.go:717 err=&amp;quot;opening storage failed: read WAL: open WAL segments: open segment:00020174 in dir:/data/wal: open /data/wal/00020174: too many open files&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;wal中文件太多，句柄不够用，需要打开句柄，句柄不够用可能导致压缩block出错，报错&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;level=error ts=2019-07-05T01:58:01.826Z caller=main.go:717 err=&amp;quot;opening storage failed: block dir: \&amp;quot;/data/01DEN382CDGHQR91QKNDHT77M8\&amp;quot;: open /data/01DEN382CDGHQR91QKNDHT77M8/meta.json: no such file or directory&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;所以需要在机器使用之前设置一下参数&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;锁定内存&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;logMessage &amp;quot;lock mem&amp;quot;
+echo &amp;quot;esadmin hard memlock unlimited&amp;quot; &amp;gt;&amp;gt;/etc/security/limits.conf
+echo &amp;quot;esadmin soft memlock unlimited&amp;quot; &amp;gt;&amp;gt;/etc/security/limits.conf
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;修改最大文件描述数&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;logMessage &amp;quot;file description &amp;quot;
+echo &amp;quot;esadmin soft nofile 65536&amp;quot;  &amp;gt;&amp;gt;/etc/security/limits.conf
+echo &amp;quot;esadmin hard nofile 131072&amp;quot; &amp;gt;&amp;gt;/etc/security/limits.conf
+
+#修改最大线程数
+logMessage &amp;quot;max thread size &amp;quot;
+echo &amp;quot;esadmin soft nproc 2048 &amp;quot;&amp;gt;&amp;gt; /etc/security/limits.conf
+echo &amp;quot;esadmin hard nproc 4096 &amp;quot;&amp;gt;&amp;gt; /etc/security/limits.conf
+echo &amp;quot;esadmin soft nproc 2048 &amp;quot;&amp;gt;&amp;gt; /etc/security/limits.d/90-nproc.conf
+
+#修改内存映射区域最大数
+logMessage &amp;quot;max mem count &amp;quot;
+echo &amp;quot;vm.max_map_count=655360&amp;quot; &amp;gt;&amp;gt;/etc/sysctl.conf
+sysctl -p
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;函数与常用表达式&#34;&gt;函数与常用表达式&lt;/h3&gt;
+
+&lt;h4 id=&#34;操作符&#34;&gt;操作符&lt;/h4&gt;
+
+&lt;p&gt;或&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;up{exporterName=~&amp;quot;etcd|etcd-event&amp;quot; ,cluster_name=~&amp;quot;k8s_xingang_02&amp;quot;}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;正则匹配,全量配置.*&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;up{exporterName=~&amp;quot;etcd.*&amp;quot; ,cluster_name=~&amp;quot;k8s_xingang_02&amp;quot;}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h4 id=&#34;函数&#34;&gt;函数&lt;/h4&gt;
+
+&lt;p&gt;PromQL 有三个很简单的原则：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;任意 PromQL 返回的结果都不是原始数据，即使查询一个具体的 Metric（如 go_goroutines），结果也不是原始数据&lt;/li&gt;
+&lt;li&gt;任意 Metrics 经过 Function 计算后会丢失 &lt;code&gt;__name__ Label&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;子序列间具备完全相同的 Label/Value 键值对（可以有不同的 &lt;code&gt;__name__&lt;/code&gt;）才能进行代数运算&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;rate&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;(last值-first值)/时间差s
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;irate&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;(last值-last前一个值)/时间戳差值
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;所以cpu的使用率常用&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;irate(node_cpu_seconds_total{mode=&amp;quot;idle&amp;quot;,ip=~&amp;quot;$ip&amp;quot;}[2m]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;avg&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;ul&gt;
+&lt;li&gt;avg 同一时间的多条数据的平均值&lt;/li&gt;
+&lt;li&gt;avg_over_time(range-vector): 范围向量内同一个度量指标不同时间的多条数据的平均值。&lt;/li&gt;
+&lt;li&gt;同理的还有max，min等&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;相减&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;这边有一个两个指标相减的问题，必须是统一维度的才能相互计算，不能直接用指标value计算，可以对指标进行sum，max，rate等计算后进行加减乘除&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;increase()&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;increase(v range-vector)函数，  度量指标：last值-first值,increase的返回值类型只能是counters，主要作用是增加图表和数据的可读性，使用rate记录规则的使用率，以便持续跟踪数据样本值的变化。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;idelta()&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;idelta(v range-vector)函数，输入一个范围向量，返回key: value = 度量指标： 每最后两个样本值差值。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;label_replace&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;label_replace给指标的label新生成一个指标名的指标&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;label_replace(v instant-vector, dst_label string, replacement string, src_label string, regex string)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;将正则表达式与标签值src_label匹配。如果匹配，则返回时间序列，标签值dst_label被替换的扩展替换。$1替换为第一个匹配子组，$2替换为第二个等。如果正则表达式不匹配，则时间序列不会更改。&lt;/p&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;label_replace(redis_remote_replication_dest_repl_offset{},&amp;quot;destldcId&amp;quot;,&amp;quot;$1&amp;quot;, &amp;quot;ldcId&amp;quot;, &amp;quot;(.*)&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;by&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;当指标中的label发生变化的时候，哪怕是同一个指标名，在promethes也是两个数据，如果将变化的两条数据衔接起来，这个时候就使用by，by就是按着制订的维度来获取指标，可以摒弃不一样的label，这样就能是一条数据了，这样就可以使得时序图连接起来，例如ntp的client变更&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;sum(ntp_offset{ip=~&amp;quot;$ip&amp;quot;})by(ip)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;by还可以用于表格的聚合，对于相同label的数据可以聚合在一个表格中的一条数据，所以用by获取到不通指标数据中的相同的label，就可以实现不同value的展示，但是label一样，就是一条数据。&lt;/p&gt;
+
+&lt;p&gt;也可以sum不加by的数据可用和任何数据聚合，其实也就是聚合后少的标签可用和多的标签进行聚合。&lt;/p&gt;
+
+&lt;p&gt;还可以使用or，当两个数据是对立的时候，一个出现另一个就不会出来。这样也能使得数据出来&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;topk(5, rate(redis_command_call_duration_seconds_count{appId=&amp;quot;$appId&amp;quot;, softType=&amp;quot;Redis&amp;quot;} [$interval])) or topk(5, irate(redis_command_call_duration_seconds_count{appId=&amp;quot;$appId&amp;quot;, softType=&amp;quot;Redis&amp;quot;} [$interval])) or topk(5, rate(redis_commands_total{appId=&amp;quot;$appId&amp;quot;, softType=&amp;quot;Redis&amp;quot;} [$interval])) or topk(5, irate(redis_command_call_duration_seconds_count{appId=&amp;quot;$appId&amp;quot;, softType=&amp;quot;Redis&amp;quot;} [$interval]))
+topk(5, rate(redis_commands_total{appId=&amp;quot;$appId&amp;quot;, softType=&amp;quot;Redis&amp;quot;} [$interval])) or topk(5, irate(redis_command_call_duration_seconds_count{appId=&amp;quot;$appId&amp;quot;, softType=&amp;quot;Redis&amp;quot;} [$interval]))
+topk(5, irate(redis_command_call_duration_seconds_count{appId=&amp;quot;$appId&amp;quot;, softType=&amp;quot;Redis&amp;quot;,ip=&amp;quot;$ip&amp;quot;} [5m])) or topk(5, irate(redis_commands_total{appId=&amp;quot;$appId&amp;quot;, softType=&amp;quot;Redis&amp;quot;,ip=&amp;quot;$ip&amp;quot;} [5m]))
+topk(5, irate(redis_command_call_duration_seconds_count{ softType=&amp;quot;Redis&amp;quot;,ip=&amp;quot;$ip&amp;quot;} [5m])) or topk(5, irate(redis_commands_total{softType=&amp;quot;Redis&amp;quot;,ip=&amp;quot;$ip&amp;quot;} [5m]))
+sum by (cmd)( rate(redis_command_call_duration_seconds_count{appId=&amp;quot;$appId&amp;quot;, softType=&amp;quot;Redis&amp;quot;} [$interval])) or sum by (cmd) (irate(redis_command_call_duration_seconds_count{appId=&amp;quot;$appId&amp;quot;, softType=&amp;quot;Redis&amp;quot;} [$interval])) or sum by (cmd) (irate(redis_commands_total{appId=&amp;quot;$appId&amp;quot;, softType=&amp;quot;Redis&amp;quot;} [$interval]))
+redis_memory_fragmentation_ratio{ip=&amp;quot;$ip&amp;quot;}  or redis_memory_used_rss_bytes{ip=&amp;quot;$ip&amp;quot;} / redis_memory_used_bytes{ip=&amp;quot;$ip&amp;quot;}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;原理解析&#34;&gt;原理解析&lt;/h1&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/prometheus-principle&#34;&gt;prometheus原理解析&lt;/a&gt;&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控metrics系列---- Zabbix基本使用</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix/</link>
           <pubDate>Sat, 04 Mar 2017 17:54:04 CST</pubDate>
