@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="尽管 Go 编译器产生的是本地可执行代码，这些代码仍旧运行在 Go 的 runtime（这部分的代码可以在 runtime 包中找到）当中。这个 runtime 类似 Java 和 .NET 语言所用到的虚拟机，它负责管理包括内存分配、垃圾回收、栈处理、goroutine、channel、切片（slice）、map 和反射（reflection）等等。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Golang使用系列---- Runtime - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Golang使用系列---- Runtime
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年06月13日 
+                </div>
+                <h1 class="post-title">Golang使用系列---- Runtime</h1>
+            </header>
+
+            <div class="post-content">
+                <p>尽管 Go 编译器产生的是本地可执行代码，这些代码仍旧运行在 Go 的 runtime（这部分的代码可以在 runtime 包中找到）当中。这个 runtime 类似 Java 和 .NET 语言所用到的虚拟机，它负责管理包括内存分配、垃圾回收、栈处理、goroutine、channel、切片（slice）、map 和反射（reflection）等等。</p>
+
+<h1 id="runtime">runtime</h1>
+
+<p>runtime包含Go运行时的系统交互的操作，例如控制goruntine的功能，还有debug，pprof进行排查问题和运行时性能分析，tracer来抓取异常事件信息，总的来说运行时是调度器包括GC。</p>
+
+<h2 id="调度器">调度器</h2>
+
+<p>runtime 调度器是个非常有用的东西，关于 runtime 包几个方法</p>
+
+<ul>
+<li>NumCPU：返回当前系统的 CPU 核数量</li>
+<li>GOMAXPROCS：设置最大的可同时使用的 CPU 核数，Golang 默认所有任务都运行在一个 cpu 核里，如果要在 goroutine 中使用多核，可以使用 runtime.GOMAXPROCS 函数修改，当参数小于 1 时使用默认值1。</li>
+<li>Gosched：让当前线程让出 cpu 以让其它线程运行,它不会挂起当前线程，因此当前线程未来会继续执行</li>
+<li>Goexit：退出当前 goroutine(但是defer语句会照常执行)</li>
+<li>NumGoroutine：返回正在执行和排队的任务总数</li>
+<li>GOOS：目标操作系统，可以查看目标操作系统</li>
+<li>runtime.GC：会让运行时系统进行一次强制性的垃圾收集</li>
+</ul>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>获取goroot和os</p>
+
+<pre><code>//获取goroot目录：
+fmt.Println(&quot;GOROOT--&gt;&quot;,runtime.GOROOT())
+
+//获取操作系统
+fmt.Println(&quot;os/platform--&gt;&quot;,runtime.GOOS) // GOOS--&gt; darwin，mac系统
+</code></pre>
+
+<p>获取CPU数量，和设置CPU数量</p>
+
+<pre><code>func init(){
+    //1.获取逻辑cpu的数量
+    fmt.Println(&quot;逻辑CPU的核数：&quot;,runtime.NumCPU())
+    //2.设置go程序执行的最大的：[1,256]
+    n := runtime.GOMAXPROCS(runtime.NumCPU())
+    fmt.Println(n)
+}
+</code></pre>
+
+<p>让出cpu</p>
+
+<pre><code>func main() {
+    go func() {
+        for i := 0; i &lt; 5; i++ {
+            fmt.Println(&quot;goroutine。。。&quot;)
+        }
+​
+    }()
+​
+    for i := 0; i &lt; 4; i++ {
+        //让出时间片，先让别的协议执行，它执行完，再回来执行此协程
+        runtime.Gosched()
+        fmt.Println(&quot;main。。&quot;)
+    }
+}
+</code></pre>
+
+<p>终止协程</p>
+
+<pre><code>func main() {
+    //创建新建的协程
+    go func() {
+        fmt.Println(&quot;goroutine开始。。。&quot;)
+​
+        //调用了别的函数
+        fun()
+​
+        fmt.Println(&quot;goroutine结束。。&quot;)
+    }() //别忘了()
+​
+    //睡一会儿，不让主协程结束
+    time.Sleep(3*time.Second)
+}
+​
+​
+​
+func fun() {
+    defer fmt.Println(&quot;defer。。。&quot;)
+​
+    //return           //终止此函数
+    runtime.Goexit() //终止所在的协程
+​
+    fmt.Println(&quot;fun函数。。。&quot;)
+}
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-runtime/">https://kingjcy.github.io/post/golang/go-runtime/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/runtime/">
+                            <i class="fa fa-tags"></i>
+                            runtime
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-map/">Golang使用系列---- Map</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月28日)</span></li><li id="li-rels"><a href="/post/golang/go-sync/">Golang使用系列---- Sync</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月28日)</span></li><li id="li-rels"><a href="/post/golang/go-math/">Golang使用系列---- Math</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月01日)</span></li><li id="li-rels"><a href="/post/golang/go-bufio/">Golang使用系列---- Bufio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-ioutil/">Golang使用系列---- Ioutil</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年01月13日)</span></li><li id="li-rels"><a href="/post/golang/go-bytes/">Golang使用系列---- Bytes</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-net-http/">Golang使用系列---- Net/Http 应用层</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年09月26日)</span></li><li id="li-rels"><a href="/post/golang/go-strings/">Golang使用系列---- Strings</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年10月12日)</span></li><li id="li-rels"><a href="/post/golang/go-strconv/">Golang使用系列---- Strconv</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年10月12日)</span></li><li id="li-rels"><a href="/post/golang/go-io/">Golang使用系列---- Io</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年07月30日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/log/loki/loki/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#runtime">runtime</a>
+<ul>
+<li><a href="#调度器">调度器</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

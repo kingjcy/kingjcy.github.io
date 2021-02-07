@@ -1330,6 +1330,106 @@ limits_config:
     
       
         <item>
+          <title>Golang使用系列---- Runtime</title>
+          <link>https://kingjcy.github.io/post/golang/go-runtime/</link>
+          <pubDate>Thu, 13 Jun 2019 19:39:34 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-runtime/</guid>
+          <description>&lt;p&gt;尽管 Go 编译器产生的是本地可执行代码，这些代码仍旧运行在 Go 的 runtime（这部分的代码可以在 runtime 包中找到）当中。这个 runtime 类似 Java 和 .NET 语言所用到的虚拟机，它负责管理包括内存分配、垃圾回收、栈处理、goroutine、channel、切片（slice）、map 和反射（reflection）等等。&lt;/p&gt;
+
+&lt;h1 id=&#34;runtime&#34;&gt;runtime&lt;/h1&gt;
+
+&lt;p&gt;runtime包含Go运行时的系统交互的操作，例如控制goruntine的功能，还有debug，pprof进行排查问题和运行时性能分析，tracer来抓取异常事件信息，总的来说运行时是调度器包括GC。&lt;/p&gt;
+
+&lt;h2 id=&#34;调度器&#34;&gt;调度器&lt;/h2&gt;
+
+&lt;p&gt;runtime 调度器是个非常有用的东西，关于 runtime 包几个方法&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;NumCPU：返回当前系统的 CPU 核数量&lt;/li&gt;
+&lt;li&gt;GOMAXPROCS：设置最大的可同时使用的 CPU 核数，Golang 默认所有任务都运行在一个 cpu 核里，如果要在 goroutine 中使用多核，可以使用 runtime.GOMAXPROCS 函数修改，当参数小于 1 时使用默认值1。&lt;/li&gt;
+&lt;li&gt;Gosched：让当前线程让出 cpu 以让其它线程运行,它不会挂起当前线程，因此当前线程未来会继续执行&lt;/li&gt;
+&lt;li&gt;Goexit：退出当前 goroutine(但是defer语句会照常执行)&lt;/li&gt;
+&lt;li&gt;NumGoroutine：返回正在执行和排队的任务总数&lt;/li&gt;
+&lt;li&gt;GOOS：目标操作系统，可以查看目标操作系统&lt;/li&gt;
+&lt;li&gt;runtime.GC：会让运行时系统进行一次强制性的垃圾收集&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;实例&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;获取goroot和os&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//获取goroot目录：
+fmt.Println(&amp;quot;GOROOT--&amp;gt;&amp;quot;,runtime.GOROOT())
+
+//获取操作系统
+fmt.Println(&amp;quot;os/platform--&amp;gt;&amp;quot;,runtime.GOOS) // GOOS--&amp;gt; darwin，mac系统
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;获取CPU数量，和设置CPU数量&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func init(){
+    //1.获取逻辑cpu的数量
+    fmt.Println(&amp;quot;逻辑CPU的核数：&amp;quot;,runtime.NumCPU())
+    //2.设置go程序执行的最大的：[1,256]
+    n := runtime.GOMAXPROCS(runtime.NumCPU())
+    fmt.Println(n)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;让出cpu&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func main() {
+    go func() {
+        for i := 0; i &amp;lt; 5; i++ {
+            fmt.Println(&amp;quot;goroutine。。。&amp;quot;)
+        }
+​
+    }()
+​
+    for i := 0; i &amp;lt; 4; i++ {
+        //让出时间片，先让别的协议执行，它执行完，再回来执行此协程
+        runtime.Gosched()
+        fmt.Println(&amp;quot;main。。&amp;quot;)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;终止协程&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func main() {
+    //创建新建的协程
+    go func() {
+        fmt.Println(&amp;quot;goroutine开始。。。&amp;quot;)
+​
+        //调用了别的函数
+        fun()
+​
+        fmt.Println(&amp;quot;goroutine结束。。&amp;quot;)
+    }() //别忘了()
+​
+    //睡一会儿，不让主协程结束
+    time.Sleep(3*time.Second)
+}
+​
+​
+​
+func fun() {
+    defer fmt.Println(&amp;quot;defer。。。&amp;quot;)
+​
+    //return           //终止此函数
+    runtime.Goexit() //终止所在的协程
+​
+    fmt.Println(&amp;quot;fun函数。。。&amp;quot;)
+}
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控metrics系列----VictoriaMetrics</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/victoriametrics/</link>
           <pubDate>Thu, 13 Jun 2019 16:19:46 CST</pubDate>
@@ -3864,6 +3964,408 @@ clustermanager_ram_usage_bytes{host=&amp;quot;foo.example.org&amp;quot;,zone=&am
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;每次刷新的时候，我们都会获得不同的数据，类似于实现了一个数值不断改变的采集器。当然，具体的指标和采集函数还需要按照需求进行修改，满足实际的业务需求。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>Golang使用系列---- Math</title>
+          <link>https://kingjcy.github.io/post/golang/go-math/</link>
+          <pubDate>Fri, 01 Feb 2019 11:37:51 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-math/</guid>
+          <description>&lt;p&gt;math包实现的就是数学函数计算。&lt;/p&gt;
+
+&lt;h1 id=&#34;math&#34;&gt;math&lt;/h1&gt;
+
+&lt;p&gt;提供了三角函数,幂次函数,特殊函数,类型转化函数等还有其他函数。&lt;/p&gt;
+
+&lt;h2 id=&#34;三角函数&#34;&gt;三角函数&lt;/h2&gt;
+
+&lt;p&gt;正弦函数，反正弦函数，双曲正弦，反双曲正弦&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;func Sin(x float64) float64&lt;/li&gt;
+&lt;li&gt;func Asin(x float64) float64&lt;/li&gt;
+&lt;li&gt;func Sinh(x float64) float64&lt;/li&gt;
+&lt;li&gt;func Asinh(x float64) float64&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;一次性返回 sin,cos&lt;/p&gt;
+
+&lt;p&gt;func Sincos(x float64) (sin, cos float64)&lt;/p&gt;
+
+&lt;p&gt;余弦函数，反余弦函数，双曲余弦，反双曲余弦&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;func Cos(x float64) float64&lt;/li&gt;
+&lt;li&gt;func Acos(x float64) float64&lt;/li&gt;
+&lt;li&gt;func Cosh(x float64) float64&lt;/li&gt;
+&lt;li&gt;func Acosh(x float64) float64&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;正切函数，反正切函数，双曲正切，反双曲正切&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;func Tan(x float64) float64&lt;/li&gt;
+&lt;li&gt;func Atan(x float64) float64 和 func Atan2(y, x float64) float64&lt;/li&gt;
+&lt;li&gt;func Tanh(x float64) float64&lt;/li&gt;
+&lt;li&gt;func Atanh(x float64) float64&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;幂次函数&#34;&gt;幂次函数&lt;/h2&gt;
+
+&lt;ul&gt;
+&lt;li&gt;func Cbrt(x float64) float64 // 立方根函数&lt;/li&gt;
+&lt;li&gt;func Pow(x, y float64) float64  // x 的幂函数&lt;/li&gt;
+&lt;li&gt;func Pow10(e int) float64 // 10 根的幂函数&lt;/li&gt;
+&lt;li&gt;func Sqrt(x float64) float64 // 平方根&lt;/li&gt;
+&lt;li&gt;func Log(x float64) float64 // 对数函数&lt;/li&gt;
+&lt;li&gt;func Log10(x float64) float64 // 10 为底的对数函数&lt;/li&gt;
+&lt;li&gt;func Log2(x float64) float64  // 2 为底的对数函数&lt;/li&gt;
+&lt;li&gt;func Log1p(x float64) float64 // log(1 + x)&lt;/li&gt;
+&lt;li&gt;func Logb(x float64) float64 // 相当于 log2(x) 的绝对值&lt;/li&gt;
+&lt;li&gt;func Ilogb(x float64) int // 相当于 log2(x) 的绝对值的整数部分&lt;/li&gt;
+&lt;li&gt;func Exp(x float64) float64 // 指数函数&lt;/li&gt;
+&lt;li&gt;func Exp2(x float64) float64 // 2 为底的指数函数&lt;/li&gt;
+&lt;li&gt;func Expm1(x float64) float64 // Exp(x) - 1&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;特殊函数&#34;&gt;特殊函数&lt;/h2&gt;
+
+&lt;ul&gt;
+&lt;li&gt;func Inf(sign int) float64  // 正无穷&lt;/li&gt;
+&lt;li&gt;func IsInf(f float64, sign int) bool // 是否正无穷&lt;/li&gt;
+&lt;li&gt;func NaN() float64 // 无穷值&lt;/li&gt;
+&lt;li&gt;func IsNaN(f float64) (is bool) // 是否是无穷值&lt;/li&gt;
+&lt;li&gt;func Hypot(p, q float64) float64 // 计算直角三角形的斜边长&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;类型转化函数&#34;&gt;类型转化函数&lt;/h2&gt;
+
+&lt;ul&gt;
+&lt;li&gt;func Float32bits(f float32) uint32  // float32 和 unit32 的转换&lt;/li&gt;
+&lt;li&gt;func Float32frombits(b uint32) float32 // uint32 和 float32 的转换&lt;/li&gt;
+&lt;li&gt;func Float64bits(f float64) uint64 // float64 和 uint64 的转换&lt;/li&gt;
+&lt;li&gt;func Float64frombits(b uint64) float64 // uint64 和 float64 的转换&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;其他函数&#34;&gt;其他函数&lt;/h2&gt;
+
+&lt;ul&gt;
+&lt;li&gt;func Abs(x float64) float64 // 绝对值函数&lt;/li&gt;
+&lt;li&gt;func Ceil(x float64) float64  // 向上取整&lt;/li&gt;
+&lt;li&gt;func Floor(x float64) float64 // 向下取整&lt;/li&gt;
+&lt;li&gt;func Mod(x, y float64) float64 // 取模&lt;/li&gt;
+&lt;li&gt;func Modf(f float64) (int float64, frac float64) // 分解 f，以得到 f 的整数和小数部分&lt;/li&gt;
+&lt;li&gt;func Frexp(f float64) (frac float64, exp int) // 分解 f，得到 f 的位数和指数&lt;/li&gt;
+&lt;li&gt;func Max(x, y float64) float64  // 取大值&lt;/li&gt;
+&lt;li&gt;func Min(x, y float64) float64  // 取小值&lt;/li&gt;
+&lt;li&gt;func Dim(x, y float64) float64 // 复数的维数&lt;/li&gt;
+&lt;li&gt;func J0(x float64) float64  // 0 阶贝塞尔函数&lt;/li&gt;
+&lt;li&gt;func J1(x float64) float64  // 1 阶贝塞尔函数&lt;/li&gt;
+&lt;li&gt;func Jn(n int, x float64) float64 // n 阶贝塞尔函数&lt;/li&gt;
+&lt;li&gt;func Y0(x float64) float64  // 第二类贝塞尔函数 0 阶&lt;/li&gt;
+&lt;li&gt;func Y1(x float64) float64  // 第二类贝塞尔函数 1 阶&lt;/li&gt;
+&lt;li&gt;func Yn(n int, x float64) float64 // 第二类贝塞尔函数 n 阶&lt;/li&gt;
+&lt;li&gt;func Erf(x float64) float64 // 误差函数&lt;/li&gt;
+&lt;li&gt;func Erfc(x float64) float64 // 余补误差函数&lt;/li&gt;
+&lt;li&gt;func Copysign(x, y float64) float64 // 以 y 的符号返回 x 值&lt;/li&gt;
+&lt;li&gt;func Signbit(x float64) bool // 获取 x 的符号&lt;/li&gt;
+&lt;li&gt;func Gamma(x float64) float64 // 伽玛函数&lt;/li&gt;
+&lt;li&gt;func Lgamma(x float64) (lgamma float64, sign int) // 伽玛函数的自然对数&lt;/li&gt;
+&lt;li&gt;func Ldexp(frac float64, exp int) float64 // value 乘以 2 的 exp 次幂&lt;/li&gt;
+&lt;li&gt;func Nextafter(x, y float64) (r float64) // 返回参数 x 在参数 y 方向上可以表示的最接近的数值，若 x 等于 y，则返回 x&lt;/li&gt;
+&lt;li&gt;func Nextafter32(x, y float32) (r float32) // 返回参数 x 在参数 y 方向上可以表示的最接近的数值，若 x 等于 y，则返回 x&lt;/li&gt;
+&lt;li&gt;func Remainder(x, y float64) float64 // 取余运算&lt;/li&gt;
+&lt;li&gt;func Trunc(x float64) float64 // 截取函数&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;实例&#34;&gt;实例&lt;/h2&gt;
+
+&lt;p&gt;math包中定义的常量&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;math&amp;quot;
+)
+
+func main() {
+
+    fmt.Printf(&amp;quot;float64的最大值是:%.f\n&amp;quot;, math.MaxFloat64)
+    fmt.Printf(&amp;quot;float64的最小值是:%.f\n&amp;quot;, math.SmallestNonzeroFloat64)
+    fmt.Printf(&amp;quot;float32的最大值是:%.f\n&amp;quot;, math.MaxFloat32)
+    fmt.Printf(&amp;quot;float32的最小值是:%.f\n&amp;quot;, math.SmallestNonzeroFloat32)
+    fmt.Printf(&amp;quot;Int8的最大值是:%d\n&amp;quot;, math.MaxInt8)
+    fmt.Printf(&amp;quot;Int8的最小值是:%d\n&amp;quot;, math.MinInt8)
+    fmt.Printf(&amp;quot;Uint8的最大值是:%d\n&amp;quot;, math.MaxUint8)
+    fmt.Printf(&amp;quot;Int16的最大值是:%d\n&amp;quot;, math.MaxInt16)
+    fmt.Printf(&amp;quot;Int16的最小值是:%d\n&amp;quot;, math.MinInt16)
+    fmt.Printf(&amp;quot;Uint16的最大值是:%d\n&amp;quot;, math.MaxUint16)
+    fmt.Printf(&amp;quot;Int32的最大值是:%d\n&amp;quot;, math.MaxInt32)
+    fmt.Printf(&amp;quot;Int32的最小值是:%d\n&amp;quot;, math.MinInt32)
+    fmt.Printf(&amp;quot;Uint32的最大值是:%d\n&amp;quot;, math.MaxUint32)
+    fmt.Printf(&amp;quot;Int64的最大值是:%d\n&amp;quot;, math.MaxInt64)
+    fmt.Printf(&amp;quot;Int64的最小值是:%d\n&amp;quot;, math.MinInt64)
+    //fmt.Println(&amp;quot;Uint64的最大值是:&amp;quot;, math.MaxUint64)
+    fmt.Printf(&amp;quot;圆周率默认为:%.200f\n&amp;quot;, math.Pi)
+
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;常用函数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;math&amp;quot;
+)
+
+func main() {
+    /*
+        取绝对值,函数签名如下:
+            func Abs(x float64) float64
+    */
+    fmt.Printf(&amp;quot;[-3.14]的绝对值为:[%.2f]\n&amp;quot;, math.Abs(-3.14))
+
+    /*
+        取x的y次方，函数签名如下:
+            func Pow(x, y float64) float64
+    */
+    fmt.Printf(&amp;quot;[2]的16次方为:[%.f]\n&amp;quot;, math.Pow(2, 16))
+
+    /*
+        取余数，函数签名如下:
+            func Pow10(n int) float64
+    */
+    fmt.Printf(&amp;quot;10的[3]次方为:[%.f]\n&amp;quot;, math.Pow10(3))
+
+    /*
+        取x的开平方，函数签名如下:
+            func Sqrt(x float64) float64
+    */
+    fmt.Printf(&amp;quot;[64]的开平方为:[%.f]\n&amp;quot;, math.Sqrt(64))
+
+    /*
+        取x的开立方，函数签名如下:
+            func Cbrt(x float64) float64
+    */
+    fmt.Printf(&amp;quot;[27]的开立方为:[%.f]\n&amp;quot;, math.Cbrt(27))
+
+    /*
+        向上取整，函数签名如下:
+            func Ceil(x float64) float64
+    */
+    fmt.Printf(&amp;quot;[3.14]向上取整为:[%.f]\n&amp;quot;, math.Ceil(3.14))
+
+    /*
+        向下取整，函数签名如下:
+            func Floor(x float64) float64
+    */
+    fmt.Printf(&amp;quot;[8.75]向下取整为:[%.f]\n&amp;quot;, math.Floor(8.75))
+
+    /*
+        取余数，函数签名如下:
+            func Floor(x float64) float64
+    */
+    fmt.Printf(&amp;quot;[10/3]的余数为:[%.f]\n&amp;quot;, math.Mod(10, 3))
+
+    /*
+        分别取整数和小数部分,函数签名如下:
+            func Modf(f float64) (int float64, frac float64)
+    */
+    Integer, Decimal := math.Modf(3.14159265358979)
+    fmt.Printf(&amp;quot;[3.14159265358979]的整数部分为:[%.f],小数部分为:[%.14f]\n&amp;quot;, Integer, Decimal)
+
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;rand&#34;&gt;rand&lt;/h1&gt;
+
+&lt;p&gt;rand包实现了伪随机数生成器。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;import &amp;quot;math/rand&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;随机数从资源生成。包水平的函数都使用的默认的公共资源。该资源会在程序每次运行时都产生确定的序列。如果需要每次运行产生不同的序列，应使用Seed函数进行初始化。如果不调用sned函数，默认都是采用sned（1），默认资源可以安全的用于多go程并发。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;math/rand&amp;quot;
+    &amp;quot;time&amp;quot;
+)
+
+func main() {
+    rand.Seed(time.Now().UnixNano())
+    for i := 0; i &amp;lt; 10; i++ {
+        x := rand.Intn(100)
+        fmt.Println(x)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;以上例子是打印10个100以内（0-99）的随机数字&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Rand.Intn(n)。int代表整数，后面的n代表范围，其他类型类似&lt;/li&gt;
+&lt;li&gt;rand.Seed 设置随机数种子&lt;/li&gt;
+&lt;li&gt;time.Now().UnixNano() 种子，也就是随机因子，相同的种子产生的随机数是一样的。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;自定义生成rand结构体-设置随机数种子&#34;&gt;自定义生成Rand结构体，设置随机数种子&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;func NewSource(seed int64) Source
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;使用给定的种子创建一个伪随机资源。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func New(src Source) *Rand
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回一个使用src生产的随机数来生成其他各种分布的随机数值的*Rand。&lt;/p&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;math/rand&amp;quot;
+    &amp;quot;time&amp;quot;
+)
+
+func main() {
+    source := rand.NewSource(time.Now().UnixNano()) // 使用当前的纳秒生成一个随机源，也就是随机种子
+    ran := rand.New(source) // 生成一个rand
+    fmt.Println(rand.Int())
+    fmt.Println(rand.Int31())
+    fmt.Println(rand.Intn(5))
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;其它生成随机数的方法&#34;&gt;其它生成随机数的方法&lt;/h2&gt;
+
+&lt;p&gt;Rand生成随机数当然不只这三个方法，还有其它生成随机数的方法&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *Rand) Int63() int64
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回一个int64类型的非负的63位伪随机数。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *Rand) Uint32() uint32
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回一个uint32类型的非负的32位伪随机数。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Int31n(n int32) int32
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回一个取值范围在[0,n)的伪随机int32值，如果n&amp;lt;=0会panic。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Int63n(n int64) int64
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回一个取值范围在[0, n)的伪随机int64值，如果n&amp;lt;=0会panic。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *Rand) Float32() float32
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回一个取值范围在[0.0, 1.0)的伪随机float32值。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *Rand) Float64() float64
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回一个取值范围在[0.0, 1.0)的伪随机float64值。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *Rand) Perm(n int) []int
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回一个有n个元素的，[0,n)范围内整数的伪随机排列的切片。&lt;/p&gt;
+
+&lt;h2 id=&#34;crypto-rand&#34;&gt;crypto/rand&lt;/h2&gt;
+
+&lt;p&gt;这个rand包实现了用于加解密的更安全的随机数生成器,主要应用场景：生成随机加密串。&lt;/p&gt;
+
+&lt;p&gt;这边简单使用一个实例说明，具体可以看&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-crypto/&#34;&gt;crypto&lt;/a&gt;包&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;crypto/rand&amp;quot;
+    &amp;quot;encoding/base64&amp;quot;
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;math/big&amp;quot;
+)
+
+func main() {
+    //1、Int
+    n, err := rand.Int(rand.Reader, big.NewInt(128))
+    if err == nil {
+        fmt.Println(&amp;quot;rand.Int：&amp;quot;, n, n.BitLen())
+    }
+    //2、Prime
+    p, err := rand.Prime(rand.Reader, 5)
+    if err == nil {
+        fmt.Println(&amp;quot;rand.Prime：&amp;quot;, p)
+    }
+    //3、Read
+    b := make([]byte, 32)
+    m, err := rand.Read(b)
+    if err == nil {
+        fmt.Println(&amp;quot;rand.Read：&amp;quot;, b[:m])
+        fmt.Println(&amp;quot;rand.Read：&amp;quot;, base64.URLEncoding.EncodeToString(b))
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;运行结果&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;rand.Int： 92 7
+rand.Prime： 29
+rand.Read： [207 47 241 208 190 84 109 134 86 106 87 223 111 113 203 155 44 118 71 20 186 62 66 130 244 98 97 184 8 179 6 230]
+rand.Read： zy_x0L5UbYZWalffb3HLmyx2RxS6PkKC9GJhuAizBuY=
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;big&#34;&gt;big&lt;/h1&gt;
+
+&lt;p&gt;大数处理，可以用golang的math/big包&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;math/big&amp;quot;
+)
+
+func main() {
+    //设置一个大于int64的数
+    a := new(big.Int)
+    a, ok := a.SetString(&amp;quot;9122322238215458478512545454878168716584545412154785452142499999&amp;quot;, 10)
+    if !ok {
+        panic(&amp;quot;error&amp;quot;)
+    }
+    //String方法可以转换成字符串输出
+    fmt.Println(a.String())
+
+    //大数相加
+    b:=big.NewInt(2)
+    b=b.Add(a,b) //  Mod 取模、Add 加、Sub 减、Mul 乘、Div 除
+    fmt.Println(b.String())
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;cmplx&#34;&gt;cmplx&lt;/h1&gt;
+
+&lt;p&gt;cmplx 包为复数提供基本的常量和数学函数。&lt;/p&gt;
+
+&lt;h1 id=&#34;bits&#34;&gt;bits&lt;/h1&gt;
+
+&lt;p&gt;bits主要打包字节为预先声明的无符号整数类型实现位计数和操作函数。&lt;/p&gt;</description>
         </item>
       
     
