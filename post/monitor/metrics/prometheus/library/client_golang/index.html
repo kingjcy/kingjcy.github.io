@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="client_golang 是Prometheus client的使用，基于golang语言。提供了prometheus的数据规范。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控metrics系列---- Prometheus Client_golang - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控metrics系列---- Prometheus Client_golang
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年02月12日 
+                </div>
+                <h1 class="post-title">监控metrics系列---- Prometheus Client_golang</h1>
+            </header>
+
+            <div class="post-content">
+                <p>client_golang 是Prometheus client的使用，基于golang语言。提供了prometheus的数据规范。</p>
+
+<h1 id="库结构">库结构</h1>
+
+<p>地址： <a href="https://github.com/prometheus/client_golang">https://github.com/prometheus/client_golang</a></p>
+
+<p>Directories（描述）</p>
+
+<pre><code>api                     Package api provides clients for the HTTP APIs.
+api/prometheus/v1       Package v1 provides bindings to the Prometheus HTTP API v1: http://prometheus.io/docs/querying/api/
+
+examples/random         A simple example exposing fictional RPC latencies with different types of random distributions (uniform, normal, and exponential) as Prometheus metrics.
+
+examples/simple         A minimal example of how to include Prometheus instrumentation.
+prometheus              Package prometheus is the core instrumentation package.
+prometheus/graphite     Package graphite provides a bridge to push Prometheus metrics to a Graphite server.
+prometheus/promauto     Package promauto provides constructors for the usual Prometheus metrics that return them already registered with the global registry (prometheus.DefaultRegisterer).
+prometheus/promhttp     Package promhttp provides tooling around HTTP servers and clients.
+prometheus/push         Package push provides functions to push metrics to a Pushgateway.
+</code></pre>
+
+<p>上面对client_golang库的结构和使用进行了总结。</p>
+
+<h1 id="原理">原理</h1>
+
+<h2 id="原理解析">原理解析</h2>
+
+<p>下面是客户端的UML图</p>
+
+<p><img src="/media/monitor/library/client_golang/client_golang.png" alt="" /></p>
+
+<p>1、默认调用gocollect这个采集器，在引入package registry包的时候，就会调用init初始化</p>
+
+<ul>
+<li>registry会调用describe这个接口，实现就是gocollect这个对应的describe</li>
+<li>http.handle会调用registry的gather函数，然后函数调用collect接口，实现就是gocollect这个对应的collect</li>
+</ul>
+
+<p>2、上面只是一种特殊类型，其实对应的四种类型分别都有对应的结构体继承vec的基本函数接口，也有对应的接口，会有对应的实现</p>
+
+<p>然后这个四种类型就是就是四种collecter，同样的流程</p>
+
+<p>3、可以新建一个struct作为一个collecter，实现describe，collect接口，就可以实现自己的逻辑，最后其实还是调用四种类型，结合使用</p>
+
+<h2 id="使用">使用</h2>
+
+<p>1、四种类型有实现的函数赋值，常用</p>
+
+<pre><code>set（）
+WithLabelValues().set()
+</code></pre>
+
+<p>2、注册的几种方式</p>
+
+<blockquote>
+<p>第一种</p>
+</blockquote>
+
+<pre><code>//statement
+proxyTodayTrafficIn := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+    Name: &quot;&quot;,
+    Help: &quot;The today trafficin of proxy.&quot;,
+},[]string{&quot;type&quot;,&quot;laststarttime&quot;,&quot;lastclosetime&quot;})
+//get value
+proxyTodayTrafficIn.With(prometheus.Labels{&quot;type&quot;:v.Type,&quot;laststarttime&quot;:v.LastStartTime,&quot;lastclosetime&quot;:v.LastCloseTime}).Set(float64(v.TodayTrafficIn))
+
+//registry
+prometheus.MustRegister(proxyTodayTrafficIn)
+</code></pre>
+
+<blockquote>
+<p>第二种</p>
+</blockquote>
+
+<pre><code>serverBindPort := prometheus.NewGauge(prometheus.GaugeOpts{
+    Name: &quot;frps_server_bind_port&quot;,
+    Help: &quot;The port of server frps.&quot;,
+})
+
+serverBindPort.Set(float64(cfg.BindPort))
+
+//registry
+prometheus.MustRegister(serverBindPort)
+</code></pre>
+
+<p>上面两种可以归为一类，都是采用的默认的方式，下面就涉及到自定义结构体，根据上面的原理，我们需要重自定义的结构体中获取到两个结构体的值</p>
+
+<pre><code>func (s *结构体) Describe(ch chan&lt;- *prometheus.Desc) {}----可见这个接口的实现需要将prometheus.Desc放倒channel中去
+func (s *结构体) Collect(ch chan&lt;- prometheus.Metric) {}----可见这个接口的实现需要将prometheus.Metric放倒channel中去
+</code></pre>
+
+<p>我们来看看这两个结构体</p>
+
+<pre><code>type Desc struct {
+    // fqName has been built from Namespace, Subsystem, and Name.
+    fqName string
+    // help provides some helpful information about this metric.
+    help string
+    // constLabelPairs contains precalculated DTO label pairs based on
+    // the constant labels.
+    constLabelPairs []*dto.LabelPair
+    // VariableLabels contains names of labels for which the metric
+    // maintains variable values.
+    variableLabels []string
+    // id is a hash of the values of the ConstLabels and fqName. This
+    // must be unique among all registered descriptors and can therefore be
+    // used as an identifier of the descriptor.
+    id uint64
+    // dimHash is a hash of the label names (preset and variable) and the
+    // Help string. Each Desc with the same fqName must have the same
+    // dimHash.
+    dimHash uint64
+    // err is an error that occured during construction. It is reported on
+    // registration time.
+    err error
+}
+
+type Metric interface {
+    // Desc returns the descriptor for the Metric. This method idempotently
+    // returns the same descriptor throughout the lifetime of the
+    // Metric. The returned descriptor is immutable by contract. A Metric
+    // unable to describe itself must return an invalid descriptor (created
+    // with NewInvalidDesc).
+    Desc() *Desc
+    // Write encodes the Metric into a &quot;Metric&quot; Protocol Buffer data
+    // transmission object.
+    //
+    // Metric implementations must observe concurrency safety as reads of
+    // this metric may occur at any time, and any blocking occurs at the
+    // expense of total performance of rendering all registered
+    // metrics. Ideally, Metric implementations should support concurrent
+    // readers.
+    //
+    // While populating dto.Metric, it is the responsibility of the
+    // implementation to ensure validity of the Metric protobuf (like valid
+    // UTF-8 strings or syntactically valid metric and label names). It is
+    // recommended to sort labels lexicographically. (Implementers may find
+    // LabelPairSorter useful for that.) Callers of Write should still make
+    // sure of sorting if they depend on it.
+    Write(*dto.Metric) error
+    // TODO(beorn7): The original rationale of passing in a pre-allocated
+    // dto.Metric protobuf to save allocations has disappeared. The
+    // signature of this method should be changed to &quot;Write() (*dto.Metric,
+    // error)&quot;.
+}
+</code></pre>
+
+<p>让我看看如何获取这两种值，首先desc，每种数据类型都有一个desc函数可以直接获取，如下：</p>
+
+<pre><code>name := fmt.Sprintf(&quot;%s_%s&quot;, namespace, metricMaps.Name)
+
+gaugeDescription := prometheus.NewGauge(
+    prometheus.GaugeOpts{
+        Name:      name,
+        Help:      metricMaps.Description,
+    },
+)
+
+ch &lt;- gaugeDescription.Desc()
+</code></pre>
+
+<p>还可以直接新建</p>
+
+<pre><code>func NewDesc(fqName, help string, variableLabels []string, constLabels Labels) *Desc {}
+
+//new desc
+desc := prometheus.NewDesc(name, metricMaps.Description, constLabels, nil)
+</code></pre>
+
+<p>再来看看metrics这个接口，找到其相应的结构体实现</p>
+
+<pre><code>func MustNewConstMetric(desc *Desc, valueType ValueType, value float64, labelValues ...string) Metric {}
+
+//channel
+ch &lt;- prometheus.MustNewConstMetric(desc, vtype, value, labelValue...)
+</code></pre>
+
+<blockquote>
+<p>第三种</p>
+</blockquote>
+
+<p>新建结构体，完成上面方法的使用，就可以了，如下：</p>
+
+<pre><code>    //set var
+    vtype := prometheus.CounterValue
+    name := fmt.Sprintf(&quot;%s_%s&quot;, namespace, metricMaps.Name)
+    log.Debugf(&quot;counter name: %s&quot;, name)
+
+    //new desc
+    desc := prometheus.NewDesc(name, metricMaps.Description, constLabels, nil)
+
+    //deal Value
+    value, err := dealValue(res[i])
+    if err != nil {
+        log.Errorf(&quot;parse value error: %s&quot;,err)
+        break
+    }
+    log.Debugf(&quot;counter value: %s&quot;, value)
+
+    //channel
+    ch &lt;- prometheus.MustNewConstMetric(desc, vtype, value, labelValue...)
+</code></pre>
+
+<p>3、Newregistry调用和直接调用prometheus的对应的MustRegister其实是一样的，都是默认new一个registry的结构体</p>
+
+<p>4、duplicate metrics collector registration attempted&mdash;重复注册</p>
+
+<h2 id="collector">Collector</h2>
+
+<p>Collector 中 Describe 和 Collect 方法都是无状态的函数，其中 Describe 暴露全部可能的 Metric 描述列表，在注册（Register）或注销（Unregister）Collector 时会调用 Describe 来获取完整的 Metric 列表，用以检测 Metric 定义的冲突，另外在 github.com/prometheus/client_golang/prometheus/promhttp 下的 Instrument Handler 中，也会通过 Describe 获取 Metric 列表，并检查 label 列表（InstrumentHandler 中只支持 code 和 method 两种自定义 label）；而通过 Collect 可以获取采样数据，然后通过 HTTP 接口暴露给 Prom Server。另外，一些临时性的进程，如批处理任务，可以把数据 push 到 Push Gateway，由 Push Gateway 暴露 pull 接口，此处不赘述。</p>
+
+<p>客户端对数据的收集大多是针对标准数据结构来进行的,如下：</p>
+
+<ul>
+<li>Counter：收集事件次数等单调递增的数据</li>
+<li>Gauge：收集当前的状态，可增可减，比如数据库连接数</li>
+<li>Histogram：收集随机正态分布数据，比如响应延迟</li>
+<li>Summary：收集随机正态分布数据，和 Histogram 是类似的</li>
+</ul>
+
+<p>每种标准数据结构还对应了 Vec 结构，通过 Vec 可以简洁的定义一组相同性质的 Metric，在采集数据的时候传入一组自定义的 Label/Value 获取具体的 Metric（Counter/Gauge/Histogram/Summary），最终都会落实到基本的数据结构上，这里不再赘述。</p>
+
+<ul>
+<li><p>Counter 和 Gauge</p>
+
+<p>Gauge 和 Counter 基本实现上看是一个进程内共享的浮点数，基于 value 结构实现，而 Counter 和 Gauge 仅仅封装了对这个共享浮点数的各种操作和合法性检查逻辑。</p>
+
+<p>看 Counter 中 Inc 函数的实现</p>
+
+<p><img src="/media/monitor/library/client_golang/add.png" alt="" /></p>
+
+<p>value.Add 中修改共享数据时采用了“无锁”实现，相比“有锁 (Mutex)”实现可以更充分利用多核处理器的并行计算能力，性能相比加 Mutex 的实现会有很大提升。下图是 Go Benchmark 的测试结果，对比了“有锁”（用 defer 或不用 defer 来释放锁）和“无锁”实现在多核场景下对性能的影响。</p>
+
+<p><img src="/media/monitor/library/client_golang/benchmark.png" alt="" /></p></li>
+
+<li><p>Histogram</p>
+
+<p>Histogram 实现了 Observer 接口，用来获取客户端状态初始化（重启）到某个时间点的采样点分布，监控数据常需要服从正态分布。</p></li>
+
+<li><p>Summary</p>
+
+<p>Summary 是标准数据结构中最复杂的一个，用来收集服从正态分布的采样数据。在 Go 客户端 Summary 结构和 Histogram 一样，都实现了 Observer 接口</p>
+
+<p>这两个比较复杂，使用较少，可以先不研究，使用的时候研究</p></li>
+</ul>
+
+<h2 id="集成注意事项">集成注意事项</h2>
+
+<p>Go 客户端为 HTTP 层的集成提供了方便的 API，但使用中需要注意不要使用 github.com/prometheus/client_golang/prometheus 下定义的已经 deprecated 的 Instrument 函数，除了会引入额外（通常不需要）的监控数据，不仅会对程序性能造成不利影响，而且可能存在危险的 race（如计算请求大小时存在 goroutine 并发地访问 Header 逻辑）。</p>
+
+<h1 id="prometheus-exporter实例">Prometheus Exporter实例</h1>
+
+<p>Exporter是基于Prometheus实施的监控系统中重要的组成部分，承担数据指标的采集工作，官方的exporter列表中已经包含了常见的绝大多数的系统指标监控，比如用于机器性能监控的node_exporter, 用于网络设备监控的snmp_exporter等等。这些已有的exporter对于监控来说，仅仅需要很少的配置工作就能提供完善的数据指标采集。</p>
+
+<p>有时我们需要自己去写一些与业务逻辑比较相关的指标监控，这些指标无法通过常见的exporter获取到。比如我们需要提供对于DNS解析情况的整体监控，了解如何编写exporter对于业务监控很重要，也是完善监控系统需要经历的一个阶段。接下来我们就介绍如何编写exporter, 本篇内容编写的语言为golang, 官方也提供了python, java等其他的语言实现的库，采集方式其实大同小异。编写exporter的方式也是大同小异，就是集成对应的prometheus库，我们使用golang语言，就是集成client_golang。</p>
+
+<p>下面我们就使用golang语言集成cleint_golang来开发一个exporter。</p>
+
+<h2 id="搭建环境">搭建环境</h2>
+
+<p>首先确保机器上安装了go语言(1.7版本以上)，并设置好了对应的GOPATH。接下来我们就可以开始编写代码了。以下是一个简单的exporter</p>
+
+<p>下载对应的prometheus包</p>
+
+<pre><code>go get github.com/prometheus/client_golang/prometheus/promhttp
+</code></pre>
+
+<p>程序主函数:</p>
+
+<pre><code>package main
+
+import (
+    &quot;log&quot;
+    &quot;net/http&quot;
+    &quot;github.com/prometheus/client_golang/prometheus/promhttp&quot;
+)
+func main() {
+    http.Handle(&quot;/metrics&quot;, promhttp.Handler())
+    log.Fatal(http.ListenAndServe(&quot;:8080&quot;, nil))
+}
+</code></pre>
+
+<p>这个代码中我们仅仅通过http模块指定了一个路径，并将client_golang库中的promhttp.Handler()作为处理函数传递进去后，就可以获取指标信息了,两行代码实现了一个exporter。这里内部其实是使用了一个默认的收集器将通过NewGoCollector采集当前Go运行时的相关信息比如go堆栈使用,goroutine的数据等等。 通过访问<a href="http://localhost:8080/metrics">http://localhost:8080/metrics</a> 即可查看详细的指标参数。</p>
+
+<p>上面的代码仅仅展示了一个默认的采集器，并且通过接口调用隐藏了太多实施细节，对于下一步开发并没什么作用，为了实现自定义的监控我们需要先了解一些基本概念。</p>
+
+<h2 id="指标类别">指标类别</h2>
+
+<p>Prometheus中主要使用的四类指标类型，如下所示</p>
+
+<ul>
+<li>Counter (累加指标)</li>
+<li>Gauge (测量指标)</li>
+<li>Summary (概略图)</li>
+<li>Histogram (直方图)</li>
+</ul>
+
+<p>这些我们在上面基本原理中已经介绍过了，这边详细的介绍，并在下面加以使用。</p>
+
+<ul>
+<li>Counter 一个累加指标数据，这个值随着时间只会逐渐的增加，比如程序完成的总任务数量，运行错误发生的总次数。常见的还有交换机中snmp采集的数据流量也属于该类型，代表了持续增加的数据包或者传输字节累加值。</li>
+<li>Gauge代表了采集的一个单一数据，这个数据可以增加也可以减少，比如CPU使用情况，内存使用量，硬盘当前的空间容量等等</li>
+<li>Histogram和Summary使用的频率较少，两种都是基于采样的方式。另外有一些库对于这两个指标的使用和支持程度不同，有些仅仅实现了部分功能。这两个类型对于某一些业务需求可能比较常见，比如查询单位时间内：总的响应时间低于300ms的占比，或者查询95%用户查询的门限值对应的响应时间是多少。 使用Histogram和Summary指标的时候同时会产生多组数据，_count代表了采样的总数，_sum则代表采样值的和。 _bucket则代表了落入此范围的数据。</li>
+</ul>
+
+<p>下面是使用historam来定义的一组指标，计算出了平均五分钟内的查询请求小于0.3s的请求占比总量的比例值。</p>
+
+<pre><code>  sum(rate(http_request_duration_seconds_bucket{le=&quot;0.3&quot;}[5m])) by (job)
+/
+  sum(rate(http_request_duration_seconds_count[5m])) by (job)
+</code></pre>
+
+<p>如果需要聚合数据，可以使用histogram. 并且如果对于分布范围有明确的值的情况下（比如300ms），也可以使用histogram。但是如果仅仅是一个百分比的值（比如上面的95%），则使用Summary</p>
+
+<h2 id="定义指标">定义指标</h2>
+
+<p>这里我们需要引入另一个依赖库</p>
+
+<pre><code>go get github.com/prometheus/client_golang/prometheus
+</code></pre>
+
+<p>下面先来定义了两个指标数据，一个是Guage类型， 一个是Counter类型。分别代表了CPU温度和磁盘失败次数统计，使用上面的定义进行分类。</p>
+
+<pre><code>cpuTemp = prometheus.NewGauge(prometheus.GaugeOpts{
+    Name: &quot;cpu_temperature_celsius&quot;,
+    Help: &quot;Current temperature of the CPU.&quot;,
+})
+hdFailures = prometheus.NewCounterVec(
+    prometheus.CounterOpts{
+        Name: &quot;hd_errors_total&quot;,
+        Help: &quot;Number of hard-disk errors.&quot;,
+    },
+    []string{&quot;device&quot;},
+)
+</code></pre>
+
+<p>加一个counter的用法</p>
+
+<pre><code>totalScrapes: prometheus.NewCounter(prometheus.CounterOpts{
+            Namespace: namespace,
+            Name:      &quot;exporter_scrapes_total&quot;,
+            Help:      &quot;Current total redis scrapes.&quot;,
+        })
+</code></pre>
+
+<p>这里还可以注册其他的参数，比如上面的磁盘失败次数统计上，我们可以同时传递一个device设备名称进去，这样我们采集的时候就可以获得多个不同的指标。每个指标对应了一个设备的磁盘失败次数统计。</p>
+
+<h2 id="注册指标">注册指标</h2>
+
+<pre><code>func init() {
+    // Metrics have to be registered to be exposed:
+    prometheus.MustRegister(cpuTemp)
+    prometheus.MustRegister(hdFailures)
+}
+</code></pre>
+
+<p>使用prometheus.MustRegister是将数据直接注册到Default Registry，就像上面的运行的例子一样，这个Default Registry不需要额外的任何代码就可以将指标传递出去。注册后既可以在程序层面上去使用该指标了，这里我们使用之前定义的指标提供的API（Set和With().Inc）去改变指标的数据内容</p>
+
+<pre><code>func main() {
+    cpuTemp.Set(65.3)
+    hdFailures.With(prometheus.Labels{&quot;device&quot;:&quot;/dev/sda&quot;}).Inc()
+
+    // The Handler function provides a default handler to expose metrics
+    // via an HTTP server. &quot;/metrics&quot; is the usual endpoint for that.
+    http.Handle(&quot;/metrics&quot;, promhttp.Handler())
+    log.Fatal(http.ListenAndServe(&quot;:8080&quot;, nil))
+}
+</code></pre>
+
+<p>其中With函数是传递到之前定义的label=”device”上的值，也就是生成指标类似于</p>
+
+<pre><code>cpu_temperature_celsius 65.3
+hd_errors_total{&quot;device&quot;=&quot;/dev/sda&quot;} 1
+</code></pre>
+
+<p>当然我们写在main函数中的方式是有问题的，这样这个指标仅仅改变了一次，不会随着我们下次采集数据的时候发生任何变化，我们希望的是每次执行采集的时候，程序都去自动的抓取指标并将数据通过http的方式传递给我们。</p>
+
+<p>到这里，一套基本的采集流程也就完成了，这是最基本的使用方式，当然其中也还是封装了很多过程，比如采集器等，如果需要自定义一些东西，就要了解这些封装的过程，完成重写，下面我们自定义exporter。</p>
+
+<h2 id="自定义exporter">自定义exporter</h2>
+
+<p>counter数据采集实例，重写collecter</p>
+
+<p>下面是一个采集Counter类型数据的实例，这个例子中实现了一个自定义的，满足采集器(Collector)接口的结构体，并手动注册该结构体后，使其每次查询的时候自动执行采集任务。</p>
+
+<p>我们先来看下采集器Collector接口的实现</p>
+
+<pre><code>type Collector interface {
+    // 用于传递所有可能的指标的定义描述符
+    // 可以在程序运行期间添加新的描述，收集新的指标信息
+    // 重复的描述符将被忽略。两个不同的Collector不要设置相同的描述符
+    Describe(chan&lt;- *Desc)
+
+    // Prometheus的注册器调用Collect执行实际的抓取参数的工作，
+    // 并将收集的数据传递到Channel中返回
+    // 收集的指标信息来自于Describe中传递，可以并发的执行抓取工作，但是必须要保证线程的安全。
+    Collect(chan&lt;- Metric)
+}
+</code></pre>
+
+<p>了解了接口的实现后，我们就可以写自己的实现了，先定义结构体，这是一个集群的指标采集器，每个集群都有自己的Zone,代表集群的名称。另外两个是保存的采集的指标。</p>
+
+<pre><code>type ClusterManager struct {
+    Zone         string
+    OOMCountDesc *prometheus.Desc
+    RAMUsageDesc *prometheus.Desc
+}
+</code></pre>
+
+<p>我们来实现一个采集工作,放到了ReallyExpensiveAssessmentOfTheSystemState函数中实现，每次执行的时候，返回一个按照主机名作为键采集到的数据，两个返回值分别代表了OOM错误计数，和RAM使用指标信息。</p>
+
+<pre><code>func (c *ClusterManager) ReallyExpensiveAssessmentOfTheSystemState() (
+    oomCountByHost map[string]int, ramUsageByHost map[string]float64,
+) {
+    oomCountByHost = map[string]int{
+        &quot;foo.example.org&quot;: int(rand.Int31n(1000)),
+        &quot;bar.example.org&quot;: int(rand.Int31n(1000)),
+    }
+    ramUsageByHost = map[string]float64{
+        &quot;foo.example.org&quot;: rand.Float64() * 100,
+        &quot;bar.example.org&quot;: rand.Float64() * 100,
+    }
+    return
+}
+</code></pre>
+
+<p>实现Describe接口，传递指标描述符到channel</p>
+
+<pre><code>// Describe simply sends the two Descs in the struct to the channel.
+func (c *ClusterManager) Describe(ch chan&lt;- *prometheus.Desc) {
+    ch &lt;- c.OOMCountDesc
+    ch &lt;- c.RAMUsageDesc
+}
+</code></pre>
+
+<p>Collect函数将执行抓取函数并返回数据，返回的数据传递到channel中，并且传递的同时绑定原先的指标描述符。以及指标的类型（一个Counter和一个Guage）</p>
+
+<pre><code>func (c *ClusterManager) Collect(ch chan&lt;- prometheus.Metric) {
+    oomCountByHost, ramUsageByHost := c.ReallyExpensiveAssessmentOfTheSystemState()
+    for host, oomCount := range oomCountByHost {
+        ch &lt;- prometheus.MustNewConstMetric(
+            c.OOMCountDesc,
+            prometheus.CounterValue,
+            float64(oomCount),
+            host,
+        )
+    }
+    for host, ramUsage := range ramUsageByHost {
+        ch &lt;- prometheus.MustNewConstMetric(
+            c.RAMUsageDesc,
+            prometheus.GaugeValue,
+            ramUsage,
+            host,
+        )
+    }
+}
+</code></pre>
+
+<p>创建结构体及对应的指标信息,NewDesc参数第一个为指标的名称，第二个为帮助信息，显示在指标的上面作为注释，第三个是定义的label名称数组，第四个是定义的Labels</p>
+
+<pre><code>func NewClusterManager(zone string) *ClusterManager {
+    return &amp;ClusterManager{
+        Zone: zone,
+        OOMCountDesc: prometheus.NewDesc(
+            &quot;clustermanager_oom_crashes_total&quot;,
+            &quot;Number of OOM crashes.&quot;,
+            []string{&quot;host&quot;},
+            prometheus.Labels{&quot;zone&quot;: zone},
+        ),
+        RAMUsageDesc: prometheus.NewDesc(
+            &quot;clustermanager_ram_usage_bytes&quot;,
+            &quot;RAM usage as reported to the cluster manager.&quot;,
+            []string{&quot;host&quot;},
+            prometheus.Labels{&quot;zone&quot;: zone},
+        ),
+    }
+}
+</code></pre>
+
+<p>执行主程序</p>
+
+<pre><code>func main() {
+    workerDB := NewClusterManager(&quot;db&quot;)
+    workerCA := NewClusterManager(&quot;ca&quot;)
+
+    // Since we are dealing with custom Collector implementations, it might
+    // be a good idea to try it out with a pedantic registry.
+    reg := prometheus.NewPedanticRegistry()
+    reg.MustRegister(workerDB)
+    reg.MustRegister(workerCA)
+}
+</code></pre>
+
+<p>如果直接执行上面的参数的话，不会获取任何的参数，因为程序将自动推出，我们并未定义http接口去暴露数据出来，因此数据在执行的时候还需要定义一个httphandler来处理http请求。</p>
+
+<p>添加下面的代码到main函数后面，即可实现数据传递到http接口上：</p>
+
+<pre><code>gatherers := prometheus.Gatherers{
+    prometheus.DefaultGatherer,
+    reg,
+}
+
+h := promhttp.HandlerFor(gatherers,
+    promhttp.HandlerOpts{
+        ErrorLog:      log.NewErrorLogger(),
+        ErrorHandling: promhttp.ContinueOnError,
+    })
+http.HandleFunc(&quot;/metrics&quot;, func(w http.ResponseWriter, r *http.Request) {
+    h.ServeHTTP(w, r)
+})
+log.Infoln(&quot;Start server at :8080&quot;)
+if err := http.ListenAndServe(&quot;:8080&quot;, nil); err != nil {
+    log.Errorf(&quot;Error occur when start server %v&quot;, err)
+    os.Exit(1)
+}
+</code></pre>
+
+<p>其中prometheus.Gatherers用来定义一个采集数据的收集器集合，可以merge多个不同的采集数据到一个结果集合，这里我们传递了缺省的DefaultGatherer，所以他在输出中也会包含go运行时指标信息。同时包含reg是我们之前生成的一个注册对象，用来自定义采集数据。</p>
+
+<p>promhttp.HandlerFor()函数传递之前的Gatherers对象，并返回一个httpHandler对象，这个httpHandler对象可以调用其自身的ServHTTP函数来接手http请求，并返回响应。其中promhttp.HandlerOpts定义了采集过程中如果发生错误时，继续采集其他的数据。</p>
+
+<p>尝试刷新几次浏览器获取最新的指标信息</p>
+
+<pre><code>clustermanager_oom_crashes_total{host=&quot;bar.example.org&quot;,zone=&quot;ca&quot;} 364
+clustermanager_oom_crashes_total{host=&quot;bar.example.org&quot;,zone=&quot;db&quot;} 90
+clustermanager_oom_crashes_total{host=&quot;foo.example.org&quot;,zone=&quot;ca&quot;} 844
+clustermanager_oom_crashes_total{host=&quot;foo.example.org&quot;,zone=&quot;db&quot;} 801
+# HELP clustermanager_ram_usage_bytes RAM usage as reported to the cluster manager.
+# TYPE clustermanager_ram_usage_bytes gauge
+clustermanager_ram_usage_bytes{host=&quot;bar.example.org&quot;,zone=&quot;ca&quot;} 10.738111282075208
+clustermanager_ram_usage_bytes{host=&quot;bar.example.org&quot;,zone=&quot;db&quot;} 19.003276633920805
+clustermanager_ram_usage_bytes{host=&quot;foo.example.org&quot;,zone=&quot;ca&quot;} 79.72085409108028
+clustermanager_ram_usage_bytes{host=&quot;foo.example.org&quot;,zone=&quot;db&quot;} 13.041384617379178
+</code></pre>
+
+<p>每次刷新的时候，我们都会获得不同的数据，类似于实现了一个数值不断改变的采集器。当然，具体的指标和采集函数还需要按照需求进行修改，满足实际的业务需求。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/library/client_golang/">https://kingjcy.github.io/post/monitor/metrics/prometheus/library/client_golang/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/metrics/">
+                            <i class="fa fa-tags"></i>
+                            metrics
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/library/">
+                            <i class="fa fa-tags"></i>
+                            library
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/client_golang/">
+                            <i class="fa fa-tags"></i>
+                            client_golang
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/log-scheme/">监控系列---- log</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/thanos/">监控metrics系统---- Thanos</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat/">监控日志系列---- Filebeat</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat-principle/">监控日志系列---- Filebeat原理</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/collect-scheme/">监控日志系列---- 容器日志采集方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/prometheus-operater/">监控metrics系列---- Prometheus Operator</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年06月12日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/database/elasticsearch/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-bufio/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#库结构">库结构</a></li>
+<li><a href="#原理">原理</a>
+<ul>
+<li><a href="#原理解析">原理解析</a></li>
+<li><a href="#使用">使用</a></li>
+<li><a href="#collector">Collector</a></li>
+<li><a href="#集成注意事项">集成注意事项</a></li>
+</ul></li>
+<li><a href="#prometheus-exporter实例">Prometheus Exporter实例</a>
+<ul>
+<li><a href="#搭建环境">搭建环境</a></li>
+<li><a href="#指标类别">指标类别</a></li>
+<li><a href="#定义指标">定义指标</a></li>
+<li><a href="#注册指标">注册指标</a></li>
+<li><a href="#自定义exporter">自定义exporter</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
