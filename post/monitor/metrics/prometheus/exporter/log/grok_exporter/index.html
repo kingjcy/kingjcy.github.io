@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="grok_exporter是基于logstash的grok的插件开发的日志分析工具，可以分析非结构化日志根据正则表达式进行匹配，然后生成适合prometheus的规则规范的metrics。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控metrics系列---- Prometheus Grok_exporter - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控metrics系列---- Prometheus Grok_exporter
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年01月10日 
+                </div>
+                <h1 class="post-title">监控metrics系列---- Prometheus Grok_exporter</h1>
+            </header>
+
+            <div class="post-content">
+                <p>grok_exporter是基于logstash的grok的插件开发的日志分析工具，可以分析非结构化日志根据正则表达式进行匹配，然后生成适合prometheus的规则规范的metrics。</p>
+
+<h1 id="编译安装">编译安装</h1>
+
+<p>下载代码</p>
+
+<pre><code>https://github.com/fstab/grok_exporter
+</code></pre>
+
+<p>编译环境</p>
+
+<pre><code>1. go
+2. gcc
+3. Oniguruma
+</code></pre>
+
+<p>前面两个就不多说了，最后一个安装说明一下</p>
+
+<pre><code>1. Installing the Oniguruma library on OS X
+
+    brew install oniguruma
+
+2.Installing the Oniguruma library on Ubuntu Linux
+
+    sudo apt-get install libonig-dev
+
+3.Installing the Oniguruma library from source
+
+    curl -sLO https://github.com/kkos/oniguruma/releases/download/v6.9.4/onig-6.9.4.tar.gz
+    tar xfz onig-6.9.4.tar.gz
+    cd /tmp/onig-6.9.4
+    ./configure
+    make
+    make install
+</code></pre>
+
+<p>编译</p>
+
+<pre><code>git clone https://github.com/fstab/grok_exporter
+cd grok_exporter
+git submodule update --init --recursive
+go install .
+</code></pre>
+
+<h1 id="使用">使用</h1>
+
+<p>基本启动</p>
+
+<pre><code>./grok_exporter -config ./example/config.yml
+</code></pre>
+
+<p>就可以在 <a href="http://localhost:9144/metrics">http://localhost:9144/metrics</a> 来访问指标</p>
+
+<p>其他启动参数</p>
+
+<pre><code>Usage of ./grok_exporter:
+  -config string
+        Path to the config file. Try '-config ./example/config.yml' to get started.
+  -showconfig
+        Print the current configuration to the console. Example: 'grok_exporter -showconfig -config ./example/config.yml'
+  -version
+        Print the grok_exporter version.
+</code></pre>
+
+<p>配置文件</p>
+
+<pre><code>The grok_exporter configuration file consists of five main sections:
+
+global:
+    # Config version
+input:
+    # How to read log lines (file or stdin).
+grok:
+    # Available Grok patterns.
+metrics:
+    # How to map Grok fields to Prometheus metrics.
+server:
+    # How to expose the metrics via HTTP(S).
+</code></pre>
+
+<p>说明</p>
+
+<ul>
+<li><p>global 主要是配置config的版本，目前最新版都是V2</p>
+
+<pre><code>global:
+    config_version: 2
+    retention_check_interval: 53s
+</code></pre>
+
+<p>1、config</p>
+
+<pre><code>grok_exporter   config_version
+≤ 0.1.4 1 (see CONFIG_v1.md)
+0.2.X, 1.0.X    2 (current version)
+</code></pre>
+
+<p>2、retention_check_interval</p>
+
+<pre><code>The retention_check_interval is the interval at which grok_exporter checks for expired metrics.
+</code></pre></li>
+
+<li><p>input 主要是重哪边采集日志，可以是文件，标准输入等,我们使用的是文件输入的方式，在这边只要将文件路径配置好就行。</p>
+
+<p>1、file</p>
+
+<pre><code>input:
+    type: file
+    paths:
+    - /var/logdir1/*.log
+    - /var/logdir2/*.log
+    readall: false
+    fail_on_missing_logfile: true
+    poll_interval_seconds: 5 # should not be needed in most cases, see below
+</code></pre>
+
+<ul>
+<li>type就是类型</li>
+<li>path就是获取文件配置</li>
+<li>readall表示是否重文件开头开始读取，true表示重文件开头读取，false表示重结尾读取</li>
+<li>fail_on_missing_logfile表示不存在采集的文件是否启动成功，如果是true代表文件不存在就启动失败，反之亦然。</li>
+<li>poll_interval_seconds不重要</li>
+</ul>
+
+<p>2、stdin</p>
+
+<pre><code>input:
+    type: stdin
+</code></pre>
+
+<p>比如monitor the output of journalctl</p>
+
+<pre><code>journalctl -f | grok_exporter -config config.yml
+</code></pre>
+
+<p>3、Webhook</p>
+
+<pre><code>input:
+
+    type: webhook
+
+    # HTTP Path to POST the webhook
+    # Default is `/webhook`
+    webhook_path: /webhook
+
+    # HTTP Body POST Format
+    # text_single: Webhook POST body is a single plain text log entry
+    # text_bulk: Webhook POST body contains multiple plain text log entries
+    #   separated by webhook_text_bulk_separator (default: \n\n)
+    # json_single: Webhook POST body is a single json log entry.  Log entry
+    #   text is selected from the value of a json key determined by
+    #   webhook_json_selector.
+    # json_bulk: Webhook POST body contains multiple json log entries.  The
+    #   POST body envelope must be a json array &quot;[ &lt;entry&gt;, &lt;entry&gt; ]&quot;.  Log
+    #   entry text is selected from the value of a json key determined by
+    #   webhook_json_selector.
+    # Default is `text_single`
+    webhook_format: json_bulk
+
+    # JSON Path Selector
+    # Within an json log entry, text is selected from the value of this json selector
+    #   Example &quot;.path.to.element&quot;
+    # Default is `.message`
+    webhook_json_selector: .message
+
+    # Bulk Text Separator
+    # Separator for text_bulk log entries
+    # Default is `\n\n`
+    webhook_text_bulk_separator: &quot;\n\n&quot;
+</code></pre></li>
+
+<li><p>grok 主要是匹配规则的相关正则表达式的定义，我们可以自定义的我们url相关的路径，然后根据路径进行匹配</p>
+
+<p>配置</p>
+
+<pre><code>grok:
+    patterns_dir: ./logstash-patterns-core/patterns
+    additional_patterns:
+    - 'EXIM_MESSAGE [a-zA-Z ]*'
+    - 'EXIM_SENDER_ADDRESS F=&lt;%{EMAILADDRESS}&gt;'
+</code></pre>
+
+<ul>
+<li>patterns_dir是指定我们写好的正则表达式文件的目录，我们可以自己去这个目录下编写，，正常logstash-patterns-core是以前用于logstash的，包含了大部分的正则，可以进去查看使用，当然如果自定义的话，也可以自己去写这个文件在这个目录下。</li>
+<li>additional_patterns也是我们给正则表达式起个名字，不用写在文件里，写在这里直接用</li>
+</ul>
+
+<p>比如我做的nginx的url的匹配获取参数为标签的</p>
+
+<pre><code>grok:
+    additional_patterns:
+      - 'URL /springRed/getRewards.do!?'            //获取url
+      - 'ID (?&lt;=promotionId=).*?(?=[&quot;|&amp;|  ])'       //获取参数id
+</code></pre></li>
+
+<li><p>metrics 主要定义我们采集的指标</p>
+
+<p>支持四种类型</p>
+
+<pre><code>Counter
+Gauge
+Histogram
+Summary
+</code></pre>
+
+<p>1.counter</p>
+
+<pre><code>metrics:
+    - type: counter
+      name: alice_occurrences_total
+      help: number of log lines containing alice
+      match: 'alice'
+      labels:
+          logfile: '{{base .logfile}}'
+</code></pre>
+
+<ul>
+<li>match就是我们匹配的字段，可以正则表达式，可以是中间的任何一段。</li>
+<li>labels就是我们指标中使用的标签，可以使用match中定义的变量</li>
+<li>counter不需要指定value，是自己累加的</li>
+</ul>
+
+<p>例如</p>
+
+<pre><code>metrics:
+    - type: counter
+      name: count_total
+      help: Total Number of RedPackage Request.
+      match: '%{URL:url}.*%{ID:id}'
+      labels:
+        url: '{{.url}}'
+        id: '{{.id}}'
+</code></pre>
+
+<p>2.gauge</p>
+
+<pre><code>metrics:
+    - type: gauge
+      name: grok_example_values
+      help: Example gauge metric with labels.
+      match: '%{DATE} %{TIME} %{USER:user} %{NUMBER:val}'
+      value: '{{.val}}'
+      cumulative: false
+      labels:
+          user: '{{.user}}'
+</code></pre>
+
+<p>3.Histogram</p>
+
+<pre><code>metrics:
+    - type: histogram
+      name: grok_example_values
+      help: Example histogram metric with labels.
+      match: '%{DATE} %{TIME} %{USER:user} %{NUMBER:val}'
+      value: '{{.val}}'
+      buckets: [1, 2, 3]
+      labels:
+          user: '{{.user}}'
+</code></pre>
+
+<p>4.Summary</p>
+
+<pre><code>metrics:
+   - type: summary
+      name: grok_example_values
+      help: Summary metric with labels.
+      match: '%{DATE} %{TIME} %{USER:user} %{NUMBER:val}'
+      value: '{{.val}}'
+      quantiles: {0.5: 0.05, 0.9: 0.01, 0.99: 0.001}
+      labels:
+          user: '{{.user}}'
+</code></pre></li>
+
+<li><p>server服务器监听配置</p>
+
+<p>配置</p>
+
+<pre><code>server:
+    protocol: https
+    host: localhost
+    port: 9144
+    path: /metrics
+    cert: /path/to/cert
+    key: /path/to/key
+</code></pre></li>
+</ul>
+
+<h1 id="实例">实例</h1>
+
+<p>采集nginx日志中 <a href="http://test.com:8088/spring/getRewards?promotionId=21">http://test.com:8088/spring/getRewards?promotionId=21</a>    类似于这个url的 的数量的统计</p>
+
+<pre><code>[root@test grok_exporter]# cat config.yml
+global:
+    config_version: 2
+input:
+    type: file
+    path: /usr/local/nginx/logs/access_http.log
+    readall: true # Read from the beginning of the file? False means we start at the end of the file and read only new lines.
+grok:
+    additional_patterns:
+      - 'URL /spring/getRewards!?'
+      - 'ID (?&lt;=promotionId=).*?(?=[&quot;|&amp;|  ])'
+metrics:
+    - type: counter
+      name: count_total
+      help: Total Number of RedPackage Request.
+      match: '%{URL:url}.*%{ID:id}'
+      labels:
+        url: '{{.url}}'
+        id: '{{.id}}'
+
+server:
+    host: 0.0.0.0
+    port: 9144
+</code></pre>
+
+<p>启动</p>
+
+<pre><code>./grok_exporter -config ./example/config.yml
+</code></pre>
+
+<p>采集数据</p>
+
+<pre><code># HELP count_total Total Number of RedPackage Request.
+# TYPE count_total counter
+count_total{id=&quot;21&quot;,url=&quot;/springRed/getRewards.do&quot;} 387184
+count_total{id=&quot;22&quot;,url=&quot;/springRed/getRewards.do&quot;} 384322
+count_total{id=&quot;23&quot;,url=&quot;/springRed/getRewards.do&quot;} 381606
+</code></pre>
+
+<h1 id="原理">原理</h1>
+
+<p>进程会一直对文件进行读取计算，所以就算不采集数据，程序在这一块也是有消耗的。读取的方式是可以选择的，重文件开始还是文件结束。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/log/grok_exporter/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/metrics/">
+                            <i class="fa fa-tags"></i>
+                            metrics
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/exporter/">
+                            <i class="fa fa-tags"></i>
+                            exporter
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/grok_exporter/">
+                            <i class="fa fa-tags"></i>
+                            grok_exporter
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">监控metrics系列---- Prometheus mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">监控metrics系列---- Prometheus blackbox_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月03日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/gpu_exporter/">监控metrics系列---- Prometheus gpu_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月15日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/process_exporter/">监控metrics系列---- Prometheus Process Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter-sn/">监控metrics系列---- Prometheus redis Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter/">监控metrics系列---- Prometheus redis Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/log/loki/loki/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#编译安装">编译安装</a></li>
+<li><a href="#使用">使用</a></li>
+<li><a href="#实例">实例</a></li>
+<li><a href="#原理">原理</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

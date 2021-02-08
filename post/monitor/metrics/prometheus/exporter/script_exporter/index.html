@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="script_exporter探针是一个自研发的探针，通过脚本执行shell命令获取机器指标并且按着配置规范进行返回，最后转化为时序数据库的标准格式用于系统的监控。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控metrics系列---- Prometheus Script_exporter - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控metrics系列---- Prometheus Script_exporter
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年10月09日 
+                </div>
+                <h1 class="post-title">监控metrics系列---- Prometheus Script_exporter</h1>
+            </header>
+
+            <div class="post-content">
+                <p>script_exporter探针是一个自研发的探针，通过脚本执行shell命令获取机器指标并且按着配置规范进行返回，最后转化为时序数据库的标准格式用于系统的监控。</p>
+
+<h1 id="设计">设计</h1>
+
+<h2 id="探针设计">探针设计</h2>
+
+<h3 id="架构">架构</h3>
+
+<p><img src="/media/monitor/prometheus/exporter/script.png" alt="" /></p>
+
+<p>我们通过下面的配置来讲解使用方法</p>
+
+<p>全局配置文件script-exporter.yml</p>
+
+<pre><code>scriptconfigpath: /Users/chunyinjiang/jcy/work/go_workspace/prometheus/script_exporter-sn-1.0.0/src/github.com/promes/script_exporter/scriptconfig
+reload: 20s
+</code></pre>
+
+<p>说明：</p>
+
+<ul>
+<li>scriptconfigpath是对应类型的服务的配置文件的存放路径，默认在当前目录下的scriptconfig这个目录下</li>
+<li>reload是自动热加载的定时时间，配置就开启定时器，配置自动加载。关于重载这边说明一下使用
+
+<ul>
+<li>配置reload表示开启，配置的value就是定时重载的时间</li>
+<li>value可以配置h,m,s等时间单位，支持自动解析，也可以不加单位，默认时间单位为s</li>
+<li>定时器可以重新加载自己的定时时间，当配置文件中的reload发生改变的时候，可以自动更新配置和自己的定时时间</li>
+<li>在运行过程中，定时器删除和新增，也就是直接新增或者删除reload，需要给这个进程传递一个HUP信号</li>
+<li>服务的配置文件的路径下文件可以动态加载，加载方式有两种，一个直接传递HUP信号，一个是设置定时器自动重新加载</li>
+</ul></li>
+</ul>
+
+<p>服务配置文件ntp_exporter.yml</p>
+
+<pre><code>ntp:
+  cmd: './script/checkntp.sh'
+  split: &quot;|&quot;
+  service: &quot;ntp&quot;
+  metrics:
+    - client:
+        type: &quot;label&quot;
+        description: &quot;client type&quot;
+    - status:
+        type: &quot;gauge&quot;
+        description: &quot;client status&quot;
+    - synchronize:
+        type: &quot;gauge&quot;
+        description: &quot;whether time synchronize or not&quot;
+    - offset:
+        type: &quot;gauge&quot;
+        description: &quot;time offset&quot;
+</code></pre>
+
+<p>说明</p>
+
+<ul>
+<li>cmd表示执行的脚本，建议最好用绝对路径，正常情况下，我们把脚本存放在当前的script目录下</li>
+<li>spilt表示返回数据的分隔符，用于数据解析，正常使用“|”</li>
+<li>service表示当前配置属于的服务类型，对应采集参数。</li>
+<li>ntp是自定义的一个域，一个脚本对应的执行结果和指标名的定义都在这个域下面，同时也是指标名或者标签名的前缀</li>
+<li>metrics是定义对应指标名和指标里的标签
+
+<ul>
+<li>每个指标模块有三部分组成，对应的是对脚本一个返回值的处理</li>
+<li>首先是指标名或者标签名的后半部分，比如offset，加上前缀就会采集一个指标ntp_offset，比如client，就会有一个标签ntp_client，这边特别说明一下标签会在当前域中的所有的指标里加上。</li>
+<li>type表示类型，目前支持：
+
+<ul>
+<li>“label”标签，</li>
+<li>“gauge”可以增加减少的变量</li>
+<li>“count”只能增加的变量</li>
+</ul></li>
+<li>description表示描述，表示对当前指标或者标签的说明</li>
+</ul></li>
+</ul>
+
+<h3 id="使用">使用</h3>
+
+<ul>
+<li><p>指标可配置：</p>
+
+<ul>
+<li>指标名为域名+metrics中的key，是对应的域的拼接，最总形成最后的指标名，在采集结果中展示。</li>
+<li>指标值是cmd执行返回的结果，必须和配置中的metrics中的list一一可对应，否则不显示。</li>
+<li>返回值可指定分隔符，默认为空格，可以使用spilt进行配置</li>
+<li>返回value：
+
+<ul>
+<li>int /String
+
+<ul>
+<li>支持counter，label，gauge</li>
+<li>返回数值int直接使用counter，guage</li>
+<li>返回string直接使用label</li>
+</ul></li>
+<li>list
+
+<ul>
+<li>返回list，循环处理</li>
+</ul></li>
+</ul></li>
+</ul></li>
+
+<li><p>默认采集指标</p>
+
+<ul>
+<li>脚本执行是否成功，指标名制定为scrpit_success</li>
+<li>脚本执行时间，指标名制定为scrpit_duration</li>
+<li>默认采集指标默认制定标签（namespace=”域”）</li>
+</ul></li>
+</ul>
+
+<h3 id="指标展示">指标展示</h3>
+
+<p>上面配置执行探针指标如下：</p>
+
+<pre><code># HELP ntp_offset time offset
+# TYPE ntp_offset gauge
+ntp_offset{ntp_client=&quot;ntpdate&quot;} -0.020493
+# HELP ntp_status client status
+# TYPE ntp_status gauge
+ntp_status{ntp_client=&quot;ntpdate&quot;} 1
+# HELP ntp_synchronize whether time synchronize or not
+# TYPE ntp_synchronize gauge
+ntp_synchronize{ntp_client=&quot;ntpdate&quot;} 0
+# HELP raid_group_metrics raid next start time
+# TYPE raid_group_metrics gauge
+raid_group_metrics{raid_group_id=&quot;0/0&quot;,raid_group_status=&quot;Optl&quot;,raid_group_strategy=&quot;RAWBC&quot;,raid_group_type=&quot;HDD&quot;} 1
+raid_group_metrics{raid_group_id=&quot;0/1&quot;,raid_group_status=&quot;Optl&quot;,raid_group_strategy=&quot;RAWBD&quot;,raid_group_type=&quot;HDD&quot;} 1
+# HELP raid_nextstarttime raid next start time
+# TYPE raid_nextstarttime gauge
+raid_nextstarttime{raid_delay=&quot;168&quot;,raid_mode=&quot;Auto&quot;,raid_state=&quot;Stopped&quot;,raid_type=&quot;pr&quot;} 7
+raid_nextstarttime{raid_delay=&quot;672&quot;,raid_mode=&quot;Concurrent&quot;,raid_state=&quot;Stopped&quot;,raid_type=&quot;cc&quot;} 0
+# HELP raid_reset_metrics whether raid reset or not
+# TYPE raid_reset_metrics gauge
+raid_reset_metrics{raid_reset_key=&quot;resetadapter&quot;} 0
+# HELP scrpit_duration Displays time  about run script
+# TYPE scrpit_duration gauge
+scrpit_duration{namespace=&quot;ntp&quot;} 0.266784932
+scrpit_duration{namespace=&quot;raid&quot;} 0.02776845
+scrpit_duration{namespace=&quot;raid_group&quot;} 0.077789637
+scrpit_duration{namespace=&quot;raid_reset&quot;} 0.003795185
+# HELP scrpit_success Displays whether or not the script run success
+# TYPE scrpit_success gauge
+scrpit_success{namespace=&quot;ntp&quot;} 1
+scrpit_success{namespace=&quot;raid&quot;} 1
+scrpit_success{namespace=&quot;raid_group&quot;} 1
+scrpit_success{namespace=&quot;raid_reset&quot;} 1
+</code></pre>
+
+<h2 id="部署设计">部署设计</h2>
+
+<h3 id="架构-1">架构</h3>
+
+<p><img src="/media/monitor/prometheus/exporter/script2.png" alt="" /></p>
+
+<p>设计说明：</p>
+
+<ul>
+<li>探针只有一个，脚本和脚本配置文件单独存放，提供增加，删除，修改接口，这样可以动态的通过对脚本和脚本配置文件的处理，来实现所有脚本的服务的动态上下线</li>
+<li>同时只有一个探针进程，不会出现同是脚本监控的采集部署多个探针进程，消耗机器资源</li>
+<li>功能模块
+
+<ul>
+<li>上传脚本文件接口，可以是窗口，或者文件按钮</li>
+<li>上传配置文件接口，可以是窗口，或者文件按钮</li>
+<li>开始采集，不动脚本和配置，使用服务发现。</li>
+<li>停止采集，不动脚本和配置，使用服务发现。</li>
+<li>生成子配置文件&mdash;后期可以考虑配置自动生成（设置指标相关规则）</li>
+<li>自动加载，信号和定时器两种方式</li>
+</ul></li>
+</ul>
+
+<h3 id="使用-1">使用</h3>
+
+<p>1、安装</p>
+
+<ul>
+<li>拉去脚本和配置文件到指定的目录</li>
+<li>reload</li>
+</ul>
+
+<p>2、卸载</p>
+
+<ul>
+<li>删除脚本和配置文件</li>
+<li>reload</li>
+</ul>
+
+<p>3、开始采集</p>
+
+<ul>
+<li>使用服务发现，改变注册信息（粒度到脚本，都是脚本的附加属性）</li>
+<li>prometheus更新配置</li>
+</ul>
+
+<p>4、停止采集</p>
+
+<ul>
+<li>使用服务发现，改变注册信息（粒度到脚本，都是脚本的附加属性）</li>
+<li>prometheus更新配置</li>
+</ul>
+
+<p>5、采集频率</p>
+
+<p>consul注册增加采集频率目录，consul-template按目录生成不同的json文件，promehteus使用不同job来设定好采集频率，进行采集。</p>
+
+<p>6、脚本数量</p>
+
+<p>脚本数量有以下因素决定：</p>
+
+<ul>
+<li>超时时间</li>
+</ul>
+
+<p>目前prometheus默认拉去数据的超时时间为10S（可配置），探针执行脚本设计的超时时间为1S（可配置），所以考虑到异常情况，脚本全部执行失败，保证prometheus获取数据，所以正常情况下，一个job保持9个脚本的，以此类推，在超时时间上，一个job脚本的数量取决于探针和数据库的超时时间。所有脚本的数量取决于job数量和机器性能资源压力。</p>
+
+<p>特殊场景：ntp同步宕机的时间源的情况，会出现长达4S的脚本执行时间，所以服务监控脚本设计为5S超时时间，这边需要调整prometheus默认拉去数据的超时时间为60S（可配置），每个job可配置11个脚本。</p>
+
+<ul>
+<li>性能</li>
+</ul>
+
+<p>资源消耗这一块还没有压测，目前在满足超时时间的情况下机器的各项数据上没有什么压力。</p>
+
+<p>1.27-2.12这段时间在一台物理机上跑了ntp和raid，目前没有发现错误情况，资源消耗如下图</p>
+
+<p><img src="/media/monitor/prometheus/exporter/script3.png" alt="" />
+<img src="/media/monitor/prometheus/exporter/script4.png" alt="" />
+<img src="/media/monitor/prometheus/exporter/script5.png" alt="" />
+<img src="/media/monitor/prometheus/exporter/script6.png" alt="" /></p>
+
+<h3 id="注册">注册</h3>
+
+<h4 id="服务维度">服务维度</h4>
+
+<p>直接使用参数targets来指定服务，，数据用“，”隔开。例如
+<a href="http://10.37.2.191:9173/metrics?targets=raid">http://10.37.2.191:9173/metrics?targets=raid</a></p>
+
+<p>只是raid服务相关的返回</p>
+
+<pre><code># HELP raid_group_metrics whether get raid group info or not
+# TYPE raid_group_metrics gauge
+raid_group_metrics{raid_group_id=&quot;0/0&quot;,raid_group_status=&quot;Optl&quot;,raid_group_strategy=&quot;RAWBC&quot;,raid_group_type=&quot;HDD&quot;} 1
+raid_group_metrics{raid_group_id=&quot;0/1&quot;,raid_group_status=&quot;Optl&quot;,raid_group_strategy=&quot;RAWBD&quot;,raid_group_type=&quot;HDD&quot;} 1
+# HELP raid_metrics whether get raid info or not
+# TYPE raid_metrics gauge
+raid_metrics{raid_state=&quot;Stopped&quot;,raid_type=&quot;CC&quot;} 1
+raid_metrics{raid_state=&quot;Stopped&quot;,raid_type=&quot;PR&quot;} 1
+# HELP raid_reset_metrics whether raid reset or not
+# TYPE raid_reset_metrics gauge
+raid_reset_metrics{raid_reset_key=&quot;resetadapter&quot;} 0
+# HELP scrpit_duration Displays time  about run script
+# TYPE scrpit_duration gauge
+scrpit_duration{namespace=&quot;raid&quot;} 0.017630159
+scrpit_duration{namespace=&quot;raid_group&quot;} 0.036695585
+scrpit_duration{namespace=&quot;raid_reset&quot;} 0.00264489
+# HELP scrpit_success Displays whether or not the script run success
+# TYPE scrpit_success gauge
+scrpit_success{namespace=&quot;raid&quot;} 1
+scrpit_success{namespace=&quot;raid_group&quot;} 1
+scrpit_success{namespace=&quot;raid_reset&quot;} 1
+</code></pre>
+
+<h4 id="脚本维度">脚本维度</h4>
+
+<p>使用两个参数来控制targets和scripts，数据用“，”隔开。例如
+<a href="http://10.37.2.191:9173/metrics?targets=raid&amp;&amp;scripts=cc_pr_info.sh">http://10.37.2.191:9173/metrics?targets=raid&amp;&amp;scripts=cc_pr_info.sh</a></p>
+
+<p>只返回raid服务下的cc_pr_info.sh脚本执行的返回值</p>
+
+<pre><code># HELP raid_metrics whether get raid info or not
+# TYPE raid_metrics gauge
+raid_metrics{raid_state=&quot;Stopped&quot;,raid_type=&quot;CC&quot;} 1
+raid_metrics{raid_state=&quot;Stopped&quot;,raid_type=&quot;PR&quot;} 1
+# HELP scrpit_duration Displays time  about run script
+# TYPE scrpit_duration gauge
+scrpit_duration{namespace=&quot;raid&quot;} 0.017308263
+# HELP scrpit_success Displays whether or not the script run success
+# TYPE scrpit_success gauge
+scrpit_success{namespace=&quot;raid&quot;} 1
+</code></pre>
+
+<h1 id="问题">问题</h1>
+
+<p>1、大量僵死进程</p>
+
+<p>先解释一些概念</p>
+
+<p>孤儿进程：一个父进程退出，而它的一个或多个子进程还在运行，那么那些子进程将成为孤儿进程。孤儿进程将被init进程(进程号为1)所收养，并由init进程对它们完成状态收集工作。</p>
+
+<p>僵尸进程：一个进程使用fork创建子进程，如果子进程退出，而父进程并没有调用wait或waitpid获取子进程的状态信息，那么子进程的进程描述符仍然保存在系统中。这种进程称之为僵死进程。</p>
+
+<p>僵死进程的父进程被kill掉，就会变成孤儿进程，被系统回收。</p>
+
+<p>1.僵尸进程：前文已经对僵尸进程的定义进行了说明。那么defunct进程只是在process table(进程表项)里有一个记录，其他的资源没有占用，除非你的系统的process个数已经快超过限制了，zombie进程不会有更多的坏处。</p>
+
+<p>2.产生原因：在子进程终止后到父进程调用wait()前的时间里，子进程被称为zombie；</p>
+
+<p>       具体a. 子进程结束后向父进程发出SIGCHLD信号，父进程默认忽略了它</p>
+
+<p>           b. 父进程没有调用wait()或waitpid()函数来等待子进程的结束</p>
+
+<p>           c. 网络原因有时会引起僵尸进程；</p>
+
+<p>如何防止僵尸进程</p>
+
+<p>(1) 让僵尸进程成为孤儿进程，由init进程回收；(手动杀死父进程)</p>
+
+<p>(2) 调用fork()两次；</p>
+
+<p>(3) 捕捉SIGCHLD信号，并在信号处理函数中调用wait函数；</p>
+
+<p>1.调用过程中一定要注意：创建句柄一定要释放，正常在创建的时候直接defer，否则没有调用wait，直接return，就会使得调用的进程失去父进程而变成僵尸进程，以后在任何地方调用子进程的时候都要注意，sndp探针就是一个实例</p>
+
+<p>bashCmd := exec.CommandContext(ctx, scriptType,str[0:]&hellip;)
+    defer bashCmd.Wait()</p>
+
+<p>代码编辑问题</p>
+
+<pre><code>//var flag = true
+//for _, value := range res {
+//  if len(value) != len(script.Metrics) {
+//      flag = false
+//  }
+//}
+//if !flag {
+//  log.Errorf(&quot;response array the number of row UnMatch&quot;)
+//  return nil, errors.New(&quot;response array the number of row UnMatch&quot;)
+//}
+</code></pre>
+
+<p>res是[][]string，当返回time=&ldquo;2018-11-28T16:24:01+08:00&rdquo; level=debug msg=&ldquo;parse res in string array: [[]]&ldquo;使用range还是会进入，赋值flag为false，所以return</p>
+
+<h1 id="平台">平台</h1>
+
+<p>目前在监控mycat，ntp等服务中使用的就是这种方式。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/script_exporter/">https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/script_exporter/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/metrics/">
+                            <i class="fa fa-tags"></i>
+                            metrics
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/exporter/">
+                            <i class="fa fa-tags"></i>
+                            exporter
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/script/">
+                            <i class="fa fa-tags"></i>
+                            script
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">监控metrics系列---- Prometheus mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">监控metrics系列---- Prometheus blackbox_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月03日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/gpu_exporter/">监控metrics系列---- Prometheus gpu_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月15日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/process_exporter/">监控metrics系列---- Prometheus Process Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter-sn/">监控metrics系列---- Prometheus redis Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/exporter/snmp_exporter/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/log/log-scheme/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#设计">设计</a>
+<ul>
+<li><a href="#探针设计">探针设计</a>
+<ul>
+<li><a href="#架构">架构</a></li>
+<li><a href="#使用">使用</a></li>
+<li><a href="#指标展示">指标展示</a></li>
+</ul></li>
+<li><a href="#部署设计">部署设计</a>
+<ul>
+<li><a href="#架构-1">架构</a></li>
+<li><a href="#使用-1">使用</a></li>
+<li><a href="#注册">注册</a>
+<ul>
+<li><a href="#服务维度">服务维度</a></li>
+<li><a href="#脚本维度">脚本维度</a></li>
+</ul></li>
+</ul></li>
+</ul></li>
+<li><a href="#问题">问题</a></li>
+<li><a href="#平台">平台</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

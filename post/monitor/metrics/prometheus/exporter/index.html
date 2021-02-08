@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Exporter 本质上就是将收集的数据，转化为对应的文本格式，并提供 http 请求。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控metrics系列---- Prometheus Exporter - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控metrics系列---- Prometheus Exporter
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年02月12日 
+                </div>
+                <h1 class="post-title">监控metrics系列---- Prometheus Exporter</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Exporter 本质上就是将收集的数据，转化为对应的文本格式，并提供 http 请求。</p>
+
+<h1 id="文本格式">文本格式</h1>
+
+<p>Exporter 收集的数据转化的文本内容以行 (\n) 为单位，空行将被忽略, 文本内容最后一行为空行。</p>
+
+<blockquote>
+<p>注释</p>
+</blockquote>
+
+<p>文本内容，如果以 # 开头通常表示注释。</p>
+
+<ul>
+<li>以 # HELP 开头表示 metric 帮助说明。</li>
+<li>以 # TYPE 开头表示定义 metric 类型，包含 counter, gauge, histogram, summary, 和 untyped 类型。</li>
+<li>其他表示一般注释，供阅读使用，将被 Prometheus 忽略。</li>
+</ul>
+
+<blockquote>
+<p>采样数据的样式</p>
+</blockquote>
+
+<p>内容如果不以 # 开头，表示采样数据。它通常紧挨着类型定义行，满足以下格式：</p>
+
+<pre><code>metric_name [
+  &quot;{&quot; label_name &quot;=&quot; `&quot;` label_value `&quot;` { &quot;,&quot; label_name &quot;=&quot; `&quot;` label_value `&quot;` } [ &quot;,&quot; ] &quot;}&quot;
+] value [ timestamp ]
+</code></pre>
+
+<p>下面是一个完整的例子：</p>
+
+<pre><code># HELP http_requests_total The total number of HTTP requests.
+# TYPE http_requests_total counter
+http_requests_total{method=&quot;post&quot;,code=&quot;200&quot;} 1027 1395066363000
+http_requests_total{method=&quot;post&quot;,code=&quot;400&quot;}    3 1395066363000
+</code></pre>
+
+<p>一个 exporter 就是将收集的数据转化为文本格式，并提供 http 请求即可，那很容自己实现一个，prometheus官方提供了client各种语言的库，比如go语言的clent-golang，只要集成使用就能输出对应的指标。</p>
+
+<h1 id="client-golang">client_golang</h1>
+
+<p>我们开发探针都是基于官方提供的语言库，最多使用的还是golang，我们需要重点了解<a href="/post/monitor/metrics/prometheus/library/client_golang/">client_golang</a>。</p>
+
+<h1 id="exporter">exporter</h1>
+
+<p>通过各种client库，我们可以开发各种采集探针，将数据转为固定的文本格式来给监控提供数据。不同的监控通过不同的探针来实现，下面是一些常见探针的使用说明：</p>
+
+<ul>
+<li><a href="/post/monitor/metrics/prometheus/exporter/node-exporter/">Node_Exporter</a></li>
+<li><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">grok_Exporter</a></li>
+<li><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">mtail</a></li>
+<li><a href="/post/monitor/metrics/prometheus/exporter/server/nginx">nginx</a></li>
+<li><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">blackbox_Exporter</a></li>
+<li><a href="/post/monitor/metrics/prometheus/exporter/gpu_exporter/">gpu_Exporter</a></li>
+<li><a href="/post/monitor/metrics/prometheus/exporter/mysqld-exporter/">mysqld_Exporter</a></li>
+<li><a href="/post/monitor/metrics/prometheus/exporter/postgres_exporter/">postgres_Exporter</a></li>
+<li><a href="/post/monitor/metrics/prometheus/exporter/process_exporter/">process_Exporter</a></li>
+<li><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter/">redis_Exporter</a></li>
+<li><a href="/post/monitor/metrics/prometheus/exporter/snmp_exporter/">snmp_Exporter</a></li>
+</ul>
+
+<h2 id="其他探针">其他探针</h2>
+
+<p>还有其他很多采集器，可以直接去prometheus官方网站看目前发布的<a href="https://prometheus.io/docs/instrumenting/exporters/">https://prometheus.io/docs/instrumenting/exporters/</a></p>
+
+<h1 id="开发注意">开发注意</h1>
+
+<p>1、探针日志注意事项：</p>
+
+<ul>
+<li>正常情况下应该不输出日志，只会在有错误的情况下输出错误日志</li>
+<li>如果输出日志了，应该设置定时清理脚本</li>
+</ul>
+
+<p>这个也适用于很多服务器下面的情况，毕竟如果程序如果跑在了别人的机器上，你是不容易操作的。</p>
+
+<p>2、探针的管理</p>
+
+<p>prometheus的exporter都是独立的，简单几个使用还是不错，解耦还开箱即用，但是数量多了，运维的压力变大了，例如探针管理升级，运行情况的检查等，有几种方案解决</p>
+
+<ul>
+<li>做一个管理平台，类似于后台系统，专门对exporter进行管理</li>
+<li>用一个主进程整合几个探针，每个探针依旧是原来的版本</li>
+<li>用telegraf来支持各种类型的input，all in one</li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/">https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/metrics/">
+                            <i class="fa fa-tags"></i>
+                            metrics
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/exporter/">
+                            <i class="fa fa-tags"></i>
+                            exporter
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">监控metrics系列---- Prometheus mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">监控metrics系列---- Prometheus blackbox_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月03日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/gpu_exporter/">监控metrics系列---- Prometheus gpu_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月15日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/process_exporter/">监控metrics系列---- Prometheus Process Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter-sn/">监控metrics系列---- Prometheus redis Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/library/client_golang/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-math/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#文本格式">文本格式</a></li>
+<li><a href="#client-golang">client_golang</a></li>
+<li><a href="#exporter">exporter</a>
+<ul>
+<li><a href="#其他探针">其他探针</a></li>
+</ul></li>
+<li><a href="#开发注意">开发注意</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

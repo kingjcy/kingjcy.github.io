@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="redis探针主要是监控redis相关情况，比如内存，连接数等。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控metrics系列---- Prometheus redis Exporter - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控metrics系列---- Prometheus redis Exporter
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年02月21日 
+                </div>
+                <h1 class="post-title">监控metrics系列---- Prometheus redis Exporter</h1>
+            </header>
+
+            <div class="post-content">
+                <p>redis探针主要是监控redis相关情况，比如内存，连接数等。</p>
+
+<h1 id="原理">原理</h1>
+
+<p>1、set log format,支持txt和json两种格式的日志</p>
+
+<p>2、set log level，支持正常的日志级别</p>
+
+<p>3、show version 支持option打印版本</p>
+
+<p>4、解析addr和passwd和alias，这几个参数支持参数配置，也可以重环境变量中获取</p>
+
+<pre><code>Environment         Variables
+Name                Description
+REDIS_ADDR          Address of Redis node(s)
+REDIS_PASSWORD      Password to use when authenticating to Redis
+REDIS_ALIAS         Alias name of Redis node(s)
+REDIS_FILE          Path to file containing Redis node(s)
+</code></pre>
+
+<p>5、创建一个Exporter结构体，初始化，将上面的信息传进去，并创建对应的指标，checkkey支持对多数据库的查询</p>
+
+<pre><code>// Exporter implements the prometheus.Exporter interface, and exports Redis metrics.
+type Exporter struct {
+    redis        RedisHost
+    namespace    string
+    keys         []dbKeyPair
+    keyValues    *prometheus.GaugeVec
+    keySizes     *prometheus.GaugeVec
+    duration     prometheus.Gauge
+    scrapeErrors prometheus.Gauge
+    totalScrapes prometheus.Counter
+    metrics      map[string]*prometheus.GaugeVec
+    metricsMtx   sync.RWMutex
+    sync.RWMutex
+}
+
+
+// RedisHost represents a set of Redis Hosts to health check.
+type RedisHost struct {
+    Addrs     []string
+    Passwords []string
+    Aliases   []string
+}
+</code></pre>
+
+<p>6、然后调用client_golang的库函数进行数据采集，scrape连接数据库，调用命令，然后解析返回参数。完成监控。</p>
+
+<p>由此可见，redis_exporter只是简单的对redis的单节点进行了监控，并没有对redis的cluster和sentinel进行监控。</p>
+
+<h1 id="sentinel监控">sentinel监控</h1>
+
+<p>这边需要监控sentinel，这边做一个设计</p>
+
+<ul>
+<li><p>运行天数</p>
+
+<pre><code>redis_start_time_seconds{addr=&quot;10.37.152.206:26379&quot;,alias=&quot;&quot;} 1.551058403e+09
+</code></pre>
+
+<p>这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取uptime_in_days字段值，设计标签为通用的addr，alias字段。</p></li>
+
+<li><p>注册shard数据</p>
+
+<pre><code>redis_sentinel_masters{addr=&quot;10.37.152.206:26379&quot;,alias=&quot;&quot;} 4
+</code></pre>
+
+<p>这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取sentinel_masters字段值，设计标签为通用的addr，alias字段。</p></li>
+
+<li><p>正常shard的个数</p>
+
+<pre><code>redis_sentinel_masters_ok{addr=&quot;10.37.152.206:26379&quot;,alias=&quot;&quot;} 0
+</code></pre>
+
+<p>这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取status=ok的个数，设计标签为通用的addr，alias字段。</p></li>
+
+<li><p>异常shard的个数</p>
+
+<pre><code>redis_sentinel_masters_down{addr=&quot;10.37.152.206:26379&quot;,alias=&quot;&quot;} 4
+</code></pre>
+
+<p>这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取status=odown的个数，设计标签为通用的addr，alias字段。</p></li>
+
+<li><p>sentinel的连接数</p>
+
+<pre><code>redis_sentinel_connects{addr=&quot;10.37.152.206:26379&quot;,alias=&quot;&quot;} 0
+</code></pre>
+
+<p>这个指标是通过执行netstat命令来统计对应进程的连接数，设计标签为通用的addr，alias字段。</p></li>
+
+<li><p>检活</p>
+
+<pre><code>redis_sentinel_status{addr=&quot;10.37.152.206:26379&quot;,alias=&quot;&quot;} 1
+</code></pre>
+
+<p>这个指标是通过执行redis PING命令来检测返回的是否是PONG，如果是则为1，否则为0，代表着sentinel的死活状态，设计标签为通用的addr，alias字段。</p></li>
+
+<li><p>26379端口检测</p>
+
+<pre><code>redis_sentinel_port_isalive{addr=&quot;10.37.152.206:26379&quot;,alias=&quot;&quot;} 0
+</code></pre>
+
+<p>这个指标是通过执行netstat命令来统计对应端口为LiSTEN的数量，1代表端口正在监听，0代表没有监听端口，设计标签为通用的addr，alias字段。</p></li>
+</ul>
+
+<p>目前探针融合在redis的探针中，可以自动识别sentinel还是redis，然后放回对应的指标，支持多地址混合配置，可以返回所有需要的指标。</p>
+
+<h1 id="连接池">连接池</h1>
+
+<p>redis探针短连接到长连接池改造</p>
+
+<p>目前方案就是改短连接为长连接，可以只使用一个连接来解决这个问题，这个其实适用于长连接使用的场景，然后考虑长连接可能出来大量连接存在的场景，所以最好直接使用连接池，对连接的数量进行限制，这样就可以完美的解决问题。</p>
+
+<p>探针启动直接初始化一个连接池，大小为2，正常使用一个长连接来采集高频率的数据，出现异常，可能会使用到第二个长连接。</p>
+
+<p>验证在高频率的采集下连接数并没有出现增长。</p>
+
+<blockquote>
+<p>问题</p>
+</blockquote>
+
+<p>redis自身支持长连接需要设置参数，tcp_keepalive=1，默认是关闭的，所以都是以timeout时间为准，到时间后redis端会关闭连接，所以探针侧就会close_wait，当然这个连接是可以复用的，当重新请求的时候，又会建立连接在连接池上，按着我们每10s才是一次的频率，redis设置的180s的超时时间，基本上不会出现不断短连接的情形。</p>
+
+<h1 id="redis多活复制监控设计">redis多活复制监控设计</h1>
+
+<blockquote>
+<p>Label设计</p>
+</blockquote>
+
+<ol>
+<li>直接获取info信息中的# Remote_replication段里的remote_role:source的值，代表着当前redis的角色。</li>
+<li>直接获取info信息中的# Remote_replication段里的source_host:10.244.176.44的值，代表着当前目的端的元ip地址</li>
+<li>直接获取info信息中的# Remote_replication段里的dest_host:10.244.176.46的值，代表着当前源端对应的目的端ip地址</li>
+<li>直接获取info信息中的# Remote_replication段里的source_link_status:up的值，代表着当前目的端对应复制状态</li>
+</ol>
+
+<p>因为这些对应的是string类型的value，直接作为源端或者目的端的label使用，通过返回值可以增加以下label</p>
+
+<blockquote>
+<p>source</p>
+</blockquote>
+
+<pre><code># Remote_replication
+remote_role:source
+dest_host:10.244.176.46
+dest_port:57093
+dest_state:online
+dest_last_io_seconds_ago:1
+dest_client_buffer_len:0
+source_repl_offset:2449159
+</code></pre>
+
+<p>label：remote_role，dest_host，dest_port，dest_state</p>
+
+<blockquote>
+<p>dest</p>
+</blockquote>
+
+<pre><code># Remote_replication
+remote_role:dest
+source_host:10.244.176.44
+source_port:6379
+source_link_status:up
+source_last_io_seconds_ago:0
+source_sync_in_progress:0
+dest_repl_offset:151922
+</code></pre>
+
+<p>label：remote_role，source_host，source_port，source_link_status</p>
+
+<blockquote>
+<p>源端指标</p>
+</blockquote>
+
+<ul>
+<li><p>source端向dest端发送增量数据的缓冲区大小，堆积量增大预示网络延迟或tps过大</p>
+
+<p>直接获取info信息中的# Remote_replication段里的dest_client_buffer_len:0的值，代表着当前源端source端向dest端发送增量数据的缓冲区大小，堆积量增大预示网络延迟或tps过大</p>
+
+<p>指标：如下</p>
+
+<p>设计设计标签为通用的addr，alias字段，加上指标字段remote_role，dest_host，dest_port，dest_state</p></li>
+
+<li><p>source端和dest端的offset的差值</p>
+
+<p>直接获取info信息中的# Remote_replication段里的source_repl_offset:149103的值，代表着当前源端offset的值</p>
+
+<p>指标：如下</p>
+
+<p>设计设计标签为通用的addr，alias字段。加上指标字段remote_role，dest_host，dest_port，dest_state</p>
+
+<p>通过聚合计算出它们的差值。</p></li>
+
+<li><p>缓存写、删除操作的总共次数</p>
+
+<p>直接获取info信息中的# Remote_replication段里的server_total_changes:0的值，代表着当前源端或者目的端缓存写、删除操作的总共次数</p>
+
+<p>指标：如下</p>
+
+<p>设计设计标签为通用的addr，alias字段。</p>
+
+<p>展示上一次数据和这一次数据的差值。通过函数计算获得。</p></li>
+</ul>
+
+<blockquote>
+<p>目的端指标</p>
+</blockquote>
+
+<ul>
+<li><p>dest端最后一次和source端通信后过去的时长，单位秒</p>
+
+<p>直接获取info信息中的# Remote_replication段里的dest_client_buffer_len:0的值，代表着当前目的端dest端最后一次和source端通信后过去的时长，单位秒</p>
+
+<p>指标：如下</p>
+
+<p>设计设计标签为通用的addr，alias字段。加上指标字段remote_role，source_host，source_port，source_link_status</p></li>
+
+<li><p>source端和dest端的offset的差值</p>
+
+<p>直接获取info信息中的# Remote_replication段里的dest_repl_offset:151922的值，代表着当前目的端offset的值</p>
+
+<p>指标：如下</p>
+
+<p>设计设计标签为通用的addr，alias字段。加上指标字段remote_role，source_host，source_port，source_link_status</p>
+
+<p>通过聚合计算出它们的差值。</p></li>
+
+<li><p>缓存写、删除操作的总共次数</p>
+
+<p>直接获取info信息中的# Remote_replication段里的server_total_changes:0的值，代表着当前源端或者目的端缓存写、删除操作的总共次数</p>
+
+<p>指标：如下</p>
+
+<p>设计设计标签为通用的addr，alias字段。</p>
+
+<p>展示上一次数据和这一次数据的差值。通过函数计算获得。</p></li>
+</ul>
+
+<blockquote>
+<p>验证</p>
+</blockquote>
+
+<p>正常情况下都是一个节点一个角色，这边放在一起了。</p>
+
+<p>获取指标如下：</p>
+
+<pre><code># HELP redis_remote_replication_dest_client_buffer_len remote replication dest client buffer len
+# TYPE redis_remote_replication_dest_client_buffer_len gauge
+redis_remote_replication_dest_client_buffer_len{addr=&quot;10.244.176.44:6379&quot;,alias=&quot;&quot;,dest_host=&quot;10.244.176.46&quot;,dest_port=&quot;57093&quot;,dest_state=&quot;online&quot;,remote_role=&quot;source&quot;} 0
+# HELP redis_remote_replication_dest_last_io_seconds_ago remote replication dest last io seconds ago
+# TYPE redis_remote_replication_dest_last_io_seconds_ago gauge
+redis_remote_replication_dest_last_io_seconds_ago{addr=&quot;10.244.176.44:6379&quot;,alias=&quot;&quot;,dest_host=&quot;10.244.176.46&quot;,dest_port=&quot;57093&quot;,dest_state=&quot;online&quot;,remote_role=&quot;source&quot;} 0
+# HELP redis_remote_replication_dest_repl_offset remote replication dest repl offset
+# TYPE redis_remote_replication_dest_repl_offset gauge
+redis_remote_replication_dest_repl_offset{addr=&quot;10.244.176.46:6379&quot;,alias=&quot;&quot;,remote_role=&quot;dest&quot;,source_host=&quot;10.244.176.44&quot;,source_link_status=&quot;up&quot;,source_port=&quot;6379&quot;} 7.541993e+06
+# HELP redis_remote_replication_source_last_io_seconds_ago remote replication source last io seconds ago
+# TYPE redis_remote_replication_source_last_io_seconds_ago gauge
+redis_remote_replication_source_last_io_seconds_ago{addr=&quot;10.244.176.46:6379&quot;,alias=&quot;&quot;,remote_role=&quot;dest&quot;,source_host=&quot;10.244.176.44&quot;,source_link_status=&quot;up&quot;,source_port=&quot;6379&quot;} 0
+# HELP redis_remote_replication_source_repl_offset remote replication source repl offset
+# TYPE redis_remote_replication_source_repl_offset gauge
+redis_remote_replication_source_repl_offset{addr=&quot;10.244.176.44:6379&quot;,alias=&quot;&quot;,dest_host=&quot;10.244.176.46&quot;,dest_port=&quot;57093&quot;,dest_state=&quot;online&quot;,remote_role=&quot;source&quot;} 7.541994e+06
+# HELP redis_remote_replication_source_sync_in_progress remote replication source sync in progress
+# TYPE redis_remote_replication_source_sync_in_progress gauge
+redis_remote_replication_source_sync_in_progress{addr=&quot;10.244.176.46:6379&quot;,alias=&quot;&quot;,remote_role=&quot;dest&quot;,source_host=&quot;10.244.176.44&quot;,source_link_status=&quot;up&quot;,source_port=&quot;6379&quot;} 0
+</code></pre>
+
+<p>指标的聚合使用</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/redis_exporter-sn/">https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/redis_exporter-sn/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/metrics/">
+                            <i class="fa fa-tags"></i>
+                            metrics
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/exporter/">
+                            <i class="fa fa-tags"></i>
+                            exporter
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/redis/">
+                            <i class="fa fa-tags"></i>
+                            redis
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">监控metrics系列---- Prometheus mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">监控metrics系列---- Prometheus blackbox_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月03日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/gpu_exporter/">监控metrics系列---- Prometheus gpu_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月15日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/process_exporter/">监控metrics系列---- Prometheus Process Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter/">监控metrics系列---- Prometheus redis Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/database/elasticsearch/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#原理">原理</a></li>
+<li><a href="#sentinel监控">sentinel监控</a></li>
+<li><a href="#连接池">连接池</a></li>
+<li><a href="#redis多活复制监控设计">redis多活复制监控设计</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

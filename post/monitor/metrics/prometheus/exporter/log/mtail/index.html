@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="mtail是一个可以从应用程序日志中提取指标，并将其导出到时间序列数据库或时间序列计算器中，以便配置警报和仪表盘的工具。
+
+提取由定义了模式和动作的mtail程序来控制。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控metrics系列---- Prometheus mtail - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控metrics系列---- Prometheus mtail
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年01月10日 
+                </div>
+                <h1 class="post-title">监控metrics系列---- Prometheus mtail</h1>
+            </header>
+
+            <div class="post-content">
+                <p>mtail是一个可以从应用程序日志中提取指标，并将其导出到时间序列数据库或时间序列计算器中，以便配置警报和仪表盘的工具。</p>
+
+<p>提取由定义了模式和动作的mtail程序来控制。</p>
+
+<h1 id="安装和使用">安装和使用</h1>
+
+<h2 id="源码编译">源码编译</h2>
+
+<p>需要安装运行版本不低于1.9的Go环境。如果不想在本地环境中安装Go，也可以选择Dockerfile。</p>
+
+<h2 id="下载编译好的二进制文件后运行即可">下载编译好的二进制文件后运行即可</h2>
+
+<pre><code># nohup ./mtail -progs /path/to/mtailprograms -logs /path/to/logfile &amp;
+# cat /path/to/mtailprograms
+counter nginx_line_count
+#正则统计访问日志的行数，可以在grafana中配置视图观察访问量趋势
+/$/ {
+  nginx_line_count++
+}
+</code></pre>
+
+<h2 id="使用">使用</h2>
+
+<pre><code>./mtail -h
+mtail version v3.0.0-rc12 git revision 936050df9856da258f13e5df71a5a0c7f8f6acdc go version go1.10.1
+
+Usage:
+  -address string
+        Host or IP address on which to bind HTTP listener
+  -alsologtostderr
+        log to standard error as well as files
+  -block_profile_rate int
+        Nanoseconds of block time before goroutine blocking events reported. 0 turns off.  See https://golang.org/pkg/runtime/#SetBlockProfileRate
+  -collectd_prefix string
+        Prefix to use for collectd metrics.
+  -collectd_socketpath string
+        Path to collectd unixsock to write metrics to.
+  -compile_only
+        Compile programs only, do not load the virtual machine.
+  -dump_ast
+        Dump AST of programs after parse (to INFO log).
+  -dump_ast_types
+        Dump AST of programs with type annotation after typecheck (to INFO log).
+  -dump_bytecode
+        Dump bytecode of programs (to INFO log).
+  -emit_prog_label
+        Emit the 'prog' label in variable exports. (default true)
+  -graphite_host_port string
+        Host:port to graphite carbon server to write metrics to.
+  -graphite_prefix string
+        Prefix to use for graphite metrics.
+  -log_backtrace_at value
+        when logging hits line file:N, emit a stack trace
+  -log_dir string
+        If non-empty, write log files in this directory
+  -logfds value
+        List of file descriptor numbers to monitor, separated by commas.  This flag may be specified multiple times.
+  -logs value
+        List of log files to monitor, separated by commas.  This flag may be specified multiple times.
+  -logtostderr
+        log to standard error instead of files
+  -metric_push_interval_seconds int
+        Interval between metric pushes, in seconds. (default 60)
+  -metric_push_write_deadline duration
+        Time to wait for a push to succeed before exiting with an error. (default 10s)
+  -mtailDebug int
+        Set parser debug level.
+  -mutex_profile_fraction int
+        Fraction of mutex contention events reported.  0 turns off.  See http://golang.org/pkg/runtime/#SetMutexProfileFraction
+  -one_shot
+        Compile the programs, then read the contents of the provided logs from start until EOF, print the values of the metrics store and exit. This is a debugging flag only, not for production use.
+  -one_shot_metrics
+        DEPRECATED: Dump metrics (to stdout) after one shot mode.
+  -override_timezone string
+        If set, use the provided timezone in timestamp conversion, instead of UTC.
+  -port string
+        HTTP port to listen on. (default &quot;3903&quot;)
+  -progs string
+        Name of the directory containing mtail programs
+  -statsd_hostport string
+        Host:port to statsd server to write metrics to.
+  -statsd_prefix string
+        Prefix to use for statsd metrics.
+  -stderrthreshold value
+        logs at or above this threshold go to stderr
+  -syslog_use_current_year
+        Patch yearless timestamps with the present year. (default true)
+  -v value
+        log level for V logs
+  -version
+        Print mtail version information.
+  -vmodule value
+        comma-separated list of pattern=N settings for file-filtered logging
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/log/mtail/">https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/log/mtail/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/metrics/">
+                            <i class="fa fa-tags"></i>
+                            metrics
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/exporter/">
+                            <i class="fa fa-tags"></i>
+                            exporter
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/mtail/">
+                            <i class="fa fa-tags"></i>
+                            mtail
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">监控metrics系列---- Prometheus blackbox_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月03日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/gpu_exporter/">监控metrics系列---- Prometheus gpu_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月15日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/process_exporter/">监控metrics系列---- Prometheus Process Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter-sn/">监控metrics系列---- Prometheus redis Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter/">监控metrics系列---- Prometheus redis Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#安装和使用">安装和使用</a>
+<ul>
+<li><a href="#源码编译">源码编译</a></li>
+<li><a href="#下载编译好的二进制文件后运行即可">下载编译好的二进制文件后运行即可</a></li>
+<li><a href="#使用">使用</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="这边主要是对iptables进行监控的设计，支持prometheus的标准指标的接入。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控metrics系列---- Prometheus Iptables - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控metrics系列---- Prometheus Iptables
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年06月29日 
+                </div>
+                <h1 class="post-title">监控metrics系列---- Prometheus Iptables</h1>
+            </header>
+
+            <div class="post-content">
+                <p>这边主要是对iptables进行监控的设计，支持prometheus的标准指标的接入。</p>
+
+<h1 id="需求">需求</h1>
+
+<p>先看监控需求</p>
+
+<pre><code>监控范围    mysql、DB2、PQ数据库服务器
+
+监控项 IPTABLES状态监控
+
+告警类型及阀值 &quot;   0    正常
+                    1   数据库iptables服务未正常启动
+                    2    5分钟内存在被数据库iptables策略拒绝3次的IP地址&quot;
+
+数据保留    默认一个月，大促活动期间数据保留
+
+监控脚本    自提
+
+推送方式    promes推送
+</code></pre>
+
+<p>监控脚本获取相关值</p>
+
+<h1 id="指标设计">指标设计</h1>
+
+<p>只需要一个指标iptables的状态</p>
+
+<ul>
+<li>iptables的状态iptables_status
+
+<ul>
+<li>对应脚本返回数据应该：iptables状态</li>
+</ul></li>
+</ul>
+
+<p>还是使用<a href="/post/monitor/metrics/prometheus/exporter/script_exporter/">script_exporter</a>的设计模式，通过脚本来获取监控，并对异常进行告警。</p>
+
+<h1 id="执行脚本">执行脚本</h1>
+
+<pre><code>#!/bin/bash
+ret=0
+alarm_threshold=3
+
+iptables-save 2&gt;/dev/null|grep -w 192.168.240.242 1&gt;/dev/null
+if [ $? -eq 0 ];then
+    date=`date +%c|awk '{print $3&quot; &quot;$2}'`
+    rejcet_info=`tail -n 5000 /var/log/messages|grep &quot;$date&quot;|grep &quot;DST=&quot;|grep &quot;SRC=&quot;`
+    if [ -n &quot;$rejcet_info&quot; ];then
+        grep_time=&quot;&quot;
+        for x in {0..5}
+        do
+            t_time=`date +%T|awk -F: '{print $1*60 + $2 - var}' var=$x`
+            hour=`echo $t_time 60|awk '{printf(&quot;%d&quot;,$1/$2)}'`
+             min=`echo $t_time 60|awk '{printf(&quot;%d&quot;,$1%$2)}'`
+            if [ $min -lt 10 ];then
+                g_time=&quot;$hour:0$min:&quot;
+            else
+                g_time=&quot;$hour:$min:&quot;
+            fi
+            if [ -z &quot;$grep_time&quot; ];then
+                grep_time=&quot;$g_time&quot;
+            else
+                grep_time=&quot;$grep_time|$g_time&quot;
+            fi
+        done
+
+        rejcet_top=`echo &quot;$rejcet_info&quot;|egrep &quot;$grep_time&quot;|sed 's/.* SRC=\([^ ]*\) .*/\1/'|sort|uniq -c|sort -n|awk '{print $1}'|tail -n 1`
+        if [ -n &quot;$rejcet_top&quot; ];then
+            if [ $rejcet_top -ge $alarm_threshold ];then
+                ret=2
+            fi
+        fi
+    fi
+else
+    ret=1
+fi
+
+echo $ret
+</code></pre>
+
+<p>采集数据</p>
+
+<pre><code># HELP iptables_status iptables status
+# TYPE iptables_status gauge
+iptables_status 1
+# HELP scrpit_duration Displays time  about run script
+# TYPE scrpit_duration gauge
+scrpit_duration{namespace=&quot;iptables&quot;} 0.002305902
+# HELP scrpit_success Displays whether or not the script run success
+# TYPE scrpit_success gauge
+scrpit_success{namespace=&quot;iptables&quot;} 1
+</code></pre>
+
+<h1 id="扩展">扩展</h1>
+
+<p>正常iptables还能监控对应的流量，这边进行一个对于iptables监控的扩展。</p>
+
+<p>对特定IP进行流量统计</p>
+
+<pre><code>我要统计服务器上的IP：192.168.0.10的入网流量：
+iptables -I INPUT -d 192.168.0.10
+统计该IP的出网流量：
+iptables -I OUTPUT -s 192.168.0.10
+</code></pre>
+
+<p>统计特定端口的流量</p>
+
+<p>方法和统计IP的流量差不多，使用-p指定端口类型，–dport指定端口号。</p>
+
+<pre><code>例如我要统计服务器上的IP：127.0.0.1，1080端口的入网流量：
+sudo iptables -I INPUT -d 127.0.0.1 -p tcp –dport 1080
+统计该IP 80端口的出网流量：
+sudo iptables -I OUTPUT -s 127.0.0.1 -p tcp –sport 1080 出口流量统计命令
+上面的命令中，参数-d是目标IP，-s是源IP。因为入网的流量发送至127.0.0.1 这个IP，因此把127.0.0.1 作为目标IP可以统计入网的流量。出网时，127.0.0.1 发出的流量，因此把127.0.0.1 作为OUTPUT的源IP可以统计流量。 不仅如此，还可以对特定来源IP，来源端口，出网的目的IP，出网的目的端口进行统计，根据需要使用-s,–sport,-d,–dport几个参数即可。
+</code></pre>
+
+<p>查看流量</p>
+
+<pre><code>iptables -n -v -L -t filter 默认是使用易读的单位，也就是自动转化成M，G。如过需要Bytes做单位，则增加一个-x参数
+iptables -n -v -L -t filter -x
+</code></pre>
+
+<p>作为路由时的流量统计</p>
+
+<p>如果服务器是做路由的，那么使用上面的命令把规则插入至INPUT/OUTPUT链中就无效了，因为那些IP根本不是在你的服务器上。但是那些IP的流量，都需要经过你的服务器的转发，因此把对于的规则插入至FORWARD表即可。</p>
+
+<pre><code>例如我要统计IP为192.168.0.10的服务器入网流量：
+iptables -I FORWARD -d 192.168.0.10
+统计该IP的出网流量：
+iptables -I FORWARD -s 192.168.0.10
+
+需要注意的是，此时添加统计出网和入网流量的规则，不再需要分INPUT链和OUTPUT链，因为你服务器只负责根据目标IP，进行转发。
+</code></pre>
+
+<p>iptables规则的保存</p>
+
+<p>一般重启后iptables规则会丢失，因此需要进行保存操作。</p>
+
+<pre><code>基于Red Hat：
+service iptables save
+基于Debian：
+先保存：
+iptables-save &gt; /etc/iptables.rules
+恢复：
+iptables-restore &lt; /etc/iptables.rules
+</code></pre>
+
+<p>shadowsocks流量检测控制方法</p>
+
+<pre><code>端口的出口流量统计命令
+sudo iptables -I OUTPUT -s 127.0.0.1 -p tcp –sport 1080
+然后去定时检测统计流量,查看统计流量信息:
+sudo iptables -n -v -L -t filter
+sudo iptables -n -v -L -t filter |grep -i –color -B 3 spt:1080 定期检测命令，流量带颜色
+sudo iptables -n -v -L -t filter |grep -i ‘spt:1080’ |awk -F’ ’ ‘{print $2}’ 只输出具体流量值
+然后自己写个crontab脚本,每分钟去读取流量统计出来的流量值,判断下,超过预设流量即停止shadowsocks服务
+当然你可能开启多个shadowsocks服务,需要保存他们的进程id,超出流量的就kill 这个id
+
+#启动服务并记录进程id到文件
+PORT=1080
+PID_FILE=~/shadow_$PORT.pid
+#开启对应端口流量统计
+sudo iptables -I OUTPUT -s 127.0.0.1 -p tcp --sport $PORT
+shadowsocks -c shadowsocks.json -p $PORT &gt; logshadow.log 2&gt;&amp;1 &amp;
+echo &quot;$!&quot; &gt; $PID_FILE
+
+#定时检测 流量超出则停止服务,比如限制每天流量100M
+PORT=1080
+PID_FILE=~/shadow_$PORT.pid
+MAX=100
+SLEEP_TIME=20 #每20秒检测流量一次
+while true
+do
+  value_string=`sudo iptables -n -v -L -t filter |grep -i &quot;spt:$PORT&quot;|awk -F' ' '{print $2}'`
+  grep 'M' $value_string
+  if [ $? = 0 ] ;then
+   value=`echo $value_string |tr -d 'M'`
+   if [ $value -gt $MAX ]; then
+      kill -9 `cat $PID_FILE`
+      rm $PID_FILE
+      #关闭流量统计
+      sudo iptables -D OUTPUT -s 127.0.0.1 -p tcp --sport $PORT
+      break
+    fi
+  fi
+  sleep $SLEEP_TIME
+done
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/iptables/">https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/iptables/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/metrics/">
+                            <i class="fa fa-tags"></i>
+                            metrics
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/exporter/">
+                            <i class="fa fa-tags"></i>
+                            exporter
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/iptables/">
+                            <i class="fa fa-tags"></i>
+                            iptables
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/sn/">
+                            <i class="fa fa-tags"></i>
+                            sn
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">监控metrics系列---- Prometheus mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">监控metrics系列---- Prometheus blackbox_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月03日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/gpu_exporter/">监控metrics系列---- Prometheus gpu_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月15日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/process_exporter/">监控metrics系列---- Prometheus Process Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter-sn/">监控metrics系列---- Prometheus redis Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/log/collect/collect-scheme/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/exporter/server/nginx/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#需求">需求</a></li>
+<li><a href="#指标设计">指标设计</a></li>
+<li><a href="#执行脚本">执行脚本</a></li>
+<li><a href="#扩展">扩展</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

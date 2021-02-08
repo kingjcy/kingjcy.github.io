@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="nginx [engine x] is an HTTP and reverse proxy server, a mail proxy server, and a generic TCP/UDP proxy server.关于nginx的介绍就不多谈了，这里主要聊下如何打造nginx集群的监控系统。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控metrics系列---- Prometheus Nginx - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控metrics系列---- Prometheus Nginx
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年06月29日 
+                </div>
+                <h1 class="post-title">监控metrics系列---- Prometheus Nginx</h1>
+            </header>
+
+            <div class="post-content">
+                <p>nginx [engine x] is an HTTP and reverse proxy server, a mail proxy server, and a generic TCP/UDP proxy server.关于<a href="/post/middleware/proxy/nginx">nginx</a>的介绍就不多谈了，这里主要聊下如何打造nginx集群的监控系统。</p>
+
+<h1 id="监控演化">监控演化</h1>
+
+<p>目前国内大多数互联网都是选择nginx构建web转发集群，那么如何构建nginx集群的监控系统？</p>
+
+<p>下面这个监控方案的历程，大体也说明了nginx的进化发展。</p>
+
+<blockquote>
+<p>2011年左右</p>
+</blockquote>
+
+<p>当时并没有合适的开源工具，只能自写python脚本，一方面是通过nginx的status模块获取少量指标如处理请求数，连接数等等，另一方面是通过定期跑nginx日志生成监控数据，写入mysql进行存储，然后通过自研的监控系统展示相关监控指标。其中，指标的主要维度是域名。这个方案除了跑nginx日志消耗过多资源以及需要大量开发工作外，没啥大问题，就是有新的监控需求时很头疼，得改脚本。</p>
+
+<blockquote>
+<p>2013年左右</p>
+</blockquote>
+
+<p>这时候阿里的tengine开始发力，开发各种插件并在阿里内部推广使用，其中就包括了更为强大的status模块。只是tengine魔改了大量nginx的内部实现，导致大多数模块与nginx并不兼容。于是就有了这个项目hnlq715/status-nginx-module，完美支持nginx，并成功重构了当时上百台nginx，日请求量几十亿的的监控系统，此时能满足绝大多数监控需求。指标的主要维度仍然是域名。</p>
+
+<blockquote>
+<p>2015年左右</p>
+</blockquote>
+
+<p>这时候注意到了prometheus的出现，感叹于其强大，于是考虑基于prometheus实现nginx的监控。而此时，vozlt/nginx-module-vts已经使用很广，于是创建了这个项目hnlq715/nginx-vts-exporter，用于将vts的输出内容转化为prometheus的格式，便于prometheus抓取。基于grafana提供监控查询及UI展示，这时候算是步入真正的现代化监控系统，此时的指标维度已经细化到具体的URI。</p>
+
+<blockquote>
+<p>2017年左右</p>
+</blockquote>
+
+<p>然而上一个方案还是有个短板，那就是nginx-module-vts对响应时间的处理太过粗糙，只给了一个平均值，无法对P99，P90或是P50给出直观的数据。于是基于lua内嵌在nginx里跑监控指标，demo在这hnlq715/nginx-prometheus-metrics，这种方式可以直接用prometheus的histogram类型统计响应时间等指标，并在prometheus层聚合。此时，才算是真正的现代化监控系统。指标维度可以完全自定义，且更加多维化。</p>
+
+<blockquote>
+<p>总结</p>
+</blockquote>
+
+<p>基于prometheus聚合nginx的监控数据是非常好的选择。上述项目能够在一定程度上帮助实现，不用手写代码或是通过极少的lua代码实现一套现代化的nginx监控系统。当然，也可以聚合其他诸如redis、mysql、node等各类系统的监控数据到prometheus进行统一管理。</p>
+
+<h1 id="监控">监控</h1>
+
+<h2 id="status">status</h2>
+
+<p>原版的 NGINX 会在一个简单的状态页面上显示几个与服务器状态有关的基本指标，它们由你启用的 HTTP stub status module 所提供。</p>
+
+<p>你可以浏览状态页看到你的指标：</p>
+
+<pre><code>Active connections: 24 
+server accepts handled requests
+1156958 1156958 4491319
+Reading: 0 Writing: 18 Waiting : 6 
+</code></pre>
+
+<p>下表是 Nginx 提供的监控参数及其简单释义。</p>
+
+<p>参数名称    参数描述</p>
+
+<pre><code>Active connections  当前活跃的用户连接(包含Waiting状态)
+accepts 接收到的用户连接总数
+handled Nginx处理的用户连接总数
+requests    用户请求总数
+Reading 当前连接中Nginx读取请求首部的个数
+Writing 当前连接中Nginx写返回给用户的个数
+Waiting 当前没有请求的活跃用户连接数
+</code></pre>
+
+<p>这些提供了我们简单的指标。</p>
+
+<ul>
+<li>当用户请求连接Nginx服务器时，accepts计数器会加一。且当服务器处理该连接请求时，handled计数器同样会加一。一般而言，两者的值是相等的，除非达到了某些资源极限（如worker_connection的限制）。</li>
+<li>用户连接请求被处理，就会进入 active 状态。如果该连接没有其他 request，则进入 waiting 的子状态；如果有 request，nginx 会读取 request 的 header，计数器 request 加一，进入 reading 的子状态。 reading 状态持续时间非常短，header 被读取后就会进入 writing 状态。事实上，直到服务器将响应结果返回给用户之前，该连接会一直保持 writing 状态。所以说，writing 状态一般会被长时间占用。</li>
+</ul>
+
+<h2 id="监控需求">监控需求</h2>
+
+<p>三类指标</p>
+
+<ul>
+<li><p>基本活动指标</p>
+
+<ul>
+<li><p>Accepts（接受）、Handled（已处理）、Requests（请求数）是一直在增加的计数器。Active（活跃）、Waiting（等待）、Reading（读）、Writing（写）随着请求量而增减。</p></li>
+
+<li><p>提醒指标: 丢弃连接
+被丢弃的连接数目等于 Accepts 和 Handled 之差（NGINX 中），或是可直接得到的标准指标（NGINX Plus 中）。在正常情况下，丢弃连接数应该是零。如果在每个单位时间内丢弃连接的速度开始上升，那么应该看看是否资源饱和了。</p></li>
+
+<li><p>提醒指标: 每秒请求数
+按固定时间间隔采样你的请求数据（开源 NGINX 的requests或者 NGINX Plus 中total） 会提供给你单位时间内（通常是分钟或秒）所接受的请求数量。监测这个指标可以查看进入的 Web 流量尖峰，无论是合法的还是恶意的，或者突然的下降，这通常都代表着出现了问题。每秒请求数若发生急剧变化可以提醒你的环境出现问题了，即使它不能告诉你确切问题的位置所在。请注意，所有的请求都同样计数，无论 URL 是什么。</p></li>
+</ul></li>
+
+<li><p>错误指标</p>
+
+<ul>
+<li><p>NGINX 错误指标告诉你服务器是否经常返回错误而不是正常工作。客户端错误返回4XX状态码，服务器端错误返回5XX状态码。</p></li>
+
+<li><p>提醒指标: 服务器错误率</p>
+
+<p>服务器错误率等于在单位时间（通常为一到五分钟）内5xx错误状态代码的总数除以状态码（1XX，2XX，3XX，4XX，5XX）的总数。如果你的错误率随着时间的推移开始攀升，调查可能的原因。如果突然增加，可能需要采取紧急行动，因为客户端可能收到错误信息。</p></li>
+
+<li><p>收集错误度量
+配置 NGINX 的日志模块将响应码写入访问日志</p></li>
+</ul></li>
+
+<li><p>性能指标</p>
+
+<ul>
+<li>提醒指标: 请求处理时间
+请求处理时间指标记录了 NGINX 处理每个请求的时间，从读到客户端的第一个请求字节到完成请求。较长的响应时间说明问题在上游。</li>
+</ul></li>
+</ul>
+
+<h2 id="实现">实现</h2>
+
+<p>目前prometheus还没有官方的exporter。目前有两种采集的办法</p>
+
+<blockquote>
+<p>nginx-lua-prometheus</p>
+</blockquote>
+
+<p>这个是以lua插件的形式暴露出一些基础连接信息</p>
+
+<p>下载地址：<a href="https://github.com/knyar/nginx-lua-prometheus">https://github.com/knyar/nginx-lua-prometheus</a></p>
+
+<p>nginx-lua-prometheus测试</p>
+
+<p>解压源码包</p>
+
+<pre><code>tar -zxvf nginx-1.6.0.tar.gz
+</code></pre>
+
+<p>开始进行编译。</p>
+
+<pre><code>[root@test nginx-1.6.0]# pwd
+/opt/nginx-1.6.0
+[root@test nginx-1.6.0]# ./configure --prefix=/usr/local/nginx --with-http_stub_status_module --with-http_ssl_module --with-http_realip_module --add-module=./nginx-sticky-module-1.1 --add-module=./nginx_upstream_check_module-master --add-module=./nginx_upstream_hash-0.3.1 --add-module=./lua-nginx-module-0.9.10 --add-module=./nginx-concat-module
+</code></pre>
+
+<p>查看编译后安装的模块</p>
+
+<pre><code>[root@test sbin]# ./nginx -V
+nginx version: nginx/1.6.0
+built by gcc 4.1.2 20080704 (Red Hat 4.1.2-48)
+TLS SNI support disabled
+configure arguments: --prefix=/usr/local/nginx --with-http_stub_status_module --with-http_ssl_module --with-http_realip_module --add-module=./nginx-sticky-module-1.1 --add-module=./nginx_upstream_check_module-master --add-module=./nginx_upstream_hash-0.3.1 --add-module=./lua-nginx-module-0.9.10 --add-module=./nginx-concat-module
+[root@test sbin]# pwd
+/usr/local/nginx/sbin
+[root@test sbin]#
+</code></pre>
+
+<p>之后make &amp; make install</p>
+
+<p>启动nginx</p>
+
+<pre><code>[root@test sbin]# ./nginx
+[root@test sbin]# ps -ef |grep nginx
+root     15585     1  0 15:45 ?        00:00:00 nginx: master process ./nginx
+nobody   15586 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15587 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15588 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15589 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15590 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15591 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15592 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15593 15585  0 15:45 ?        00:00:00 nginx: worker process
+root     15597  3959  0 15:45 pts/2    00:00:00 grep nginx
+</code></pre>
+
+<p>浏览器访问</p>
+
+<p>开始安装对应监控模块</p>
+
+<p>下载最新的release版本nginx-lua-prometheus-0.1-20170610.tar.gz</p>
+
+<p>创建目录</p>
+
+<p>/usr/local/nginx/lua</p>
+
+<p>上传gz包，并解压</p>
+
+<pre><code>[root@test nginx-lua-prometheus-0.1-20170610]# pwd
+/usr/local/nginx/lua/nginx-lua-prometheus-0.1-20170610
+[root@test nginx-lua-prometheus-0.1-20170610]# ls
+nginx-lua-prometheus-0.1-20170610.rockspec  prometheus.lua  prometheus_test.lua  README.md
+[root@test nginx-lua-prometheus-0.1-20170610]#
+</code></pre>
+
+<p>修改nginx.conf</p>
+
+<pre><code>lua_shared_dict prometheus_metrics 10M;
+lua_package_path &quot;/usr/local/nginx/lua/nginx-lua-prometheus-0.1-20170610/?.lua&quot;;
+init_by_lua '
+  prometheus = require(&quot;prometheus&quot;).init(&quot;prometheus_metrics&quot;)
+  metric_requests = prometheus:counter(
+    &quot;nginx_http_requests_total&quot;, &quot;Number of HTTP requests&quot;, {&quot;host&quot;, &quot;status&quot;})
+  metric_latency = prometheus:histogram(
+    &quot;nginx_http_request_duration_seconds&quot;, &quot;HTTP request latency&quot;, {&quot;host&quot;})
+  metric_connections = prometheus:gauge(
+    &quot;nginx_http_connections&quot;, &quot;Number of HTTP connections&quot;, {&quot;state&quot;})
+';
+log_by_lua '
+  local host = ngx.var.host:gsub(&quot;^www.&quot;, &quot;&quot;)
+  metric_requests:inc(1, {host, ngx.var.status})
+  metric_latency:observe(ngx.now() - ngx.req.start_time(), {host})
+';
+
+server {
+  listen 9145;
+  #allow 0.0.0.0/16;
+   #deny all;
+  location /metrics {
+    content_by_lua '
+      metric_connections:set(ngx.var.connections_reading, {&quot;reading&quot;})
+      metric_connections:set(ngx.var.connections_waiting, {&quot;waiting&quot;})
+      metric_connections:set(ngx.var.connections_writing, {&quot;writing&quot;})
+      prometheus:collect()
+    ';
+  }
+}
+</code></pre>
+
+<p>重新加载nginx</p>
+
+<pre><code>[root@test conf]# ../sbin/nginx -s reload
+</code></pre>
+
+<p>访问nginx的页面</p>
+
+<pre><code>http://10.19.250.191:9145/metrics
+</code></pre>
+
+<blockquote>
+<p>nginx-vts-exporter</p>
+</blockquote>
+
+<p>目前的版本是nginx-vts-exporter-0.8.3.linux-amd64.tar.gz</p>
+
+<p>下载地址是：<a href="https://github.com/hnlq715/nginx-vts-exporter/releases">https://github.com/hnlq715/nginx-vts-exporter/releases</a></p>
+
+<p>nginx-vts-exporter测试</p>
+
+<p>由于nginx-vts-exporter依赖于Nginx的nginx-module-vts模块，所以这里需要重新编译下Nginx。之后再安装这个exporter</p>
+
+<p>VTS安装步骤</p>
+
+<p>1、  下载nginx-module-vts</p>
+
+<pre><code>https://github.com/vozlt/nginx-module-vts/releases/tag/v0.1.15
+</code></pre>
+
+<p>解压后目录为</p>
+
+<pre><code>/opt/nginx-module-vts-0.1.15
+</code></pre>
+
+<p>2、  重新编译nginx</p>
+
+<p>说明 由于 nginx_upstream_check_module-master 模块有问题。</p>
+
+<p>所以编译的时候的配置语句为</p>
+
+<pre><code>./configure  --with-http_stub_status_module --with-http_ssl_module --with-http_realip_module --add-module=./nginx-sticky-module-1.1  --add-module=./lua-nginx-module-0.9.10  --add-module=./nginx-concat-module   --add-module=/opt/nginx-module-vts-0.1.15
+</code></pre>
+
+<p>3、  开始安装</p>
+
+<pre><code>make &amp; make install
+</code></pre>
+
+<p>4、  修改配置文件</p>
+
+<pre><code>http {
+    vhost_traffic_status_zone;
+
+    ...
+
+server {
+      listen 8088;
+      location /status {
+            vhost_traffic_status_display;
+            vhost_traffic_status_display_format html;
+        }
+    }
+}
+</code></pre>
+
+<p>5、  重新加载配置</p>
+
+<pre><code>[root@test conf]# ../sbin/nginx -s reload
+</code></pre>
+
+<p>访问页面</p>
+
+<pre><code>http://10.19.250.191:8088/status
+</code></pre>
+
+<p><img src="/media/monitor/server/20190315.png" alt="" /></p>
+
+<p>可见，vts的本身监控就是比较全面的，就是为监控而生。</p>
+
+<p>安装启动探针</p>
+
+<pre><code>[root@test nginx-vts-exporter-0.8.3.linux-amd64]# nohup /opt/nginx-vts-exporter-0.8.3.linux-amd64/./nginx-vts-exporter  -nginx.scrape_uri=&quot;http://10.19.250.191:8088/status/format/json&quot; 2&gt;&amp;1 &amp;
+
+[root@test nginx-vts-exporter-0.8.3.linux-amd64]# nohup: appending output to `nohup.out
+</code></pre>
+
+<p>配置访问</p>
+
+<pre><code>curl -XPUT http://10.27.136.227:9996/v1/agent/service/register   -d '
+{
+    &quot;id&quot;: &quot;prometheus-exporter11&quot;,
+    &quot;name&quot;: &quot;promether-exporter&quot;,
+    &quot;address&quot;: &quot;10.19.250.191&quot;,
+    &quot;port&quot;: 9913,
+    &quot;tags&quot;: [
+          &quot;SNMON&quot;,
+                &quot;NJXZ&quot;,
+                &quot;DEV&quot;,
+                &quot;10.19.250.191&quot;,
+                &quot;nginx-9913&quot;
+    ],
+    &quot;checks&quot;: [
+        {
+            &quot;script&quot;: &quot;curl http://10.19.250.9913/metrics &gt;/dev/null 2&gt;&amp;1&quot;,
+            &quot;interval&quot;: &quot;10s&quot;
+        }
+    ]
+}'
+</code></pre>
+
+<p>查看</p>
+
+<pre><code>http://10.27.136.227:9099/targets
+</code></pre>
+
+<p>查看Metric</p>
+
+<pre><code>http://10.19.250.191:9913/metrics
+</code></pre>
+
+<p>综合来说，vts的指标本来就比较全面，结合prometheus，更加匹配我们的监控需求，但是要重新编译nginx比较麻烦，最终还是使用vts。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/nginx/">https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/nginx/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/metrics/">
+                            <i class="fa fa-tags"></i>
+                            metrics
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/prometheus/">
+                            <i class="fa fa-tags"></i>
+                            prometheus
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/exporter/">
+                            <i class="fa fa-tags"></i>
+                            exporter
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/nginx/">
+                            <i class="fa fa-tags"></i>
+                            Nginx
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">监控metrics系列---- Prometheus mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">监控metrics系列---- Prometheus blackbox_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月03日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/gpu_exporter/">监控metrics系列---- Prometheus gpu_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月15日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/process_exporter/">监控metrics系列---- Prometheus Process Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter-sn/">监控metrics系列---- Prometheus redis Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/exporter/server/iptables/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/exporter/server/ntp/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#监控演化">监控演化</a></li>
+<li><a href="#监控">监控</a>
+<ul>
+<li><a href="#status">status</a></li>
+<li><a href="#监控需求">监控需求</a></li>
+<li><a href="#实现">实现</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

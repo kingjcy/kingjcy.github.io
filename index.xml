@@ -1330,6 +1330,486 @@ limits_config:
     
       
         <item>
+          <title>监控metrics系列---- Prometheus Grok_exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/log/grok_exporter/</link>
+          <pubDate>Fri, 10 Jan 2020 17:53:01 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/log/grok_exporter/</guid>
+          <description>&lt;p&gt;grok_exporter是基于logstash的grok的插件开发的日志分析工具，可以分析非结构化日志根据正则表达式进行匹配，然后生成适合prometheus的规则规范的metrics。&lt;/p&gt;
+
+&lt;h1 id=&#34;编译安装&#34;&gt;编译安装&lt;/h1&gt;
+
+&lt;p&gt;下载代码&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;https://github.com/fstab/grok_exporter
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;编译环境&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1. go
+2. gcc
+3. Oniguruma
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;前面两个就不多说了，最后一个安装说明一下&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1. Installing the Oniguruma library on OS X
+
+    brew install oniguruma
+
+2.Installing the Oniguruma library on Ubuntu Linux
+
+    sudo apt-get install libonig-dev
+
+3.Installing the Oniguruma library from source
+
+    curl -sLO https://github.com/kkos/oniguruma/releases/download/v6.9.4/onig-6.9.4.tar.gz
+    tar xfz onig-6.9.4.tar.gz
+    cd /tmp/onig-6.9.4
+    ./configure
+    make
+    make install
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;编译&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone https://github.com/fstab/grok_exporter
+cd grok_exporter
+git submodule update --init --recursive
+go install .
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;使用&#34;&gt;使用&lt;/h1&gt;
+
+&lt;p&gt;基本启动&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./grok_exporter -config ./example/config.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;就可以在 &lt;a href=&#34;http://localhost:9144/metrics&#34;&gt;http://localhost:9144/metrics&lt;/a&gt; 来访问指标&lt;/p&gt;
+
+&lt;p&gt;其他启动参数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Usage of ./grok_exporter:
+  -config string
+        Path to the config file. Try &#39;-config ./example/config.yml&#39; to get started.
+  -showconfig
+        Print the current configuration to the console. Example: &#39;grok_exporter -showconfig -config ./example/config.yml&#39;
+  -version
+        Print the grok_exporter version.
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;配置文件&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;The grok_exporter configuration file consists of five main sections:
+
+global:
+    # Config version
+input:
+    # How to read log lines (file or stdin).
+grok:
+    # Available Grok patterns.
+metrics:
+    # How to map Grok fields to Prometheus metrics.
+server:
+    # How to expose the metrics via HTTP(S).
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;说明&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;global 主要是配置config的版本，目前最新版都是V2&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;global:
+    config_version: 2
+    retention_check_interval: 53s
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;1、config&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;grok_exporter   config_version
+≤ 0.1.4 1 (see CONFIG_v1.md)
+0.2.X, 1.0.X    2 (current version)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2、retention_check_interval&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;The retention_check_interval is the interval at which grok_exporter checks for expired metrics.
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;input 主要是重哪边采集日志，可以是文件，标准输入等,我们使用的是文件输入的方式，在这边只要将文件路径配置好就行。&lt;/p&gt;
+
+&lt;p&gt;1、file&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;input:
+    type: file
+    paths:
+    - /var/logdir1/*.log
+    - /var/logdir2/*.log
+    readall: false
+    fail_on_missing_logfile: true
+    poll_interval_seconds: 5 # should not be needed in most cases, see below
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;type就是类型&lt;/li&gt;
+&lt;li&gt;path就是获取文件配置&lt;/li&gt;
+&lt;li&gt;readall表示是否重文件开头开始读取，true表示重文件开头读取，false表示重结尾读取&lt;/li&gt;
+&lt;li&gt;fail_on_missing_logfile表示不存在采集的文件是否启动成功，如果是true代表文件不存在就启动失败，反之亦然。&lt;/li&gt;
+&lt;li&gt;poll_interval_seconds不重要&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;2、stdin&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;input:
+    type: stdin
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;比如monitor the output of journalctl&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;journalctl -f | grok_exporter -config config.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;3、Webhook&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;input:
+
+    type: webhook
+
+    # HTTP Path to POST the webhook
+    # Default is `/webhook`
+    webhook_path: /webhook
+
+    # HTTP Body POST Format
+    # text_single: Webhook POST body is a single plain text log entry
+    # text_bulk: Webhook POST body contains multiple plain text log entries
+    #   separated by webhook_text_bulk_separator (default: \n\n)
+    # json_single: Webhook POST body is a single json log entry.  Log entry
+    #   text is selected from the value of a json key determined by
+    #   webhook_json_selector.
+    # json_bulk: Webhook POST body contains multiple json log entries.  The
+    #   POST body envelope must be a json array &amp;quot;[ &amp;lt;entry&amp;gt;, &amp;lt;entry&amp;gt; ]&amp;quot;.  Log
+    #   entry text is selected from the value of a json key determined by
+    #   webhook_json_selector.
+    # Default is `text_single`
+    webhook_format: json_bulk
+
+    # JSON Path Selector
+    # Within an json log entry, text is selected from the value of this json selector
+    #   Example &amp;quot;.path.to.element&amp;quot;
+    # Default is `.message`
+    webhook_json_selector: .message
+
+    # Bulk Text Separator
+    # Separator for text_bulk log entries
+    # Default is `\n\n`
+    webhook_text_bulk_separator: &amp;quot;\n\n&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;grok 主要是匹配规则的相关正则表达式的定义，我们可以自定义的我们url相关的路径，然后根据路径进行匹配&lt;/p&gt;
+
+&lt;p&gt;配置&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;grok:
+    patterns_dir: ./logstash-patterns-core/patterns
+    additional_patterns:
+    - &#39;EXIM_MESSAGE [a-zA-Z ]*&#39;
+    - &#39;EXIM_SENDER_ADDRESS F=&amp;lt;%{EMAILADDRESS}&amp;gt;&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;patterns_dir是指定我们写好的正则表达式文件的目录，我们可以自己去这个目录下编写，，正常logstash-patterns-core是以前用于logstash的，包含了大部分的正则，可以进去查看使用，当然如果自定义的话，也可以自己去写这个文件在这个目录下。&lt;/li&gt;
+&lt;li&gt;additional_patterns也是我们给正则表达式起个名字，不用写在文件里，写在这里直接用&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;比如我做的nginx的url的匹配获取参数为标签的&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;grok:
+    additional_patterns:
+      - &#39;URL /springRed/getRewards.do!?&#39;            //获取url
+      - &#39;ID (?&amp;lt;=promotionId=).*?(?=[&amp;quot;|&amp;amp;|  ])&#39;       //获取参数id
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;metrics 主要定义我们采集的指标&lt;/p&gt;
+
+&lt;p&gt;支持四种类型&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Counter
+Gauge
+Histogram
+Summary
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;1.counter&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;metrics:
+    - type: counter
+      name: alice_occurrences_total
+      help: number of log lines containing alice
+      match: &#39;alice&#39;
+      labels:
+          logfile: &#39;{{base .logfile}}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;match就是我们匹配的字段，可以正则表达式，可以是中间的任何一段。&lt;/li&gt;
+&lt;li&gt;labels就是我们指标中使用的标签，可以使用match中定义的变量&lt;/li&gt;
+&lt;li&gt;counter不需要指定value，是自己累加的&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;例如&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;metrics:
+    - type: counter
+      name: count_total
+      help: Total Number of RedPackage Request.
+      match: &#39;%{URL:url}.*%{ID:id}&#39;
+      labels:
+        url: &#39;{{.url}}&#39;
+        id: &#39;{{.id}}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2.gauge&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;metrics:
+    - type: gauge
+      name: grok_example_values
+      help: Example gauge metric with labels.
+      match: &#39;%{DATE} %{TIME} %{USER:user} %{NUMBER:val}&#39;
+      value: &#39;{{.val}}&#39;
+      cumulative: false
+      labels:
+          user: &#39;{{.user}}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;3.Histogram&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;metrics:
+    - type: histogram
+      name: grok_example_values
+      help: Example histogram metric with labels.
+      match: &#39;%{DATE} %{TIME} %{USER:user} %{NUMBER:val}&#39;
+      value: &#39;{{.val}}&#39;
+      buckets: [1, 2, 3]
+      labels:
+          user: &#39;{{.user}}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;4.Summary&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;metrics:
+   - type: summary
+      name: grok_example_values
+      help: Summary metric with labels.
+      match: &#39;%{DATE} %{TIME} %{USER:user} %{NUMBER:val}&#39;
+      value: &#39;{{.val}}&#39;
+      quantiles: {0.5: 0.05, 0.9: 0.01, 0.99: 0.001}
+      labels:
+          user: &#39;{{.user}}&#39;
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;server服务器监听配置&lt;/p&gt;
+
+&lt;p&gt;配置&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;server:
+    protocol: https
+    host: localhost
+    port: 9144
+    path: /metrics
+    cert: /path/to/cert
+    key: /path/to/key
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;实例&#34;&gt;实例&lt;/h1&gt;
+
+&lt;p&gt;采集nginx日志中 &lt;a href=&#34;http://test.com:8088/spring/getRewards?promotionId=21&#34;&gt;http://test.com:8088/spring/getRewards?promotionId=21&lt;/a&gt;    类似于这个url的 的数量的统计&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@test grok_exporter]# cat config.yml
+global:
+    config_version: 2
+input:
+    type: file
+    path: /usr/local/nginx/logs/access_http.log
+    readall: true # Read from the beginning of the file? False means we start at the end of the file and read only new lines.
+grok:
+    additional_patterns:
+      - &#39;URL /spring/getRewards!?&#39;
+      - &#39;ID (?&amp;lt;=promotionId=).*?(?=[&amp;quot;|&amp;amp;|  ])&#39;
+metrics:
+    - type: counter
+      name: count_total
+      help: Total Number of RedPackage Request.
+      match: &#39;%{URL:url}.*%{ID:id}&#39;
+      labels:
+        url: &#39;{{.url}}&#39;
+        id: &#39;{{.id}}&#39;
+
+server:
+    host: 0.0.0.0
+    port: 9144
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;启动&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./grok_exporter -config ./example/config.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;采集数据&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# HELP count_total Total Number of RedPackage Request.
+# TYPE count_total counter
+count_total{id=&amp;quot;21&amp;quot;,url=&amp;quot;/springRed/getRewards.do&amp;quot;} 387184
+count_total{id=&amp;quot;22&amp;quot;,url=&amp;quot;/springRed/getRewards.do&amp;quot;} 384322
+count_total{id=&amp;quot;23&amp;quot;,url=&amp;quot;/springRed/getRewards.do&amp;quot;} 381606
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;原理&#34;&gt;原理&lt;/h1&gt;
+
+&lt;p&gt;进程会一直对文件进行读取计算，所以就算不采集数据，程序在这一块也是有消耗的。读取的方式是可以选择的，重文件开始还是文件结束。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus mtail</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/log/mtail/</link>
+          <pubDate>Fri, 10 Jan 2020 17:53:01 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/log/mtail/</guid>
+          <description>&lt;p&gt;mtail是一个可以从应用程序日志中提取指标，并将其导出到时间序列数据库或时间序列计算器中，以便配置警报和仪表盘的工具。&lt;/p&gt;
+
+&lt;p&gt;提取由定义了模式和动作的mtail程序来控制。&lt;/p&gt;
+
+&lt;h1 id=&#34;安装和使用&#34;&gt;安装和使用&lt;/h1&gt;
+
+&lt;h2 id=&#34;源码编译&#34;&gt;源码编译&lt;/h2&gt;
+
+&lt;p&gt;需要安装运行版本不低于1.9的Go环境。如果不想在本地环境中安装Go，也可以选择Dockerfile。&lt;/p&gt;
+
+&lt;h2 id=&#34;下载编译好的二进制文件后运行即可&#34;&gt;下载编译好的二进制文件后运行即可&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;# nohup ./mtail -progs /path/to/mtailprograms -logs /path/to/logfile &amp;amp;
+# cat /path/to/mtailprograms
+counter nginx_line_count
+#正则统计访问日志的行数，可以在grafana中配置视图观察访问量趋势
+/$/ {
+  nginx_line_count++
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;使用&#34;&gt;使用&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;./mtail -h
+mtail version v3.0.0-rc12 git revision 936050df9856da258f13e5df71a5a0c7f8f6acdc go version go1.10.1
+
+Usage:
+  -address string
+        Host or IP address on which to bind HTTP listener
+  -alsologtostderr
+        log to standard error as well as files
+  -block_profile_rate int
+        Nanoseconds of block time before goroutine blocking events reported. 0 turns off.  See https://golang.org/pkg/runtime/#SetBlockProfileRate
+  -collectd_prefix string
+        Prefix to use for collectd metrics.
+  -collectd_socketpath string
+        Path to collectd unixsock to write metrics to.
+  -compile_only
+        Compile programs only, do not load the virtual machine.
+  -dump_ast
+        Dump AST of programs after parse (to INFO log).
+  -dump_ast_types
+        Dump AST of programs with type annotation after typecheck (to INFO log).
+  -dump_bytecode
+        Dump bytecode of programs (to INFO log).
+  -emit_prog_label
+        Emit the &#39;prog&#39; label in variable exports. (default true)
+  -graphite_host_port string
+        Host:port to graphite carbon server to write metrics to.
+  -graphite_prefix string
+        Prefix to use for graphite metrics.
+  -log_backtrace_at value
+        when logging hits line file:N, emit a stack trace
+  -log_dir string
+        If non-empty, write log files in this directory
+  -logfds value
+        List of file descriptor numbers to monitor, separated by commas.  This flag may be specified multiple times.
+  -logs value
+        List of log files to monitor, separated by commas.  This flag may be specified multiple times.
+  -logtostderr
+        log to standard error instead of files
+  -metric_push_interval_seconds int
+        Interval between metric pushes, in seconds. (default 60)
+  -metric_push_write_deadline duration
+        Time to wait for a push to succeed before exiting with an error. (default 10s)
+  -mtailDebug int
+        Set parser debug level.
+  -mutex_profile_fraction int
+        Fraction of mutex contention events reported.  0 turns off.  See http://golang.org/pkg/runtime/#SetMutexProfileFraction
+  -one_shot
+        Compile the programs, then read the contents of the provided logs from start until EOF, print the values of the metrics store and exit. This is a debugging flag only, not for production use.
+  -one_shot_metrics
+        DEPRECATED: Dump metrics (to stdout) after one shot mode.
+  -override_timezone string
+        If set, use the provided timezone in timestamp conversion, instead of UTC.
+  -port string
+        HTTP port to listen on. (default &amp;quot;3903&amp;quot;)
+  -progs string
+        Name of the directory containing mtail programs
+  -statsd_hostport string
+        Host:port to statsd server to write metrics to.
+  -statsd_prefix string
+        Prefix to use for statsd metrics.
+  -stderrthreshold value
+        logs at or above this threshold go to stderr
+  -syslog_use_current_year
+        Patch yearless timestamps with the present year. (default true)
+  -v value
+        log level for V logs
+  -version
+        Print mtail version information.
+  -vmodule value
+        comma-separated list of pattern=N settings for file-filtered logging
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus blackbox_exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/blackbox_exporter/</link>
+          <pubDate>Wed, 03 Jul 2019 10:10:09 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/blackbox_exporter/</guid>
+          <description>&lt;p&gt;blackbox主要是用这个探针去探测其他机器的网络情况，比如可以使用icmp协议来完成ping其他机器监控的任务，可以使用http协议来完成url探测的功能。&lt;/p&gt;
+
+&lt;h1 id=&#34;实现原理&#34;&gt;实现原理&lt;/h1&gt;
+
+&lt;p&gt;1、实现probe接口，然后根据不同的协议，走不通的实现&lt;/p&gt;
+
+&lt;p&gt;2、icmp实现过程，首先就是使用socket请求，等待返回，icmp不存在几次握手连接的，只是发送请求等待返回（改造，实现ping丢包率：使用for循环发送十次请求，根据返回情况和时间来计算丢包率和延时）&lt;/p&gt;
+
+&lt;p&gt;3、http协议，就是发送http请求，解析返回码&lt;/p&gt;
+
+&lt;h1 id=&#34;使用注意&#34;&gt;使用注意&lt;/h1&gt;
+
+&lt;p&gt;1、有的url返回容易超时，默认是1S，可以设置在配置文件中超时时间&lt;/p&gt;
+
+&lt;p&gt;2、有的URL需要验证，则使用指定秘要文件&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;http_2xx:
+prober: http
+timeout: 20000000000
+http:
+  tls_config:
+    ca_file: /opt/promes/exporter/blackbox_exporter/blackbox_exporter_v0.12.1_linux-amd64/ssl/cargo.crt
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>Golang使用系列---- Runtime</title>
           <link>https://kingjcy.github.io/post/golang/go-runtime/</link>
           <pubDate>Thu, 13 Jun 2019 19:39:34 CST</pubDate>
@@ -1817,6 +2297,338 @@ $ ./cortex -config.file=./docs/single-process-config.yaml
 &lt;/ul&gt;
 
 &lt;p&gt;目前没有看到cortex的可扩展的优秀的方面，可能是社区开发还没有完成，等release。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus gpu_exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/gpu_exporter/</link>
+          <pubDate>Mon, 15 Apr 2019 19:21:01 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/gpu_exporter/</guid>
+          <description>&lt;p&gt;随着区块链、人工智能的盛行，越来越多的场景开始使用GPU，而其监控也随之受到重视。目前生产环境中大部分GPU为NVIDIA厂商，今天就聊聊NVIDIA如何进行GPU的监控。&lt;/p&gt;
+
+&lt;h1 id=&#34;nvml&#34;&gt;NVML&lt;/h1&gt;
+
+&lt;p&gt;NVIDIA Management Library 是英伟达提供用于监控、管理GPU的API，底层是用C实现。我们常用的nvidia-smi命令也是基于该库进行的封装。官方同时也提供了perl、python版本的库。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@host104722317 ~]# nvidia-smi
+Tue Sep  8 10:16:02 2020
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 384.81                 Driver Version: 384.81                    |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|===============================+======================+======================|
+|   0  Tesla P40           Off  | 00000000:84:00.0 Off |                    0 |
+| N/A   34C    P0    49W / 250W |   7083MiB / 22912MiB |      0%      Default |
++-------------------------------+----------------------+----------------------+
+|   1  Tesla P40           Off  | 00000000:88:00.0 Off |                    0 |
+| N/A   31C    P0    50W / 250W |  12843MiB / 22912MiB |      0%      Default |
++-------------------------------+----------------------+----------------------+
+
++-----------------------------------------------------------------------------+
+| Processes:                                                       GPU Memory |
+|  GPU       PID   Type   Process name                             Usage      |
+|=============================================================================|
+|    0      8336      C   ./image_ds                                   193MiB |
+|    0     13531      C   ./image_ds                                   193MiB |
+|    0     17306      C   ./image_ds                                   193MiB |
+|    0     36354      C   ...entCS/imagesearch/cs/cs01_self/image_cs  1809MiB |
+|    0     37691      C   ...rc/trandeploy/imagesearch/as00/image_as  1561MiB |
+|    0     37714      C   ...rc/trandeploy/imagesearch/as01/image_as  1561MiB |
+|    0     37738      C   ...rc/trandeploy/imagesearch/as02/image_as  1561MiB |
+|    1      8336      C   ./image_ds                                   411MiB |
+|    1     13531      C   ./image_ds                                   411MiB |
+|    1     17306      C   ./image_ds                                   411MiB |
+|    1     36376      C   ...entCS/imagesearch/cs/cs11_self/image_cs  1809MiB |
+|    1     37622      C   ...rc/trandeploy/imagesearch/as10/image_as  1561MiB |
+|    1     37645      C   ...rc/trandeploy/imagesearch/as11/image_as  4401MiB |
+|    1     37668      C   ...rc/trandeploy/imagesearch/as12/image_as  1561MiB |
+|    1     38160      C   ...entDS/commentVideoDS/ds01_self/image_ds  1131MiB |
+|    1     38181      C   ...entDS/commentVideoDS/ds11_self/image_ds  1131MiB |
++-----------------------------------------------------------------------------+
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;监控项&#34;&gt;监控项&lt;/h1&gt;
+
+&lt;p&gt;常规有如下几个监控项，基本可以覆盖大部分应用场景。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;温度&lt;/li&gt;
+&lt;li&gt;GPU利用率&lt;/li&gt;
+&lt;li&gt;内存总量&lt;/li&gt;
+&lt;li&gt;已分配内存&lt;/li&gt;
+&lt;li&gt;内存利用率
+内存利用率跟已分配内存是有区别的，我理解只要有任务被分配到GPU就会分配内存，而分配的内存究竟有没有被使用才是内存利用率。根据官方的描述：内存利用率是指在每个采集周期内（可能在1/6至1秒）读写占用的时间百分比。&lt;/li&gt;
+&lt;li&gt;电源使用情况&lt;/li&gt;
+&lt;li&gt;风扇速度
+风扇并不是所有GPU都有&lt;/li&gt;
+&lt;li&gt;GPU数量&lt;/li&gt;
+&lt;li&gt;GPU平均利用率&lt;/li&gt;
+&lt;li&gt;GPU平均内存利用率&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;实现&#34;&gt;实现&lt;/h1&gt;
+
+&lt;p&gt;需要借助第三方库github.com/mindprince/gonvml，利用cgo的特性直接使用官方的API。&lt;/p&gt;
+
+&lt;p&gt;这个方案是在Linux环境下，依赖libnvidia-ml.so.1库。这个库主要包含2个文件&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;nvml.h的存在让我们不依赖于构建环境中存在的NVML。&lt;/li&gt;
+&lt;li&gt;bindings.go是调用NVML函数的cgo桥。 bindings.go中的cgo前导代码使用dlopen动态加载NVML并使其功能可用。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;详细的代码直接到github看就可以，不在这里贴出了。&lt;/p&gt;
+
+&lt;p&gt;Agent相关代码&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package funcs
+
+import (
+    &amp;quot;log&amp;quot;
+
+    &amp;quot;github.com/mindprince/gonvml&amp;quot;
+    &amp;quot;github.com/open-falcon/falcon-plus/common/model&amp;quot;
+)
+
+// 需要load libnvidia-ml.so.1库
+func GpuMetrics() (L []*model.MetricValue) {
+
+    if err := gonvml.Initialize(); err != nil {
+        log.Println(&amp;quot;Initialize error: &amp;quot;, err)
+        return
+    }
+
+    defer gonvml.Shutdown()
+
+    count, err := gonvml.DeviceCount()
+    if err != nil {
+        log.Println(&amp;quot;DeviceCount error: &amp;quot;, err)
+        return
+    }
+
+    if count == 0 {
+        return
+    }
+
+    temperature := uint(0)
+    totalMemory := uint64(0)
+    usedMemory := uint64(0)
+    gpuUtilization := uint(0)
+    memoryUtilization := uint(0)
+    powerUsage := uint(0)
+    allUtilization := uint(0)
+    allMemoryUtilization := uint(0)
+
+    for i := 0; i &amp;lt; int(count); i++ {
+        dev, err := gonvml.DeviceHandleByIndex(uint(i))
+        if err != nil {
+            log.Println(&amp;quot;DeviceHandleByIndex error:&amp;quot;, err)
+            continue
+        }
+
+        uuid, err := dev.UUID()
+        if err != nil {
+            log.Println(&amp;quot;dev.UUID error&amp;quot;, err)
+        }
+
+        tag := &amp;quot;uuid=&amp;quot; + uuid
+
+        // 不是所有gpu都有风扇
+        fanSpeed, err := dev.FanSpeed()
+        if err != nil {
+            log.Println(&amp;quot;dev.FanSpeed error: &amp;quot;, err)
+        } else {
+            L = append(L, GaugeValue(&amp;quot;gpu.fan.speed&amp;quot;, fanSpeed, tag))
+        }
+
+        temperature, err = dev.Temperature()
+        if err != nil {
+            log.Println(&amp;quot;dev.Temperature error: &amp;quot;, err)
+            continue
+        }
+
+        totalMemory, usedMemory, err = dev.MemoryInfo()
+        if err != nil {
+            log.Println(&amp;quot;dev.MemoryInfo error: &amp;quot;, err)
+            continue
+        }
+
+        // 单位换算为兆
+        totalBillion := float64(totalMemory / 1024 / 1024)
+        usedBillion := float64(usedMemory / 1024 / 1024)
+
+        gpuUtilization, memoryUtilization, err = dev.UtilizationRates()
+        if err != nil {
+            log.Println(&amp;quot;dev.UtilizationRates error: &amp;quot;, err)
+            continue
+        }
+
+        allUtilization += gpuUtilization
+        allMemoryUtilization += memoryUtilization
+
+        powerUsage, err = dev.PowerUsage()
+        if err != nil {
+            log.Println(&amp;quot;dev.PowerUsage error: &amp;quot;, err)
+        }
+
+        // 单位换算为瓦特
+        powerWatt := float64(powerUsage / 1000)
+
+        L = append(L, GaugeValue(&amp;quot;gpu.temperature&amp;quot;, temperature, tag))
+        L = append(L, GaugeValue(&amp;quot;gpu.memory.total&amp;quot;, totalBillion, tag))
+        L = append(L, GaugeValue(&amp;quot;gpu.memory.used&amp;quot;, usedBillion, tag))
+        L = append(L, GaugeValue(&amp;quot;gpu.memory.util&amp;quot;, memoryUtilization, tag))
+        L = append(L, GaugeValue(&amp;quot;gpu.util&amp;quot;, gpuUtilization, tag))
+        L = append(L, GaugeValue(&amp;quot;gpu.power.usage&amp;quot;, powerWatt, tag))
+    }
+
+    L = append(L, GaugeValue(&amp;quot;gpu.count&amp;quot;, count))
+    L = append(L, GaugeValue(&amp;quot;gpu.util.avg&amp;quot;, allUtilization/count))
+    L = append(L, GaugeValue(&amp;quot;gpu.memory.util.avg&amp;quot;, allMemoryUtilization/count))
+    return L
+}
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus Process Exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/process_exporter/</link>
+          <pubDate>Tue, 09 Apr 2019 16:44:29 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/process_exporter/</guid>
+          <description>&lt;p&gt;Process-exporter 主要是对进程进行监控。&lt;/p&gt;
+
+&lt;h1 id=&#34;安装使用&#34;&gt;安装使用&lt;/h1&gt;
+
+&lt;h2 id=&#34;安装&#34;&gt;安装&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;wget https://github.com/ncabatoff/process-exporter/releases/download/v0.4.0/process-exporter-0.4.0.linux-amd64.tar.gz 
+tar -xvf process-exporter-0.4.0.linux-amd64.tar.gz -C /usr/local/
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;配置&#34;&gt;配置&lt;/h2&gt;
+
+&lt;p&gt;选择要监视的进程并将它的分组，提供命令行参数或者使用YAML配置文件两种方法。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;整体模版&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;process_names:
+  - matcher1
+  - matcher2
+  ...
+  - matcherN
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;默认定义全部进程监控&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;vim conf.yaml
+process_names:
+  - name: &amp;quot;{{.Comm}}&amp;quot;
+    cmdline:
+    - &#39;.+&#39;
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;name 进程名，可以使用变量模版匹配&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;模版变量&lt;/p&gt;
+
+&lt;p&gt;可用的模板变量：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{{.Comm}} 包含原始可执行文件的basename，换句话说 在/proc/&amp;lt;pid&amp;gt;/stat
+{{.ExeBase}} 包含可执行文件的basename，这个是name的默认值
+{{.ExeFull}} 包含可执行文件的完全限定路径
+{{.Username}} contains the username of the effective user
+{{.Matches}} 映射包含应用命令行所产生的所有匹配项
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;创建配置文件定义进程名监控&lt;/p&gt;
+
+&lt;p&gt;Process-exporter 可以进程名字匹配进程，获取进程信息。匹配规则由name对应的模板变量决定，以下表示监控进程名字为nginx 与 zombie 的进程状态&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;vim process-name.yaml
+process_names:
+  - name: &amp;quot;{{.Matches}}&amp;quot;
+    cmdline:
+    - &#39;nginx&#39;
+
+  - name: &amp;quot;{{.Matches}}&amp;quot;
+    cmdline:
+    - &#39;zombie&#39;
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;进程选择器（process selectors）&lt;/p&gt;
+
+&lt;p&gt;process_names 中的每个项必须包含一个或者多个选择器(comm，exe &amp;ndash;OR或者 cmdline&amp;ndash;AND) ；如果存在多个选择器，则它们都必须匹配&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;启动服务&#34;&gt;启动服务&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;./process-exporter -config.path process-name.yaml &amp;amp;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;查看数据&#34;&gt;查看数据&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;curl http://localhost:9256/metrics
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;监控项&#34;&gt;监控项&lt;/h1&gt;
+
+&lt;p&gt;常用进程监控项&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;总进程数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;sum(namedprocess_namegroup_states)
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;总僵尸进程数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;sum(namedprocess_namegroup_states{state=&amp;quot;Zombie&amp;quot;})
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;namedprocess_namegroup_都是以这个开头的&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;num_procs：Number of processes in this group&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;cpu_seconds_total：CPU usage，类似于node_cpu_seconds_total&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;read_bytes_total：io read&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;write_bytes_total：io write&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;major_page_faults_total：Number of major page faults based on /proc/[pid]/stat&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;minor_page_faults_total：Number of minor page faults based on /proc/[pid]/stat&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;context_switches_total：voluntary_ctxt_switches&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;memory_bytes：memory used&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;open_filedesc：Number of file descriptors，基于/proc/[pid]/fd&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;worst_fd_ratio：fd limit&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;oldest_start_time_seconds：the oldest process in the group started&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;num_threads：Sum of number of threads of all process in the group&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;states：Running, Sleeping, Waiting, Zombie, Other：Number of threads in the group&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;还有线程的一些指标，默认关闭，需要开启&lt;/p&gt;
+
+&lt;h1 id=&#34;原理&#34;&gt;原理&lt;/h1&gt;
+
+&lt;p&gt;读取/proc/[pid]/（stat，fd）等文件的数据进行解析来获取进程的相关状态和资源情况。&lt;/p&gt;</description>
         </item>
       
     
@@ -3423,6 +4235,413 @@ hits：返回的记录组成的数组。
     
       
         <item>
+          <title>监控metrics系列---- Prometheus redis Exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/redis_exporter-sn/</link>
+          <pubDate>Thu, 21 Feb 2019 15:10:33 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/redis_exporter-sn/</guid>
+          <description>&lt;p&gt;redis探针主要是监控redis相关情况，比如内存，连接数等。&lt;/p&gt;
+
+&lt;h1 id=&#34;原理&#34;&gt;原理&lt;/h1&gt;
+
+&lt;p&gt;1、set log format,支持txt和json两种格式的日志&lt;/p&gt;
+
+&lt;p&gt;2、set log level，支持正常的日志级别&lt;/p&gt;
+
+&lt;p&gt;3、show version 支持option打印版本&lt;/p&gt;
+
+&lt;p&gt;4、解析addr和passwd和alias，这几个参数支持参数配置，也可以重环境变量中获取&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Environment         Variables
+Name                Description
+REDIS_ADDR          Address of Redis node(s)
+REDIS_PASSWORD      Password to use when authenticating to Redis
+REDIS_ALIAS         Alias name of Redis node(s)
+REDIS_FILE          Path to file containing Redis node(s)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;5、创建一个Exporter结构体，初始化，将上面的信息传进去，并创建对应的指标，checkkey支持对多数据库的查询&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// Exporter implements the prometheus.Exporter interface, and exports Redis metrics.
+type Exporter struct {
+    redis        RedisHost
+    namespace    string
+    keys         []dbKeyPair
+    keyValues    *prometheus.GaugeVec
+    keySizes     *prometheus.GaugeVec
+    duration     prometheus.Gauge
+    scrapeErrors prometheus.Gauge
+    totalScrapes prometheus.Counter
+    metrics      map[string]*prometheus.GaugeVec
+    metricsMtx   sync.RWMutex
+    sync.RWMutex
+}
+
+
+// RedisHost represents a set of Redis Hosts to health check.
+type RedisHost struct {
+    Addrs     []string
+    Passwords []string
+    Aliases   []string
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;6、然后调用client_golang的库函数进行数据采集，scrape连接数据库，调用命令，然后解析返回参数。完成监控。&lt;/p&gt;
+
+&lt;p&gt;由此可见，redis_exporter只是简单的对redis的单节点进行了监控，并没有对redis的cluster和sentinel进行监控。&lt;/p&gt;
+
+&lt;h1 id=&#34;sentinel监控&#34;&gt;sentinel监控&lt;/h1&gt;
+
+&lt;p&gt;这边需要监控sentinel，这边做一个设计&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;运行天数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_start_time_seconds{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 1.551058403e+09
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取uptime_in_days字段值，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;注册shard数据&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_masters{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 4
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取sentinel_masters字段值，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;正常shard的个数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_masters_ok{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取status=ok的个数，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;异常shard的个数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_masters_down{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 4
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取status=odown的个数，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;sentinel的连接数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_connects{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标是通过执行netstat命令来统计对应进程的连接数，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;检活&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_status{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标是通过执行redis PING命令来检测返回的是否是PONG，如果是则为1，否则为0，代表着sentinel的死活状态，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;26379端口检测&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_port_isalive{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标是通过执行netstat命令来统计对应端口为LiSTEN的数量，1代表端口正在监听，0代表没有监听端口，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;目前探针融合在redis的探针中，可以自动识别sentinel还是redis，然后放回对应的指标，支持多地址混合配置，可以返回所有需要的指标。&lt;/p&gt;
+
+&lt;h1 id=&#34;连接池&#34;&gt;连接池&lt;/h1&gt;
+
+&lt;p&gt;redis探针短连接到长连接池改造&lt;/p&gt;
+
+&lt;p&gt;目前方案就是改短连接为长连接，可以只使用一个连接来解决这个问题，这个其实适用于长连接使用的场景，然后考虑长连接可能出来大量连接存在的场景，所以最好直接使用连接池，对连接的数量进行限制，这样就可以完美的解决问题。&lt;/p&gt;
+
+&lt;p&gt;探针启动直接初始化一个连接池，大小为2，正常使用一个长连接来采集高频率的数据，出现异常，可能会使用到第二个长连接。&lt;/p&gt;
+
+&lt;p&gt;验证在高频率的采集下连接数并没有出现增长。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;问题&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;redis自身支持长连接需要设置参数，tcp_keepalive=1，默认是关闭的，所以都是以timeout时间为准，到时间后redis端会关闭连接，所以探针侧就会close_wait，当然这个连接是可以复用的，当重新请求的时候，又会建立连接在连接池上，按着我们每10s才是一次的频率，redis设置的180s的超时时间，基本上不会出现不断短连接的情形。&lt;/p&gt;
+
+&lt;h1 id=&#34;redis多活复制监控设计&#34;&gt;redis多活复制监控设计&lt;/h1&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Label设计&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;ol&gt;
+&lt;li&gt;直接获取info信息中的# Remote_replication段里的remote_role:source的值，代表着当前redis的角色。&lt;/li&gt;
+&lt;li&gt;直接获取info信息中的# Remote_replication段里的source_host:10.244.176.44的值，代表着当前目的端的元ip地址&lt;/li&gt;
+&lt;li&gt;直接获取info信息中的# Remote_replication段里的dest_host:10.244.176.46的值，代表着当前源端对应的目的端ip地址&lt;/li&gt;
+&lt;li&gt;直接获取info信息中的# Remote_replication段里的source_link_status:up的值，代表着当前目的端对应复制状态&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;因为这些对应的是string类型的value，直接作为源端或者目的端的label使用，通过返回值可以增加以下label&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;source&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;# Remote_replication
+remote_role:source
+dest_host:10.244.176.46
+dest_port:57093
+dest_state:online
+dest_last_io_seconds_ago:1
+dest_client_buffer_len:0
+source_repl_offset:2449159
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;label：remote_role，dest_host，dest_port，dest_state&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;dest&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;# Remote_replication
+remote_role:dest
+source_host:10.244.176.44
+source_port:6379
+source_link_status:up
+source_last_io_seconds_ago:0
+source_sync_in_progress:0
+dest_repl_offset:151922
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;label：remote_role，source_host，source_port，source_link_status&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;源端指标&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;source端向dest端发送增量数据的缓冲区大小，堆积量增大预示网络延迟或tps过大&lt;/p&gt;
+
+&lt;p&gt;直接获取info信息中的# Remote_replication段里的dest_client_buffer_len:0的值，代表着当前源端source端向dest端发送增量数据的缓冲区大小，堆积量增大预示网络延迟或tps过大&lt;/p&gt;
+
+&lt;p&gt;指标：如下&lt;/p&gt;
+
+&lt;p&gt;设计设计标签为通用的addr，alias字段，加上指标字段remote_role，dest_host，dest_port，dest_state&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;source端和dest端的offset的差值&lt;/p&gt;
+
+&lt;p&gt;直接获取info信息中的# Remote_replication段里的source_repl_offset:149103的值，代表着当前源端offset的值&lt;/p&gt;
+
+&lt;p&gt;指标：如下&lt;/p&gt;
+
+&lt;p&gt;设计设计标签为通用的addr，alias字段。加上指标字段remote_role，dest_host，dest_port，dest_state&lt;/p&gt;
+
+&lt;p&gt;通过聚合计算出它们的差值。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;缓存写、删除操作的总共次数&lt;/p&gt;
+
+&lt;p&gt;直接获取info信息中的# Remote_replication段里的server_total_changes:0的值，代表着当前源端或者目的端缓存写、删除操作的总共次数&lt;/p&gt;
+
+&lt;p&gt;指标：如下&lt;/p&gt;
+
+&lt;p&gt;设计设计标签为通用的addr，alias字段。&lt;/p&gt;
+
+&lt;p&gt;展示上一次数据和这一次数据的差值。通过函数计算获得。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;目的端指标&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;dest端最后一次和source端通信后过去的时长，单位秒&lt;/p&gt;
+
+&lt;p&gt;直接获取info信息中的# Remote_replication段里的dest_client_buffer_len:0的值，代表着当前目的端dest端最后一次和source端通信后过去的时长，单位秒&lt;/p&gt;
+
+&lt;p&gt;指标：如下&lt;/p&gt;
+
+&lt;p&gt;设计设计标签为通用的addr，alias字段。加上指标字段remote_role，source_host，source_port，source_link_status&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;source端和dest端的offset的差值&lt;/p&gt;
+
+&lt;p&gt;直接获取info信息中的# Remote_replication段里的dest_repl_offset:151922的值，代表着当前目的端offset的值&lt;/p&gt;
+
+&lt;p&gt;指标：如下&lt;/p&gt;
+
+&lt;p&gt;设计设计标签为通用的addr，alias字段。加上指标字段remote_role，source_host，source_port，source_link_status&lt;/p&gt;
+
+&lt;p&gt;通过聚合计算出它们的差值。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;缓存写、删除操作的总共次数&lt;/p&gt;
+
+&lt;p&gt;直接获取info信息中的# Remote_replication段里的server_total_changes:0的值，代表着当前源端或者目的端缓存写、删除操作的总共次数&lt;/p&gt;
+
+&lt;p&gt;指标：如下&lt;/p&gt;
+
+&lt;p&gt;设计设计标签为通用的addr，alias字段。&lt;/p&gt;
+
+&lt;p&gt;展示上一次数据和这一次数据的差值。通过函数计算获得。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;验证&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;正常情况下都是一个节点一个角色，这边放在一起了。&lt;/p&gt;
+
+&lt;p&gt;获取指标如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# HELP redis_remote_replication_dest_client_buffer_len remote replication dest client buffer len
+# TYPE redis_remote_replication_dest_client_buffer_len gauge
+redis_remote_replication_dest_client_buffer_len{addr=&amp;quot;10.244.176.44:6379&amp;quot;,alias=&amp;quot;&amp;quot;,dest_host=&amp;quot;10.244.176.46&amp;quot;,dest_port=&amp;quot;57093&amp;quot;,dest_state=&amp;quot;online&amp;quot;,remote_role=&amp;quot;source&amp;quot;} 0
+# HELP redis_remote_replication_dest_last_io_seconds_ago remote replication dest last io seconds ago
+# TYPE redis_remote_replication_dest_last_io_seconds_ago gauge
+redis_remote_replication_dest_last_io_seconds_ago{addr=&amp;quot;10.244.176.44:6379&amp;quot;,alias=&amp;quot;&amp;quot;,dest_host=&amp;quot;10.244.176.46&amp;quot;,dest_port=&amp;quot;57093&amp;quot;,dest_state=&amp;quot;online&amp;quot;,remote_role=&amp;quot;source&amp;quot;} 0
+# HELP redis_remote_replication_dest_repl_offset remote replication dest repl offset
+# TYPE redis_remote_replication_dest_repl_offset gauge
+redis_remote_replication_dest_repl_offset{addr=&amp;quot;10.244.176.46:6379&amp;quot;,alias=&amp;quot;&amp;quot;,remote_role=&amp;quot;dest&amp;quot;,source_host=&amp;quot;10.244.176.44&amp;quot;,source_link_status=&amp;quot;up&amp;quot;,source_port=&amp;quot;6379&amp;quot;} 7.541993e+06
+# HELP redis_remote_replication_source_last_io_seconds_ago remote replication source last io seconds ago
+# TYPE redis_remote_replication_source_last_io_seconds_ago gauge
+redis_remote_replication_source_last_io_seconds_ago{addr=&amp;quot;10.244.176.46:6379&amp;quot;,alias=&amp;quot;&amp;quot;,remote_role=&amp;quot;dest&amp;quot;,source_host=&amp;quot;10.244.176.44&amp;quot;,source_link_status=&amp;quot;up&amp;quot;,source_port=&amp;quot;6379&amp;quot;} 0
+# HELP redis_remote_replication_source_repl_offset remote replication source repl offset
+# TYPE redis_remote_replication_source_repl_offset gauge
+redis_remote_replication_source_repl_offset{addr=&amp;quot;10.244.176.44:6379&amp;quot;,alias=&amp;quot;&amp;quot;,dest_host=&amp;quot;10.244.176.46&amp;quot;,dest_port=&amp;quot;57093&amp;quot;,dest_state=&amp;quot;online&amp;quot;,remote_role=&amp;quot;source&amp;quot;} 7.541994e+06
+# HELP redis_remote_replication_source_sync_in_progress remote replication source sync in progress
+# TYPE redis_remote_replication_source_sync_in_progress gauge
+redis_remote_replication_source_sync_in_progress{addr=&amp;quot;10.244.176.46:6379&amp;quot;,alias=&amp;quot;&amp;quot;,remote_role=&amp;quot;dest&amp;quot;,source_host=&amp;quot;10.244.176.44&amp;quot;,source_link_status=&amp;quot;up&amp;quot;,source_port=&amp;quot;6379&amp;quot;} 0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;指标的聚合使用&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus redis Exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/redis_exporter/</link>
+          <pubDate>Thu, 21 Feb 2019 15:10:33 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/redis_exporter/</guid>
+          <description>&lt;p&gt;redis探针主要是监控redis相关情况，比如内存，连接数等。&lt;/p&gt;
+
+&lt;h1 id=&#34;原理&#34;&gt;原理&lt;/h1&gt;
+
+&lt;p&gt;1、set log format,支持txt和json两种格式的日志&lt;/p&gt;
+
+&lt;p&gt;2、set log level，支持正常的日志级别&lt;/p&gt;
+
+&lt;p&gt;3、show version 支持option打印版本&lt;/p&gt;
+
+&lt;p&gt;4、解析addr和passwd和alias，这几个参数支持参数配置，也可以重环境变量中获取&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Environment         Variables
+Name                Description
+REDIS_ADDR          Address of Redis node(s)
+REDIS_PASSWORD      Password to use when authenticating to Redis
+REDIS_ALIAS         Alias name of Redis node(s)
+REDIS_FILE          Path to file containing Redis node(s)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;5、创建一个Exporter结构体，初始化，将上面的信息传进去，并创建对应的指标，checkkey支持对多数据库的查询&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// Exporter implements the prometheus.Exporter interface, and exports Redis metrics.
+type Exporter struct {
+    redis        RedisHost
+    namespace    string
+    keys         []dbKeyPair
+    keyValues    *prometheus.GaugeVec
+    keySizes     *prometheus.GaugeVec
+    duration     prometheus.Gauge
+    scrapeErrors prometheus.Gauge
+    totalScrapes prometheus.Counter
+    metrics      map[string]*prometheus.GaugeVec
+    metricsMtx   sync.RWMutex
+    sync.RWMutex
+}
+
+
+// RedisHost represents a set of Redis Hosts to health check.
+type RedisHost struct {
+    Addrs     []string
+    Passwords []string
+    Aliases   []string
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;6、然后调用client_golang的库函数进行数据采集，scrape连接数据库，调用命令，然后解析返回参数。完成监控。&lt;/p&gt;
+
+&lt;p&gt;由此可见，redis_exporter只是简单的对redis的单节点进行了监控，并没有对redis的cluster和sentinel进行监控。&lt;/p&gt;
+
+&lt;h1 id=&#34;sentinel监控&#34;&gt;sentinel监控&lt;/h1&gt;
+
+&lt;p&gt;这边需要监控sentinel，这边做一个设计&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;运行天数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_start_time_seconds{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 1.551058403e+09
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取uptime_in_days字段值，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;注册shard数据&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_masters{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 4
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取sentinel_masters字段值，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;正常shard的个数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_masters_ok{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取status=ok的个数，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;异常shard的个数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_masters_down{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 4
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标直接解析info信息中的sentinel信息，每次通过执行info命令获取，获取status=odown的个数，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;sentinel的连接数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_connects{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标是通过执行netstat命令来统计对应进程的连接数，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;检活&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_status{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标是通过执行redis PING命令来检测返回的是否是PONG，如果是则为1，否则为0，代表着sentinel的死活状态，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;26379端口检测&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;redis_sentinel_port_isalive{addr=&amp;quot;10.37.152.206:26379&amp;quot;,alias=&amp;quot;&amp;quot;} 0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个指标是通过执行netstat命令来统计对应端口为LiSTEN的数量，1代表端口正在监听，0代表没有监听端口，设计标签为通用的addr，alias字段。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;目前探针融合在redis的探针中，可以自动识别sentinel还是redis，然后放回对应的指标，支持多地址混合配置，可以返回所有需要的指标。&lt;/p&gt;
+
+&lt;h1 id=&#34;连接池&#34;&gt;连接池&lt;/h1&gt;
+
+&lt;p&gt;redis探针目前是短连接，在很多场景下，需要改短连接为长连接，可以只使用一个连接来解决这个问题，这个其实适用于长连接使用的场景，然后考虑长连接可能出来大量连接存在的场景，所以最好直接使用连接池，对连接的数量进行限制，这样就可以完美的解决问题。&lt;/p&gt;
+
+&lt;p&gt;探针启动直接初始化一个连接池，大小为2，正常使用一个长连接来采集高频率的数据，出现异常，可能会使用到第二个长连接。&lt;/p&gt;
+
+&lt;p&gt;验证在高频率的采集下连接数并没有出现增长。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;问题&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;redis自身支持长连接需要设置参数，tcp_keepalive=1，默认是关闭的，所以都是以timeout时间为准，到时间后redis端会关闭连接，所以探针侧就会close_wait，当然这个连接是可以复用的，当重新请求的时候，又会建立连接在连接池上，按着我们每10s才是一次的频率，redis设置的180s的超时时间，基本上不会出现不断短连接的情形。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控metrics系列---- Prometheus Client_golang</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/library/client_golang/</link>
           <pubDate>Tue, 12 Feb 2019 15:59:42 CST</pubDate>
@@ -3964,6 +5183,101 @@ clustermanager_ram_usage_bytes{host=&amp;quot;foo.example.org&amp;quot;,zone=&am
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;每次刷新的时候，我们都会获得不同的数据，类似于实现了一个数值不断改变的采集器。当然，具体的指标和采集函数还需要按照需求进行修改，满足实际的业务需求。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus Exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/</link>
+          <pubDate>Tue, 12 Feb 2019 15:59:42 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/</guid>
+          <description>&lt;p&gt;Exporter 本质上就是将收集的数据，转化为对应的文本格式，并提供 http 请求。&lt;/p&gt;
+
+&lt;h1 id=&#34;文本格式&#34;&gt;文本格式&lt;/h1&gt;
+
+&lt;p&gt;Exporter 收集的数据转化的文本内容以行 (\n) 为单位，空行将被忽略, 文本内容最后一行为空行。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;注释&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;文本内容，如果以 # 开头通常表示注释。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;以 # HELP 开头表示 metric 帮助说明。&lt;/li&gt;
+&lt;li&gt;以 # TYPE 开头表示定义 metric 类型，包含 counter, gauge, histogram, summary, 和 untyped 类型。&lt;/li&gt;
+&lt;li&gt;其他表示一般注释，供阅读使用，将被 Prometheus 忽略。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;采样数据的样式&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;内容如果不以 # 开头，表示采样数据。它通常紧挨着类型定义行，满足以下格式：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;metric_name [
+  &amp;quot;{&amp;quot; label_name &amp;quot;=&amp;quot; `&amp;quot;` label_value `&amp;quot;` { &amp;quot;,&amp;quot; label_name &amp;quot;=&amp;quot; `&amp;quot;` label_value `&amp;quot;` } [ &amp;quot;,&amp;quot; ] &amp;quot;}&amp;quot;
+] value [ timestamp ]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;下面是一个完整的例子：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# HELP http_requests_total The total number of HTTP requests.
+# TYPE http_requests_total counter
+http_requests_total{method=&amp;quot;post&amp;quot;,code=&amp;quot;200&amp;quot;} 1027 1395066363000
+http_requests_total{method=&amp;quot;post&amp;quot;,code=&amp;quot;400&amp;quot;}    3 1395066363000
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;一个 exporter 就是将收集的数据转化为文本格式，并提供 http 请求即可，那很容自己实现一个，prometheus官方提供了client各种语言的库，比如go语言的clent-golang，只要集成使用就能输出对应的指标。&lt;/p&gt;
+
+&lt;h1 id=&#34;client-golang&#34;&gt;client_golang&lt;/h1&gt;
+
+&lt;p&gt;我们开发探针都是基于官方提供的语言库，最多使用的还是golang，我们需要重点了解&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/library/client_golang/&#34;&gt;client_golang&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h1 id=&#34;exporter&#34;&gt;exporter&lt;/h1&gt;
+
+&lt;p&gt;通过各种client库，我们可以开发各种采集探针，将数据转为固定的文本格式来给监控提供数据。不同的监控通过不同的探针来实现，下面是一些常见探针的使用说明：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/node-exporter/&#34;&gt;Node_Exporter&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/log/grok_exporter/&#34;&gt;grok_Exporter&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/log/mtail/&#34;&gt;mtail&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/nginx&#34;&gt;nginx&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/blackbox_exporter/&#34;&gt;blackbox_Exporter&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/gpu_exporter/&#34;&gt;gpu_Exporter&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/mysqld-exporter/&#34;&gt;mysqld_Exporter&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/postgres_exporter/&#34;&gt;postgres_Exporter&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/process_exporter/&#34;&gt;process_Exporter&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/redis_exporter/&#34;&gt;redis_Exporter&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/snmp_exporter/&#34;&gt;snmp_Exporter&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;其他探针&#34;&gt;其他探针&lt;/h2&gt;
+
+&lt;p&gt;还有其他很多采集器，可以直接去prometheus官方网站看目前发布的&lt;a href=&#34;https://prometheus.io/docs/instrumenting/exporters/&#34;&gt;https://prometheus.io/docs/instrumenting/exporters/&lt;/a&gt;&lt;/p&gt;
+
+&lt;h1 id=&#34;开发注意&#34;&gt;开发注意&lt;/h1&gt;
+
+&lt;p&gt;1、探针日志注意事项：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;正常情况下应该不输出日志，只会在有错误的情况下输出错误日志&lt;/li&gt;
+&lt;li&gt;如果输出日志了，应该设置定时清理脚本&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这个也适用于很多服务器下面的情况，毕竟如果程序如果跑在了别人的机器上，你是不容易操作的。&lt;/p&gt;
+
+&lt;p&gt;2、探针的管理&lt;/p&gt;
+
+&lt;p&gt;prometheus的exporter都是独立的，简单几个使用还是不错，解耦还开箱即用，但是数量多了，运维的压力变大了，例如探针管理升级，运行情况的检查等，有几种方案解决&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;做一个管理平台，类似于后台系统，专门对exporter进行管理&lt;/li&gt;
+&lt;li&gt;用一个主进程整合几个探针，每个探针依旧是原来的版本&lt;/li&gt;
+&lt;li&gt;用telegraf来支持各种类型的input，all in one&lt;/li&gt;
+&lt;/ul&gt;</description>
         </item>
       
     
@@ -4924,6 +6238,423 @@ func (b *Writer) WriteString(s string) (int, error)
     
       
         <item>
+          <title>监控metrics系列---- Prometheus snmp Exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/snmp_exporter/</link>
+          <pubDate>Fri, 09 Nov 2018 14:29:56 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/snmp_exporter/</guid>
+          <description>&lt;p&gt;Prometheus exporter for snmp server metrics.&lt;/p&gt;
+
+&lt;h1 id=&#34;源码原理解析&#34;&gt;源码原理解析&lt;/h1&gt;
+
+&lt;p&gt;1、解析配置文件到结构体&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Config map[string]*Module
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2、metrics中可以指定snmp对应的版本&lt;/p&gt;
+
+&lt;p&gt;3、支持配置重载&lt;/p&gt;
+
+&lt;p&gt;4、重置url：snmp的处理函数handler&lt;/p&gt;
+
+&lt;p&gt;5、获取两个必要调用参数：target和module（默认是if_mib）&lt;/p&gt;
+
+&lt;p&gt;6、生成结构体collector重写describe和collect&lt;/p&gt;
+
+&lt;p&gt;7、colletcd中调用github.com/soniah/gosnmp这个snmp clinet lib来获取数据&lt;/p&gt;
+
+&lt;p&gt;8、解析数据放入到对应配置文件中的指标进行赋值输出&lt;/p&gt;
+
+&lt;p&gt;9、这边就是直接使用了snmp协议，所以还是要了解mib对应的东西，包括格式与语法&lt;/p&gt;
+
+&lt;p&gt;下面就是看我们默认的if_mib采集是哪些数据，是否符合要求，是否要换去其他模版&lt;/p&gt;
+
+&lt;p&gt;針對普通網絡設備的端口，MIB的相關定義是Interface組，主要管理如下信息:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ifIndex 端口索引號
+ifDescr 端口描述
+ifType 端口類型
+ifMtu 最大傳輸包字節數
+ifSpeed 端口速度
+ifPhysAddress 物理地址
+ifOperStatus 操作狀態
+ifLastChange 上次狀態更新時間
+ifInOctets 輸入字節數
+*ifInUcastPkts 輸入非廣播包數
+*ifInNUcastPkts 輸入廣播包數
+*ifInDiscards 輸入包丟棄數
+*ifInErrors 輸入包錯誤數
+*ifInUnknownProtos 輸入未知協議包數
+*ifOutOctets 輸出字節數
+*ifOutUcastPkts 輸出非廣播包數
+*ifOutNUcastPkts 輸出廣播包數
+*ifOutDiscards 輸出包丟棄數
+*ifOutErrors 輸出包錯誤數
+ifOutQLen 輸出隊長 其中， 號標識的是與網絡流量有關的信息。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;獲取CISCO2900端口1的上行總流量 snmpwalk -v 1 -c public 192.168.1.254 IF-MIB::ifInOctets.1 返回結果 IF-MIB::ifInOctets.1 = Counter32: 4861881&lt;/li&gt;
+&lt;li&gt;五秒後再獲取一次 snmpwalk -v 1 -c public 192.168.1.254 IF-MIB::ifInOctets.1 返回結果 IF-MIB::ifInOctets.1 = Counter32: 4870486 3、計算結果 （後值48704863-前值4861881）/ 5＝1721b/s （應該是BYTE）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;generator原理&#34;&gt;generator原理&lt;/h1&gt;
+
+&lt;p&gt;将generator.yml转化为snmp.yml文件，通过解析generator.yml中配置的mib module也就是walk中的数组，在mibs中都有现成的指标定义，然后听过netsnmp解析成我们需要的snmp.yml文件进行采集&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus Script_exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/script_exporter/</link>
+          <pubDate>Tue, 09 Oct 2018 14:29:49 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/script_exporter/</guid>
+          <description>&lt;p&gt;script_exporter探针是一个自研发的探针，通过脚本执行shell命令获取机器指标并且按着配置规范进行返回，最后转化为时序数据库的标准格式用于系统的监控。&lt;/p&gt;
+
+&lt;h1 id=&#34;设计&#34;&gt;设计&lt;/h1&gt;
+
+&lt;h2 id=&#34;探针设计&#34;&gt;探针设计&lt;/h2&gt;
+
+&lt;h3 id=&#34;架构&#34;&gt;架构&lt;/h3&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/prometheus/exporter/script.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;我们通过下面的配置来讲解使用方法&lt;/p&gt;
+
+&lt;p&gt;全局配置文件script-exporter.yml&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;scriptconfigpath: /Users/chunyinjiang/jcy/work/go_workspace/prometheus/script_exporter-sn-1.0.0/src/github.com/promes/script_exporter/scriptconfig
+reload: 20s
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;说明：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;scriptconfigpath是对应类型的服务的配置文件的存放路径，默认在当前目录下的scriptconfig这个目录下&lt;/li&gt;
+&lt;li&gt;reload是自动热加载的定时时间，配置就开启定时器，配置自动加载。关于重载这边说明一下使用
+
+&lt;ul&gt;
+&lt;li&gt;配置reload表示开启，配置的value就是定时重载的时间&lt;/li&gt;
+&lt;li&gt;value可以配置h,m,s等时间单位，支持自动解析，也可以不加单位，默认时间单位为s&lt;/li&gt;
+&lt;li&gt;定时器可以重新加载自己的定时时间，当配置文件中的reload发生改变的时候，可以自动更新配置和自己的定时时间&lt;/li&gt;
+&lt;li&gt;在运行过程中，定时器删除和新增，也就是直接新增或者删除reload，需要给这个进程传递一个HUP信号&lt;/li&gt;
+&lt;li&gt;服务的配置文件的路径下文件可以动态加载，加载方式有两种，一个直接传递HUP信号，一个是设置定时器自动重新加载&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;服务配置文件ntp_exporter.yml&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ntp:
+  cmd: &#39;./script/checkntp.sh&#39;
+  split: &amp;quot;|&amp;quot;
+  service: &amp;quot;ntp&amp;quot;
+  metrics:
+    - client:
+        type: &amp;quot;label&amp;quot;
+        description: &amp;quot;client type&amp;quot;
+    - status:
+        type: &amp;quot;gauge&amp;quot;
+        description: &amp;quot;client status&amp;quot;
+    - synchronize:
+        type: &amp;quot;gauge&amp;quot;
+        description: &amp;quot;whether time synchronize or not&amp;quot;
+    - offset:
+        type: &amp;quot;gauge&amp;quot;
+        description: &amp;quot;time offset&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;说明&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;cmd表示执行的脚本，建议最好用绝对路径，正常情况下，我们把脚本存放在当前的script目录下&lt;/li&gt;
+&lt;li&gt;spilt表示返回数据的分隔符，用于数据解析，正常使用“|”&lt;/li&gt;
+&lt;li&gt;service表示当前配置属于的服务类型，对应采集参数。&lt;/li&gt;
+&lt;li&gt;ntp是自定义的一个域，一个脚本对应的执行结果和指标名的定义都在这个域下面，同时也是指标名或者标签名的前缀&lt;/li&gt;
+&lt;li&gt;metrics是定义对应指标名和指标里的标签
+
+&lt;ul&gt;
+&lt;li&gt;每个指标模块有三部分组成，对应的是对脚本一个返回值的处理&lt;/li&gt;
+&lt;li&gt;首先是指标名或者标签名的后半部分，比如offset，加上前缀就会采集一个指标ntp_offset，比如client，就会有一个标签ntp_client，这边特别说明一下标签会在当前域中的所有的指标里加上。&lt;/li&gt;
+&lt;li&gt;type表示类型，目前支持：
+
+&lt;ul&gt;
+&lt;li&gt;“label”标签，&lt;/li&gt;
+&lt;li&gt;“gauge”可以增加减少的变量&lt;/li&gt;
+&lt;li&gt;“count”只能增加的变量&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;description表示描述，表示对当前指标或者标签的说明&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;使用&#34;&gt;使用&lt;/h3&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;指标可配置：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;指标名为域名+metrics中的key，是对应的域的拼接，最总形成最后的指标名，在采集结果中展示。&lt;/li&gt;
+&lt;li&gt;指标值是cmd执行返回的结果，必须和配置中的metrics中的list一一可对应，否则不显示。&lt;/li&gt;
+&lt;li&gt;返回值可指定分隔符，默认为空格，可以使用spilt进行配置&lt;/li&gt;
+&lt;li&gt;返回value：
+
+&lt;ul&gt;
+&lt;li&gt;int /String
+
+&lt;ul&gt;
+&lt;li&gt;支持counter，label，gauge&lt;/li&gt;
+&lt;li&gt;返回数值int直接使用counter，guage&lt;/li&gt;
+&lt;li&gt;返回string直接使用label&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;list
+
+&lt;ul&gt;
+&lt;li&gt;返回list，循环处理&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;默认采集指标&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;脚本执行是否成功，指标名制定为scrpit_success&lt;/li&gt;
+&lt;li&gt;脚本执行时间，指标名制定为scrpit_duration&lt;/li&gt;
+&lt;li&gt;默认采集指标默认制定标签（namespace=”域”）&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;指标展示&#34;&gt;指标展示&lt;/h3&gt;
+
+&lt;p&gt;上面配置执行探针指标如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# HELP ntp_offset time offset
+# TYPE ntp_offset gauge
+ntp_offset{ntp_client=&amp;quot;ntpdate&amp;quot;} -0.020493
+# HELP ntp_status client status
+# TYPE ntp_status gauge
+ntp_status{ntp_client=&amp;quot;ntpdate&amp;quot;} 1
+# HELP ntp_synchronize whether time synchronize or not
+# TYPE ntp_synchronize gauge
+ntp_synchronize{ntp_client=&amp;quot;ntpdate&amp;quot;} 0
+# HELP raid_group_metrics raid next start time
+# TYPE raid_group_metrics gauge
+raid_group_metrics{raid_group_id=&amp;quot;0/0&amp;quot;,raid_group_status=&amp;quot;Optl&amp;quot;,raid_group_strategy=&amp;quot;RAWBC&amp;quot;,raid_group_type=&amp;quot;HDD&amp;quot;} 1
+raid_group_metrics{raid_group_id=&amp;quot;0/1&amp;quot;,raid_group_status=&amp;quot;Optl&amp;quot;,raid_group_strategy=&amp;quot;RAWBD&amp;quot;,raid_group_type=&amp;quot;HDD&amp;quot;} 1
+# HELP raid_nextstarttime raid next start time
+# TYPE raid_nextstarttime gauge
+raid_nextstarttime{raid_delay=&amp;quot;168&amp;quot;,raid_mode=&amp;quot;Auto&amp;quot;,raid_state=&amp;quot;Stopped&amp;quot;,raid_type=&amp;quot;pr&amp;quot;} 7
+raid_nextstarttime{raid_delay=&amp;quot;672&amp;quot;,raid_mode=&amp;quot;Concurrent&amp;quot;,raid_state=&amp;quot;Stopped&amp;quot;,raid_type=&amp;quot;cc&amp;quot;} 0
+# HELP raid_reset_metrics whether raid reset or not
+# TYPE raid_reset_metrics gauge
+raid_reset_metrics{raid_reset_key=&amp;quot;resetadapter&amp;quot;} 0
+# HELP scrpit_duration Displays time  about run script
+# TYPE scrpit_duration gauge
+scrpit_duration{namespace=&amp;quot;ntp&amp;quot;} 0.266784932
+scrpit_duration{namespace=&amp;quot;raid&amp;quot;} 0.02776845
+scrpit_duration{namespace=&amp;quot;raid_group&amp;quot;} 0.077789637
+scrpit_duration{namespace=&amp;quot;raid_reset&amp;quot;} 0.003795185
+# HELP scrpit_success Displays whether or not the script run success
+# TYPE scrpit_success gauge
+scrpit_success{namespace=&amp;quot;ntp&amp;quot;} 1
+scrpit_success{namespace=&amp;quot;raid&amp;quot;} 1
+scrpit_success{namespace=&amp;quot;raid_group&amp;quot;} 1
+scrpit_success{namespace=&amp;quot;raid_reset&amp;quot;} 1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;部署设计&#34;&gt;部署设计&lt;/h2&gt;
+
+&lt;h3 id=&#34;架构-1&#34;&gt;架构&lt;/h3&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/prometheus/exporter/script2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;设计说明：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;探针只有一个，脚本和脚本配置文件单独存放，提供增加，删除，修改接口，这样可以动态的通过对脚本和脚本配置文件的处理，来实现所有脚本的服务的动态上下线&lt;/li&gt;
+&lt;li&gt;同时只有一个探针进程，不会出现同是脚本监控的采集部署多个探针进程，消耗机器资源&lt;/li&gt;
+&lt;li&gt;功能模块
+
+&lt;ul&gt;
+&lt;li&gt;上传脚本文件接口，可以是窗口，或者文件按钮&lt;/li&gt;
+&lt;li&gt;上传配置文件接口，可以是窗口，或者文件按钮&lt;/li&gt;
+&lt;li&gt;开始采集，不动脚本和配置，使用服务发现。&lt;/li&gt;
+&lt;li&gt;停止采集，不动脚本和配置，使用服务发现。&lt;/li&gt;
+&lt;li&gt;生成子配置文件&amp;mdash;后期可以考虑配置自动生成（设置指标相关规则）&lt;/li&gt;
+&lt;li&gt;自动加载，信号和定时器两种方式&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;使用-1&#34;&gt;使用&lt;/h3&gt;
+
+&lt;p&gt;1、安装&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;拉去脚本和配置文件到指定的目录&lt;/li&gt;
+&lt;li&gt;reload&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;2、卸载&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;删除脚本和配置文件&lt;/li&gt;
+&lt;li&gt;reload&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;3、开始采集&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;使用服务发现，改变注册信息（粒度到脚本，都是脚本的附加属性）&lt;/li&gt;
+&lt;li&gt;prometheus更新配置&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;4、停止采集&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;使用服务发现，改变注册信息（粒度到脚本，都是脚本的附加属性）&lt;/li&gt;
+&lt;li&gt;prometheus更新配置&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;5、采集频率&lt;/p&gt;
+
+&lt;p&gt;consul注册增加采集频率目录，consul-template按目录生成不同的json文件，promehteus使用不同job来设定好采集频率，进行采集。&lt;/p&gt;
+
+&lt;p&gt;6、脚本数量&lt;/p&gt;
+
+&lt;p&gt;脚本数量有以下因素决定：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;超时时间&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;目前prometheus默认拉去数据的超时时间为10S（可配置），探针执行脚本设计的超时时间为1S（可配置），所以考虑到异常情况，脚本全部执行失败，保证prometheus获取数据，所以正常情况下，一个job保持9个脚本的，以此类推，在超时时间上，一个job脚本的数量取决于探针和数据库的超时时间。所有脚本的数量取决于job数量和机器性能资源压力。&lt;/p&gt;
+
+&lt;p&gt;特殊场景：ntp同步宕机的时间源的情况，会出现长达4S的脚本执行时间，所以服务监控脚本设计为5S超时时间，这边需要调整prometheus默认拉去数据的超时时间为60S（可配置），每个job可配置11个脚本。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;性能&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;资源消耗这一块还没有压测，目前在满足超时时间的情况下机器的各项数据上没有什么压力。&lt;/p&gt;
+
+&lt;p&gt;1.27-2.12这段时间在一台物理机上跑了ntp和raid，目前没有发现错误情况，资源消耗如下图&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/prometheus/exporter/script3.png&#34; alt=&#34;&#34; /&gt;
+&lt;img src=&#34;https://kingjcy.github.io/media/monitor/prometheus/exporter/script4.png&#34; alt=&#34;&#34; /&gt;
+&lt;img src=&#34;https://kingjcy.github.io/media/monitor/prometheus/exporter/script5.png&#34; alt=&#34;&#34; /&gt;
+&lt;img src=&#34;https://kingjcy.github.io/media/monitor/prometheus/exporter/script6.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&#34;注册&#34;&gt;注册&lt;/h3&gt;
+
+&lt;h4 id=&#34;服务维度&#34;&gt;服务维度&lt;/h4&gt;
+
+&lt;p&gt;直接使用参数targets来指定服务，，数据用“，”隔开。例如
+&lt;a href=&#34;http://10.37.2.191:9173/metrics?targets=raid&#34;&gt;http://10.37.2.191:9173/metrics?targets=raid&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;只是raid服务相关的返回&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# HELP raid_group_metrics whether get raid group info or not
+# TYPE raid_group_metrics gauge
+raid_group_metrics{raid_group_id=&amp;quot;0/0&amp;quot;,raid_group_status=&amp;quot;Optl&amp;quot;,raid_group_strategy=&amp;quot;RAWBC&amp;quot;,raid_group_type=&amp;quot;HDD&amp;quot;} 1
+raid_group_metrics{raid_group_id=&amp;quot;0/1&amp;quot;,raid_group_status=&amp;quot;Optl&amp;quot;,raid_group_strategy=&amp;quot;RAWBD&amp;quot;,raid_group_type=&amp;quot;HDD&amp;quot;} 1
+# HELP raid_metrics whether get raid info or not
+# TYPE raid_metrics gauge
+raid_metrics{raid_state=&amp;quot;Stopped&amp;quot;,raid_type=&amp;quot;CC&amp;quot;} 1
+raid_metrics{raid_state=&amp;quot;Stopped&amp;quot;,raid_type=&amp;quot;PR&amp;quot;} 1
+# HELP raid_reset_metrics whether raid reset or not
+# TYPE raid_reset_metrics gauge
+raid_reset_metrics{raid_reset_key=&amp;quot;resetadapter&amp;quot;} 0
+# HELP scrpit_duration Displays time  about run script
+# TYPE scrpit_duration gauge
+scrpit_duration{namespace=&amp;quot;raid&amp;quot;} 0.017630159
+scrpit_duration{namespace=&amp;quot;raid_group&amp;quot;} 0.036695585
+scrpit_duration{namespace=&amp;quot;raid_reset&amp;quot;} 0.00264489
+# HELP scrpit_success Displays whether or not the script run success
+# TYPE scrpit_success gauge
+scrpit_success{namespace=&amp;quot;raid&amp;quot;} 1
+scrpit_success{namespace=&amp;quot;raid_group&amp;quot;} 1
+scrpit_success{namespace=&amp;quot;raid_reset&amp;quot;} 1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h4 id=&#34;脚本维度&#34;&gt;脚本维度&lt;/h4&gt;
+
+&lt;p&gt;使用两个参数来控制targets和scripts，数据用“，”隔开。例如
+&lt;a href=&#34;http://10.37.2.191:9173/metrics?targets=raid&amp;amp;&amp;amp;scripts=cc_pr_info.sh&#34;&gt;http://10.37.2.191:9173/metrics?targets=raid&amp;amp;&amp;amp;scripts=cc_pr_info.sh&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;只返回raid服务下的cc_pr_info.sh脚本执行的返回值&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# HELP raid_metrics whether get raid info or not
+# TYPE raid_metrics gauge
+raid_metrics{raid_state=&amp;quot;Stopped&amp;quot;,raid_type=&amp;quot;CC&amp;quot;} 1
+raid_metrics{raid_state=&amp;quot;Stopped&amp;quot;,raid_type=&amp;quot;PR&amp;quot;} 1
+# HELP scrpit_duration Displays time  about run script
+# TYPE scrpit_duration gauge
+scrpit_duration{namespace=&amp;quot;raid&amp;quot;} 0.017308263
+# HELP scrpit_success Displays whether or not the script run success
+# TYPE scrpit_success gauge
+scrpit_success{namespace=&amp;quot;raid&amp;quot;} 1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;问题&#34;&gt;问题&lt;/h1&gt;
+
+&lt;p&gt;1、大量僵死进程&lt;/p&gt;
+
+&lt;p&gt;先解释一些概念&lt;/p&gt;
+
+&lt;p&gt;孤儿进程：一个父进程退出，而它的一个或多个子进程还在运行，那么那些子进程将成为孤儿进程。孤儿进程将被init进程(进程号为1)所收养，并由init进程对它们完成状态收集工作。&lt;/p&gt;
+
+&lt;p&gt;僵尸进程：一个进程使用fork创建子进程，如果子进程退出，而父进程并没有调用wait或waitpid获取子进程的状态信息，那么子进程的进程描述符仍然保存在系统中。这种进程称之为僵死进程。&lt;/p&gt;
+
+&lt;p&gt;僵死进程的父进程被kill掉，就会变成孤儿进程，被系统回收。&lt;/p&gt;
+
+&lt;p&gt;1.僵尸进程：前文已经对僵尸进程的定义进行了说明。那么defunct进程只是在process table(进程表项)里有一个记录，其他的资源没有占用，除非你的系统的process个数已经快超过限制了，zombie进程不会有更多的坏处。&lt;/p&gt;
+
+&lt;p&gt;2.产生原因：在子进程终止后到父进程调用wait()前的时间里，子进程被称为zombie；&lt;/p&gt;
+
+&lt;p&gt;       具体a. 子进程结束后向父进程发出SIGCHLD信号，父进程默认忽略了它&lt;/p&gt;
+
+&lt;p&gt;           b. 父进程没有调用wait()或waitpid()函数来等待子进程的结束&lt;/p&gt;
+
+&lt;p&gt;           c. 网络原因有时会引起僵尸进程；&lt;/p&gt;
+
+&lt;p&gt;如何防止僵尸进程&lt;/p&gt;
+
+&lt;p&gt;(1) 让僵尸进程成为孤儿进程，由init进程回收；(手动杀死父进程)&lt;/p&gt;
+
+&lt;p&gt;(2) 调用fork()两次；&lt;/p&gt;
+
+&lt;p&gt;(3) 捕捉SIGCHLD信号，并在信号处理函数中调用wait函数；&lt;/p&gt;
+
+&lt;p&gt;1.调用过程中一定要注意：创建句柄一定要释放，正常在创建的时候直接defer，否则没有调用wait，直接return，就会使得调用的进程失去父进程而变成僵尸进程，以后在任何地方调用子进程的时候都要注意，sndp探针就是一个实例&lt;/p&gt;
+
+&lt;p&gt;bashCmd := exec.CommandContext(ctx, scriptType,str[0:]&amp;hellip;)
+    defer bashCmd.Wait()&lt;/p&gt;
+
+&lt;p&gt;代码编辑问题&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//var flag = true
+//for _, value := range res {
+//  if len(value) != len(script.Metrics) {
+//      flag = false
+//  }
+//}
+//if !flag {
+//  log.Errorf(&amp;quot;response array the number of row UnMatch&amp;quot;)
+//  return nil, errors.New(&amp;quot;response array the number of row UnMatch&amp;quot;)
+//}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;res是[][]string，当返回time=&amp;ldquo;2018-11-28T16:24:01+08:00&amp;rdquo; level=debug msg=&amp;ldquo;parse res in string array: [[]]&amp;ldquo;使用range还是会进入，赋值flag为false，所以return&lt;/p&gt;
+
+&lt;h1 id=&#34;平台&#34;&gt;平台&lt;/h1&gt;
+
+&lt;p&gt;目前在监控mycat，ntp等服务中使用的就是这种方式。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控系列---- log</title>
           <link>https://kingjcy.github.io/post/monitor/log/log-scheme/</link>
           <pubDate>Mon, 13 Aug 2018 11:16:45 CST</pubDate>
@@ -4979,6 +6710,37 @@ func (b *Writer) WriteString(s string) (int, error)
 &lt;h2 id=&#34;展示&#34;&gt;展示&lt;/h2&gt;
 
 &lt;p&gt;在数据展示报表方面，目前对日志也没有什么选择，只有kibana。Kibana主要负责读取ElasticSearch中的数据，并进行可视化展示。并且，它还自带Tool，可以方便调用ElasticSearch的Rest API。在日志平台中，我们通过Kibana查看日志。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus postgresql_exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/postgres_exporter/</link>
+          <pubDate>Thu, 09 Aug 2018 14:29:34 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/postgres_exporter/</guid>
+          <description>&lt;p&gt;Prometheus exporter for PostgreSQL server metrics.&lt;/p&gt;
+
+&lt;h1 id=&#34;源码原理解析&#34;&gt;源码原理解析&lt;/h1&gt;
+
+&lt;p&gt;1、使用kingpin来解析启动参数，包含web.listen-address，web.telemetry-path，disable-default-metrics，extend.query-path，dumpmaps，version&lt;/p&gt;
+
+&lt;p&gt;2、如果设置参数dumpmaps，则直接把默认查询的查询map结构输出，主要查询一些系统信息，最后结束探针不运行&lt;/p&gt;
+
+&lt;p&gt;3、启动时设置环境变量DATA_SOURCE_NAME作为探测pg的地址链接，代码中通过获取环境变量的值来获取datasource&lt;/p&gt;
+
+&lt;p&gt;4、创建一个exporter的结构体，并初始化，包含了默认采集指标&lt;/p&gt;
+
+&lt;p&gt;5、针对可配的路由web.telemetry-path来做对应的数据处理，默认是/metrics，根目录则显示到可配置的目录下获取指标数据&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1)根据获取的dsn来连接数据库
+2）检查版本是否需要更新，就是看pg的版本是否和我们目前支持的采集兼容，低于最低可探测版本则不可用，然后对可探测的对应的版本默认指标进行调整。
+3）解析配置文件
+4）根据默认语句和配置文件查询语句来进行查询，将查询结果放到对应的指标变量中去。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;6、启动监听地址和端口，可配置&lt;/p&gt;</description>
         </item>
       
     
@@ -5204,6 +6966,33 @@ Second:
 &lt;/blockquote&gt;
 
 &lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/victoriametrics/&#34;&gt;victoriametrics&lt;/a&gt;在存储和查询上更加的优秀，目前比较推荐victoriametrics。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus mysqld_exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/mysqld-exporter/</link>
+          <pubDate>Mon, 09 Jul 2018 14:29:04 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/mysqld-exporter/</guid>
+          <description>&lt;p&gt;mysql监控指标采集探针:Prometheus exporter for MySQL server metrics.&lt;/p&gt;
+
+&lt;h1 id=&#34;源码原理解析&#34;&gt;源码原理解析&lt;/h1&gt;
+
+&lt;p&gt;1、collector&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;scraperFlags := map[collector.Scraper]*bool{}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;记录需要采集的collector，是interface Scraper的实现的结构体，并且支持所有采集 启动项可配置。&lt;/p&gt;
+
+&lt;p&gt;2、连接数据库重环境变量或者mysql的配置文件中获取&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;DATA_SOURCE_NAME／my.cnf
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后采集一下数据库状态，每个scrapers启动一个协程去调用接口中Scrape的实现&lt;/p&gt;</description>
         </item>
       
     
@@ -11386,6 +13175,1049 @@ beats目前只提供了像elasticsearch、kafka、logstash等几类output客户�
     
       
         <item>
+          <title>监控metrics系列---- Prometheus Iptables</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/iptables/</link>
+          <pubDate>Fri, 29 Jun 2018 16:55:15 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/iptables/</guid>
+          <description>&lt;p&gt;这边主要是对iptables进行监控的设计，支持prometheus的标准指标的接入。&lt;/p&gt;
+
+&lt;h1 id=&#34;需求&#34;&gt;需求&lt;/h1&gt;
+
+&lt;p&gt;先看监控需求&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;监控范围    mysql、DB2、PQ数据库服务器
+
+监控项 IPTABLES状态监控
+
+告警类型及阀值 &amp;quot;   0    正常
+                    1   数据库iptables服务未正常启动
+                    2    5分钟内存在被数据库iptables策略拒绝3次的IP地址&amp;quot;
+
+数据保留    默认一个月，大促活动期间数据保留
+
+监控脚本    自提
+
+推送方式    promes推送
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;监控脚本获取相关值&lt;/p&gt;
+
+&lt;h1 id=&#34;指标设计&#34;&gt;指标设计&lt;/h1&gt;
+
+&lt;p&gt;只需要一个指标iptables的状态&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;iptables的状态iptables_status
+
+&lt;ul&gt;
+&lt;li&gt;对应脚本返回数据应该：iptables状态&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;还是使用&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/script_exporter/&#34;&gt;script_exporter&lt;/a&gt;的设计模式，通过脚本来获取监控，并对异常进行告警。&lt;/p&gt;
+
+&lt;h1 id=&#34;执行脚本&#34;&gt;执行脚本&lt;/h1&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/bin/bash
+ret=0
+alarm_threshold=3
+
+iptables-save 2&amp;gt;/dev/null|grep -w 192.168.240.242 1&amp;gt;/dev/null
+if [ $? -eq 0 ];then
+    date=`date +%c|awk &#39;{print $3&amp;quot; &amp;quot;$2}&#39;`
+    rejcet_info=`tail -n 5000 /var/log/messages|grep &amp;quot;$date&amp;quot;|grep &amp;quot;DST=&amp;quot;|grep &amp;quot;SRC=&amp;quot;`
+    if [ -n &amp;quot;$rejcet_info&amp;quot; ];then
+        grep_time=&amp;quot;&amp;quot;
+        for x in {0..5}
+        do
+            t_time=`date +%T|awk -F: &#39;{print $1*60 + $2 - var}&#39; var=$x`
+            hour=`echo $t_time 60|awk &#39;{printf(&amp;quot;%d&amp;quot;,$1/$2)}&#39;`
+             min=`echo $t_time 60|awk &#39;{printf(&amp;quot;%d&amp;quot;,$1%$2)}&#39;`
+            if [ $min -lt 10 ];then
+                g_time=&amp;quot;$hour:0$min:&amp;quot;
+            else
+                g_time=&amp;quot;$hour:$min:&amp;quot;
+            fi
+            if [ -z &amp;quot;$grep_time&amp;quot; ];then
+                grep_time=&amp;quot;$g_time&amp;quot;
+            else
+                grep_time=&amp;quot;$grep_time|$g_time&amp;quot;
+            fi
+        done
+
+        rejcet_top=`echo &amp;quot;$rejcet_info&amp;quot;|egrep &amp;quot;$grep_time&amp;quot;|sed &#39;s/.* SRC=\([^ ]*\) .*/\1/&#39;|sort|uniq -c|sort -n|awk &#39;{print $1}&#39;|tail -n 1`
+        if [ -n &amp;quot;$rejcet_top&amp;quot; ];then
+            if [ $rejcet_top -ge $alarm_threshold ];then
+                ret=2
+            fi
+        fi
+    fi
+else
+    ret=1
+fi
+
+echo $ret
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;采集数据&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# HELP iptables_status iptables status
+# TYPE iptables_status gauge
+iptables_status 1
+# HELP scrpit_duration Displays time  about run script
+# TYPE scrpit_duration gauge
+scrpit_duration{namespace=&amp;quot;iptables&amp;quot;} 0.002305902
+# HELP scrpit_success Displays whether or not the script run success
+# TYPE scrpit_success gauge
+scrpit_success{namespace=&amp;quot;iptables&amp;quot;} 1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;扩展&#34;&gt;扩展&lt;/h1&gt;
+
+&lt;p&gt;正常iptables还能监控对应的流量，这边进行一个对于iptables监控的扩展。&lt;/p&gt;
+
+&lt;p&gt;对特定IP进行流量统计&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;我要统计服务器上的IP：192.168.0.10的入网流量：
+iptables -I INPUT -d 192.168.0.10
+统计该IP的出网流量：
+iptables -I OUTPUT -s 192.168.0.10
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;统计特定端口的流量&lt;/p&gt;
+
+&lt;p&gt;方法和统计IP的流量差不多，使用-p指定端口类型，–dport指定端口号。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;例如我要统计服务器上的IP：127.0.0.1，1080端口的入网流量：
+sudo iptables -I INPUT -d 127.0.0.1 -p tcp –dport 1080
+统计该IP 80端口的出网流量：
+sudo iptables -I OUTPUT -s 127.0.0.1 -p tcp –sport 1080 出口流量统计命令
+上面的命令中，参数-d是目标IP，-s是源IP。因为入网的流量发送至127.0.0.1 这个IP，因此把127.0.0.1 作为目标IP可以统计入网的流量。出网时，127.0.0.1 发出的流量，因此把127.0.0.1 作为OUTPUT的源IP可以统计流量。 不仅如此，还可以对特定来源IP，来源端口，出网的目的IP，出网的目的端口进行统计，根据需要使用-s,–sport,-d,–dport几个参数即可。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看流量&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;iptables -n -v -L -t filter 默认是使用易读的单位，也就是自动转化成M，G。如过需要Bytes做单位，则增加一个-x参数
+iptables -n -v -L -t filter -x
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;作为路由时的流量统计&lt;/p&gt;
+
+&lt;p&gt;如果服务器是做路由的，那么使用上面的命令把规则插入至INPUT/OUTPUT链中就无效了，因为那些IP根本不是在你的服务器上。但是那些IP的流量，都需要经过你的服务器的转发，因此把对于的规则插入至FORWARD表即可。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;例如我要统计IP为192.168.0.10的服务器入网流量：
+iptables -I FORWARD -d 192.168.0.10
+统计该IP的出网流量：
+iptables -I FORWARD -s 192.168.0.10
+
+需要注意的是，此时添加统计出网和入网流量的规则，不再需要分INPUT链和OUTPUT链，因为你服务器只负责根据目标IP，进行转发。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;iptables规则的保存&lt;/p&gt;
+
+&lt;p&gt;一般重启后iptables规则会丢失，因此需要进行保存操作。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;基于Red Hat：
+service iptables save
+基于Debian：
+先保存：
+iptables-save &amp;gt; /etc/iptables.rules
+恢复：
+iptables-restore &amp;lt; /etc/iptables.rules
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;shadowsocks流量检测控制方法&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;端口的出口流量统计命令
+sudo iptables -I OUTPUT -s 127.0.0.1 -p tcp –sport 1080
+然后去定时检测统计流量,查看统计流量信息:
+sudo iptables -n -v -L -t filter
+sudo iptables -n -v -L -t filter |grep -i –color -B 3 spt:1080 定期检测命令，流量带颜色
+sudo iptables -n -v -L -t filter |grep -i ‘spt:1080’ |awk -F’ ’ ‘{print $2}’ 只输出具体流量值
+然后自己写个crontab脚本,每分钟去读取流量统计出来的流量值,判断下,超过预设流量即停止shadowsocks服务
+当然你可能开启多个shadowsocks服务,需要保存他们的进程id,超出流量的就kill 这个id
+
+#启动服务并记录进程id到文件
+PORT=1080
+PID_FILE=~/shadow_$PORT.pid
+#开启对应端口流量统计
+sudo iptables -I OUTPUT -s 127.0.0.1 -p tcp --sport $PORT
+shadowsocks -c shadowsocks.json -p $PORT &amp;gt; logshadow.log 2&amp;gt;&amp;amp;1 &amp;amp;
+echo &amp;quot;$!&amp;quot; &amp;gt; $PID_FILE
+
+#定时检测 流量超出则停止服务,比如限制每天流量100M
+PORT=1080
+PID_FILE=~/shadow_$PORT.pid
+MAX=100
+SLEEP_TIME=20 #每20秒检测流量一次
+while true
+do
+  value_string=`sudo iptables -n -v -L -t filter |grep -i &amp;quot;spt:$PORT&amp;quot;|awk -F&#39; &#39; &#39;{print $2}&#39;`
+  grep &#39;M&#39; $value_string
+  if [ $? = 0 ] ;then
+   value=`echo $value_string |tr -d &#39;M&#39;`
+   if [ $value -gt $MAX ]; then
+      kill -9 `cat $PID_FILE`
+      rm $PID_FILE
+      #关闭流量统计
+      sudo iptables -D OUTPUT -s 127.0.0.1 -p tcp --sport $PORT
+      break
+    fi
+  fi
+  sleep $SLEEP_TIME
+done
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus Nginx</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/nginx/</link>
+          <pubDate>Fri, 29 Jun 2018 16:55:15 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/nginx/</guid>
+          <description>&lt;p&gt;nginx [engine x] is an HTTP and reverse proxy server, a mail proxy server, and a generic TCP/UDP proxy server.关于&lt;a href=&#34;https://kingjcy.github.io/post/middleware/proxy/nginx&#34;&gt;nginx&lt;/a&gt;的介绍就不多谈了，这里主要聊下如何打造nginx集群的监控系统。&lt;/p&gt;
+
+&lt;h1 id=&#34;监控演化&#34;&gt;监控演化&lt;/h1&gt;
+
+&lt;p&gt;目前国内大多数互联网都是选择nginx构建web转发集群，那么如何构建nginx集群的监控系统？&lt;/p&gt;
+
+&lt;p&gt;下面这个监控方案的历程，大体也说明了nginx的进化发展。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;2011年左右&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;当时并没有合适的开源工具，只能自写python脚本，一方面是通过nginx的status模块获取少量指标如处理请求数，连接数等等，另一方面是通过定期跑nginx日志生成监控数据，写入mysql进行存储，然后通过自研的监控系统展示相关监控指标。其中，指标的主要维度是域名。这个方案除了跑nginx日志消耗过多资源以及需要大量开发工作外，没啥大问题，就是有新的监控需求时很头疼，得改脚本。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;2013年左右&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;这时候阿里的tengine开始发力，开发各种插件并在阿里内部推广使用，其中就包括了更为强大的status模块。只是tengine魔改了大量nginx的内部实现，导致大多数模块与nginx并不兼容。于是就有了这个项目hnlq715/status-nginx-module，完美支持nginx，并成功重构了当时上百台nginx，日请求量几十亿的的监控系统，此时能满足绝大多数监控需求。指标的主要维度仍然是域名。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;2015年左右&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;这时候注意到了prometheus的出现，感叹于其强大，于是考虑基于prometheus实现nginx的监控。而此时，vozlt/nginx-module-vts已经使用很广，于是创建了这个项目hnlq715/nginx-vts-exporter，用于将vts的输出内容转化为prometheus的格式，便于prometheus抓取。基于grafana提供监控查询及UI展示，这时候算是步入真正的现代化监控系统，此时的指标维度已经细化到具体的URI。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;2017年左右&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;然而上一个方案还是有个短板，那就是nginx-module-vts对响应时间的处理太过粗糙，只给了一个平均值，无法对P99，P90或是P50给出直观的数据。于是基于lua内嵌在nginx里跑监控指标，demo在这hnlq715/nginx-prometheus-metrics，这种方式可以直接用prometheus的histogram类型统计响应时间等指标，并在prometheus层聚合。此时，才算是真正的现代化监控系统。指标维度可以完全自定义，且更加多维化。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;总结&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;基于prometheus聚合nginx的监控数据是非常好的选择。上述项目能够在一定程度上帮助实现，不用手写代码或是通过极少的lua代码实现一套现代化的nginx监控系统。当然，也可以聚合其他诸如redis、mysql、node等各类系统的监控数据到prometheus进行统一管理。&lt;/p&gt;
+
+&lt;h1 id=&#34;监控&#34;&gt;监控&lt;/h1&gt;
+
+&lt;h2 id=&#34;status&#34;&gt;status&lt;/h2&gt;
+
+&lt;p&gt;原版的 NGINX 会在一个简单的状态页面上显示几个与服务器状态有关的基本指标，它们由你启用的 HTTP stub status module 所提供。&lt;/p&gt;
+
+&lt;p&gt;你可以浏览状态页看到你的指标：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Active connections: 24 
+server accepts handled requests
+1156958 1156958 4491319
+Reading: 0 Writing: 18 Waiting : 6 
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;下表是 Nginx 提供的监控参数及其简单释义。&lt;/p&gt;
+
+&lt;p&gt;参数名称    参数描述&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Active connections  当前活跃的用户连接(包含Waiting状态)
+accepts 接收到的用户连接总数
+handled Nginx处理的用户连接总数
+requests    用户请求总数
+Reading 当前连接中Nginx读取请求首部的个数
+Writing 当前连接中Nginx写返回给用户的个数
+Waiting 当前没有请求的活跃用户连接数
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这些提供了我们简单的指标。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;当用户请求连接Nginx服务器时，accepts计数器会加一。且当服务器处理该连接请求时，handled计数器同样会加一。一般而言，两者的值是相等的，除非达到了某些资源极限（如worker_connection的限制）。&lt;/li&gt;
+&lt;li&gt;用户连接请求被处理，就会进入 active 状态。如果该连接没有其他 request，则进入 waiting 的子状态；如果有 request，nginx 会读取 request 的 header，计数器 request 加一，进入 reading 的子状态。 reading 状态持续时间非常短，header 被读取后就会进入 writing 状态。事实上，直到服务器将响应结果返回给用户之前，该连接会一直保持 writing 状态。所以说，writing 状态一般会被长时间占用。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;监控需求&#34;&gt;监控需求&lt;/h2&gt;
+
+&lt;p&gt;三类指标&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;基本活动指标&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;Accepts（接受）、Handled（已处理）、Requests（请求数）是一直在增加的计数器。Active（活跃）、Waiting（等待）、Reading（读）、Writing（写）随着请求量而增减。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;提醒指标: 丢弃连接
+被丢弃的连接数目等于 Accepts 和 Handled 之差（NGINX 中），或是可直接得到的标准指标（NGINX Plus 中）。在正常情况下，丢弃连接数应该是零。如果在每个单位时间内丢弃连接的速度开始上升，那么应该看看是否资源饱和了。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;提醒指标: 每秒请求数
+按固定时间间隔采样你的请求数据（开源 NGINX 的requests或者 NGINX Plus 中total） 会提供给你单位时间内（通常是分钟或秒）所接受的请求数量。监测这个指标可以查看进入的 Web 流量尖峰，无论是合法的还是恶意的，或者突然的下降，这通常都代表着出现了问题。每秒请求数若发生急剧变化可以提醒你的环境出现问题了，即使它不能告诉你确切问题的位置所在。请注意，所有的请求都同样计数，无论 URL 是什么。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;错误指标&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;NGINX 错误指标告诉你服务器是否经常返回错误而不是正常工作。客户端错误返回4XX状态码，服务器端错误返回5XX状态码。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;提醒指标: 服务器错误率&lt;/p&gt;
+
+&lt;p&gt;服务器错误率等于在单位时间（通常为一到五分钟）内5xx错误状态代码的总数除以状态码（1XX，2XX，3XX，4XX，5XX）的总数。如果你的错误率随着时间的推移开始攀升，调查可能的原因。如果突然增加，可能需要采取紧急行动，因为客户端可能收到错误信息。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;收集错误度量
+配置 NGINX 的日志模块将响应码写入访问日志&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;性能指标&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;提醒指标: 请求处理时间
+请求处理时间指标记录了 NGINX 处理每个请求的时间，从读到客户端的第一个请求字节到完成请求。较长的响应时间说明问题在上游。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;实现&#34;&gt;实现&lt;/h2&gt;
+
+&lt;p&gt;目前prometheus还没有官方的exporter。目前有两种采集的办法&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;nginx-lua-prometheus&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;这个是以lua插件的形式暴露出一些基础连接信息&lt;/p&gt;
+
+&lt;p&gt;下载地址：&lt;a href=&#34;https://github.com/knyar/nginx-lua-prometheus&#34;&gt;https://github.com/knyar/nginx-lua-prometheus&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;nginx-lua-prometheus测试&lt;/p&gt;
+
+&lt;p&gt;解压源码包&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;tar -zxvf nginx-1.6.0.tar.gz
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;开始进行编译。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@test nginx-1.6.0]# pwd
+/opt/nginx-1.6.0
+[root@test nginx-1.6.0]# ./configure --prefix=/usr/local/nginx --with-http_stub_status_module --with-http_ssl_module --with-http_realip_module --add-module=./nginx-sticky-module-1.1 --add-module=./nginx_upstream_check_module-master --add-module=./nginx_upstream_hash-0.3.1 --add-module=./lua-nginx-module-0.9.10 --add-module=./nginx-concat-module
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看编译后安装的模块&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@test sbin]# ./nginx -V
+nginx version: nginx/1.6.0
+built by gcc 4.1.2 20080704 (Red Hat 4.1.2-48)
+TLS SNI support disabled
+configure arguments: --prefix=/usr/local/nginx --with-http_stub_status_module --with-http_ssl_module --with-http_realip_module --add-module=./nginx-sticky-module-1.1 --add-module=./nginx_upstream_check_module-master --add-module=./nginx_upstream_hash-0.3.1 --add-module=./lua-nginx-module-0.9.10 --add-module=./nginx-concat-module
+[root@test sbin]# pwd
+/usr/local/nginx/sbin
+[root@test sbin]#
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;之后make &amp;amp; make install&lt;/p&gt;
+
+&lt;p&gt;启动nginx&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@test sbin]# ./nginx
+[root@test sbin]# ps -ef |grep nginx
+root     15585     1  0 15:45 ?        00:00:00 nginx: master process ./nginx
+nobody   15586 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15587 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15588 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15589 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15590 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15591 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15592 15585  0 15:45 ?        00:00:00 nginx: worker process
+nobody   15593 15585  0 15:45 ?        00:00:00 nginx: worker process
+root     15597  3959  0 15:45 pts/2    00:00:00 grep nginx
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;浏览器访问&lt;/p&gt;
+
+&lt;p&gt;开始安装对应监控模块&lt;/p&gt;
+
+&lt;p&gt;下载最新的release版本nginx-lua-prometheus-0.1-20170610.tar.gz&lt;/p&gt;
+
+&lt;p&gt;创建目录&lt;/p&gt;
+
+&lt;p&gt;/usr/local/nginx/lua&lt;/p&gt;
+
+&lt;p&gt;上传gz包，并解压&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@test nginx-lua-prometheus-0.1-20170610]# pwd
+/usr/local/nginx/lua/nginx-lua-prometheus-0.1-20170610
+[root@test nginx-lua-prometheus-0.1-20170610]# ls
+nginx-lua-prometheus-0.1-20170610.rockspec  prometheus.lua  prometheus_test.lua  README.md
+[root@test nginx-lua-prometheus-0.1-20170610]#
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;修改nginx.conf&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;lua_shared_dict prometheus_metrics 10M;
+lua_package_path &amp;quot;/usr/local/nginx/lua/nginx-lua-prometheus-0.1-20170610/?.lua&amp;quot;;
+init_by_lua &#39;
+  prometheus = require(&amp;quot;prometheus&amp;quot;).init(&amp;quot;prometheus_metrics&amp;quot;)
+  metric_requests = prometheus:counter(
+    &amp;quot;nginx_http_requests_total&amp;quot;, &amp;quot;Number of HTTP requests&amp;quot;, {&amp;quot;host&amp;quot;, &amp;quot;status&amp;quot;})
+  metric_latency = prometheus:histogram(
+    &amp;quot;nginx_http_request_duration_seconds&amp;quot;, &amp;quot;HTTP request latency&amp;quot;, {&amp;quot;host&amp;quot;})
+  metric_connections = prometheus:gauge(
+    &amp;quot;nginx_http_connections&amp;quot;, &amp;quot;Number of HTTP connections&amp;quot;, {&amp;quot;state&amp;quot;})
+&#39;;
+log_by_lua &#39;
+  local host = ngx.var.host:gsub(&amp;quot;^www.&amp;quot;, &amp;quot;&amp;quot;)
+  metric_requests:inc(1, {host, ngx.var.status})
+  metric_latency:observe(ngx.now() - ngx.req.start_time(), {host})
+&#39;;
+
+server {
+  listen 9145;
+  #allow 0.0.0.0/16;
+   #deny all;
+  location /metrics {
+    content_by_lua &#39;
+      metric_connections:set(ngx.var.connections_reading, {&amp;quot;reading&amp;quot;})
+      metric_connections:set(ngx.var.connections_waiting, {&amp;quot;waiting&amp;quot;})
+      metric_connections:set(ngx.var.connections_writing, {&amp;quot;writing&amp;quot;})
+      prometheus:collect()
+    &#39;;
+  }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;重新加载nginx&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@test conf]# ../sbin/nginx -s reload
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;访问nginx的页面&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;http://10.19.250.191:9145/metrics
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;nginx-vts-exporter&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;目前的版本是nginx-vts-exporter-0.8.3.linux-amd64.tar.gz&lt;/p&gt;
+
+&lt;p&gt;下载地址是：&lt;a href=&#34;https://github.com/hnlq715/nginx-vts-exporter/releases&#34;&gt;https://github.com/hnlq715/nginx-vts-exporter/releases&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;nginx-vts-exporter测试&lt;/p&gt;
+
+&lt;p&gt;由于nginx-vts-exporter依赖于Nginx的nginx-module-vts模块，所以这里需要重新编译下Nginx。之后再安装这个exporter&lt;/p&gt;
+
+&lt;p&gt;VTS安装步骤&lt;/p&gt;
+
+&lt;p&gt;1、  下载nginx-module-vts&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;https://github.com/vozlt/nginx-module-vts/releases/tag/v0.1.15
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;解压后目录为&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;/opt/nginx-module-vts-0.1.15
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2、  重新编译nginx&lt;/p&gt;
+
+&lt;p&gt;说明 由于 nginx_upstream_check_module-master 模块有问题。&lt;/p&gt;
+
+&lt;p&gt;所以编译的时候的配置语句为&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./configure  --with-http_stub_status_module --with-http_ssl_module --with-http_realip_module --add-module=./nginx-sticky-module-1.1  --add-module=./lua-nginx-module-0.9.10  --add-module=./nginx-concat-module   --add-module=/opt/nginx-module-vts-0.1.15
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;3、  开始安装&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make &amp;amp; make install
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;4、  修改配置文件&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;http {
+    vhost_traffic_status_zone;
+
+    ...
+
+server {
+      listen 8088;
+      location /status {
+            vhost_traffic_status_display;
+            vhost_traffic_status_display_format html;
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;5、  重新加载配置&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@test conf]# ../sbin/nginx -s reload
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;访问页面&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;http://10.19.250.191:8088/status
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/server/20190315.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;可见，vts的本身监控就是比较全面的，就是为监控而生。&lt;/p&gt;
+
+&lt;p&gt;安装启动探针&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@test nginx-vts-exporter-0.8.3.linux-amd64]# nohup /opt/nginx-vts-exporter-0.8.3.linux-amd64/./nginx-vts-exporter  -nginx.scrape_uri=&amp;quot;http://10.19.250.191:8088/status/format/json&amp;quot; 2&amp;gt;&amp;amp;1 &amp;amp;
+
+[root@test nginx-vts-exporter-0.8.3.linux-amd64]# nohup: appending output to `nohup.out
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;配置访问&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;curl -XPUT http://10.27.136.227:9996/v1/agent/service/register   -d &#39;
+{
+    &amp;quot;id&amp;quot;: &amp;quot;prometheus-exporter11&amp;quot;,
+    &amp;quot;name&amp;quot;: &amp;quot;promether-exporter&amp;quot;,
+    &amp;quot;address&amp;quot;: &amp;quot;10.19.250.191&amp;quot;,
+    &amp;quot;port&amp;quot;: 9913,
+    &amp;quot;tags&amp;quot;: [
+          &amp;quot;SNMON&amp;quot;,
+                &amp;quot;NJXZ&amp;quot;,
+                &amp;quot;DEV&amp;quot;,
+                &amp;quot;10.19.250.191&amp;quot;,
+                &amp;quot;nginx-9913&amp;quot;
+    ],
+    &amp;quot;checks&amp;quot;: [
+        {
+            &amp;quot;script&amp;quot;: &amp;quot;curl http://10.19.250.9913/metrics &amp;gt;/dev/null 2&amp;gt;&amp;amp;1&amp;quot;,
+            &amp;quot;interval&amp;quot;: &amp;quot;10s&amp;quot;
+        }
+    ]
+}&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;http://10.27.136.227:9099/targets
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看Metric&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;http://10.19.250.191:9913/metrics
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;综合来说，vts的指标本来就比较全面，结合prometheus，更加匹配我们的监控需求，但是要重新编译nginx比较麻烦，最终还是使用vts。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus Ntp</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/ntp/</link>
+          <pubDate>Fri, 29 Jun 2018 16:55:15 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/ntp/</guid>
+          <description>&lt;p&gt;ntp客户端的监控主要是监控客户端的存活状态，和时间偏移值offset，是否同步时间成功。&lt;/p&gt;
+
+&lt;p&gt;node_exporter和ntp_exporter主要是获取了时间偏移值offset，针对我们现在使用了三种时间同步的方式的情况，我们需要使用&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/script_exporter/&#34;&gt;script_exporter&lt;/a&gt;的设计模式，通过脚本来获取监控。&lt;/p&gt;
+
+&lt;h1 id=&#34;设计&#34;&gt;设计&lt;/h1&gt;
+
+&lt;p&gt;我们可以看到监控需求都是统一的：客户端状态，偏移时间，是否同步。所以我们针对这个设计三个指标使用：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;客户端状态ntp_status&lt;/li&gt;
+&lt;li&gt;偏移时间ntp_offset&lt;/li&gt;
+&lt;li&gt;是否同步ntp_synchronize&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;配置&#34;&gt;配置&lt;/h1&gt;
+
+&lt;p&gt;每个需要的监控项就是我们需要的指标，我们这边有三个客户端类型，我们需要区分这个类型就是一种维度，所以需要一个标签，所以看下面配置&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ntp:
+  cmd: &#39;./script/checkntp.sh&#39;
+  split: &amp;quot;|&amp;quot;
+  service: &amp;quot;ntp&amp;quot;
+  metrics:
+    - client:
+        type: &amp;quot;label&amp;quot;
+        description: &amp;quot;client type&amp;quot;
+    - status:
+        type: &amp;quot;gauge&amp;quot;
+        description: &amp;quot;client status&amp;quot;
+    - synchronize:
+        type: &amp;quot;gauge&amp;quot;
+        description: &amp;quot;whether time synchronize or not&amp;quot;
+    - offset:
+        type: &amp;quot;gauge&amp;quot;
+        description: &amp;quot;time offset&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;第一个metrics就是一个label类型的数据，代表着客户端名称，所以脚本返回的第一个值应该是客户端类型，这个是一个标签，代表着维度，会出现在这个域里的所有的指标里。&lt;/li&gt;
+&lt;li&gt;第二个metrics就是一个gauge类型的数据，代表着这个是客户端状态，所以脚本返回的第二个值代表着客户端状态，由于prometheus只支持数字类型，所以这边对状态用数字来定义&lt;/li&gt;
+&lt;li&gt;第三个metrics就是一个gauge类型的数据，代表着是否同步，所以脚本返回的第三个值代表着是否同步。&lt;/li&gt;
+&lt;li&gt;第四个metrics就是一个gauge类型的数据，代表着偏移值，所以脚本返回的第四个值代表着偏移值。&lt;/li&gt;
+&lt;li&gt;配置中设置了数据的分隔符是“|”，所以脚本返回的数据格式应该是
+
+&lt;ul&gt;
+&lt;li&gt;客户端类型|客户端状态|是否同步|偏移值&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;脚本返回数据只能以这个格式返回，可以是一行数据，可以是list，但是每行数据的格式是一样的&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;执行脚本&#34;&gt;执行脚本&lt;/h1&gt;
+
+&lt;h2 id=&#34;ntpdate&#34;&gt;ntpdate&lt;/h2&gt;
+
+&lt;p&gt;监控脚本&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/bin/bash
+ntp=`crontab -l |grep ntp |awk &#39;{print $NF}&#39;`
+ntpdate -q $ntp 1&amp;gt;/dev/null 2&amp;gt;/dev/null 
+if [ $? -eq 0 ];then
+offset=`ntpdate -q $ntp |tail -n1|awk &#39;{print $(NF-1)}&#39;` 
+echo $offset        #同步上输出偏移值
+else
+echo 2             #未同步上时钟源，输出2
+fi
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;告警&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;同步上了,显示时间偏移值，偏移值大于0.5s，输出告警&lt;/li&gt;
+&lt;li&gt;因上层时钟源正在同步时间的话，客户端查询ntpdate就无法获取时间，所以希望是若连续2次未同步上时钟源，就告警输出（周期是1小时一次）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;当前机器使用的是ntpdate的时间校验方式，如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@ctumppre1 script]# ./checkntp.sh
+ntpdate|1|0|0.411132
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后我们对数据进行处理，通过prometheus提供指标，如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# HELP ntp_offset time offset
+# TYPE ntp_offset gauge
+ntp_offset{ntp_client=&amp;quot;ntpdate&amp;quot;} -0.020493
+# HELP ntp_status client status
+# TYPE ntp_status gauge
+ntp_status{ntp_client=&amp;quot;ntpdate&amp;quot;} 1
+# HELP ntp_synchronize whether time synchronize or not
+# TYPE ntp_synchronize gauge
+ntp_synchronize{ntp_client=&amp;quot;ntpdate&amp;quot;} 0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这边数据都是直接获取的，后面通过itsm下发的机器，会有一级中心，ip等标签，可以使用这个标签来进行一些使用。&lt;/p&gt;
+
+&lt;p&gt;通过指标就可以满足需求的监控，最后可以通过可视化的界面进行友好的监控，我们这边使用grafana进行展示。&lt;/p&gt;
+
+&lt;h2 id=&#34;ntpd&#34;&gt;ntpd&lt;/h2&gt;
+
+&lt;p&gt;监控脚本&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/bin/bash
+status=`service ntpd status|grep running|wc -l`
+ntpq=`ntpq -p -n |grep \* |wc -l`
+if [ $status == 1 -a $ntpq == 1 ]
+then
+offset=`ntpq -pn |grep \* |awk &#39;{print $(NF-1)}&#39;` 
+    echo $offset 
+elif [ $status == 1 -a $ntpq == 0 ]
+then
+    echo 2
+else
+    echo 0
+fi
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;告警&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;service ntpd status为running代表ntpd服务正常运行，服务停止，输出告警&lt;/li&gt;
+&lt;li&gt;service ntpd status状态为running 并且 ntpq -p -n |grep *  查询有输出，代表与上层时钟源同步正常；30分钟无输出告警
+（因上层时钟源正在同步时间的话，客户端查询*就没有输出了）&lt;/li&gt;
+&lt;li&gt;时间偏移值：ntpq -pn |grep * |awk &amp;lsquo;{print $(NF-1)}&amp;rsquo; 偏移值大于500ms，输出告警&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;chronyd&#34;&gt;chronyd&lt;/h2&gt;
+
+&lt;p&gt;监控脚本&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/bin/bash
+status=`systemctl status chronyd.service |grep running|wc -l`
+chronyd=`chronyc sources |grep &amp;quot;*&amp;quot;`
+if [ $status == 1 -a $chronyd == 1 ]
+then
+    echo 1
+elif [ $status == 1 -a $chronyd == 0 ]
+then
+    echo 2
+else
+    echo 0
+fi
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;告警&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;systemctl status chronyd.service 为running代表chronyd服务正常运行，服务停止，输出告警&lt;/li&gt;
+&lt;li&gt;chronyc sources |grep &amp;ldquo;*&amp;rdquo; 有输出，就代表与上层时钟同步正常；30分钟无输出告警&lt;/li&gt;
+&lt;li&gt;chrony时间偏移是微秒纳秒级别的，可以忽略，&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;整合&#34;&gt;整合&lt;/h2&gt;
+
+&lt;p&gt;脚本中输出监控的组件，偏移时间，存活状态，然后在界面统一展示，将三种客户端整理成一个脚本进行执行&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/bin/bash
+CHRONY()
+{
+    chronystatus=`systemctl status chronyd.service |grep running|wc -l`
+    chronyd=`chronyc sources |grep &amp;quot;*&amp;quot;|wc -l`
+    if [[ $chronystatus == 1 &amp;amp;&amp;amp; $chronyd == 1 ]]
+    then
+        echo &amp;quot;chronyd|0|0|0&amp;quot;  #CHRONY服务同步正常
+    elif [[ $chronystatus == 1 &amp;amp;&amp;amp; $chronyd == 0 ]]
+    then
+        echo &amp;quot;chronyd|0|2|0&amp;quot; #警告:CHRONY服务正常，未同步成功 （半小时检查一次，若连续4次都输出2，则输出告警）
+    else
+        echo &amp;quot;chronyd|1|2|0&amp;quot; #严重告警:CHRONY服务异常
+    fi
+}
+
+NTP()
+{
+    status=`service ntpd status|grep running|wc -l`
+    ntpq=`ntpq -p -n |grep \* |wc -l`
+    if [ $status == 1 -a $ntpq == 1 ]
+    then
+        offset=`ntpq -pn |grep \* |awk &#39;{print $(NF-1)}&#39;|awk &#39;{printf &amp;quot;%.6f\n&amp;quot;,$1/1000}&#39;`
+        echo &amp;quot;ntpd|0|0|&amp;quot;$offset  #同步上输出偏移值（若偏移值大于0.6s,输出警告）
+    elif [ $status == 1 -a $ntpq == 0 ]
+    then
+        echo &amp;quot;ntpd|0|2|0&amp;quot; #警告:NTP服务正常，未同步成功 （半小时检查一次，若连续4次都输出2，则输出告警）
+    else
+        echo &amp;quot;ntpd|1|2|0&amp;quot; #严重告警:NTP服务异常
+    fi
+}
+
+NTP_CRON()
+{
+    ntp=`crontab -l |grep ntpdate |awk &#39;{print $NF}&#39;`
+    ntpdate -q $ntp 1&amp;gt;/dev/null 2&amp;gt;/dev/null
+    if [ $? -eq 0 ];then
+        offset=`ntpdate -q $ntp |tail -n1|awk &#39;{print $(NF-1)}&#39;`
+        echo &amp;quot;ntpdate|0|0|&amp;quot;$offset        #同步上输出偏移值（若偏移值大于0.6s,输出警告）
+    else
+        echo &amp;quot;ntpdate|0|2|0&amp;quot;             #警告:未同步上时钟源 （半小时检查一次，若连续4次都输出2，则输出告警）
+    fi
+}
+
+cronntp=`crontab -l |grep ntpdate |wc -l`
+susentp=`crontab -l |grep sntp |wc -l`
+ntpstatus=`service ntpd status 2&amp;gt;/dev/null|grep running|wc -l`
+chronystatus=`systemctl status chronyd.service 2&amp;gt;/dev/null|grep running|wc -l`
+
+if [ $ntpstatus == 1 ]
+then
+    NTP                                         #ntp服务开启，执行ntp服务检查
+elif [ $cronntp == 0 -a $chronystatus == 1 ]
+then
+    CHRONY                                      #chrony服务开启，执行chrony服务检查
+elif [ $cronntp == 1 -a $ntpstatus == 0 ]
+then
+    NTP_CRON                                    #ntp定时任务开启，执行ntpdate检查
+elif [ $susentp == 1 ]
+then
+    echo &amp;quot;ntpdate|0|0|0&amp;quot;                        #suse操作系统存在定时任务，默认同步正常
+else
+    echo &amp;quot;notime|3|3|0&amp;quot;                         #无定时任务，且ntp服务以及chronyd服务没有开启，输出提示：请添加时钟校验
+fi
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus raid</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/raid/</link>
+          <pubDate>Fri, 29 Jun 2018 16:55:15 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/server/raid/</guid>
+          <description>&lt;p&gt;RAID卡的状态监控就是对raid卡的一些状态信息关键字的监控。&lt;/p&gt;
+
+&lt;h1 id=&#34;需求&#34;&gt;需求&lt;/h1&gt;
+
+&lt;p&gt;RAID卡的状态监控需求&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;raid cc和pr 状态（采集频率：如果小于5分钟，则我们定义；如果你们大于5分钟，则按照5分钟）；&lt;/li&gt;
+&lt;li&gt;raid 磁盘组的状态信息（正常、降级）、raid组的缓存策略信息（RAWBC、RAWBD、RWBC、RWBD、NRAWBC、NRAWBD）；&lt;/li&gt;
+&lt;li&gt;raid重置，监控message关键字:
+
+&lt;ul&gt;
+&lt;li&gt;reset adapter&lt;/li&gt;
+&lt;li&gt;waiting for controller reset to finish&lt;/li&gt;
+&lt;li&gt;received packet with own address as source address&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;采集频率其他脚本1d,reset脚本 30S&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;设计&#34;&gt;设计&lt;/h1&gt;
+
+&lt;p&gt;设计指标&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;cc和pr状态的指标raid_state_metrics
+
+&lt;ul&gt;
+&lt;li&gt;对应脚本返回数据应该：操作类型|操作状态|是否获取到数据&lt;/li&gt;
+&lt;li&gt;这边将有记录的数据value直接设为是否获取到数据，表示获取到数据为1，否则为0，注意脚本输出获取不到数据的情况。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;raid磁盘组信息raid_group_metrics
+
+&lt;ul&gt;
+&lt;li&gt;对应的脚本返回数据：raid组号|raid组状态|raid组缓存策略|raid组磁盘信息|是否获取到数据&lt;/li&gt;
+&lt;li&gt;这边将有记录的数据value直接设为是否获取到数据，表示获取到数据为1，否则为0，注意脚本输出获取不到数据的情况。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;raid重置信息raid_reset_metrics
+
+&lt;ul&gt;
+&lt;li&gt;对应的脚本返回数据：reset关键字|是否获取到数据&lt;/li&gt;
+&lt;li&gt;这边将有记录的数据value直接设为是否获取到数据，表示获取到数据为1，否则为0，注意脚本输出获取不到数据的情况。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;执行脚本&#34;&gt;执行脚本&lt;/h1&gt;
+
+&lt;p&gt;cc和pr状态&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/bin/bash
+CC_PR_INFO()
+{
+        CC_INFO=`/opt/MegaRAID/storcli/storcli64 /c0 show cc`
+        PR_INFO=`/opt/MegaRAID/storcli/storcli64 /c0 show PR`
+        CC_STATE=`echo &amp;quot;$CC_INFO&amp;quot;|grep &amp;quot;CC Current State&amp;quot;|awk &#39;{print $NF}&#39;`
+        PR_STATE=`echo &amp;quot;$PR_INFO&amp;quot;|grep &amp;quot;PR Current State&amp;quot;|awk &#39;{print $NF}&#39;`
+}
+
+CC_PR_INFO
+if [ -n &amp;quot;$CC_STATE&amp;quot; -a -n &amp;quot;$PR_STATE&amp;quot; ];then
+    echo &amp;quot;CC|$CC_STATE&amp;quot;
+    echo &amp;quot;PR|$PR_STATE&amp;quot;
+else
+    echo &amp;quot;NoRaidCard&amp;quot;
+fi
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;raid磁盘组信息&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/bin/bash
+VD_INFO()
+{
+        raids_info=none
+        VDs=`/opt/MegaRAID/storcli/storcli64 /c0 show 2&amp;gt;/dev/null|awk &#39;{print $1,$2}&#39;|grep RAID|awk -F&amp;quot;/&amp;quot; &#39;{print $2}&#39;|awk &#39;{print $1}&#39;`
+        #group_info=`/opt/MegaRAID/storcli/storcli64 /c0 show |sed -n &#39;/DG\/VD/,/Cac=Cache/p&#39;|grep RAID`
+        if [ -z &amp;quot;$VDs&amp;quot; ];then
+                echo &amp;quot;NoRaidGroup|0&amp;quot;
+                exit 0
+        fi
+        for vds in `echo &amp;quot;$VDs&amp;quot;`
+        do
+                group_info=`/opt/MegaRAID/storcli/storcli64 /c0/v$vds show all`
+                raid_info=`echo &amp;quot;$group_info&amp;quot;|grep RAID|awk &#39;{print $1&amp;quot;|&amp;quot;$3&amp;quot;|&amp;quot;$6}&#39;`
+                if [ -z &amp;quot;`echo &amp;quot;$group_info&amp;quot;|grep -w &amp;quot;Onln &amp;quot;|grep -vw SSD`&amp;quot; ];then
+                                Med=SSD
+                else
+                                Med=HDD
+                fi
+                raids_info=$raids_info,$raid_info&amp;quot;|&amp;quot;$Med
+
+            if [ &amp;quot;$raids_info&amp;quot; != &amp;quot;none&amp;quot; ];then
+                    echo &amp;quot;$raids_info&amp;quot;&amp;quot;|1&amp;quot;| sed &#39;s/none,//g&#39;
+                    raids_info=none
+            fi
+        done
+}
+VD_INFO
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;raid重置信息&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#!/bin/bash
+MON_LIST=&amp;quot;
+Jan 01
+Feb 02
+Mar 03
+Apr 04
+May 05
+Jun 06
+Jul 07
+Aug 08
+Sep 09
+Oct 10
+Nov 11
+Dec 12
+&amp;quot;
+OS_LOG_MESSAGES()
+{
+        msg=`tail -n 5000 /os_log/messages|grep &amp;quot;reset adapter scsi&amp;quot;|tail -n 1`
+        if [ -n &amp;quot;$msg&amp;quot; ];then
+                reset_time=`echo &amp;quot;$msg&amp;quot;|awk -F&amp;quot;.&amp;quot; &#39;{print $1}&#39;`
+                current_time=`date +%Y%m%dT%H:%M:%S`
+                startDate=`date -d &amp;quot;${reset_time}&amp;quot; +%s`
+                endDate=`date -d &amp;quot;${current_time}&amp;quot; +%s`
+                stampDiff=`expr $endDate - $startDate`
+                if [ $stampDiff -gt 300 ];then
+                        raid_reset=0
+                else
+                        raid_reset=1
+                fi
+        else
+                raid_reset=0
+        fi
+}
+VAR_LOG_MESSAGES()
+{
+        msg=`tail -n 5000 /var/log/messages|grep &amp;quot;reset adapter scsi&amp;quot;|tail -n 1`
+        if [ -n &amp;quot;$msg&amp;quot; ];then
+                msg_year=`date +%Y`
+                msg_month=`echo &amp;quot;$msg&amp;quot;|awk &#39;{print $1}&#39;` #month with english
+                msg_day=`echo &amp;quot;$msg&amp;quot;|awk &#39;{print $2}&#39;`
+                msg_time=`echo &amp;quot;$msg&amp;quot;|awk &#39;{print $3}&#39;`
+                reset_time_month=`echo &amp;quot;$MON_LIST&amp;quot;|grep $msg_month|awk &#39;{print $2}&#39;` #change month to number
+                reset_date=$msg_year$reset_time_month$msg_day
+                current_date=`date +%Y%m%d`
+                if [ $reset_date -gt $current_date ];then
+                        msg_year=`expr $msg_year - 1`
+                        reset_date=$msg_year$reset_time_month$msg_day
+                fi
+                reset_time=&amp;quot;$reset_date&amp;quot;T&amp;quot;$msg_time&amp;quot;
+                current_time=`date +%Y%m%dT%H:%M:%S`
+                startDate=`date -d &amp;quot;${reset_time}&amp;quot; +%s`
+                endDate=`date -d &amp;quot;${current_time}&amp;quot; +%s`
+                stampDiff=`expr $endDate - $startDate`
+                if [ $stampDiff -gt 300 ];then
+                        raid_reset=0
+                else
+                        raid_reset=1
+                fi
+        else
+                raid_reset=0
+        fi
+}
+
+## MAIN
+if [ -e &amp;quot;/os_log/messages&amp;quot; ];then
+        OS_LOG_MESSAGES
+else
+        VAR_LOG_MESSAGES
+fi
+echo &amp;quot;reset adapter&amp;quot;&amp;quot;|&amp;quot;&amp;quot;$raid_reset&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;配置信息&#34;&gt;配置信息&lt;/h1&gt;
+
+&lt;pre&gt;&lt;code&gt;raid:
+  cmd: &#39;./script/raid_info_check.sh&#39;
+  split: &amp;quot;|&amp;quot;
+  service: &amp;quot;raid&amp;quot;
+  metrics:
+    - type:
+        type: &amp;quot;label&amp;quot;
+        description: &amp;quot;raid metrics type&amp;quot;
+    - mode:
+        type: &amp;quot;label&amp;quot;
+        description: &amp;quot;raid mode&amp;quot;
+    - state:
+        type: &amp;quot;label&amp;quot;
+        description: &amp;quot;raid state&amp;quot;
+    - delay:
+        type: &amp;quot;label&amp;quot;
+        description: &amp;quot;raid delay&amp;quot;
+    - nextstarttime:
+        type: &amp;quot;gauge&amp;quot;
+        description: &amp;quot;raid next start time&amp;quot;
+
+
+raid_group:
+  cmd: &#39;./script/raid_group_check.sh&#39;
+  split: &amp;quot;|&amp;quot;
+  service: &amp;quot;raid&amp;quot;
+  metrics:
+    - id:
+        type: &amp;quot;label&amp;quot;
+        description: &amp;quot;raid metrics type&amp;quot;
+    - status:
+        type: &amp;quot;label&amp;quot;
+        description: &amp;quot;raid mode&amp;quot;
+    - strategy:
+        type: &amp;quot;label&amp;quot;
+        description: &amp;quot;raid state&amp;quot;
+    - type:
+        type: &amp;quot;label&amp;quot;
+        description: &amp;quot;raid delay&amp;quot;
+    - metrics:
+        type: &amp;quot;gauge&amp;quot;
+        description: &amp;quot;raid next start time&amp;quot;
+
+
+raid_reset:
+  cmd: &#39;./script/raid_reset_check.sh&#39;
+  split: &amp;quot;|&amp;quot;
+  service: &amp;quot;raid&amp;quot;
+  metrics:
+    - key:
+        type: &amp;quot;label&amp;quot;
+        description: &amp;quot;raid reset message key&amp;quot;
+    - metrics:
+        type: &amp;quot;gauge&amp;quot;
+        description: &amp;quot;whether raid reset or not&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# HELP raid_group_metrics whether get raid group info or not
+# TYPE raid_group_metrics gauge
+raid_group_metrics{raid_group_id=&amp;quot;0/0&amp;quot;,raid_group_status=&amp;quot;Optl&amp;quot;,raid_group_strategy=&amp;quot;RAWBC&amp;quot;,raid_group_type=&amp;quot;HDD&amp;quot;} 1
+raid_group_metrics{raid_group_id=&amp;quot;0/1&amp;quot;,raid_group_status=&amp;quot;Optl&amp;quot;,raid_group_strategy=&amp;quot;RAWBD&amp;quot;,raid_group_type=&amp;quot;HDD&amp;quot;} 1
+# HELP raid_metrics whether get raid info or not
+# TYPE raid_metrics gauge
+raid_metrics{raid_state=&amp;quot;Stopped&amp;quot;,raid_type=&amp;quot;CC&amp;quot;} 1
+raid_metrics{raid_state=&amp;quot;Stopped&amp;quot;,raid_type=&amp;quot;PR&amp;quot;} 1
+# HELP raid_reset_metrics whether raid reset or not
+# TYPE raid_reset_metrics gauge
+raid_reset_metrics{raid_reset_key=&amp;quot;resetadapter&amp;quot;} 0
+# HELP scrpit_duration Displays time  about run script
+# TYPE scrpit_duration gauge
+scrpit_duration{namespace=&amp;quot;raid&amp;quot;} 0.017551112
+scrpit_duration{namespace=&amp;quot;raid_group&amp;quot;} 0.059520065
+scrpit_duration{namespace=&amp;quot;raid_reset&amp;quot;} 0.002904882
+# HELP scrpit_success Displays whether or not the script run success
+# TYPE scrpit_success gauge
+scrpit_success{namespace=&amp;quot;raid&amp;quot;} 1
+scrpit_success{namespace=&amp;quot;raid_group&amp;quot;} 1
+scrpit_success{namespace=&amp;quot;raid_reset&amp;quot;} 1
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控metrics系列---- Prometheus Operator</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/prometheus-operater/</link>
           <pubDate>Tue, 12 Jun 2018 16:57:05 CST</pubDate>
@@ -14754,6 +17586,159 @@ ServiceDiscoveryConfig配置结构如下：&lt;/p&gt;
 &lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/cortex/&#34;&gt;cortex&lt;/a&gt;在github的简介是『A multitenant, horizontally scalable Prometheus as a Service』，几个关键词：多租户、水平扩展及服务化。&lt;/p&gt;
 
 &lt;p&gt;现在还可以使用远程存储聚合的方式来实现集群，比如做的比较好的&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/victoriametrics/&#34;&gt;VM&lt;/a&gt;。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控metrics系列---- Prometheus Node Exporter</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/node-exporter/</link>
+          <pubDate>Mon, 19 Mar 2018 16:51:51 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/node-exporter/</guid>
+          <description>&lt;p&gt;node_exporter 主要用于 LINUX 系统监控, 用 Golang 编写，是我们最常用于监控服务器资源的探针。&lt;/p&gt;
+
+&lt;h1 id=&#34;安装&#34;&gt;安装&lt;/h1&gt;
+
+&lt;p&gt;1、二进制&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://github.com/prometheus/node_exporter/releases/download/v0.14.0/node_exporter-0.14.0.linux-amd64.tar.gz&#34;&gt;https://github.com/prometheus/node_exporter/releases/download/v0.14.0/node_exporter-0.14.0.linux-amd64.tar.gz&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;我们可以直接使用 ./node_exporter -h 查看运行选项，./node_exporter 运行 Node Exporter&lt;/p&gt;
+
+&lt;p&gt;2、docker&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;docker run -d -p 9100:9100 \
+  -v &amp;quot;/proc:/host/proc:ro&amp;quot; \
+  -v &amp;quot;/sys:/host/sys:ro&amp;quot; \
+  -v &amp;quot;/:/rootfs:ro&amp;quot; \
+  --net=&amp;quot;host&amp;quot; \
+  quay.io/prometheus/node-exporter \
+    -collector.procfs /host/proc \
+    -collector.sysfs /host/sys \
+    -collector.filesystem.ignored-mount-points &amp;quot;^/(sys|proc|dev|host|etc)($|/)&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;源码原理解析&#34;&gt;源码原理解析&lt;/h1&gt;
+
+&lt;p&gt;node探针进程启动的时候，会调用collector的package，就会初始化所有的collect注册到&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;factories      = make(map[string]func() (Collector, error))
+collectorState = make(map[string]*bool)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这个中，根据初始化中传递的参数，确定采集是否开启，处理函数是什么&lt;/p&gt;
+
+&lt;p&gt;然后会创建一个结构体&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type nodeCollector struct {
+    Collectors map[string]Collector
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;将开启采集的数据，创建对应的结构体，其实也是一个实现interface的结构，最后存储在这个结构中&lt;/p&gt;
+
+&lt;p&gt;然后将这些collector进行注册，启动监听端口和一些其他设置&lt;/p&gt;
+
+&lt;p&gt;然后就是调用client_golang中的describe和collect的重写函数&lt;/p&gt;
+
+&lt;p&gt;在collect中启动多协程进行每个类型的处理&lt;/p&gt;
+
+&lt;p&gt;调用update函数实现数据赋值与采集&lt;/p&gt;
+
+&lt;h1 id=&#34;开启默认关闭的采集&#34;&gt;开启默认关闭的采集&lt;/h1&gt;
+
+&lt;p&gt;我们可以使用 &amp;ndash;collectors.enabled 运行参数指定 node_exporter 收集的功能模块, 如果不指定，将使用默认模块。&lt;/p&gt;
+
+&lt;p&gt;比如开启ntp采集&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./node_exporter --collector.ntp
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;输出相关指标：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# HELP node_ntp_leap NTPD leap second indicator, 2 bits.
+# TYPE node_ntp_leap gauge
+node_ntp_leap 3
+# HELP node_ntp_offset_seconds ClockOffset between NTP and local clock.
+# TYPE node_ntp_offset_seconds gauge
+node_ntp_offset_seconds -1.6239e-05
+# HELP node_ntp_reference_timestamp_seconds NTPD ReferenceTime, UNIX timestamp.
+# TYPE node_ntp_reference_timestamp_seconds gauge
+node_ntp_reference_timestamp_seconds 0
+# HELP node_ntp_root_delay_seconds NTPD RootDelay.
+# TYPE node_ntp_root_delay_seconds gauge
+node_ntp_root_delay_seconds 0
+# HELP node_ntp_root_dispersion_seconds NTPD RootDispersion.
+# TYPE node_ntp_root_dispersion_seconds gauge
+node_ntp_root_dispersion_seconds 0.060363769
+# HELP node_ntp_rtt_seconds RTT to NTPD.
+# TYPE node_ntp_rtt_seconds gauge
+node_ntp_rtt_seconds 8.6646e-05
+# HELP node_ntp_sanity NTPD sanity according to RFC5905 heuristics and configured limits.
+# TYPE node_ntp_sanity gauge
+node_ntp_sanity 0
+# HELP node_ntp_stratum NTPD stratum.
+# TYPE node_ntp_stratum gauge
+node_ntp_stratum 0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;计算表达式&#34;&gt;计算表达式&lt;/h1&gt;
+
+&lt;p&gt;收集到 node_exporter 的数据后，我们可以使用 PromQL 进行一些业务查询和监控，下面是一些比较常见的查询&lt;/p&gt;
+
+&lt;p&gt;CPU 各 mode 占比率&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;avg by (instance, mode) (irate(node_cpu_seconds_total{instance=&amp;quot;xxx&amp;quot;}[5m])) * 100
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;cpu的使用率&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;avg(irate(node_cpu_seconds_total{ip=&amp;quot;$host&amp;quot;}[1m]))by (mode)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;node_cpu_seconds_total采集出来的是cpu使用时间的累加，在linux机器上cpu的使用就是这样记录的，所以可以使用速率的方式来求使用率，GPU貌似不是这样记录的。并不是递增的。因为可能是多核的，所以要使用avg平均出所有核。&lt;/p&gt;
+
+&lt;p&gt;pod的cpu使用率&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;sum(rate(container_cpu_usage_seconds_total{image!=&amp;quot;&amp;quot;, container_name!=&amp;quot;POD&amp;quot;}[5m])) by (pod_name,sn_pod_ip,container_name,namespace) / sum(container_spec_cpu_quota{image!=&amp;quot;&amp;quot;, container_name!=&amp;quot;POD&amp;quot;}/container_spec_cpu_period{image!=&amp;quot;&amp;quot;, container_name!=&amp;quot;POD&amp;quot;}) by (pod_name,sn_pod_ip,container_name,namespace)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;机器平均负载&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;node_load1{instance=&amp;quot;xxx&amp;quot;} // 1分钟负载
+node_load5{instance=&amp;quot;xxx&amp;quot;} // 5分钟负载
+node_load15{instance=&amp;quot;xxx&amp;quot;} // 15分钟负载
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;内存使用率&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;100 - ((node_memory_MemFree{instance=&amp;quot;xxx&amp;quot;}+node_memory_Cached{instance=&amp;quot;xxx&amp;quot;}+node_memory_Buffers{instance=&amp;quot;xxx&amp;quot;})/node_memory_MemTotal) * 100
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;磁盘使用率&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;100 - node_filesystem_free{instance=&amp;quot;xxx&amp;quot;,fstype!~&amp;quot;rootfs|selinuxfs|autofs|rpc_pipefs|tmpfs|udev|none|devpts|sysfs|debugfs|fuse.*&amp;quot;} / node_filesystem_size{instance=&amp;quot;xxx&amp;quot;,fstype!~&amp;quot;rootfs|selinuxfs|autofs|rpc_pipefs|tmpfs|udev|none|devpts|sysfs|debugfs|fuse.*&amp;quot;} * 100
+或者你也可以直接使用 {fstype=&amp;quot;xxx&amp;quot;} 来指定想查看的磁盘信息
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;网络 IO&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// 上行带宽
+sum by (instance) (irate(node_network_receive_bytes{instance=&amp;quot;xxx&amp;quot;,device!~&amp;quot;bond.*?|lo&amp;quot;}[5m])/128)
+
+// 下行带宽
+sum by (instance) (irate(node_network_transmit_bytes{instance=&amp;quot;xxx&amp;quot;,device!~&amp;quot;bond.*?|lo&amp;quot;}[5m])/128)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;网卡出/入包&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// 入包量
+sum by (instance) (rate(node_network_receive_bytes{instance=&amp;quot;xxx&amp;quot;,device!=&amp;quot;lo&amp;quot;}[5m]))
+
+// 出包量
+sum by (instance) (rate(node_network_transmit_bytes{instance=&amp;quot;xxx&amp;quot;,device!=&amp;quot;lo&amp;quot;}[5m]))
+&lt;/code&gt;&lt;/pre&gt;</description>
         </item>
       
     
