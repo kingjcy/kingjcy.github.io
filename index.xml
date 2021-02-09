@@ -4365,6 +4365,122 @@ type RedisHost struct {
     
       
         <item>
+          <title>监控metrics系列---- Prometheus Alertmanager</title>
+          <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/alertmanager/</link>
+          <pubDate>Tue, 12 Feb 2019 16:00:11 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/metrics/prometheus/alertmanager/</guid>
+          <description>&lt;p&gt;Alertmanager主要用于接收 Prometheus 发送的告警信息，它支持丰富的告警通知渠道，而且很容易做到告警信息进行去重，降噪，分组，策略路由，是一款前卫的告警通知系统。&lt;/p&gt;
+
+&lt;h1 id=&#34;安装使用&#34;&gt;安装使用&lt;/h1&gt;
+
+&lt;p&gt;1、获取二进制安装包，直接去prometheus官方去获取就行&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;export VERSION=0.18.0
+wget https://github.com/prometheus/alertmanager/releases/download/v$VERSION/alertmanager-$VERSION.linux-amd64.tar.gz
+tar xvf alertmanager-$VERSION.linux-amd64.tar.gz
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2、解压成功后，使用 ./alertmanager &amp;ndash;version 来检查是否安装成功&lt;/p&gt;
+
+&lt;p&gt;3、Alertmanager 默认端口为 9093。&lt;/p&gt;
+
+&lt;p&gt;4、配置文件&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;global:
+  resolve_timeout: 2h
+
+route:
+  group_by: [&#39;alertname&#39;]
+  group_wait: 5s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: &#39;webhook&#39;
+
+receivers:
+- name: &#39;webhook&#39;
+  webhook_configs:
+  - url: &#39;http://example.com/xxxx&#39;
+    send_resolved: true
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;全局配置（global）：用于定义一些全局的公共参数，如全局的SMTP配置，Slack配置等内容；&lt;/li&gt;
+&lt;li&gt;模板（templates）：用于定义告警通知时的模板，如HTML模板，邮件模板等；&lt;/li&gt;
+&lt;li&gt;告警路由（route）：根据标签匹配，确定当前告警应该如何处理；&lt;/li&gt;
+&lt;li&gt;接收人（receivers）：接收人是一个抽象的概念，它可以是一个邮箱也可以是微信，Slack或者Webhook等，接收人一般配合告警路由使用；&lt;/li&gt;
+&lt;li&gt;抑制规则（inhibit_rules）：合理设置抑制规则可以减少垃圾告警的产生&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;比如使用email告警，配置如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;global:
+  smtp_smarthost: &#39;smtp.qq.com:587&#39;
+  smtp_from: &#39;xxx@qq.com&#39;
+  smtp_auth_username: &#39;xxx@qq.com&#39;
+  smtp_auth_password: &#39;your_email_password&#39;
+
+route：
+  # If an alert has successfully been sent, wait &#39;repeat_interval&#39; to resend them.
+  repeat_interval: 10s    
+  #  A default receiver
+  receiver: team-X-mails  
+
+receivers:
+  - name: &#39;team-X-mails&#39;
+    email_configs:
+    - to: &#39;team-X+alerts@example.org&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;5、产生告警，在prometheus下添加 alert.rules 文件，指定告警规则&lt;/p&gt;
+
+&lt;p&gt;文件中写入以下简单规则作为示例。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ALERT memory_high
+  IF prometheus_local_storage_memory_series &amp;gt;= 0
+  FOR 15s
+  ANNOTATIONS {
+    summary = &amp;quot;Prometheus using more memory than it should {{ $labels.instance }}&amp;quot;,
+    description = &amp;quot;{{ $labels.instance }} has lots of memory man (current value: {{ $value }}s)&amp;quot;,
+  }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;修改 prometheus.yml 文件&lt;/p&gt;
+
+&lt;p&gt;添加以下规则：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;rule_files:
+  - &amp;quot;alert.rules&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;启动AlertManager服务&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./Alertmanager -config.file=simple.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;启动prometheus服务&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./prometheus -Alertmanager.url=http://localhost:9093
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;根据以上步骤设置，此时 “team-X+alerts@example.org” 应该就可以收到 “xxx@qq.com” 发送的告警邮件了。&lt;/p&gt;
+
+&lt;h1 id=&#34;架构原理&#34;&gt;架构原理&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/prometheus/alertmanager/alertmanager&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;从左上开始，Prometheus 发送的警报到 Alertmanager;&lt;/li&gt;
+&lt;li&gt;警报会被存储到 AlertProvider 中，Alertmanager 的内置实现就是包了一个 map，也就是存放在本机内存中，这里可以很容易地扩展其它 Provider;&lt;/li&gt;
+&lt;li&gt;Dispatcher 是一个单独的 goroutine，它会不断到 AlertProvider 拉新的警报，并且根据 YAML 配置的 Routing Tree 将警报路由到一个分组中;&lt;/li&gt;
+&lt;li&gt;分组会定时进行 flush (间隔为配置参数中的 group_interval), flush 后这组警报会走一个 Notification Pipeline 链式处理;&lt;/li&gt;
+&lt;li&gt;Notification Pipeline 为这组警报确定发送目标，并执行抑制逻辑，静默逻辑，去重逻辑，发送与重试逻辑，实现警报的最终投递;&lt;/li&gt;
+&lt;/ul&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控metrics系列---- Prometheus Client_golang</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/library/client_golang/</link>
           <pubDate>Tue, 12 Feb 2019 15:59:42 CST</pubDate>
@@ -21724,11 +21840,12 @@ false
 
 &lt;p&gt;在数据结构与算法中，可能会讲解以下字符串匹配算法：&lt;/p&gt;
 
-&lt;pre&gt;&lt;code&gt;朴素匹配算法
-KMP 算法
-Rabin-Karp 算法
-Boyer-Moore 算法
-&lt;/code&gt;&lt;/pre&gt;
+&lt;ul&gt;
+&lt;li&gt;朴素匹配算法&lt;/li&gt;
+&lt;li&gt;KMP 算法&lt;/li&gt;
+&lt;li&gt;Rabin-Karp 算法&lt;/li&gt;
+&lt;li&gt;Boyer-Moore 算法&lt;/li&gt;
+&lt;/ul&gt;
 
 &lt;p&gt;还有其他的算法，这里不一一列举，感兴趣的可以网上搜一下。&lt;/p&gt;
 
