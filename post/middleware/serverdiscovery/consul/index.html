@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Consul 是一个支持多数据中心分布式高可用的服务发现和配置共享的服务软件,由 HashiCorp 公司用 Go 语言开发, 支持健康检查,并允许 HTTP 和 DNS 协议调用 API 存储键值对。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="服务发现系列---- Consul - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    服务发现系列---- Consul
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年02月12日 
+                </div>
+                <h1 class="post-title">服务发现系列---- Consul</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Consul 是一个支持多数据中心分布式高可用的服务发现和配置共享的服务软件,由 HashiCorp 公司用 Go 语言开发, 支持健康检查,并允许 HTTP 和 DNS 协议调用 API 存储键值对。</p>
+
+<h1 id="consul">consul</h1>
+
+<p>Consul是一个服务发现和注册的工具，其具有分布式、高扩展性能特点,主要包含如下功能：</p>
+
+<ul>
+<li>服务发现： 支持 http 和 dns 两种协议的服务注册和发现方式。</li>
+<li>监控检查： 支持多种方式的健康检查。</li>
+<li>Key/Value存储： 支持通过HTTP API实现分布式KV数据存储。</li>
+<li>多数据中心支持：支持任意数量数据中心。</li>
+</ul>
+
+<p>Consul 的使用场景</p>
+
+<ul>
+<li>实例的注册与配置共享</li>
+<li>与 confd 服务集成，动态生成 nginx 和 haproxy 配置文件</li>
+</ul>
+
+<p>优势</p>
+
+<ul>
+<li>使用 Raft 算法来保证一致性, 比复杂的 Paxos 算法更直接. zookeeper 采用的是 Paxos, consul,etcd 使用的则是 Raft.</li>
+<li>支持多数据中心，内外网的服务采用不同的端口进行监听。 多数据中心集群可以避免单数据中心的单点故障,而其部署则需要考虑网络延迟, 分片等情况等. zookeeper 和 etcd 均不提供多数据中心功能的支持.</li>
+<li>支持健康检查. etcd 不提供此功能.</li>
+<li>支持 http 和 dns 协议接口. zookeeper 的集成较为复杂, etcd 只支持 http 协议.</li>
+<li>官方提供web管理界面, etcd 无此功能.</li>
+</ul>
+
+<p>角色</p>
+
+<ul>
+<li>client: 客户端, 无状态, 将 HTTP 和 DNS 接口请求转发给局域网内的服务端集群.</li>
+<li>server: 服务端, 保存配置信息, 高可用集群, 在局域网内与本地客户端通讯, 通过广域网与其他数据中心通讯. 每个数据中心的 server 数量推荐为 3 个或是 5 个.</li>
+</ul>
+
+<h1 id="consul安装">Consul安装</h1>
+
+<p>下载并解压</p>
+
+<pre><code>## 下载
+wget  https://releases.hashicorp.com/consul/1.0.0/consul_1.0.0_linux_amd64.zip?_ga=2.31706621.2141899075.1510636997-716462484.1510636997
+## 解压
+unzip consul_1.0.0_linux_amd64.zip
+</code></pre>
+
+<p>以UI形式后台启动：</p>
+
+<pre><code>./consul agent -server -ui -bootstrap-expect 1 -data-dir /tmp/consul &amp;
+</code></pre>
+
+<p>可以使用脚本，正常使用的时候是需要完善参数的</p>
+
+<pre><code>nohup /opt/consul_1.0.2/consul agent -server -bootstrap-expect 1 -data-dir /opt/consul_1.0.2/data -ui  -http-port=9996 -bind=10.47.178.81 -client 0.0.0.0 -config-dir /opt/consul_1.0.2/consul.d -enable-script-checks  &gt;/opt/consul_1.0.2/logs/start.log  2&gt;&amp;1 &amp;
+</code></pre>
+
+<p>查看启动状态：</p>
+
+<pre><code>[root@iZ2ze74 home]# ./consul members
+Node     Address   Status  Type    Build  Protocol  DC   Segment
+iZ2ze74  172.17.120.102:8301  alive   server  1.0.0  2         dc1  &lt;all&gt;
+</code></pre>
+
+<p>说明：</p>
+
+<ul>
+<li>Address：节点地址</li>
+<li>Status：alive表示节点健康</li>
+<li>Type：server运行状态是server状态</li>
+<li>DC：dc1表示该节点属于DataCenter1</li>
+</ul>
+
+<p>查看节点：</p>
+
+<pre><code>curl 127.0.0.1:8500/v1/catalog/nodes
+</code></pre>
+
+<h1 id="使用">使用</h1>
+
+<h2 id="注册">注册</h2>
+
+<p>consul注册注册service 的方式有多种</p>
+
+<blockquote>
+<p>静态注册</p>
+</blockquote>
+
+<p>创建文件夹consul.d</p>
+
+<p>添加如下test.json：</p>
+
+<pre><code>{
+  &quot;service&quot;:{
+    &quot;id&quot;: &quot;node&quot;,
+    &quot;name&quot;: &quot;prometheus-node&quot;,
+    &quot;address&quot;: &quot;127.0.0.1&quot;,
+    &quot;port&quot;: 9100,
+    &quot;tags&quot;: [&quot;prometheus-target&quot;],
+    &quot;checks&quot;: [
+        {
+            &quot;http&quot;: &quot;http://127.0.0.1:9100/metrics&quot;,
+            &quot;interval&quot;: &quot;15s&quot;
+        }
+    ]
+  }
+}
+</code></pre>
+
+<p>在consul启动命令中，指定配置路径</p>
+
+<pre><code>-config-dir=consul.d
+</code></pre>
+
+<p>启动后查看Prometheus 和consul 界面，可以看到target是否引入。</p>
+
+<blockquote>
+<p>使用http Api 的方式</p>
+</blockquote>
+
+<pre><code>curl -X PUT -d '{&quot;service&quot;:{&quot;id&quot;:&quot;node&quot;,&quot;name&quot;:&quot;prometheus-node&quot;,&quot;address&quot;:&quot;127.0.0.1&quot;,&quot;port&quot;:9100,&quot;tags&quot;:[&quot;prometheus-target&quot;],&quot;checks&quot;:[{&quot;http&quot;:&quot;http://127.0.0.1:9100/metrics&quot;,&quot;interval&quot;:&quot;15s&quot;}]}}' http://127.0.0.1:8500/v1/agent/service/register
+</code></pre>
+
+<blockquote>
+<p>还可以使用各语言版本的sdk:<a href="https://www.consul.io/api/libraries-and-sdks.html">https://www.consul.io/api/libraries-and-sdks.html</a></p>
+</blockquote>
+
+<p>我这里使用JAVA 版本的</p>
+
+<pre><code>&lt;dependency&gt;
+  &lt;groupId&gt;com.orbitz.consul&lt;/groupId&gt;
+  &lt;artifactId&gt;consul-client&lt;/artifactId&gt;
+  &lt;version&gt;1.0.0&lt;/version&gt;
+&lt;/dependency&gt;
+使用如下：
+
+public class ConsulTest {
+  Consul client;
+
+  /**
+   * 初始化.
+   */
+  @Before
+  public void init() {
+
+    client = Consul.builder().withHostAndPort(HostAndPort.fromParts(&quot;xx.xx.xx.xx&quot;, 8500)).build();
+    //  catalogClient = client.catalogClient();
+  }
+
+  @Test
+  public void queryAll() {
+    Map&lt;String, Service&gt; services = client.agentClient().getServices();
+    for (Map.Entry&lt;String, Service&gt; entry : services.entrySet()) {
+      System.out.println(&quot;key:&quot; + entry.getKey());
+      System.out.println(&quot;value:&quot; + entry.getValue().toString());
+    }
+
+  }
+
+
+  @Test
+  public void testDelete() {
+    client.agentClient().deregister(&quot;etcd&quot;);
+  }
+
+
+  @Test
+  public void testAdd1() {
+    String serviceName = &quot;prometheus-etcd&quot;;
+    String serviceId = &quot;etcd&quot;;
+    Registration.RegCheck single = Registration.RegCheck.http(&quot;http://127.0.0.1:2379/metrics&quot;, 20);
+    Registration reg = ImmutableRegistration.builder()
+        .check(single)
+        .addTags(&quot;prometheus-target&quot;)
+        .address(&quot;127.0.0.1&quot;)
+        .port(2379)
+        .name(serviceName)
+        .id(serviceId)
+        .build();
+    client.agentClient().register(reg);
+  }
+
+
+
+}
+</code></pre>
+
+<h2 id="发现">发现</h2>
+
+<p>查询注册的服务</p>
+
+<ul>
+<li><p>通过DNS api</p>
+
+<p>dig @127.0.0.1 -p 8600 web.service.consul(dns域名)</p></li>
+
+<li><p>通过http api</p>
+
+<p>curl <a href="http://localhost:8500/v1/catalog/service/web">http://localhost:8500/v1/catalog/service/web</a></p></li>
+</ul>
+
+<p>还有一个connect模块，直接连接，docker和k8s中使用的比较多。</p>
+
+<h2 id="健康检查">健康检查</h2>
+
+<p>通过调用http api来获取监控状况</p>
+
+<pre><code>curl 'http://localhost:8500/v1/health/service/web?passing'
+</code></pre>
+
+<h2 id="更新consul配置文件">更新consul配置文件</h2>
+
+<p>1、可以通过更改配置文件并将SIGHUP代理文件发送到代理来更新服务定义。这使您可以在不停机或不可用于服务查询的情况下更新服务。现在还支持consul reload</p>
+
+<p>2、HTTP API可用于动态添加，删除和修改服务。</p>
+
+<h2 id="常用命令">常用命令</h2>
+
+<p>consul</p>
+
+<ul>
+<li>agent：运行一个consul agent</li>
+<li>join：将agent加入到consul cluster</li>
+<li>members：列出consul cluster集群中的members</li>
+</ul>
+
+<p>常用选项option：</p>
+
+<pre><code>-data-dir
+
+作用：指定agent储存状态的数据目录
+这是所有agent都必须的
+对于server尤其重要，因为他们必须持久化集群的状态
+-config-dir
+
+作用：指定service的配置文件和检查定义所在的位置
+通常会指定为&quot;某一个路径/consul.d&quot;（通常情况下，.d表示一系列配置文件存放的目录）
+-config-file
+
+作用：指定一个要装载的配置文件
+该选项可以配置多次，进而配置多个配置文件（后边的会合并前边的，相同的值覆盖）
+-dev
+
+作用：创建一个开发环境下的server节点
+该参数配置下，不会有任何持久化操作，即不会有任何数据写入到磁盘
+这种模式不能用于生产环境（因为第二条）
+-bootstrap-expect
+
+作用：该命令通知consul server我们现在准备加入的server节点个数，该参数是为了延迟日志复制的启动直到我们指定数量的server节点成功的加入后启动。
+-node
+
+作用：指定节点在集群中的名称
+该名称在集群中必须是唯一的（默认采用机器的host）
+推荐：直接采用机器的IP
+-bind
+
+作用：指明节点的IP地址
+-server
+
+作用：指定节点为server
+每个数据中心（DC）的server数推荐为3或5（理想的是，最多不要超过5）
+所有的server都采用raft一致性算法来确保事务的一致性和线性化，事务修改了集群的状态，且集群的状态保存在每一台server上保证可用性
+server也是与其他DC交互的门面（gateway）
+-client
+
+作用：指定节点为client
+若不指定为-server，其实就是-client
+-join
+
+作用：将节点加入到集群
+</code></pre>
+
+<h2 id="实例">实例</h2>
+
+<p>prometheus原生就支持consul的服务发现，可以直接获取consul上的配置，如下</p>
+
+<pre><code>scrape_configs:
+  # The job name is added as a label `job=&lt;job_name&gt;` to any timeseries scraped from this config.
+  - job_name: 'prometheus'
+
+    # Override the global default and scrape targets from this job every 5 seconds.
+    scrape_interval: 5s
+
+    # metrics_path defaults to '/metrics'
+    # scheme defaults to 'http'.
+
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'security'
+    # Override the global default and scrape targets from this job every 5 seconds.
+    scrape_interval: 5s
+
+    metrics_path: '/prometheus'
+    # scheme defaults to 'http'.
+
+    static_configs:
+      - targets: ['10.94.20.33:80']
+
+  - job_name: 'overwritten-default'
+    consul_sd_configs:
+    - server:   '10.110.200.29:8500'
+      services: ['lookup', 'security', 'workflow']
+
+    relabel_configs:
+    - source_labels: ['__metrics_path__']
+      regex:         '/metrics'
+      target_label:  __metrics_path__
+      replacement:   '/prometheus'
+</code></pre>
+
+<p>这里简单说明下上面的配置意义，在scrape_configs下，定义了3个job_name</p>
+
+<ol>
+<li>job_name: &lsquo;prometheus&rsquo;是监听prometheus服务本身；</li>
+<li>job_name: &lsquo;security&rsquo;是按固定IP:PORT的方式监听微服务 ；</li>
+<li>job_name: &lsquo;overwritten-default&rsquo;就是一个监听consul的任务，在consul_sd_configs下，server是consul服务器的访问地址，services是微服务名的数组，如果什么都不填，则默认取consul上注册的所有微服务。relabel_configs是修改默认配置的规则，这里由于使用了springboot和promethues整合，暴露的metrics是通过/promethues路径访问的，而promethues默认的metrics访问路径（即metrics_path配置项）是/metrics，需要修改。</li>
+</ol>
+
+<h2 id="consul-template">consul-template</h2>
+
+<p>consul-template可以启动多个程序用于生成不同的模版json文件.</p>
+
+<p>consul-template的两种使用方法：</p>
+
+<ul>
+<li>直接启动作为进程使用，配置文件中间有一个时间设定，多长时间更新一次</li>
+<li>使用crontab来定时拉去一次，使用启动参数-once</li>
+</ul>
+
+<p>使用consul+consul-template可以构建一套基于文件服务发现的动态注册和配置生成的服务发现功能。</p>
+
+<ul>
+<li>通过consul的api向consul上注册prometheus的采集信息，使用k/v的模式</li>
+<li>consul-template设置定时功能，命令行拉去consul上的配置，按着模版的形式生成json文件</li>
+<li>prometheus使用fd的服务发现模式读取json文件拉去采集信息</li>
+</ul>
+
+<blockquote>
+<p>什么时候使用k/v模式？</p>
+</blockquote>
+
+<p>使用consul的services注册job的服务信息，然后使用consul-template动态生成prometheus的配置文件。然后prometheus通过查询consul中注册的信息正则匹配来完成prometheus的采集操作，在规模请求很小的时候，service完全没有问题
+但是这样当job量很大的时候，比如有20组job，一组job130的target的的时候，就会出现consul请求瓶颈。</p>
+
+<p>所以在规模扩大的时候使用consul的k/v格式进行注册，直接通过IP：port作为key，对应的label作为vaule，然后使用consul-template动态生成discovery的json文件，然后prometheus使用file sd来发现这个json文件，相当于将对应的json的内容写到了prometheus的配置文件中去，这个时候五分钟consul-template动态生成一次，不会每次都去请求，这样consul的压力就几乎没有了，经过测试可以达到5000个target，prometheus的shard极限，对consul依旧没有什么压力，现在主要瓶颈在于json文件大小，filesd的压力，可以继续优化成多个文件。</p>
+
+<h1 id="原理">原理</h1>
+
+<h2 id="raft算法">raft算法</h2>
+
+<p>Raft将系统中的角色分为领导者（Leader）、跟从者（Follower）和候选人（Candidate）：</p>
+
+<ul>
+<li>Leader：接受客户端请求，并向Follower同步请求日志，当日志同步到大多数节点上后告诉Follower提交日志。</li>
+<li>Follower：接受并持久化Leader同步的日志，在Leader告之日志可以提交之后，提交日志。</li>
+<li>Candidate：Leader选举过程中的临时角色。</li>
+</ul>
+
+<p>Raft实现了和Paxos相同的功能，它将一致性分解为多个子问题：Leader选举（Leader election）、日志同步（Log replication）、安全性（Safety）、日志压缩（Log compaction）、成员变更（Membership change）等,核心就是Leader选举，可以<a href="/post/algorithm/raft/">详细了解raft</a>。</p>
+
+<p>Raft 使用心跳（heartbeat）触发Leader选举。当服务器启动时，初始化为Follower。Leader向所有Followers周期性发送heartbeat。如果Follower在选举超时时间内没有收到Leader的heartbeat，就会等待一段随机的时间后发起一次Leader选举。</p>
+
+<p>Follower将其当前term加一然后转换为Candidate。它首先给自己投票并且给集群中的其他服务器发送 RequestVote RPC 。结果有以下三种情况：</p>
+
+<ul>
+<li>赢得了多数的选票，成功选举为Leader；</li>
+<li>收到了Leader的消息，表示有其它服务器已经抢先当选了Leader；</li>
+<li>没有服务器赢得多数的选票，Leader选举失败，等待选举时间超时后发起下一次选举。</li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/middleware/serverdiscovery/consul/">https://kingjcy.github.io/post/middleware/serverdiscovery/consul/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/middleware/">
+                            <i class="fa fa-tags"></i>
+                            middleware
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/sd/">
+                            <i class="fa fa-tags"></i>
+                            sd
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/consul/">
+                            <i class="fa fa-tags"></i>
+                            consul
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/middleware/serverdiscovery/zookeeper/">服务发现系列---- Zookeeper</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月19日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/etcd/">服务发现系列---- Etcd</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年02月14日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/sd/">服务发现系列---- Sd</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年02月12日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/middleware/serverdiscovery/etcd/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/middleware/serverdiscovery/sd/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#consul">consul</a></li>
+<li><a href="#consul安装">Consul安装</a></li>
+<li><a href="#使用">使用</a>
+<ul>
+<li><a href="#注册">注册</a></li>
+<li><a href="#发现">发现</a></li>
+<li><a href="#健康检查">健康检查</a></li>
+<li><a href="#更新consul配置文件">更新consul配置文件</a></li>
+<li><a href="#常用命令">常用命令</a></li>
+<li><a href="#实例">实例</a></li>
+<li><a href="#consul-template">consul-template</a></li>
+</ul></li>
+<li><a href="#原理">原理</a>
+<ul>
+<li><a href="#raft算法">raft算法</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

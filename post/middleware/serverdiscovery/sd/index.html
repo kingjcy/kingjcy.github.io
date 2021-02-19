@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="服务发现就是程序如何通过一个标志来获取服务列表，并且这个服务列表是能够随着服务的状态而动态变更，最终得以调用到相应的服务。
+
+服务发现是在分布式系统规模越来越大的情况下，服务治理的必然产物，不然服务的配置调用将难以维护。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="服务发现系列---- Sd - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    服务发现系列---- Sd
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年02月12日 
+                </div>
+                <h1 class="post-title">服务发现系列---- Sd</h1>
+            </header>
+
+            <div class="post-content">
+                <p>服务发现就是程序如何通过一个标志来获取服务列表，并且这个服务列表是能够随着服务的状态而动态变更，最终得以调用到相应的服务。</p>
+
+<p>服务发现是在分布式系统规模越来越大的情况下，服务治理的必然产物，不然服务的配置调用将难以维护。</p>
+
+<h1 id="服务发现">服务发现</h1>
+
+<p>服务发现可以分为注册和解析两个部分。</p>
+
+<h2 id="服务注册">服务注册</h2>
+
+<p>存储的信息是域名和ip的对应映射关系，存储的解析信息至少包括正在运行的服务的主机ip和端口信息。</p>
+
+<p>注册的方式有两种</p>
+
+<ul>
+<li>上报，每个服务启动后主动将自己的域名和ip信息上报存储下来</li>
+<li>监听，服务监听集群中服务的创建，并且获取相关信息存储下来，比如coreDNS</li>
+</ul>
+
+<h2 id="解析发现">解析发现</h2>
+
+<p>服务发现主要存在有两种模式，客户端模式与服务端模式，两者的本质区别在于，客户端是否保存服务列表信息。</p>
+
+<h3 id="客户端模式">客户端模式</h3>
+
+<p>在客户端模式下，如果要进行微服务调用，首先要进行的是到服务注册中心获取服务列表，然后再根据调用端本地的负载均衡策略，进行服务调用。</p>
+
+<pre><code>客户端(自身有服务注册中心--可以获取服务列表)------&gt;调用服务
+   |
+   |
+   |
+服务注册中心--服务列表
+</code></pre>
+
+<p>我们用图可以看出来</p>
+
+<p><img src="/media/middleware/sd/sd" alt="" /></p>
+
+<p>优点</p>
+
+<ol>
+<li>只需要周期性获取列表，在调用服务时可以直接调用少了一个RT。但需要在每个客户端维护获取列表的逻辑</li>
+<li>可用性高，即使注册中心出现故障也能正常工作</li>
+<li>服务上下线对调用方有影响（会出现短暂调用失败）</li>
+</ol>
+
+<p>大部分服务发现的实现都采取了客户端模式</p>
+
+<h3 id="服务端模式">服务端模式</h3>
+
+<p>在服务端模式下，调用方直接向服务注册中心进行请求，服务注册中心再通过自身负载均衡策略，对微服务进行调用。这个模式下，调用方不需要在自身节点维护服务发现逻辑以及服务注册信息，这个模式相对来说比较类似DNS模式。</p>
+
+<pre><code>客户端(自身没有服务注册中心)------&gt;服务注册中心(在服务端)------&gt;调用服务
+</code></pre>
+
+<p>如图</p>
+
+<p><img src="/media/middleware/sd/sd1" alt="" /></p>
+
+<p>优点</p>
+
+<ol>
+<li>简单，不需要在客户端维护获取服务列表的逻辑</li>
+<li>可用性由路由器中间件决定，路由中间件故障则所有服务不可用，同时，由于所有调度以及存储都由中间件服务器完成，中间件服务器可能会面临过高的负载</li>
+<li>服务上下线调用方无感知</li>
+</ol>
+
+<h2 id="框架">框架</h2>
+
+<p>目前服务发现框架：</p>
+
+<pre><code>consul---------go语言编写，常用，简单，无依赖，集成了http/DNS library
+etcd-----------go语言编写，常用，简单，无依赖，集成了Client Binging／http
+Zookeeper------java语言编写，常用，简单，依赖jvm，集成了Client Binging
+Eureka---------java
+smartstsck-----ruby
+nsq------------go
+serf-----------go
+spotify--------DNS
+skydns---------go
+</code></pre>
+
+<p>前三个都是比较常用和通用的，其他都是自己造轮子，适合特定场景。</p>
+
+<h3 id="eureka">Eureka</h3>
+
+<p>eureka是netflix用于服务注册和发现的框架。在这个框架中，分为server和client两种角色。server负责保存服务的注册信息，同时server之间也可以彼此相互注册，client则需要向特定的server进行注册。</p>
+
+<p>client/server通过RESTful Api向server进行服务注册，并且定期调用renew接口来更新服务的注册状态，若server在60s内没有收到服务的renew信息，则该服务就会被标志为下线。而如果服务需要主动下线的话，向server调用cancel就可以了。</p>
+
+<h3 id="consul">Consul</h3>
+
+<p><a href="/post/middleware/serverdiscovery/consul/">Consul</a>是强一致性的数据存储，使用Raft形成动态集群。它提供分级键/值存储方式，不仅可以存储数据，而且可以用于注册器件事各种任务，从发送数据改变通知到运行健康检查和自定义命令，具体如何取决于它们的输出。</p>
+
+<p>与Zookeeper和etcd不一样，Consul内嵌实现了服务发现系统，所以这样就不需要构建自己的系统或使用第三方系统。这一发现系统除了上述提到的特性之外，还包括节点健康检查和运行在其上的服务。</p>
+
+<p>Zookeeper和etcd只提供原始的键/值队存储，要求应用程序开发人员构建他们自己的系统提供服务发现功能。而Consul提供了一个内置的服务发现的框架。客户只需要注册服务并通过DNS或HTTP接口执行服务发现。其他两个工具需要一个亲手制作的解决方案或借助于第三方工具。</p>
+
+<p>Consul为多种数据中心提供了开箱即用的原生支持，其中的gossip系统不仅可以工作在同一集群内部的各个节点，而且还可以跨数据中心工作。</p>
+
+<blockquote>
+<p>模版Consul-template</p>
+</blockquote>
+
+<p>confd可以像和etcd搭配一样用于Consul，不过Consul有自己的模板服务，其更适配Consul。</p>
+
+<p>通过从Consul获得的信息，Consul-template是一个非常方便的创建文件的途径，还有一个额外的好处就是在文件更新后可以运行任意命令，正如confd，Consul-template也可以使用Go模板格式。</p>
+
+<h3 id="zookeeper">Zookeeper</h3>
+
+<p><a href="/post/middleware/serverdiscovery/zookeeper/">Zookeeper</a>是这种类型的项目中历史最悠久的之一，它起源于Hadoop，帮助在Hadoop集群中维护各种组件。它非常成熟、可靠，被许多大公司（YouTube、eBay、雅虎等）使用。其数据存储的格式类似于文件系统，如果运行在一个服务器集群中，Zookeper将跨所有节点共享配置状态，每个集群选举一个领袖，客户端可以连接到任何一台服务器获取数据。</p>
+
+<p>Zookeeper的主要优势是其成熟、健壮以及丰富的特性，然而，它也有自己的缺点，其中采用Java开发以及复杂性是罪魁祸首。尽管Java在许多方面非常伟大，然后对于这种类型的工作还是太沉重了，Zookeeper使用Java以及相当数量的依赖使其对于资源竞争非常饥渴。因为上述的这些问题，Zookeeper变得非常复杂，维护它需要比我们期望从这种类型的应用程序中获得的收益更多的知识。这部分地是由于丰富的特性反而将其从优势转变为累赘。应用程序的特性功能越多，就会有越大的可能性不需要这些特性，因此，我们最终将会为这些不需要的特性付出复杂度方面的代价。</p>
+
+<p>Zookeeper为其他项目相当大的改进铺平了道路，“大数据玩家“在使用它，因为没有更好的选择。今天，Zookeeper已经老态龙钟了，我们有了更好的选择。</p>
+
+<h3 id="etcd">etcd</h3>
+
+<p><a href="/post/middleware/serverdiscovery/etcd/">etcd</a>是一个采用HTTP协议的健/值对存储系统，它是一个分布式和功能层次配置系统，可用于构建服务发现系统。其很容易部署、安装和使用，提供了可靠的数据持久化特性。它是安全的并且文档也十分齐全。</p>
+
+<p>etcd比Zookeeper是比更好的选择，因为它很简单，然而，它需要搭配一些第三方工具才可以提供服务发现功能。比如Confd</p>
+
+<p>Confd是一个轻量级的配置管理工具，常见的用法是通过使用存储在etcd、consul和其他一些数据登记处的数据保持配置文件的最新状态，它也可以用来在配置文件改变时重新加载应用程序。换句话说，我们可以用存储在etcd（或者其他注册中心）的信息来重新配置所有服务。</p>
+
+<h3 id="对比">对比</h3>
+
+<table>
+<thead>
+<tr>
+<th>功能\组件</th>
+<th>Zookeeper</th>
+<th>etcd</th>
+<th>Consul</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>产生时间</td>
+<td>长</td>
+<td>短</td>
+<td>短</td>
+</tr>
+
+<tr>
+<td>原生语言</td>
+<td>JAVA</td>
+<td>Go</td>
+<td>Go</td>
+</tr>
+
+<tr>
+<td>算法</td>
+<td>Paxos</td>
+<td>Raft</td>
+<td>Raft</td>
+</tr>
+
+<tr>
+<td>多数据中心</td>
+<td>不支持</td>
+<td>不支持</td>
+<td>支持</td>
+</tr>
+
+<tr>
+<td>健康检查</td>
+<td>支持</td>
+<td>不支持</td>
+<td>支持</td>
+</tr>
+
+<tr>
+<td>web管理界面</td>
+<td>支持</td>
+<td>不支持</td>
+<td>支持</td>
+</tr>
+
+<tr>
+<td>http协议</td>
+<td>较为复杂</td>
+<td>支持</td>
+<td>支持</td>
+</tr>
+
+<tr>
+<td>DNS协议</td>
+<td>较为复杂</td>
+<td>不支持</td>
+<td>支持</td>
+</tr>
+</tbody>
+</table>
+
+<p>对比的情况下，我们在k8s的集群中可以使用etcd做服务发现，但是在常规情况下，consul更加的全面直接的做服务发现，比如自带服务发现功能，支持多数据中心，直接界面友好等。</p>
+
+<h2 id="高可用">高可用</h2>
+
+<p>在多注册中心（server）的情况下，单个server在接收到服务的注册/更新信息的时候，它还会将这些信息同步给同样为server的peer(replicate to peer)，为了避免广播风暴，这些信息只会传递一次，也就是说，接收到的server，不会再同步给自身的peer。</p>
+
+<p>服务注册完成之后，当client需要进行服务调用的时候，就可以向server获取当前的服务列表，再根据服务列表中的ip地址以及端口号进行调用了。</p>
+
+<p>Consul是目前较为流行的一个服务发现以及配置工具，Consul能够承担包括服务注册与发现、健康检查（health check)以及键值对存储等，同时，Consul还支持多个数据中心。</p>
+
+<p>我们可以通过Consul的Restful Api（<code>curl -request PUT http://consul/v1//agent/service/register</code>） 向Consul Agent注册服务信息，提交服务的端口号，ip地址，以及健康检查的方式。随后，这个Client就按照配置中的周期以及方式执行健康检查，当健康检查失败的时候，就会像Server Agent发送服务不可用的消息，这个服务就会被Consul标记为不可用了。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/middleware/serverdiscovery/sd/">https://kingjcy.github.io/post/middleware/serverdiscovery/sd/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/middleware/">
+                            <i class="fa fa-tags"></i>
+                            middleware
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/sd/">
+                            <i class="fa fa-tags"></i>
+                            sd
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/middleware/serverdiscovery/zookeeper/">服务发现系列---- Zookeeper</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月19日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/etcd/">服务发现系列---- Etcd</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年02月14日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/consul/">服务发现系列---- Consul</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年02月12日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/middleware/serverdiscovery/consul/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-strings/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#服务发现">服务发现</a>
+<ul>
+<li><a href="#服务注册">服务注册</a></li>
+<li><a href="#解析发现">解析发现</a>
+<ul>
+<li><a href="#客户端模式">客户端模式</a></li>
+<li><a href="#服务端模式">服务端模式</a></li>
+</ul></li>
+<li><a href="#框架">框架</a>
+<ul>
+<li><a href="#eureka">Eureka</a></li>
+<li><a href="#consul">Consul</a></li>
+<li><a href="#zookeeper">Zookeeper</a></li>
+<li><a href="#etcd">etcd</a></li>
+<li><a href="#对比">对比</a></li>
+</ul></li>
+<li><a href="#高可用">高可用</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

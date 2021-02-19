@@ -2302,6 +2302,607 @@ $ ./cortex -config.file=./docs/single-process-config.yaml
     
       
         <item>
+          <title>服务发现系列---- Zookeeper</title>
+          <link>https://kingjcy.github.io/post/middleware/serverdiscovery/zookeeper/</link>
+          <pubDate>Fri, 19 Apr 2019 09:37:11 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/middleware/serverdiscovery/zookeeper/</guid>
+          <description>&lt;p&gt;zookeeper是Hadoop的一个子项目，它是分布式系统中的协调系统，可提供的服务主要有：配置服务、名字服务、分布式同步、组服务等。就是提供高可用的数据管理、应用程序协调服务的分布式服务框架，基于对Paxos算法的实现，使该框架保证了分布式环境中数据的强一致性，提供的功能包括：配置维护、统一命名服务、状态同步服务、集群管理等。&lt;/p&gt;
+
+&lt;h1 id=&#34;zookeeper&#34;&gt;Zookeeper&lt;/h1&gt;
+
+&lt;p&gt;Zookeeper的特点&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;简单&lt;/p&gt;
+
+&lt;p&gt;Zookeeper的核心是一个精简的文件系统，它支持一些简单的操作和一些抽象操作，例如，排序和通知。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;丰富&lt;/p&gt;
+
+&lt;p&gt;Zookeeper的原语操作是很丰富的，可实现一些协调数据结构和协议。例如，分布式队列、分布式锁和一组同级别节点中的“领导者选举”。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;高可靠&lt;/p&gt;
+
+&lt;p&gt;Zookeeper支持集群模式，可以很容易的解决单点故障问题。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;松耦合交互&lt;/p&gt;
+
+&lt;p&gt;不同进程间的交互不需要了解彼此，甚至可以不必同时存在，某进程在zookeeper中留下消息后，该进程结束后其它进程还可以读这条消息。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;资源库&lt;/p&gt;
+
+&lt;p&gt;Zookeeper实现了一个关于通用协调模式的开源共享存储库，能使开发者免于编写这类通用协议。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;安装并启动&#34;&gt;安装并启动&lt;/h2&gt;
+
+&lt;p&gt;1、配置文件conf/zoo.cfg&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;tickTime=2000
+dataDir=/var/lib/zookeeper
+clientPort=2181
+initLimit=10
+syncLimit=5
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;tickTime:指定了ZooKeeper的基本时间单位（以毫秒为单位）。&lt;/li&gt;
+&lt;li&gt;dataDir:存储内存数据快照位置。&lt;/li&gt;
+&lt;li&gt;clientPort：监听客户端连接端口。&lt;/li&gt;
+&lt;li&gt;initLimmit：启动zookeeper，从节点至主节点连接超时时间。（上面为10个tickTime）&lt;/li&gt;
+&lt;li&gt;syncLimit:zookeeper正常运行，若主从同步时间超过syncLimit，则丢弃该从节点。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;2、配置完，启动zookeeper&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/zkServer.sh start
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;3、检查是否运行：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;echo ruok | nc localhost 2181
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;4、连接到zookeeper&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ bin/zkCli.sh -server 127.0.0.1:2181
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在shell命令中使用help查看命令列表&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[zkshell: 0] help
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;创建一个zookeeper节点：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;create /zk_test my_data
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;获取节点数据&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;get /zk_test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;修改节点数据&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;set /zk_test junk
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;删除节点&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;delete /zk_test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;原理&#34;&gt;原理&lt;/h1&gt;
+
+&lt;p&gt;其实原理简单来说，就是要选举leader，会生成一个zxid，然后分发给所有的server（所以这里一台server可以接受多台server给他发送要选举leader的请求），然后各个server根据发送给自己的zxid，选择一个值最大的，然后将这个选择返回给发送这个zxid的server，只要这个server收到的答复大于等于2/n+1个（也就是超过半数的同意票），则表明自己当选为leader，然后会向所有server广播自己已经成为leader。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;zookeeper数据模型&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;类似于文件系统，所有的节点都是绝对路径，将文件和目录抽象成znode。和Unix中的文件系统路径格式很想，但是只支持绝对路径，不支持相对路径，也不支持点号（”.”和”..”）。&lt;/p&gt;
+
+&lt;p&gt;1、znode&lt;/p&gt;
+
+&lt;p&gt;维护了数据和ACL改变的版本号，每一次数据改变版本号增加，当有一个client去执行update和delete时候，必须提供一个数据变更版本号，如果与数据不符合，则更新失败。&lt;/p&gt;
+
+&lt;p&gt;2、存储小数据&lt;/p&gt;
+
+&lt;p&gt;一般不超过1M，大量数据会花费更多的时间和延迟来完成数据拷贝，由于网络的消耗。&lt;/p&gt;
+
+&lt;p&gt;3、瞬时节点&lt;/p&gt;
+
+&lt;p&gt;随着会话结束而删除&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;When the session ends the znode is deleted. Because
+of this behavior ephemeral znodes are not allowed to have children.
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;4、操作的原子性&lt;/p&gt;
+
+&lt;p&gt;Znode的数据读写是原子的，要么读或写了完整的数据，要么就失败，不会出现只读或写了部分数据。&lt;/p&gt;
+
+&lt;p&gt;5、顺序znode&lt;/p&gt;
+
+&lt;p&gt;名称中包含Zookeeper指定顺序号的znode。若在创建znode时设置了顺序标识，那么该znode被创建后，名字的后边将会附加一串数字，该数字是由一个单调递增的计数器来生成的。例如，创建节点时传入的path是”/aa/bb”，创建后的则可能是”/aa/bb0002”，再次创建后是”/aa/bb0003”。&lt;/p&gt;
+
+&lt;p&gt;Znode的创建模式CreateMode有四种，分别是：EPHEMERAL（短暂的znode）、EPHEMERAL_SEQUENTIAL（短暂的顺序znode）、PERSISTENT（持久的znode）和PERSISTENT_SEQUENTIAL（持久的顺序znode）。如果您已经看过了上篇博文，那么这里的api调用应该是很好理解的，见：&lt;a href=&#34;http://www.cnblogs.com/leocook/p/zk_0.html。&#34;&gt;http://www.cnblogs.com/leocook/p/zk_0.html。&lt;/a&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;zookeeper中的时间&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Zxid：zookeeper状态的改变都会有事物id自增来维护。&lt;/li&gt;
+&lt;li&gt;Version numbers ：znode的数据和ACL变更维护。&lt;/li&gt;
+&lt;li&gt;ticks:zookeeper集群部署时的时间单位。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;zookeepr  watches&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;可以在读操作exists、getChildren和getData上设置观察，在执行写操作create、delete和setData将会触发观察事件，当然，在执行写的操作时，也可以选择是否触发znode上设置的观察器，具体可查看相关的api。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;当观察的znode被创建、删除或其数据被更新时，设置在exists上的观察将会被触发；&lt;/li&gt;
+&lt;li&gt;当观察的znode被删除或数据被更新时，设置在getData上的观察将会被触发；&lt;/li&gt;
+&lt;li&gt;当观察的znode的子节点被创建、删除或znode自身被删除时，设置在getChildren上的观察将会被触发，可通过观察事件的类型来判断被删除的是znode还是它的子节点。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;注意：在收到收到触发事件到执行读操作之间，znode的状态可能会发生状态，这点需要牢记。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;ACL&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;ACL权限：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;CREATE: you can create a child node&lt;/li&gt;
+&lt;li&gt;READ: you can get data from a node and list its children.&lt;/li&gt;
+&lt;li&gt;WRITE: you can set data for a node&lt;/li&gt;
+&lt;li&gt;DELETE: you can delete a child node&lt;/li&gt;
+&lt;li&gt;ADMIN: you can set permissions&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;身份验证模式：&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;ul&gt;
+&lt;li&gt;world 无验证&lt;/li&gt;
+&lt;li&gt;auth 只能使用sessionID&lt;/li&gt;
+&lt;li&gt;digest  username:password 验证&lt;/li&gt;
+&lt;li&gt;ip 客户端IP验证&lt;/li&gt;
+&lt;li&gt;host 客户端主机名验证&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;添加验证&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;可使用zk对象的addAuthInfo()方法来添加验证模式，如使用digest模式进行身份验证：zk.addAuthInfo(“digest”,”username:passwd”.getBytes());&lt;/p&gt;
+
+&lt;p&gt;在zookeeper对象被创建时，初始化会被添加world验证模式。world身份验证模式的验证id是”anyone”。&lt;/p&gt;
+
+&lt;p&gt;若该连接创建了znode，那么他将会被添加auth身份验证模式的验证id是””，即空字符串，这里将使用sessionID进行验证。&lt;/p&gt;
+
+&lt;p&gt;创建自定义验证：创建ACL对象时，可用ACL类的构造方法ACL(int perms, Id id)&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;zookeeper  内部原理&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、选举领导&lt;/p&gt;
+
+&lt;p&gt;集群中所有的zk实例会选举出来一个“领导实例”（leader），其它实例称之为“随从实例”（follower）。如果leader出现故障，其余的实例会选出一台leader，并一起提供服务，若之前的leader恢复正常，便成为follower。选举follower是一个很快的过程，性能影响不明显。&lt;/p&gt;
+
+&lt;p&gt;Leader主要功能是协调所有实例实现写操作的原子性，即：所有的写操作都会转发给leader，然后leader会将更新广播给所有的follower，当半数以上的实例都完成写操作后，leader才会提交这个写操作，随后客户端会收到写操作执行成功的响应。&lt;/p&gt;
+
+&lt;p&gt;2、原子广播&lt;/p&gt;
+
+&lt;p&gt;上边已经说到：所有的写操作都会转发给leader，然后leader会将更新广播给所有的follower，当半数以上的实例都完成写操作后，leader才会提交这个写操作，随后客户端会收到写操作执行成功的响应。这么来的话，就实现了客户端的写操作的原子性，每个写操作要么成功要么失败。逻辑和数据库的两阶段提交协议很像。&lt;/p&gt;
+
+&lt;p&gt;Znode的每次写操作都相当于数据库里的一次事务提交，每个写操作都有个全局唯一的ID，称为：zxid（ZooKeeper Transaction）。ZooKeeper会根据写操作的zxid大小来对操作进行排序，zxid小的操作会先执行。zk下边的这些特性保证了它的数据一致性：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;顺序一致性&lt;/p&gt;
+
+&lt;p&gt;任意客户端的写操作都会按其发送的顺序被提交。如果一个客户端把某znode的值改为a，然后又把值改为b（后面没有其它任何修改），那么任何客户端在读到值为b之后都不会再读到a。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;原子性&lt;/p&gt;
+
+&lt;p&gt;这一点再前面已经说了，写操作只有成功和失败两种状态，不存在只写了百分之多少这么一说。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;单一系统映像&lt;/p&gt;
+
+&lt;p&gt;客户端只会连接host列表中状态最新的那些实例。如果正在连接到的实例挂了，客户端会尝试重新连接到集群中的其他实例，那么此时滞后于故障实例的其它实例都不会接收该连接请求，只有和故障实例版本相同或更新的实例才接收该连接请求。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;持久性&lt;/p&gt;
+
+&lt;p&gt;写操作完成之后将会被持久化存储，不受服务器故障影响。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;及时性&lt;/p&gt;
+
+&lt;p&gt;在对某个znode进行读操作时，应该先执行sync方法，使得读操作的连接所连的zk实例能与leader进行同步，从而能读到最新的类容。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;注意：sync调用是异步的，无需等待调用的返回，zk服务器会保证所有后续的操作会在sync操作完成之后才执行，哪怕这些操作是在执行sync之前被提交的。&lt;/p&gt;
+
+&lt;h1 id=&#34;zookeeper-典型的应用场景&#34;&gt;ZooKeeper 典型的应用场景&lt;/h1&gt;
+
+&lt;p&gt;Zookeeper 从设计模式角度来看，是一个基于观察者模式设计的分布式服务管理框架，它负责存储和管理大家都关心的数据，然后接受观察者的注册，一旦这些数据的状态发生变化，Zookeeper 就将负责通知已经在 Zookeeper 上注册的那些观察者做出相应的反应，从而实现集群中类似 Master/Slave 管理模式，关于 Zookeeper 的详细架构等内部细节可以阅读 Zookeeper 的源码&lt;/p&gt;
+
+&lt;p&gt;下面详细介绍这些典型的应用场景，也就是 Zookeeper 到底能帮我们解决那些问题？下面将给出答案。&lt;/p&gt;
+
+&lt;h2 id=&#34;统一命名服务-name-service&#34;&gt;统一命名服务（Name Service）&lt;/h2&gt;
+
+&lt;p&gt;分布式应用中，通常需要有一套完整的命名规则，既能够产生唯一的名称又便于人识别和记住，通常情况下用树形的名称结构是一个理想的选择，树形的名称结构是一个有层次的目录结构，既对人友好又不会重复。说到这里你可能想到了 JNDI，没错 Zookeeper 的 Name Service 与 JNDI 能够完成的功能是差不多的，它们都是将有层次的目录结构关联到一定资源上，但是 Zookeeper 的 Name Service 更加是广泛意义上的关联，也许你并不需要将名称关联到特定资源上，你可能只需要一个不会重复名称，就像数据库中产生一个唯一的数字主键一样。&lt;/p&gt;
+
+&lt;p&gt;Name Service 已经是 Zookeeper 内置的功能，你只要调用 Zookeeper 的 API 就能实现。如调用 create 接口就可以很容易创建一个目录节点。&lt;/p&gt;
+
+&lt;h2 id=&#34;配置管理-configuration-management&#34;&gt;配置管理（Configuration Management）&lt;/h2&gt;
+
+&lt;p&gt;配置的管理在分布式应用环境中很常见，例如同一个应用系统需要多台 PC Server 运行，但是它们运行的应用系统的某些配置项是相同的，如果要修改这些相同的配置项，那么就必须同时修改每台运行这个应用系统的 PC Server，这样非常麻烦而且容易出错。&lt;/p&gt;
+
+&lt;p&gt;像这样的配置信息完全可以交给 Zookeeper 来管理，将配置信息保存在 Zookeeper 的某个目录节点中，然后将所有需要修改的应用机器监控配置信息的状态，一旦配置信息发生变化，每台应用机器就会收到 Zookeeper 的通知，然后从 Zookeeper 获取新的配置信息应用到系统中.&lt;/p&gt;
+
+&lt;h2 id=&#34;集群管理-group-membership&#34;&gt;集群管理（Group Membership）&lt;/h2&gt;
+
+&lt;p&gt;Zookeeper 能够很容易的实现集群管理的功能，如有多台 Server 组成一个服务集群，那么必须要一个“总管”知道当前集群中每台机器的服务状态，一旦有机器不能提供服务，集群中其它集群必须知道，从而做出调整重新分配服务策略。同样当增加集群的服务能力时，就会增加一台或多台 Server，同样也必须让“总管”知道。&lt;/p&gt;
+
+&lt;p&gt;Zookeeper 不仅能够帮你维护当前的集群中机器的服务状态，而且能够帮你选出一个“总管”，让这个总管来管理集群，这就是 Zookeeper 的另一个功能 Leader Election。&lt;/p&gt;
+
+&lt;p&gt;它们的实现方式都是在 Zookeeper 上创建一个 EPHEMERAL 类型的目录节点，然后每个 Server 在它们创建目录节点的父目录节点上调用 getChildren(String path, boolean watch) 方法并设置 watch 为 true，由于是 EPHEMERAL 目录节点，当创建它的 Server 死去，这个目录节点也随之被删除，所以 Children 将会变化，这时 getChildren上的 Watch 将会被调用，所以其它 Server 就知道已经有某台 Server 死去了。新增 Server 也是同样的原理。&lt;/p&gt;
+
+&lt;p&gt;Zookeeper 如何实现 Leader Election，也就是选出一个 Master Server。和前面的一样每台 Server 创建一个 EPHEMERAL 目录节点，不同的是它还是一个 SEQUENTIAL 目录节点，所以它是个 EPHEMERAL_SEQUENTIAL 目录节点。之所以它是 EPHEMERAL_SEQUENTIAL 目录节点，是因为我们可以给每台 Server 编号，我们可以选择当前是最小编号的 Server 为 Master，假如这个最小编号的 Server 死去，由于是 EPHEMERAL 节点，死去的 Server 对应的节点也被删除，所以当前的节点列表中又出现一个最小编号的节点，我们就选择这个节点为当前 Master。这样就实现了动态选择 Master，避免了传统意义上单 Master 容易出现单点故障的问题。&lt;/p&gt;
+
+&lt;h2 id=&#34;zookeeper-实现-locks&#34;&gt;Zookeeper 实现 Locks&lt;/h2&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;加锁&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;ZooKeeper 将按照如下方式实现加锁的操作：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;ZooKeeper 调用 create （）方法来创建一个路径格式为“ &lt;em&gt;locknode&lt;/em&gt;/lock- ”的节点，此节点类型为sequence （连续）和 ephemeral （临时）。也就是说，创建的节点为临时节点，并且所有的节点连续编号，即“ lock-i ”的格式。&lt;/li&gt;
+&lt;li&gt;在创建的锁节点上调用 getChildren （）方法，来获取锁目录下的最小编号节点，并且不设置 watch 。&lt;/li&gt;
+&lt;li&gt;步骤 2 中获取的节点恰好是步骤 1 中客户端创建的节点，那么此客户端获得此种类型的锁，然后退出操作。&lt;/li&gt;
+&lt;li&gt;客户端在锁目录上调用 exists （）方法，并且设置 watch 来监视锁目录下比自己小一个的连续临时节点的状态。&lt;/li&gt;
+&lt;li&gt;如果监视节点状态发生变化，则跳转到第 2 步，继续进行后续的操作，直到退出锁竞争。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;解锁&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;ZooKeeper 解锁操作非常简单，客户端只需要将加锁操作步骤 1 中创建的临时节点删除即可&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;public class Locks extends TestMainClient {
+    public static final Logger logger = Logger.getLogger(Locks.class);
+    String myZnode;
+
+    public Locks(String connectString, String root) {
+        super(connectString);
+        this.root = root;
+        if (zk != null) {
+            try {
+                //创建锁节点，并不设置观察
+                Stat s = zk.exists(root, false);
+                if (s == null) {
+                    zk.create(root, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+                }
+            } catch (KeeperException e) {
+                logger.error(e);
+            } catch (InterruptedException e) {
+                logger.error(e);
+            }
+        }
+    }
+    void getLock() throws KeeperException, InterruptedException{
+        List&amp;lt;String&amp;gt; list = zk.getChildren(root, false);
+        String[] nodes = list.toArray(new String[list.size()]);
+        //对锁目录下 的所有子节点排序
+        Arrays.sort(nodes);
+        //判断该zkclient创建的临时顺序节点是否为集群中最小的节点
+        if(myZnode.equals(root+&amp;quot;/&amp;quot;+nodes[0])){
+            doAction();
+        }
+        else{
+            waitForLock(nodes[0]);
+        }
+    }
+    //创建zk客户端的临时瞬时节点，并尝试获取锁
+    void check() throws InterruptedException, KeeperException {
+        myZnode = zk.create(root + &amp;quot;/lock_&amp;quot; , new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,CreateMode.EPHEMERAL_SEQUENTIAL);
+        getLock();
+    }
+    void waitForLock(String lower) throws InterruptedException, KeeperException {
+        Stat stat = zk.exists(root + &amp;quot;/&amp;quot; + lower,true);
+        if(stat != null){   //发现最小的目录节点还未被移除，则等待
+            mutex.wait();
+        }
+        else{
+            getLock();
+        }
+    }
+    @Override //发现有节点移除，该等待状态的客户端被notify
+    public void process(WatchedEvent event) {
+        if(event.getType() == Event.EventType.NodeDeleted){
+            System.out.println(&amp;quot;得到通知&amp;quot;);
+            super.process(event);
+            doAction();
+        }
+    }
+    /**
+     * 执行其他任务
+     */
+    private void doAction(){
+        System.out.println(&amp;quot;同步队列已经得到同步，可以开始执行后面的任务了&amp;quot;);
+    }
+
+    public static void main(String[] args) {
+        TestMainServer.start();
+        String connectString = &amp;quot;localhost:&amp;quot;+TestMainServer.CLIENT_PORT;
+
+        Locks lk = new Locks(connectString, &amp;quot;/locks&amp;quot;);
+        try {
+            lk.check();
+        } catch (InterruptedException e) {
+            logger.error(e);
+        } catch (KeeperException e) {
+            logger.error(e);
+        }
+    }
+
+
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;同步队列&#34;&gt;同步队列&lt;/h2&gt;
+
+&lt;p&gt;同步队列用 Zookeeper 实现的实现思路如下：创建一个父目录 /synchronizing，每个成员都监控标志（Set Watch）位目录 /synchronizing/start 是否存在，然后每个成员都加入这个队列，加入队列的方式就是创建 /synchronizing/member_i 的临时目录节点，然后每个成员获取 / synchronizing 目录的所有目录节点，也就是 member_i。判断 i 的值是否已经是成员的个数，如果小于成员个数等待 /synchronizing/start 的出现，如果已经相等就创建 /synchronizing/start。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;/**
+ * 当一个队列的成员都聚齐时，这个队列才可用，否则一直等待所有成员到达，这种是同步队列。
+ */
+public class Synchronizing extends TestMainClient {
+    int size;
+    String name;
+    public static final Logger logger = Logger.getLogger(Synchronizing.class);
+
+    /**
+     * 构造函数
+     *
+     * @param connectString
+     *            服务器连接
+     * @param root
+     *            根目录
+     * @param size
+     *            队列大小
+     */
+    Synchronizing(String connectString, String root, int size) {
+        super(connectString);
+        this.root = root;
+        this.size = size;
+
+        if (zk != null) {
+            try {
+                Stat s = zk.exists(root, false);
+                if (s == null) {
+                    zk.create(root, new byte[0], Ids.OPEN_ACL_UNSAFE,
+                            CreateMode.PERSISTENT);
+                }
+            } catch (KeeperException e) {
+                logger.error(e);
+            } catch (InterruptedException e) {
+                logger.error(e);
+            }
+        }
+        try {
+            name = new String(InetAddress.getLocalHost().getCanonicalHostName()
+                    .toString());
+        } catch (UnknownHostException e) {
+            logger.error(e);
+        }
+
+    }
+
+    /**
+     * 加入队列
+     *
+     * @return
+     * @throws KeeperException
+     * @throws InterruptedException
+     */
+
+    void addQueue() throws KeeperException, InterruptedException {
+        zk.exists(root + &amp;quot;/start&amp;quot;, true);
+        zk.create(root + &amp;quot;/&amp;quot; + name, new byte[0], Ids.OPEN_ACL_UNSAFE,
+                CreateMode.EPHEMERAL_SEQUENTIAL);
+        synchronized (mutex) {
+            List&amp;lt;String&amp;gt; list = zk.getChildren(root, false);
+            //如果队列中子节点数小于size，则等待，如果不小于size，则创建start目录，其他client则触发事件，执行doAction
+            if (list.size() &amp;lt; size) {
+                mutex.wait();
+            } else {
+                zk.create(root + &amp;quot;/start&amp;quot;, new byte[0], Ids.OPEN_ACL_UNSAFE,
+                        CreateMode.PERSISTENT);
+            }
+        }
+    }
+
+    @Override
+    public void process(WatchedEvent event) {
+        if (event.getPath().equals(root + &amp;quot;/start&amp;quot;)
+                &amp;amp;&amp;amp; event.getType() == Event.EventType.NodeCreated) {
+            System.out.println(&amp;quot;得到通知&amp;quot;);
+            super.process(event);
+            doAction();
+        }
+    }
+
+    /**
+     * 执行其他任务
+     */
+    private void doAction() {
+        System.out.println(&amp;quot;同步队列已经得到同步，可以开始执行后面的任务了&amp;quot;);
+    }
+
+    public static void main(String args[]) {
+        // 启动Server
+        TestMainServer.start();
+        String connectString = &amp;quot;localhost:&amp;quot; + TestMainServer.CLIENT_PORT;
+        int size = 1;
+        Synchronizing b = new Synchronizing(connectString, &amp;quot;/synchronizing&amp;quot;,
+                size);
+        try {
+            b.addQueue();
+        } catch (KeeperException e) {
+            logger.error(e);
+        } catch (InterruptedException e) {
+            logger.error(e);
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;fifo队列-生产者-消费者&#34;&gt;FIFO队列(生产者-消费者)&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;/**
+ * 队列按照 FIFO 方式进行入队和出队操作，例如实现生产者和消费者模型。
+ *
+ * 实现的思路也非常简单，就是在特定的目录下创建 SEQUENTIAL 类型的子目录
+ * /queue_i，这样就能保证所有成员加入队列时都是有编号的，出队列时通过 getChildren( )
+ * 方法可以返回当前所有的队列中的元素，然后消费其中最小的一个，这样就能保证 FIFO。
+ */
+public class FIFOQueue extends TestMainClient {
+    public static final Logger logger = Logger.getLogger(FIFOQueue.class);
+
+    /**
+     * Constructor
+     *
+     * @param connectString
+     * @param root
+     */
+    FIFOQueue(String connectString, String root) {
+        super(connectString);
+        this.root = root;
+        if (zk != null) {
+            try {
+                Stat s = zk.exists(root, false);
+                if (s == null) {
+                    zk.create(root, new byte[0], ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                            CreateMode.PERSISTENT);
+                }
+            } catch (KeeperException e) {
+                logger.error(e);
+            } catch (InterruptedException e) {
+                logger.error(e);
+            }
+        }
+    }
+
+    /**
+     * 生产者
+     *
+     * @param i
+     * @return
+     */
+
+    boolean produce(int i) throws KeeperException, InterruptedException {
+        ByteBuffer b = ByteBuffer.allocate(4);
+        byte[] value;
+        b.putInt(i);
+        value = b.array();
+        zk.create(root + &amp;quot;/element&amp;quot;, value, ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                CreateMode.PERSISTENT_SEQUENTIAL);
+        return true;
+    }
+
+    /**
+     * 消费者
+     *
+     * @return
+     * @throws KeeperException
+     * @throws InterruptedException
+     */
+    int consume() throws KeeperException, InterruptedException {
+        int retvalue = -1;
+        Stat stat = null;
+        while (true) {
+            synchronized (mutex) {
+                // 对root的子节点设置监听
+                List&amp;lt;String&amp;gt; list = zk.getChildren(root, true);
+                // 如果没有任何子节点，则wait
+                if (list.size() == 0) {
+                    mutex.wait();
+                } else {
+                    Integer min = new Integer(list.get(0).substring(7));
+                    for (String s : list) {
+                        Integer tempValue = new Integer(s.substring(7));
+                        if (tempValue &amp;lt; min)
+                            min = tempValue;
+                    }
+                    byte[] b = zk.getData(root + &amp;quot;/element&amp;quot; + min, false, stat);
+                    // 获取到子节点数据之后 执行delete，并触发事件，执行所有cliet的notify
+                    zk.delete(root + &amp;quot;/element&amp;quot; + min, 0);
+                    ByteBuffer buffer = ByteBuffer.wrap(b);
+                    retvalue = buffer.getInt();
+                    return retvalue;
+                }
+            }
+        }
+    }
+
+    @Override
+    public void process(WatchedEvent event) {
+        super.process(event);
+    }
+
+    public static void main(String args[]) {
+        // 启动Server
+        TestMainServer.start();
+        String connectString = &amp;quot;localhost:&amp;quot; + TestMainServer.CLIENT_PORT;
+
+        FIFOQueue q = new FIFOQueue(connectString, &amp;quot;/app1&amp;quot;);
+        int i;
+        Integer max = new Integer(5);
+
+        System.out.println(&amp;quot;Producer&amp;quot;);
+        for (i = 0; i &amp;lt; max; i++)
+            try {
+                q.produce(10 + i);
+            } catch (KeeperException e) {
+                logger.error(e);
+            } catch (InterruptedException e) {
+                logger.error(e);
+            }
+
+        for (i = 0; i &amp;lt; max; i++) {
+            try {
+                int r = q.consume();
+                System.out.println(&amp;quot;Item: &amp;quot; + r);
+            } catch (KeeperException e) {
+                i--;
+                logger.error(e);
+            } catch (InterruptedException e) {
+                logger.error(e);
+            }
+        }
+
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控metrics系列---- Prometheus gpu_exporter</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/gpu_exporter/</link>
           <pubDate>Mon, 15 Apr 2019 19:21:01 CST</pubDate>
@@ -2713,6 +3314,1013 @@ Note: performance sensitive users are expected to use the more performant endpoi
 
 &lt;li&gt;&lt;p&gt;m3中很多都是老版本的库，兼容性很差，api很多不兼容，官方也未推出他使用了什么库，如果继续，应该需要大量的时间去校验和编译&lt;/p&gt;&lt;/li&gt;
 &lt;/ol&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>算法思想系列---- Raft</title>
+          <link>https://kingjcy.github.io/post/algorithm/raft/</link>
+          <pubDate>Tue, 12 Mar 2019 16:56:08 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/algorithm/raft/</guid>
+          <description>&lt;p&gt;Raft 实际上是一个一致性算法的一种实现，和Paxos等价，但是在实现上，简化了一些，并且更加易用。&lt;/p&gt;
+
+&lt;h1 id=&#34;一致性-consensus&#34;&gt;一致性（consensus）&lt;/h1&gt;
+
+&lt;p&gt;分布式存储系统通常通过维护多个副本来进行容错，提高系统的可用性。要实现此目标，就必须要解决分布式存储系统的最核心问题：维护多个副本的一致性。&lt;/p&gt;
+
+&lt;p&gt;首先需要解释一下什么是一致性（consensus）,它是构建具有容错性（fault-tolerant）的分布式系统的基础。 在一个具有一致性的性质的集群里面，同一时刻所有的结点对存储在其中的某个值都有相同的结果，即对其共享的存储保持一致。集群具有自动恢复的性质，当少数结点失效的时候不影响集群的正常工作，当大多数集群中的结点失效的时候，集群则会停止服务（不会返回一个错误的结果）。&lt;/p&gt;
+
+&lt;p&gt;一致性协议就是用来干这事的，用来保证即使在部分(确切地说是小部分)副本宕机的情况下，系统仍然能正常对外提供服务。一致性协议通常基于replicated state machines，即所有结点都从同一个state出发，都经过同样的一些操作序列（log），最后到达同样的state。&lt;/p&gt;
+
+&lt;p&gt;对于一致性，一致的程度不同大体可以分为强、弱、最终一致性三类。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;强一致性: 对于关系型数据库，要求更新过的数据能被后续的访问都能看到，这是强一致性。比如小明更新V0到V1，那么小华读取的时候也应该是V1。&lt;/li&gt;
+&lt;li&gt;弱一致性: 如果能容忍后续的部分或者全部访问不到，则是弱一致性。比如小明更新VO到V1，可以容忍那么小华读取的时候是V0。&lt;/li&gt;
+&lt;li&gt;最终一致性: 如果经过一段时间后要求能访问到更新后的数据，则是最终一致性。比如小明更新VO到V1，可以使得小华在一段时间之后读取的时候是V0。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;raft协议实现的是多副本数据的强一致性。&lt;/p&gt;
+
+&lt;h1 id=&#34;rsm复制状态机-replicated-state-machine&#34;&gt;RSM复制状态机(replicated state machine)&lt;/h1&gt;
+
+&lt;p&gt;上面讲到了RSM，我们先来了解一下，一个分布式的复制状态机系统由多个复制单元组成，每个复制单元均是一个状态机，它的状态保存在一组状态变量中，状态机的变量只能通过外部命令来改变。简单理解的话，可以想象成是一组服务器，每个服务器是一个状态机，服务器的运行状态只能通过一行行的命令来改变。每一个状态机存储一个包含一系列指令的日志，严格按照顺序逐条执行日志中的指令，如果所有的状态机都能按照相同的日志执行指令，那么它们最终将达到相同的状态。因此，在复制状态机模型下，只要保证了操作日志的一致性，我们就能保证该分布式系统状态的一致性。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft&#34; alt=&#34;&#34; /&gt;
+&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;在上图中，服务器中的一致性模块(Consensus Modle)接受来自客户端的指令，并写入到自己的日志中，然后通过一致性模块和其他服务器交互，确保每一条日志都能以相同顺序写入到其他服务器的日志中，即便服务器宕机了一段时间。一旦日志命令都被正确的复制，每一台服务器就会顺序的处理命令，并向客户端返回结果。&lt;/p&gt;
+
+&lt;p&gt;系统中每个结点有三个组件：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;状态机: 当我们说一致性的时候，实际就是在说要保证这个状态机的一致性。状态机会从log里面取出所有的命令，然后执行一遍，得到的结果就是我们对外提供的保证了一致性的数据&lt;/li&gt;
+&lt;li&gt;Log: 保存了所有修改记录&lt;/li&gt;
+&lt;li&gt;一致性模块: 一致性模块算法就是用来保证写入的log的命令的一致性，这也是raft算法核心内容&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;为了让一致性协议变得简单可理解，Raft协议主要使用了两种策略。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;一是将复杂问题进行分解，在Raft协议中，一致性问题被分解为：leader election、log replication、safety三个简单问题；&lt;/li&gt;
+&lt;li&gt;二是减少状态空间中的状态数目。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;下面我们详细看一下Raft协议是怎样设计的。&lt;/p&gt;
+
+&lt;h1 id=&#34;基础概念&#34;&gt;基础概念&lt;/h1&gt;
+
+&lt;h2 id=&#34;状态&#34;&gt;状态&lt;/h2&gt;
+
+&lt;p&gt;Raft协议的每个副本都会处于三种状态之一：Leader、Follower、Candidate。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Leader：所有请求的处理者，Leader副本接受client的更新请求，本地处理后再同步至多个其他副本；&lt;/li&gt;
+&lt;li&gt;Follower：请求的被动更新者，从Leader接受更新请求，然后写入本地日志文件&lt;/li&gt;
+&lt;li&gt;Candidate：如果Follower副本在一段时间内没有收到Leader副本的心跳，则判断Leader可能已经故障，此时启动选主过程，此时副本会变成Candidate状态，直到选主结束。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;集群刚启动时，所有节点都是follower，之后在time out信号的驱使下，follower会转变成candidate去拉取选票，获得大多数选票后就会成为leader，这时候如果其他候选人发现了新的leader已经诞生，就会自动转变为follower；而如果另一个time out信号发出时，还没有选举出leader，将会重新开始一次新的选举。可见，time out信号是促使角色转换得关键因素，类似于操作系统中得中断信号。&lt;/p&gt;
+
+&lt;h2 id=&#34;term&#34;&gt;term&lt;/h2&gt;
+
+&lt;p&gt;在Raft协议中，将时间分成了一些任意长度的时间片，称为term，term使用连续递增的编号的进行识别，如下图所示：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft3&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;每一个term都从新的选举开始，candidate们会努力争取称为leader。一旦获胜，它就会在剩余的term时间内保持leader状态，在某些情况下(如term3)选票可能被多个candidate瓜分，形不成多数派，因此term可能直至结束都没有leader，下一个term很快就会到来重新发起选举。&lt;/p&gt;
+
+&lt;p&gt;term也起到了系统中逻辑时钟的作用，每一个server都存储了当前term编号，在server之间进行交流的时候就会带有该编号，如果一个server的编号小于另一个的，那么它会将自己的编号更新为较大的那一个；如果leader或者candidate发现自己的编号不是最新的了，就会自动转变为follower；如果接收到的请求的term编号小于自己的当前term将会拒绝执行。&lt;/p&gt;
+
+&lt;p&gt;其实就是这个server处于什么时间段的状态，然后用于对比，来处理当前的状态。&lt;/p&gt;
+
+&lt;h2 id=&#34;传输协议&#34;&gt;传输协议&lt;/h2&gt;
+
+&lt;p&gt;server之间的交流是通过RPC进行的。只需要实现两种RPC就能构建一个基本的Raft集群：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;RequestVote RPC：它由选举过程中的candidate发起，用于拉取选票&lt;/li&gt;
+&lt;li&gt;AppendEntries RPC：它由leader发起，用于复制日志或者发送心跳信号。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft4.jpg&#34; alt=&#34;&#34; /&gt;
+&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft5.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&#34;基本原理&#34;&gt;基本原理&lt;/h1&gt;
+
+&lt;h2 id=&#34;leader-election&#34;&gt;Leader election&lt;/h2&gt;
+
+&lt;p&gt;Raft通过心跳机制发起leader选举。节点都是从follower状态开始的，如果收到了来自leader或candidate的RPC，那它就保持follower状态，避免争抢成为candidate。Leader会发送空的AppendEntries RPC作为心跳信号来确立自己的地位，如果follower一段时间(election timeout)没有收到心跳，它就会认为leader已经挂了，发起新的一轮选举。&lt;/p&gt;
+
+&lt;p&gt;选举发起后&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Follower将自己维护的current_term_id加1。&lt;/li&gt;
+&lt;li&gt;然后将自己的状态转成Candidate&lt;/li&gt;
+&lt;li&gt;它会首先投自己一票，然后发送RequestVoteRPC消息(带上current_term_id) 给 其它所有server&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这个过程会有三种结果：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;自己被选成了主。当收到了majority的投票后，状态切成Leader，并且定期给其它的所有server发心跳消息（不带log的AppendEntriesRPC）以告诉对方自己是current_term_id所标识的term的leader。每个term最多只有一个leader，term id作为logical clock，在每个RPC消息中都会带上，用于检测过期的消息。当一个server收到的RPC消息中的rpc_term_id比本地的current_term_id更大时，就更新current_term_id为rpc_term_id，并且如果当前state为leader或者candidate时，将自己的状态切成follower。如果rpc_term_id比本地的current_term_id更小，则拒绝这个RPC消息。&lt;/li&gt;
+&lt;li&gt;别人成为了主。如1所述，当Candidator在等待投票的过程中，收到了大于或者等于本地的current_term_id的声明对方是leader的AppendEntriesRPC时，则将自己的state切成follower，并且更新本地的current_term_id。&lt;/li&gt;
+&lt;li&gt;没有选出主。当投票被平均瓜分，没有任何一个candidate收到了majority的vote时，没有leader被选出。这种情况下，每个candidate等待的投票的过程就超时了，接着candidates都会将本地的current_term_id再加1，发起RequestVoteRPC进行新一轮的leader election。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;投票策略：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;每个节点只会给每个term投一票，具体的是否同意和后续的Safety有关。&lt;/li&gt;
+&lt;li&gt;当投票被瓜分后，所有的candidate同时超时，然后有可能进入新一轮的票数被瓜分，为了避免这个问题，Raft采用一种很简单的方法：每个Candidate的election timeout从150ms-300ms之间随机取，那么第一个超时的Candidate就可以发起新一轮的leader election，带着最大的term_id给其它所有server发送RequestVoteRPC消息，从而自己成为leader，然后给他们发送心跳消息以告诉他们自己是主。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;log-replication&#34;&gt;Log Replication&lt;/h2&gt;
+
+&lt;p&gt;一旦leader被选举成功，就可以对客户端提供服务了。客户端提交每一条命令都会被按顺序记录到leader的日志中，每一条命令都包含term编号和顺序索引的结构体log entry，然后向其他节点并行发送AppendEntries RPC用以复制命令(如果命令丢失会不断重发)，当复制成功也就是大多数节点成功复制后，leader就会提交命令，即执行该命令并且将执行结果返回客户端，raft保证已经提交的命令最终也会被其他节点成功执行。leader会保存有当前已经提交的最高日志编号。顺序性确保了相同日志索引处的命令是相同的，而且之前的命令也是相同的。当发送AppendEntries RPC时，会包含leader上一条刚处理过的命令，接收节点如果发现上一条命令不匹配，就会拒绝执行。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft19&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;日志冲突&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;在这个过程中可能会出现一种特殊故障：如果leader崩溃了，它所记录的日志没有完全被复制，会造成日志不一致的情况，follower相比于当前的leader可能会丢失几条日志，也可能会额外多出几条日志，这种情况可能会持续几个term。如下图所示：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft6&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;在上图中，框内的数字是term编号，a、b丢失了一些命令，c、d多出来了一些命令，e、f既有丢失也有增多，这些情况都有可能发生。比如f可能发生在这样的情况下：f节点在term2时是leader，在此期间写入了几条命令，然后再提交之前崩溃了，在之后的term3种它很快重启并再次成为leader，又写入了几条日志，在提交之前又崩溃了，等他苏醒过来时新的leader来了，就形成了上图情形。&lt;/p&gt;
+
+&lt;p&gt;因此，需要有一种机制来让leader和follower对log达成一致，在Raft中，leader通过强制follower复制自己的日志来解决上述日志不一致的情形，那么冲突的日志将会被重写。为了让日志一致，先找到最新的一致的那条日志(如f中索引为3的日志条目)，然后把follower之后的日志全部删除，leader再把自己在那之后的日志一股脑推送给follower，这样就实现了一致。而寻找该条日志，可以通过AppendEntries RPC，该RPC中包含着下一次要执行的命令索引，如果能和follower的当前索引对上，那就执行，否则拒绝，然后leader将会逐次递减索引，直到找到相同的那条日志。&lt;/p&gt;
+
+&lt;p&gt;leader会为每个follower维护一个nextIndex，表示leader给各个follower发送的下一条log entry在log中的index，初始化为leader的最后一条log entry的下一个位置。leader给follower发送AppendEntriesRPC消息，带着(term_id, (nextIndex-1))， term_id即(nextIndex-1)这个槽位的log entry的term_id，follower接收到AppendEntriesRPC后，会从自己的log中找是不是存在这样的log entry，如果不存在，就给leader回复拒绝消息，然后leader则将nextIndex减1，再重复，知道AppendEntriesRPC消息被接收。&lt;/p&gt;
+
+&lt;p&gt;然而这样也还是会有问题，比如某个follower在leader提交时宕机了，也就是少了几条命令，然后它又经过选举成了新的leader，这样它就会强制其他follower跟自己一样，使得其他节点上刚刚提交的命令被删除，导致客户端提交的一些命令被丢失了，下面一节内容将会解决这个问题。Raft通过为选举过程添加一个限制条件，解决了上面提出的问题，该限制确保leader包含之前term已经提交过的所有命令。Raft通过投票过程确保只有拥有全部已提交日志的candidate能成为leader。由于candidate为了拉选票需要通过RequestVote RPC联系其他节点，而之前提交的命令至少会存在于其中某一个节点上,因此只要candidate的日志至少和其他大部分节点的一样新就可以了, follower如果收到了不如自己新的candidate的RPC,就会将其丢弃.&lt;/p&gt;
+
+&lt;p&gt;还可能会出现另外一个问题, 如果命令已经被复制到了大部分节点上,但是还没来的及提交就崩溃了,这样后来的leader应该完成之前term未完成的提交. Raft通过让leader统计当前term内还未提交的命令已经被复制的数量是否半数以上, 然后进行提交.&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;日志压缩&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;随着日志大小的增长，会占用更多的内存空间，处理起来也会耗费更多的时间，对系统的可用性造成影响，因此必须想办法压缩日志大小。Snapshotting是最简单的压缩方法，系统的全部状态会写入一个snapshot保存起来，然后丢弃截止到snapshot时间点之前的所有日志。Raft中的snapshot内容如下图所示：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft7.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;每一个server都有自己的snapshot，它只保存当前状态，如上图中的当前状态为x=0,y=9，而last included index和last included term代表snapshot之前最新的命令，用于AppendEntries的状态检查。&lt;/p&gt;
+
+&lt;p&gt;Snapshot中包含以下内容：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;日志元数据，最后一条commited log entry的 (log index, last_included_term)。这两个值在Snapshot之后的第一条log entry的AppendEntriesRPC的consistency check的时候会被用上，之前讲过。一旦这个server做完了snapshot，就可以把这条记录的最后一条log index及其之前的所有的log entry都删掉。&lt;/li&gt;
+&lt;li&gt;系统状态机：存储系统当前状态（这是怎么生成的呢？）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;虽然每一个server都保存有自己的snapshot，但是当follower严重落后于leader时，leader需要把自己的snapshot发送给follower加快同步，此时用到了一个新的RPC：InstallSnapshot RPC。follower收到snapshot时，需要决定如何处理自己的日志，如果收到的snapshot包含有更新的信息，它将丢弃自己已有的日志，按snapshot更新自己的状态，如果snapshot包含的信息更少，那么它会丢弃snapshot中的内容，但是自己之后的内容会保存下来。RPC的定义如下：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft8&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h2 id=&#34;safety&#34;&gt;Safety&lt;/h2&gt;
+
+&lt;p&gt;哪些follower有资格成为leader?&lt;/p&gt;
+
+&lt;p&gt;Raft保证被选为新leader的节点拥有所有已提交的log entry，这与ViewStamped Replication不同，后者不需要这个保证，而是通过其他机制从follower拉取自己没有的提交的日志记录
+这个保证是在RequestVoteRPC阶段做的，candidate在发送RequestVoteRPC时，会带上自己的最后一条日志记录的term_id和index，其他节点收到消息时，如果发现自己的日志比RPC请求中携带的更新，拒绝投票。日志比较的原则是，如果本地的最后一条log entry的term id更大，则更新，如果term id一样大，则日志更多的更大(index更大)。&lt;/p&gt;
+
+&lt;p&gt;哪些日志记录被认为是commited?&lt;/p&gt;
+
+&lt;p&gt;leader正在replicate当前term（即term 2）的日志记录给其它Follower，一旦leader确认了这条log entry被majority写盘了，这条log entry就被认为是committed。如图a，S1作为当前term即term2的leader，log index为2的日志被majority写盘了，这条log entry被认为是commited
+leader正在replicate更早的term的log entry给其它follower。图b的状态是这么出来的。&lt;/p&gt;
+
+&lt;p&gt;对协议的一点修正&lt;/p&gt;
+
+&lt;p&gt;在实际的协议中，需要进行一些微调，这是因为可能会出现下面这种情况：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft9&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;在阶段a，term为2，S1是Leader，且S1写入日志（term, index）为(2, 2)，并且日志被同步写入了S2；&lt;/li&gt;
+&lt;li&gt;在阶段b，S1离线，触发一次新的选主，此时S5被选为新的Leader，此时系统term为3，且写入了日志（term, index）为（3， 2）;&lt;/li&gt;
+&lt;li&gt;S5尚未将日志推送到Followers变离线了，进而触发了一次新的选主，而之前离线的S1经过重新上线后被选中变成Leader，此时系统term为4，此时S1会将自己的日志同步到Followers，按照上图就是将日志（2， 2）同步到了S3，而此时由于该日志已经被同步到了多数节点（S1, S2, S3），因此，此时日志（2，2）可以被commit了（即更新到状态机）；&lt;/li&gt;
+&lt;li&gt;在阶段d，S1又很不幸地下线了，系统触发一次选主，而S5有可能被选为新的Leader（这是因为S5可以满足作为主的一切条件：1. term = 3 &amp;gt; 2, 2. 最新的日志index为2，比大多数节点（如S2/S3/S4的日志都新），然后S5会将自己的日志更新到Followers，于是S2、S3中已经被提交的日志（2，2）被截断了，这是致命性的错误，因为一致性协议中不允许出现已经应用到状态机中的日志被截断。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;为了避免这种致命错误，需要对协议进行一个微调：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;只允许主节点提交包含当前term的日志
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;针对上述情况就是：即使日志（2，2）已经被大多数节点（S1、S2、S3）确认了，但是它不能被Commit，因为它是来自之前term(2)的日志，直到S1在当前term（4）产生的日志（4， 3）被大多数Follower确认，S1方可Commit（4，3）这条日志，当然，根据Raft定义，（4，3）之前的所有日志也会被Commit。此时即使S1再下线，重新选主时S5不可能成为Leader，因为它没有包含大多数节点已经拥有的日志（4，3）。&lt;/p&gt;
+
+&lt;h1 id=&#34;实战&#34;&gt;实战&lt;/h1&gt;
+
+&lt;h2 id=&#34;raft在etcd中的实现&#34;&gt;raft在etcd中的实现&lt;/h2&gt;
+
+&lt;p&gt;etcd 是一个被广泛应用于共享配置和服务发现的分布式、一致性的 kv 存储系统。作为分布式 kv，其底层使用的 是 raft 算法来实现多副本数据的强一致复制，etcd-raft 作为 raft 开源实现的杰出代表，在设计上，将 raft 算法逻辑和持久化、网络、线程等完全抽离出来单独实现，充分解耦，在工程上，实现了诸多性能优化，是 raft 开源实践中较早的工业级的实现，很多后来的 raft 实践者都直接或者间接的参考了 ectd-raft 的设计和实现，算是 raft 实现的一个典范。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft10&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;功能支持：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Election（vote）：选举&lt;/li&gt;
+&lt;li&gt;Pre-vote：在发起 election vote 之前，先进行 pre-vote，可以避免在网络分区的情况避免反复的 election 打断当前 leader，触发新的选举造成可用性降低的问题&lt;/li&gt;
+&lt;li&gt;Config changes：配置变更，增加，删除节点等&lt;/li&gt;
+&lt;li&gt;Leaner：leaner 角色，仅参与 log replication，不参与投票和提交的 Op log entry，增加节点时，复制追赶 使用 leader 角色&lt;/li&gt;
+&lt;li&gt;Transfer leader：主动变更 Leader，用于关机维护，leader 负载等&lt;/li&gt;
+&lt;li&gt;ReadIndex：优化 raft read 走 Op log 性能问题，每次 read Op，仅记录 commit index，然后发送所有 peers heartbeat 确认 leader 身份，如果 leader 身份确认成功，等到 applied index &amp;gt;= commit index，就可以返回 client read 了&lt;/li&gt;
+&lt;li&gt;Lease read：通过 lease 保证 leader 的身份，从而省去了 ReadIndex 每次 heartbeat 确认 leader 身份，性能更好，但是通过时钟维护 lease 本身并不是绝对的安全&lt;/li&gt;
+&lt;li&gt;snapshot：raft 主动生成 snapshot，实现 log compact 和加速启动恢复，install snapshot 实现给 follower 拷贝数据等&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;从功能上，etcd-raft 完备的实现了 raft 几乎所需的功能。&lt;/p&gt;
+
+&lt;p&gt;性能优化：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Batch：网络batch发送、batch持久化 Op log entries到WAL&lt;/li&gt;
+&lt;li&gt;Pipeline：Leader 向 Follower 发送 Message 可以 pipeline 发送的（相对的 ping-pong 模式发送和接收）（pipeline 是grpc的一重要特性）&lt;/li&gt;
+&lt;li&gt;Append Log Parallelly：Leader 发送 Op log entries message 给 Followers 和 Leader 持久化 Op log entries 是并行的&lt;/li&gt;
+&lt;li&gt;Asynchronous Apply：由单独的 coroutine（协程） 负责异步的 Apply&lt;/li&gt;
+&lt;li&gt;Asynchronous GC：WAL 和 snapshot 文件会分别开启单独的 coroutine 进行 GC&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;etcd-raft 几乎实现了 raft 大论文和工程上该有的性能优化，实际上 ReadIndex 和 Lease Read 本身也算是性能优化。&lt;/p&gt;
+
+&lt;h3 id=&#34;架构设计&#34;&gt;架构设计&lt;/h3&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft11&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;如上图，整个 etcd-server 的整体架构，其主要分为三层：&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;网络层&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;图中最上面一层是网络层，负责使用 grpc 收发 etcd-raft 和 client 的各种 messages，etcd-raft 会通过网络层收发各种 message，包括 raft append entries、vote、client 发送过来的 request，以及 response 等等，其都是由 rpc 的 coroutine 完成（PS：可以简单理解所有 messages 都是通过网络模块异步收发的）。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;持久化层&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;图中最下面一层是持久化层，其提供了对 raft 各种数据的持久化存储，WAL - 持久化 raft Op log entries；Snapshot - 持久化 raft snapshot；KV - raft apply 的数据就是写入 kv 存储中，因为 etcd 是一个分布式的 kv 存储，所以，对 raft 来说，applied 的数据自然也就是写入到 kv 中。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Raft 层&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;中间这一层就是 raft 层，也是 etcd-raft 的核心实现。etcd 设计上将 raft 算法的逻辑和持久化、网络、线程（实际上是 coroutine）等完全解耦成一个单独的模块，拍脑袋思考下，将网络、持久化层抽离出来，并不难，但是如何将 raft 算法逻辑和网络、持久化、coroutine 完成解耦呢 ？&lt;/p&gt;
+
+&lt;p&gt;其核心的思路就是将 raft 所有算法逻辑实现封装成一个 StateMachine，也就是图中的 raft StateMachine，注意和 raft 复制状态机区别，这里 raft StateMachine 只是对 raft 算法的多个状态 （Leader、Follower、Candidate 等），多个阶段的一种代码实现，类似网络处理实现中也会通过一个 StateMachine 来实现网络 message 异步不同阶段的处理。&lt;/p&gt;
+
+&lt;p&gt;为了更加形象，这里以 client 发起 一个 put kv request 为例子，来看看 raft StateMachine 的输入、运转和输出，这里以 Leader 为例，分为如下阶段：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;第一阶段：client 发送一个 put kv request 给 etcd server，grpc server 解析后，生成一个 Propose Message作为 raft StateMachine 输入，如果你驱动 raft StateMachine 运转，就会生成两个输出，一个需要写入 WAL 的 Op log entry，2 条发送给另外两个副本的 Append entries Msg，输出会封装在 Ready 结构中&lt;/li&gt;
+&lt;li&gt;第二阶段：如果把第一阶段的输出 WAL 写到了盘上，并且把 Append entries Msg 发送给了其他两个副本，那么两个副本会收到 Append entries Msg，持久化之后就会给 Leader 返回 Append entries Response Msg，etcd server 收到 Msg 之后，依然作为输入交给 raft StateMachine 处理，驱动 StateMachine 运转，如果超过大多数 response，那么就会产生输出：已经 commit 的 committed entries&lt;/li&gt;
+&lt;li&gt;第三阶段：外部将上面 raft StateMachine 输出 committed entries 拿到后，然后就可以返回 client put kv success 的 response 了&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;通过上面的例子展示了 raft StateMachine 输入，输出，运转的情况，尽管已经有了网络层和持久化层，但是，显然还缺少很多其的模块，例如：coroutine 驱动状态机运转，coroutine 将驱动网络发 message 和 持久化写盘等，下面介绍的raft 层的三个小模块就是完成这些事情的：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;raft StateMachine&lt;/p&gt;
+
+&lt;p&gt;就是一个 raft 算法的逻辑实现，其输入统一被抽象成了 Msg，输出则统一封装在 Ready 结构中。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;node（raft StateMachine 接口 - 输入+运转）&lt;/p&gt;
+
+&lt;p&gt;node 模块提供了如下功能：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;raft StateMachine 和外界交互的接口，就是提供ectd使用一致性协议算法的接口，供上层向 raft StateMachine 提交 request，也就是输入，已上面例子的 put kv request 为例，就是通过func (n *node) Propose(ctx context.Context, data []byte)接口向 raft StateMachine 提交一个 Propose，这个接口将用户请求转换成 raft StateMachine 认识的 MsgProp Msg，并通过 Channel 传递给驱动 raft StateMachine 运转的 coroutine；&lt;/li&gt;
+&lt;li&gt;提供驱动 raft 运转的 coroutine，其负责监听在各个 Msg 输入 Channel 中，一旦收到 Msg 就会调用 raft StateMachine 处理 Msg 接口 func (r *raft) Step(m pb.Message) 得到输出 Ready 结构，并将 Channel 传递给其他 coroutine 处理&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;raftNode（处理 raft StateMachine 输出 Ready）&lt;/p&gt;
+
+&lt;p&gt;raftNode 模块会有一个 coroutine，负责从处理 raft StateMachine 的输出 Ready 结构，该持久化的调用持久化的接口持久化，该发送其他副本的，通过网络接口发送给其他副本，该 apply 的提交给其他 coroutine apply。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;交互架构&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft17&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;其中红色虚线框起来的代表一个 coroutine，下面将对各个协程的作用基本的描述&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Ticker：golang 的 Ticker struct 会定期触发 Tick 滴答时钟，etcd raft 的都是通过滴答时钟往前推进，从而触发相应的 heartbeat timeout 和 election timeout，从而触发发送心跳和选举。&lt;/li&gt;
+&lt;li&gt;ReadLoop：这个 coroutine 主要负责处理 Read request，负责将 Read 请求通过 node 模块的 Propose 提交给 raft StateMachine，然后监听 raft StateMachine，一旦 raft StateMachine 完成 read 请求的处理，会通过 readStateC 通知 ReadLoop coroutine 此 read 的commit index，然后 ReadLoop coroutine 就可以根据当前 applied index 的推进情况，一旦 applied index &amp;gt;= commit index，ReadLoop coroutine 就会 Read 数据并通过网络返回 client read response&lt;/li&gt;
+&lt;li&gt;raftNode：raftNode 模块会有一个 coroutine 负责处理 raft StateMachine 的输出 Ready，上文已经描述了，这里不在赘述&lt;/li&gt;
+&lt;li&gt;node：node 模块也会有一个 coroutine 负责接收输入，运行状态机和准备输出，上文已经描述，这里不在赘述&lt;/li&gt;
+&lt;li&gt;apply：raftNode 模块在 raft StateMachine 输出 Ready 中已经 committed entries 的时候，会将 apply 逻辑放在单独的 coroutine 处理，这就是 Async apply。&lt;/li&gt;
+&lt;li&gt;GC：WAL 和 snapshot 的 GC 回收也都是分别在两个单独的 coroutine 中完成的。etcd 会在配置文中分别设置 WAL 和 snapshot 文件最大数量，然后两个 GC 后台异步 GC&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;代码分析&#34;&gt;代码分析&lt;/h3&gt;
+
+&lt;p&gt;Etcd将raft协议实现为一个library，然后本身作为一个应用使用它。当然，可能是为了推广它所实现的这个library，etcd还额外提供了一个叫&lt;a href=&#34;https://github.com/etcd-io/etcd/tree/v3.3.10/contrib/raftexample&#34;&gt;raftexample&lt;/a&gt;的示例程序，向用户展示怎样在它所提供的raft library的基础上构建出一个分布式的KV存储引擎。&lt;/p&gt;
+
+&lt;p&gt;我们来看看raft library，其实也就是raft层的实现。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ tree --dirsfirst -L 1 -I &#39;*test*&#39; -P &#39;*.go&#39;
+.
+├── raftpb
+├── doc.go
+├── log.go
+├── log_unstable.go
+├── logger.go
+├── node.go
+├── progress.go
+├── raft.go
+├── rawnode.go
+├── read_only.go
+├── status.go
+├── storage.go
+└── util.go
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们来详细说明&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;raftpb&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Raft中的序列化是借助于Protocol Buffer来实现的，这个文件夹就定义了需要序列化的几个数据结构，比如Entry和Message。&lt;/p&gt;
+
+&lt;p&gt;1、Entry&lt;/p&gt;
+
+&lt;p&gt;从整体上来说，一个集群中的每个节点都是一个状态机，而raft管理的就是对这个状态机进行更改的一些操作，这些操作在代码中被封装为一个个Entry。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// https://github.com/etcd-io/etcd/blob/v3.3.10/raft/raftpb/raft.pb.go#L203
+type Entry struct {
+    Term             uint64
+    Index            uint64
+    Type             EntryType
+    Data             []byte
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Term：选举任期，每次选举之后递增1。它的主要作用是标记信息的时效性，比方说当一个节点发出来的消息中携带的term是2，而另一个节点携带的term是3，那我们就认为第一个节点的信息过时了。&lt;/li&gt;
+&lt;li&gt;Index：当前这个entry在整个raft日志中的位置索引。有了Term和Index之后，一个log entry就能被唯一标识。&lt;/li&gt;
+&lt;li&gt;Type：当前entry的类型，目前etcd支持两种类型：EntryNormal和EntryConfChange，EntryNormal代表当前Entry是对状态机的操作，EntryConfChange则代表对当前集群配置进行更改的操作，比如增加或者减少节点。&lt;/li&gt;
+&lt;li&gt;Data：一个被序列化后的byte数组，代表当前entry真正要执行的操作，比方说如果上面的Type是EntryNormal，那这里的Data就可能是具体要更改的key-value pair，如果Type是EntryConfChange，那Data就是具体的配置更改项ConfChange。raft算法本身并不关心这个数据是什么，它只是把这段数据当做log同步过程中的payload来处理，具体对这个数据的解析则有上层应用来完成。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;2、Message&lt;/p&gt;
+
+&lt;p&gt;Raft集群中节点之间的通讯都是通过传递不同的Message来完成的，这个Message结构就是一个非常general的大容器，它涵盖了各种消息所需的字段。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// https://github.com/etcd-io/etcd/blob/v3.3.10/raft/raftpb/raft.pb.go#L239
+type Message struct {
+    Type             MessageType
+    To               uint64
+    From             uint64
+    Term             uint64
+    LogTerm          uint64
+    Index            uint64
+    Entries          []Entry
+    Commit           uint64
+    Snapshot         Snapshot
+    Reject           bool
+    RejectHint       uint64
+    Context          []byte
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;Type：当前传递的消息类型，它的取值有很多个，但大致可以分成两类：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Raft 协议相关的，包括心跳MsgHeartbeat、日志MsgApp、投票消息MsgVote等。&lt;/li&gt;
+&lt;li&gt;上层应用触发的（没错，上层应用并不是通过api与raft库交互的，而是通过发消息），比如应用对数据更改的消息MsgProp(osal)。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;所有的 Msg 在 bp.Message 中详细定义，下面给出所有的 message 类型并且依次介绍：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;    const (
+        MsgHup            MessageType = 0   // 本地消息：选举，可能会触发 pre-vote 或者 vote
+        MsgBeat           MessageType = 1   // 本地消息：心跳，触发放给 peers 的 Msgheartbeat
+        MsgProp           MessageType = 2   // 本地消息：Propose，触发 MsgApp
+        MsgApp            MessageType = 3   // 非本地：Op log 复制/配置变更 request
+        MsgAppResp        MessageType = 4   // 非本地：Op log 复制 response
+        MsgVote           MessageType = 5   // 非本地：vote request
+        MsgVoteResp       MessageType = 6   // 非本地：vote response
+        MsgSnap           MessageType = 7   // 非本地：Leader 向 Follower 拷贝 Snapshot，response Message 就是 MsgAppResp，通过这个值告诉 Leader 继续复制后面的日志
+        MsgHeartbeat      MessageType = 8   // 非本地：心跳 request
+        MsgHeartbeatResp  MessageType = 9   // 非本地：心跳 response
+        MsgUnreachable    MessageType = 10  // 本地消息：EtcdServer 通过这个消息告诉 raft 状态某个 Follower 不可达，让其发送 message方式由 pipeline 切成 ping-pong 模式
+        MsgSnapStatus     MessageType = 11  // 本地消息：EtcdServer 通过这个消息告诉 raft 状态机 snapshot 发送成功还是失败
+        MsgCheckQuorum    MessageType = 12  // 本地消息：CheckQuorum，用于 Lease read，Leader lease
+        MsgTransferLeader MessageType = 13  // 本地消息：可能会触发一个空的 MsgApp 尽快完成日志复制，也有可能是 MsgTimeoutNow 出 Transferee 立即进入选举
+        MsgTimeoutNow     MessageType = 14  // 非本地：触发 Transferee 立即进行选举
+        MsgReadIndex      MessageType = 15  // 非本地：Read only ReadIndex
+        MsgReadIndexResp  MessageType = 16  // 非本地：Read only ReadIndex response
+        MsgPreVote        MessageType = 17  // 非本地：pre vote request
+        MsgPreVoteResp    MessageType = 18  // 非本地：pre vote response
+    )
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;不同类型的消息会用到下面不同的字段：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;To, From分别代表了这个消息的接受者和发送者。&lt;/li&gt;
+&lt;li&gt;Term：这个消息发出时整个集群所处的任期。&lt;/li&gt;
+&lt;li&gt;LogTerm：消息发出者所保存的日志中最后一条的任期号，一般MsgVote会用到这个字段。&lt;/li&gt;
+&lt;li&gt;Index：日志索引号。如果当前消息是MsgVote的话，代表这个candidate最后一条日志的索引号，它跟上面的LogTerm一起代表这个candidate所拥有的最新日志信息，这样别人就可以比较自己的日志是不是比candidata的日志要新，从而决定是否投票。&lt;/li&gt;
+&lt;li&gt;Entries：需要存储的日志。&lt;/li&gt;
+&lt;li&gt;Commit：已经提交的日志的索引值，用来向别人同步日志的提交信息。&lt;/li&gt;
+&lt;li&gt;Snapshot：一般跟MsgSnap合用，用来放置具体的Snapshot值。&lt;/li&gt;
+&lt;li&gt;Reject，RejectHint：代表对方节点拒绝了当前节点的请求(MsgVote/MsgApp/MsgSnap…)&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;log_unstable.go&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;log_unstable顾名思义，unstable数据结构用于还没有被用户层持久化的数据，它维护了两部分内容snapshot和entries:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// https://github.com/etcd-io/etcd/blob/v3.3.10/raft/log_unstable.go#L23
+type unstable struct {
+    // the incoming unstable snapshot, if any.
+    snapshot *pb.Snapshot
+    // all entries that have not yet been written to storage.
+    entries []pb.Entry
+    offset  uint64
+
+    logger Logger
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;entries代表的是要进行操作的日志&lt;/li&gt;
+&lt;li&gt;snapshot代表快照数据&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;两者的关系是相辅相成的，共同组成了全部的数据，如下图&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft13&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这里的前半部分是快照数据，而后半部分是日志条目组成的数组entries，另外unstable.offset成员保存的是entries数组中的第一条数据在raft日志中的索引，即第i条entries在raft日志中的索引为i + unstable.offset。在同步的时候，如果entries日志不能完全同步，就需要使用到snapshot。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;storage.go&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;这个文件定义了一个Storage接口，因为etcd中的raft实现并不负责数据的持久化，所以它希望上面的应用层能实现这个接口，以便提供给它查询log的能力。&lt;/p&gt;
+
+&lt;p&gt;另外，这个文件也提供了Storage接口的一个内存版本的实现MemoryStorage，这个实现同样也维护了snapshot和entries这两部分，他们的排列跟unstable中的类似，也是snapshot在前，entries在后。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;log.go&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;这边主要实现raftLog，这个结构体承担了raft日志相关的操作。&lt;/p&gt;
+
+&lt;p&gt;raftLog由以下成员组成：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;storage Storage：前面提到的存放已经持久化数据的Storage接口。&lt;/li&gt;
+&lt;li&gt;unstable unstable：前面分析过的unstable结构体，用于保存应用层还没有持久化的数据。&lt;/li&gt;
+&lt;li&gt;committed uint64：保存当前提交的日志数据索引。&lt;/li&gt;
+&lt;li&gt;applied uint64：保存当前传入状态机的数据最高索引。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;raftLog结构体中，几部分数据的排列如下图所示&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft14&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这个数据排布的情况，可以从raftLog的初始化函数中看出来：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// https://github.com/etcd-io/etcd/blob/v3.3.10/raft/log.go#L45
+// newLog returns log using the given storage. It recovers the log to the state
+// that it just commits and applies the latest snapshot.
+func newLog(storage Storage, logger Logger) *raftLog {
+    if storage == nil {
+        log.Panic(&amp;quot;storage must not be nil&amp;quot;)
+    }
+    log := &amp;amp;raftLog{
+        storage: storage,
+        logger:  logger,
+    }
+    firstIndex, err := storage.FirstIndex()
+    if err != nil {
+        panic(err) // TODO(bdarnell)
+    }
+    lastIndex, err := storage.LastIndex()
+    if err != nil {
+        panic(err) // TODO(bdarnell)
+    }
+    log.unstable.offset = lastIndex + 1
+    log.unstable.logger = logger
+    // Initialize our committed and applied pointers to the time of the last compaction.
+    log.committed = firstIndex - 1
+    log.applied = firstIndex - 1
+
+    return log
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;从这里的代码可以看出，raftLog的两部分，持久化存储和非持久化存储，它们之间的分界线就是lastIndex，在此之前都是Storage管理的已经持久化的数据，而在此之后都是unstable管理的还没有持久化的数据。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;progress.go&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Leader通过Progress这个数据结构来追踪一个follower的状态，并根据Progress里的信息来决定每次同步的日志项。这里介绍三个比较重要的属性：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// https://github.com/etcd-io/etcd/blob/v3.3.10/raft/progress.go#L37
+// Progress represents a follower’s progress in the view of the leader. Leader maintains
+// progresses of all followers, and sends entries to the follower based on its progress.
+type Progress struct {
+    Match, Next uint64
+
+    State ProgressStateType
+
+    ins *inflights
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;用来保存当前follower节点的日志状态的属性
+
+&lt;ul&gt;
+&lt;li&gt;Match：保存目前为止，已复制给该follower的日志的最高索引值。如果leader对该follower上的日志情况一无所知的话，这个值被设为0。&lt;/li&gt;
+&lt;li&gt;Next：保存下一次leader发送append消息给该follower的日志索引，即下一次复制日志时，leader会从Next开始发送日志。
+在正常情况下，Next = Match + 1，也就是下一个要同步的日志应当是对方已有日志的下一条。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;State属性用来保存该节点当前的同步状态，它会有一下几种取值
+
+&lt;ul&gt;
+&lt;li&gt;ProgressStateProbe
+探测状态，当follower拒绝了最近的append消息时，那么就会进入探测状态，此时leader会试图继续往前追溯该follower的日志从哪里开始丢失的。在probe状态时，leader每次最多append一条日志，如果收到的回应中带有RejectHint信息，则回退Next索引，以便下次重试。在初始时，leader会把所有follower的状态设为probe，因为它并不知道各个follower的同步状态，所以需要慢慢试探。&lt;/li&gt;
+&lt;li&gt;ProgressStateReplicate
+当leader确认某个follower的同步状态后，它就会把这个follower的state切换到这个状态，并且用pipeline的方式快速复制日志。leader在发送复制消息之后，就修改该节点的Next索引为发送消息的最大索引+1。&lt;/li&gt;
+&lt;li&gt;ProgressStateSnapshot
+接收快照状态。当leader向某个follower发送append消息，试图让该follower状态跟上leader时，发现此时leader上保存的索引数据已经对不上了，比如leader在index为10之前的数据都已经写入快照中了，但是该follower需要的是10之前的数据，此时就会切换到该状态下，发送快照给该follower。当快照数据同步追上之后，并不是直接切换到Replicate状态，而是首先切换到Probe状态。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;ins属性用来做流量控制，因为如果同步请求非常多，再碰上网络分区时，leader可能会累积很多待发送消息，一旦网络恢复，可能会有非常大流量发送给follower，所以这里要做flow control。它的实现有点类似TCP的滑动窗口，这里不再赘述。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Progress其实也是个状态机，下面是它的状态转移图：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft15&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;raft.go&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;raft协议的具体实现就在这个文件里。这其中，大部分的逻辑是由Step函数驱动的。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// https://github.com/etcd-io/etcd/blob/v3.3.10/raft/raft.go#L752
+func (r *raft) Step(m pb.Message) error {
+    //...
+    switch m.Type {
+        case pb.MsgHup:
+        //...
+        case pb.MsgVote, pb.MsgPreVote:
+        //...
+        default:
+            r.step(r, m)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Step的主要作用是处理不同的消息,调用不同的处理函数，step属性是一个函数指针，根据当前节点的不同角色，指向不同的消息处理函数：stepLeader/stepFollower/stepCandidate。与它类似的还有一个tick函数指针，根据角色的不同，也会在tickHeartbeat和tickElection之间来回切换，分别用来触发定时心跳和选举检测。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft16&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;node.go&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;node其实就是消息通道，or-select-channel组成的事件循环。&lt;/p&gt;
+
+&lt;p&gt;node的主要作用是应用层（etcdserver）和共识模块（raft）的衔接。将应用层的消息传递给底层共识模块，并将底层共识模块共识后的结果反馈给应用层。所以它的初始化函数创建了很多用来通信的channel，然后就在另一个goroutine里面开始了事件循环，不停的在各种channel中倒腾数据。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// https://github.com/etcd-io/etcd/blob/v3.3.10/raft/node.go#L286
+for {
+  select {
+    case m := &amp;lt;-propc:
+        r.Step(m)
+    case m := &amp;lt;-n.recvc:
+        r.Step(m)
+    case cc := &amp;lt;-n.confc:
+        // Add/remove/update node according to cc.Type
+    case &amp;lt;-n.tickc:
+        r.tick()
+    case readyc &amp;lt;- rd:
+        // Cleaning after result is consumed by application
+    case &amp;lt;-advancec:
+        // Stablize logs
+    case c := &amp;lt;-n.status:
+        // Update status
+    case &amp;lt;-n.stop:
+        close(n.done)
+        return
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;输入（msg）：propc和recvc中拿到的是从上层应用传进来的消息，这个消息会被交给raft层的Step函数处理。&lt;/p&gt;
+
+&lt;p&gt;所有的外部处理请求经过 raft StateMachine 处理都会首先被转换成统一抽象的输入 Message（Msg），Msg 会通过 raft.Step(m) 接口完成 raft StateMachine 的处理，Msg 分两类：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;本地 Msg，term = 0，这种 Msg 并不会经过网络发送给 Peer，只是将 Node 接口的一些请求转换成 raft StateMachine 统一处理的抽象 Msg，这里以 Propose 接口为例，向 raft 提交一个 Op 操作，其会被转换成 MsgProp，通过 raft.Step() 传递给 raft StateMachine，最后可能被转换成给 Peer 复制 Op log 的 MsgApp Msg；（即发送给本地peer的消息）&lt;/li&gt;
+&lt;li&gt;非本地 Msg，term 非 0，这种 Msg 会经过网络发送给 Peer；这里以 Msgheartbeat 为例子，就是 Leader 给 Follower 发送的心跳包。但是这个 MsgHeartbeat Msg 是通过 Tick 接口传入的，这个接口会向 raft StateMachine 传递一个 MsgBeat Msg，raft StateMachine 处理这个 MsgBeat 就是向复制组其它 Peer 分别发送一个 MsgHeartbeat Msg&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;具体的类型我们在上面的结构体定义的时候已经说明过了。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;输出（ready）：readyc这个channel对外通知有数据要处理了，并将这些需要外部处理的数据打包到一个Ready结构体中，其实就是底层消息传递到应用层。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;由于 etcd 的网络、持久化模块和 raft 核心是分离的，所以当 raft 处理到某一些阶段的时候，需要输出一些东西，给外部处理，例如 Op log entries 持久化，Op log entries 复制的 Msg 等；以 heartbeat 为例，输入是 MsgBeat Msg，经过状态机状态化之后，就变成了给复制组所有的 Peer 发送心跳的 MsgHeartbeat Msg；在 ectd 中就是通过一个 Ready 的数据结构来封装当前 Raft state machine 已经准备好的数据和 Msg 供外部处理。&lt;/p&gt;
+
+&lt;p&gt;我们来看看这个Ready结构&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// https://github.com/etcd-io/etcd/blob/v3.3.10/raft/node.go#L52
+// Ready encapsulates the entries and messages that are ready to read,
+// be saved to stable storage, committed or sent to other peers.
+// All fields in Ready are read-only.
+type Ready struct {
+    // The current volatile state of a Node.
+    // SoftState will be nil if there is no update.
+    // It is not required to consume or store SoftState.
+    *SoftState
+
+    // The current state of a Node to be saved to stable storage BEFORE
+    // Messages are sent.
+    // HardState will be equal to empty state if there is no update.
+    pb.HardState
+
+    // ReadStates can be used for node to serve linearizable read requests locally
+    // when its applied index is greater than the index in ReadState.
+    // Note that the readState will be returned when raft receives msgReadIndex.
+    // The returned is only valid for the request that requested to read.
+    ReadStates []ReadState
+
+    // Entries specifies entries to be saved to stable storage BEFORE
+    // Messages are sent.
+    Entries []pb.Entry
+
+    // Snapshot specifies the snapshot to be saved to stable storage.
+    Snapshot pb.Snapshot
+
+    // CommittedEntries specifies entries to be committed to a
+    // store/state-machine. These have previously been committed to stable
+    // store.
+    CommittedEntries []pb.Entry
+
+    // Messages specifies outbound messages to be sent AFTER Entries are
+    // committed to stable storage.
+    // If it contains a MsgSnap message, the application MUST report back to raft
+    // when the snapshot has been received or has failed by calling ReportSnapshot.
+    Messages []pb.Message
+
+    // MustSync indicates whether the HardState and Entries must be synchronously
+    // written to disk or if an asynchronous write is permissible.
+    MustSync bool
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Ready 是 raft 状态机和外面交互传递的核心数据结构，其包含了一批更新操作&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;SoftState：当前 node 的状态信息，主要记录了 Leader 是谁 ？当前 node 处于什么状态，是 Leader，还是 Follower，用于更新 etcd server 的状态&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// SoftState provides state that is useful for logging and debugging.
+// The state is volatile and does not need to be persisted to the WAL.
+type SoftState struct {
+    Lead      uint64 // must use atomic operations to access; keep 64-bit aligned.
+    RaftState StateType
+}
+​
+type StateType uint64
+​
+var stmap = [...]string{
+    &amp;quot;StateFollower&amp;quot;,
+    &amp;quot;StateCandidate&amp;quot;,
+    &amp;quot;StateLeader&amp;quot;,
+    &amp;quot;StatePreCandidate&amp;quot;,
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;pb.HardState: 包含当前节点见过的最大的 term，以及在这个 term 给谁投过票，以及当前节点知道的commit index，这部分数据会持久化&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type HardState struct {
+    Term             uint64 protobuf:&amp;quot;varint,1,opt,name=term&amp;quot; json:&amp;quot;term&amp;quot;
+    Vote             uint64 protobuf:&amp;quot;varint,2,opt,name=vote&amp;quot; json:&amp;quot;vote&amp;quot;
+    Commit           uint64 protobuf:&amp;quot;varint,3,opt,name=commit&amp;quot; json:&amp;quot;commit&amp;quot;
+    XXX_unrecognized []byte json:&amp;quot;-&amp;quot;
+}
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;ReadStates：用于返回已经确认 Leader 身份的 read 请求的 commit index&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Messages: 需要广播给所有peers的消息&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;CommittedEntries：已经commit了，还没有apply到状态机的日志&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Snapshot：需要持久化的快照&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;应用程序得到这个Ready之后，需要：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;将HardState, Entries, Snapshot持久化到storage。&lt;/li&gt;
+&lt;li&gt;将Messages广播给其他节点。&lt;/li&gt;
+&lt;li&gt;将CommittedEntries（已经commit还没有apply）应用到状态机。&lt;/li&gt;
+&lt;li&gt;如果发现CommittedEntries中有成员变更类型的entry，调用node.ApplyConfChange()方法让node知道。&lt;/li&gt;
+&lt;li&gt;最后再调用node.Advance()告诉raft，这批状态更新处理完了，状态已经演进了，可以给我下一批Ready让我处理。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;基本实现&#34;&gt;基本实现&lt;/h3&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;投票流程&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、首先，在node的大循环里，有一个会定时输出的tick channel，它来触发raft.tick()函数，根据上面的介绍可知，如果当前节点是follower，那它的tick函数会指向tickElection。tickElection的处理逻辑是给自己发送一个MsgHup的内部消息，Step函数看到这个消息后会调用campaign函数，进入竞选状态。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// tickElection is run by followers and candidates after r.electionTimeout.
+func (r *raft) tickElection() {
+    r.electionElapsed++
+
+    if r.promotable() &amp;amp;&amp;amp; r.pastElectionTimeout() {
+        r.electionElapsed = 0
+        r.Step(pb.Message{From: r.id, Type: pb.MsgHup})
+    }
+}
+
+func (r *raft) Step(m pb.Message) error {
+    //...
+    switch m.Type {
+    case pb.MsgHup:
+        r.campaign(campaignElection)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2、campaign则会调用becomeCandidate把自己切换到candidate模式，并递增Term值。然后再将自己的Term及日志信息发送给其他的节点，请求投票。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *raft) campaign(t CampaignType) {
+    //...
+    r.becomeCandidate()
+    // Get peer id from progress
+    for id := range r.prs {
+        //...
+        r.send(pb.Message{Term: term, To: id, Type: voteMsg, Index: r.raftLog.lastIndex(), LogTerm: r.raftLog.lastTerm(), Context: ctx})
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;3、另一方面，其他节点在接受到这个请求后，会首先比较接收到的Term是不是比自己的大，以及接受到的日志信息是不是比自己的要新，从而决定是否投票。在对应节点的step函数中有对投票请求这种消息的处理逻辑。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *raft) Step(m pb.Message) error {
+    //...
+    switch m.Type {
+    case pb.MsgVote, pb.MsgPreVote:
+        // We can vote if this is a repeat of a vote we&#39;ve already cast...
+        canVote := r.Vote == m.From ||
+            // ...we haven&#39;t voted and we don&#39;t think there&#39;s a leader yet in this term...
+            (r.Vote == None &amp;amp;&amp;amp; r.lead == None) ||
+            // ...or this is a PreVote for a future term...
+            (m.Type == pb.MsgPreVote &amp;amp;&amp;amp; m.Term &amp;gt; r.Term)
+        // ...and we believe the candidate is up to date.
+        if canVote &amp;amp;&amp;amp; r.raftLog.isUpToDate(m.Index, m.LogTerm) {
+            r.send(pb.Message{To: m.From, Term: m.Term, Type: voteRespMsgType(m.Type)})
+        } else {
+            r.send(pb.Message{To: m.From, Term: r.Term, Type: voteRespMsgType(m.Type), Reject: true})
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;4、最后当candidate节点收到投票回复后，就会计算收到的选票数目是否大于所有节点数的一半，如果大于则自己成为leader，并昭告天下，否则将自己置为follower，同样是在即自己的step的逻辑中处理投票恢复的消息逻辑。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *raft) Step(m pb.Message) error {
+    //...
+    switch m.Type {
+    case myVoteRespType:
+        gr := r.poll(m.From, m.Type, !m.Reject)
+        switch r.quorum() {
+        case gr:
+            if r.state == StatePreCandidate {
+                r.campaign(campaignElection)
+            } else {
+                r.becomeLeader()
+                r.bcastAppend()
+            }
+        case len(r.votes) - gr:
+            r.becomeFollower(r.Term, None)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;put kv 请求&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft18&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;client 通过 grpc 发送一个 Put kv request，etcd server 的 rpc server 收到这个请求，通过 node 模块的 Propose 接口提交，node 模块的Propose方法将这个 Put kv request 转换成 raft StateMachine 认识的 MsgProp Msg 并通过 propc Channel 传递给 node 模块的 coroutine；&lt;/li&gt;
+&lt;li&gt;node 模块 coroutine 监听在 propc Channel 中，收到 MsgProp Msg 之后，通过 raft.Step(Msg) 接口将其提交给 raft StateMachine 处理；&lt;/li&gt;
+&lt;li&gt;raft StateMachine 处理完这个 MsgProp Msg 会产生 1 个 Op log entry 和 2 个发送给另外两个副本的 Append entries 的 MsgApp messages，node 模块会将这两个输出打包成 Ready，然后通过 readyc Channel 传递给 raftNode 模块的 coroutine；&lt;/li&gt;
+&lt;li&gt;raftNode 模块的 coroutine 通过 readyc 读取到 Ready，首先通过网络层将 2 个 append entries 的 messages 发送给两个副本(PS:这里是异步发送的)；&lt;/li&gt;
+&lt;li&gt;raftNode 模块的 coroutine 自己将 Op log entry 通过持久化层的 WAL 接口同步的写入 WAL 文件中&lt;/li&gt;
+&lt;li&gt;raftNode 模块的 coroutine 通过 advancec Channel 通知当前 Ready 已经处理完，请给我准备下一个 带出的 raft StateMachine 输出Ready；&lt;/li&gt;
+&lt;li&gt;其他副本的返回 Append entries 的 response： MsgAppResp message，会通过 node 模块的接口经过 recevc Channel 提交给 node 模块的 coroutine；&lt;/li&gt;
+&lt;li&gt;node 模块 coroutine 从 recev Channel 读取到 MsgAppResp，然后提交给 raft StateMachine 处理。node 模块 coroutine 会驱动 raft StateMachine 得到关于这个 committedEntires，也就是一旦大多数副本返回了就可以 commit 了，node 模块 new 一个新的 Ready其包含了 committedEntries，通过 readyc Channel 传递给 raftNode 模块 coroutine 处理；&lt;/li&gt;
+&lt;li&gt;raftNode 模块 coroutine 从 readyc Channel 中读取 Ready结构，然后取出已经 commit 的 committedEntries 通过 applyc 传递给另外一个 etcd server coroutine 处理，其会将每个 apply 任务提交给 FIFOScheduler 调度异步处理，这个调度器可以保证 apply 任务按照顺序被执行，因为 apply 的执行是不能乱的；&lt;/li&gt;
+&lt;li&gt;raftNode 模块的 coroutine 通过 advancec Channel 通知当前 Ready 已经处理完，请给我准备下一个待处理的 raft StateMachine 输出Ready；&lt;/li&gt;
+&lt;li&gt;FIFOScheduler 调度执行 apply 已经提交的 committedEntries&lt;/li&gt;
+&lt;li&gt;AppliedIndex 推进，通知 ReadLoop coroutine，满足 applied index&amp;gt;= commit index 的 read request 可以返回；&lt;/li&gt;
+&lt;li&gt;调用网络层接口返回 client 成功。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;上面主要是leader的一个流程，其实还是有fallow，整体一个流程总结&lt;/p&gt;
+
+&lt;p&gt;1、一个写请求一般会通过调用node.Propose开始，Propose方法将这个写请求封装到一个MsgProp消息里面，发送给自己处理。&lt;/p&gt;
+
+&lt;p&gt;2、消息处理函数Step无法直接处理这个消息，它会调用那个小写的step函数，来根据当前的状态进行处理。&lt;/p&gt;
+
+&lt;p&gt;如果当前是follower，那它会把这个消息转发给leader。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func stepFollower(r *raft, m pb.Message) error {
+    switch m.Type {
+    case pb.MsgProp:
+        //...
+        m.To = r.lead
+        r.send(m)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;3、Leader收到这个消息后（不管是follower转发过来的还是自己内部产生的）会有两步操作
+- 将这个消息添加到自己的log里
+- 向其他follower广播这个消息&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;    func stepLeader(r *raft, m pb.Message) error {
+        switch m.Type {
+        case pb.MsgProp:
+            //...
+            if !r.appendEntry(m.Entries...) {
+                return ErrProposalDropped
+            }
+            r.bcastAppend()
+            return nil
+        }
+    }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;4、在follower接受完这个log后，会返回一个MsgAppResp消息。&lt;/p&gt;
+
+&lt;p&gt;5、当leader确认已经有足够多的follower接受了这个log后，它首先会commit这个log，然后再广播一次，告诉别人它的commit状态。这里的实现就有点像两阶段提交了。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func stepLeader(r *raft, m pb.Message) error {
+    switch m.Type {
+    case pb.MsgAppResp:
+        //...
+        if r.maybeCommit() {
+            r.bcastAppend()
+        }
+    }
+}
+
+// maybeCommit attempts to advance the commit index. Returns true if
+// the commit index changed (in which case the caller should call
+// r.bcastAppend).
+func (r *raft) maybeCommit() bool {
+    //...
+    mis := r.matchBuf[:len(r.prs)]
+    idx := 0
+    for _, p := range r.prs {
+        mis[idx] = p.Match
+        idx++
+    }
+    sort.Sort(mis)
+    mci := mis[len(mis)-r.quorum()]
+    return r.raftLog.maybeCommit(mci, r.Term)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;状态转换&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;etcd-raft StateMachine 封装在 raft struct 中，其状态转换如下图：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/algorithm/raft12&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;上图中就是对应的状态转化接口&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *raft) becomeFollower(term uint64, lead uint64)
+func (r *raft) becomePreCandidate()
+func (r *raft) becomeCandidate()
+func (r *raft) becomeLeader()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;etcd将请求数据都转化为msg，然后通过step接口进行处理，我们来看一下step接口&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *raft) Step(m pb.Message) error {
+    r.step(r, m)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在调用的step接口中，会针对不同的state调用不同的函数，如下，其中 stepCandidate 会处理 PreCandidate 和 Candidate 两种状态&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func stepFollower(r *raft, m pb.Message) error
+func stepCandidate(r *raft, m pb.Message) error
+func stepLeader(r *raft, m pb.Message) error
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们简单看一下stepCandidate，对各种 Msg 进行处理&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func stepCandidate(r *raft, m pb.Message) error {
+    ......
+    switch m.Type {
+    case pb.MsgProp:
+        r.logger.Infof(&amp;quot;%x no leader at term %d; dropping proposal&amp;quot;, r.id, r.Term)
+        return ErrProposalDropped
+    case pb.MsgApp:
+        r.becomeFollower(m.Term, m.From) // always m.Term == r.Term
+        r.handleAppendEntries(m)
+    case pb.MsgHeartbeat:
+        r.becomeFollower(m.Term, m.From) // always m.Term == r.Term
+        r.handleHeartbeat(m)
+    case pb.MsgSnap:
+        r.becomeFollower(m.Term, m.From) // always m.Term == r.Term
+        r.handleSnapshot(m)
+    case myVoteRespType:
+        ......
+    case pb.MsgTimeoutNow:
+        r.logger.Debugf(&amp;quot;%x [term %d state %v] ignored MsgTimeoutNow from %x&amp;quot;, r.id, r.Term, r.state, m.From)
+    }
+    return nil
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;核心模块&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、node 模块，对应一个 coroutine&lt;/p&gt;
+
+&lt;p&gt;其实就是我们说的node的功能，负责raft和应用层的交互，也就是那个for-select-channel的coroutine。&lt;/p&gt;
+
+&lt;p&gt;2、raftNode 模块：也会有一个 coroutine&lt;/p&gt;
+
+&lt;p&gt;主要完成的工作是把 raft StateMachine 处理的阶段性输出 Ready 拿来处理，该持久化的通过持久化接口写入盘中，该发送给 Peer 的通过网络层发送给 Peers 等。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (r *raftNode) start(rh *raftReadyHandler) {
+    go func() {
+        defer r.onStop()
+        islead := false
+​
+        for {
+            select {
+            // 监听 Ticker 事件，并通知 raft StateMachine
+            case &amp;lt;-r.ticker.C:
+                r.tick()
+            // 监听待处理的 Ready，并处理
+            case rd := &amp;lt;-r.Ready():
+                ......
+                  // 这部分处理 Ready 的逻辑下面单独文字描述
+                ......
+                // 通知 raft StateMachine 运转，返回新的待处理的 Ready
+                r.Advance()
+            case &amp;lt;-r.stopped:
+                return
+            }
+        }
+    }()
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;raftNode 模块的 cortoutine 核心就是处理 raft StateMachine 的 Ready，下面将用文字单独描述，这里仅考虑Leader 分支，Follower 分支省略：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;取出 Ready.SoftState 更新 EtcdServer 的当前节点身份信息（leader、follower&amp;hellip;.）等&lt;/li&gt;
+&lt;li&gt;取出 Ready.ReadStates（保存了 commit index），通过 raftNode.readStateC 通道传递给 EtcdServer 处理 read 的 coroutine&lt;/li&gt;
+&lt;li&gt;取出 Ready.CommittedEntires 封装成 apply 结构，通过 raftnode.applyc 通道传递给 EtcdServer 异步 Apply 的 coroutine，并更新 EtcdServer 的 commit index&lt;/li&gt;
+&lt;li&gt;取出 Ready.Messages，通过网络模块 raftNode.transport 发送给 Peers&lt;/li&gt;
+&lt;li&gt;取出 Ready.HardState 和 Entries，通过 raftNode.storage 持久化到 WAL 中&lt;/li&gt;
+&lt;li&gt;（Follower分支）取出 Ready.snapshot（Leader 发送过来的），（1）通过 raftNode.storage 持久化 Snapshot 到盘中的 Snapshot，（2）通知异步 Apply coroutine apply snapshot 到 KV 存储中，（3）Apply snapshot 到 raftNode.raftStorage 中（all raftLog in memory）&lt;/li&gt;
+&lt;li&gt;取出 Ready.entries，append 到 raftLog 中&lt;/li&gt;
+&lt;li&gt;调用 raftNode.Advance 通知 raft StateMachine coroutine，当前 Ready 已经处理完，可以投递下一个准备好的 Ready 给 raftNode cortouine 处理了（raft StateMachine 中会删除 raftLog 中 unstable 中 log entries 拷贝到 raftLog 的 Memory storage 中）&lt;/li&gt;
+&lt;/ul&gt;</description>
         </item>
       
     
@@ -21753,6 +23361,1023 @@ AllowRoot=1
     
       
         <item>
+          <title>服务发现系列---- Etcd</title>
+          <link>https://kingjcy.github.io/post/middleware/serverdiscovery/etcd/</link>
+          <pubDate>Tue, 14 Feb 2017 15:32:07 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/middleware/serverdiscovery/etcd/</guid>
+          <description>&lt;p&gt;ETCD是coreOS开源的用于共享配置和服务发现的分布式，一致性的KV存储系统。是一款类似于zk有望取代复杂的zk的用go语言开发的存储系统。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本概念&#34;&gt;基本概念&lt;/h1&gt;
+
+&lt;p&gt;etcd有着几方面的优势：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;一致性协议： ETCD使用&lt;a href=&#34;https://kingjcy.github.io/post/algorithm/raft/&#34;&gt;Raft&lt;/a&gt;协议， ZK使用ZAB（类PAXOS协议），前者容易理解，方便工程实现；&lt;/li&gt;
+&lt;li&gt;运维方面：ETCD方便运维，ZK难以运维；&lt;/li&gt;
+&lt;li&gt;项目活跃度：ETCD社区与开发活跃，ZK已经很臃肿维护困难；&lt;/li&gt;
+&lt;li&gt;API：ETCD提供HTTP+JSON, gRPC接口，跨平台跨语言，ZK需要使用其客户端；&lt;/li&gt;
+&lt;li&gt;访问安全方面：ETCD支持HTTPS访问，ZK在这方面缺失；&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;etcd的使用场景和zk相似&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;配置管理&lt;/li&gt;
+&lt;li&gt;服务注册与发现&lt;/li&gt;
+&lt;li&gt;分布式队列&lt;/li&gt;
+&lt;li&gt;分布式锁&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;安装&#34;&gt;安装&lt;/h1&gt;
+
+&lt;h2 id=&#34;单点部署&#34;&gt;单点部署&lt;/h2&gt;
+
+&lt;p&gt;安装比较简单，直接去开源的github上去下在压缩包，然后解压就有对应的可执行文件，可以将可执行文件etcd，etcdctl复制到/usr/bin下面使用&lt;/p&gt;
+
+&lt;h2 id=&#34;集群部署&#34;&gt;集群部署&lt;/h2&gt;
+
+&lt;p&gt;静态部署用命令直接启动&lt;/p&gt;
+
+&lt;p&gt;node1&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;etcd -name niub1 -debug \
+-initial-advertise-peer-urls http://node1-ip:2380 \
+-listen-peer-urls http://node1-ip:2380 \
+-listen-client-urls http://node1-ip:2379,http://127.0.0.1:2379 \
+-advertise-client-urls http://node1-ip:2379 \
+-initial-cluster-token etcd-cluster-1 \
+-initial-cluster niub1=http://node1-ip:2380,niub2=http://node2-ip:2380,niub3=http://node3-ip:2380 \
+-initial-cluster-state new  &amp;gt;&amp;gt; ./etcd.log 2&amp;gt;&amp;amp;1 &amp;amp;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;node2&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;etcd -name niub2 -debug \
+-initial-advertise-peer-urls http://node2-ip:2380 \
+-listen-peer-urls http://node2-ip:2380 \
+-listen-client-urls http://node2-ip:2379,http://127.0.0.1:2379 \
+-advertise-client-urls http://node2-ip:2379 \
+-initial-cluster-token etcd-cluster-1 \
+-initial-cluster niub1=http://node1-ip:2380,niub2=http://node2-ip:2380,niub3=http://node3-ip:2380 \
+-initial-cluster-state new  &amp;gt;&amp;gt; ./etcd.log 2&amp;gt;&amp;amp;1 &amp;amp;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;node3&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;etcd -name niub3 -debug \
+-initial-advertise-peer-urls http://node3-ip:2380 \
+-listen-peer-urls http://node3-ip:2380 \
+-listen-client-urls http://node3-ip:2379,http://127.0.0.1:2379 \
+-advertise-client-urls http://node3-ip:2379 \
+-initial-cluster-token etcd-cluster-1 \
+-initial-cluster niub1=http://node1-ip:2380,niub2=http://node2-ip:2380,niub3=http://node3-ip:2380 \
+-initial-cluster-state new  &amp;gt;&amp;gt; ./etcd.log 2&amp;gt;&amp;amp;1 &amp;amp;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们来看一下基本参数&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ETCD_NAME –节点名称
+ETCD_DATA_DIR -指定节点的数据存储目录
+ETCD_LISTEN_PEER_URLS -监听URL，用于与其他节点通讯
+ETCD_LISTEN_CLIENT_URLS –暴露自己的同时最好新增一个127.0.0.1的监听地址，便于etcdctl调用，当然用0.0.0.0也是可以的
+
+ETCD_INITIAL_ADVERTISE_PEER_URLS -  告知集群其他节点url
+ETCD_INITIAL_CLUSTER -  告知集群其他节点url.
+ETCD_INITIAL_CLUSTER_STATE -  静态模式部署 new
+ETCD_INITIAL_CLUSTER_TOKEN -集群的识别码
+ETCD_ADVERTISE_CLIENT_URLS -告知客户端url, 也就是服务的url,不能包含127.0.0.1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后就可以检查一下对集群情况了&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;etcdctl member list
+curl http://10.10.0.14:2379/v2/members
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;两种方式都能返回三个节点的相关情况，也可以使用&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;etcdctl cluster-health
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这样etcd的集群就搭建成功了。&lt;/p&gt;
+
+&lt;p&gt;正常会将其加入到系统服务中，首先创建设置配置文件&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;cat /etc/etcd/etcd.conf
+
+# [member]
+ETCD_NAME=&amp;quot;etcd-2&amp;quot;
+ETCD_DATA_DIR=&amp;quot;/data/etcd/&amp;quot;
+#ETCD_WAL_DIR=&amp;quot;&amp;quot;
+#ETCD_SNAPSHOT_COUNT=&amp;quot;10000&amp;quot;
+#ETCD_HEARTBEAT_INTERVAL=&amp;quot;100&amp;quot;
+#ETCD_ELECTION_TIMEOUT=&amp;quot;1000&amp;quot;
+#ETCD_LISTEN_PEER_URLS=&amp;quot;http://localhost:2380&amp;quot;
+#ETCD_LISTEN_CLIENT_URLS=&amp;quot;http://localhost:2379&amp;quot;
+ETCD_LISTEN_PEER_URLS=&amp;quot;http://0.0.0.0:7001&amp;quot;
+ETCD_LISTEN_CLIENT_URLS=&amp;quot;http://0.0.0.0:4001&amp;quot;
+#ETCD_MAX_SNAPSHOTS=&amp;quot;5&amp;quot;
+#ETCD_MAX_WALS=&amp;quot;5&amp;quot;
+#ETCD_CORS=&amp;quot;&amp;quot;
+#
+#[cluster]
+#ETCD_INITIAL_ADVERTISE_PEER_URLS=&amp;quot;http://localhost:2380&amp;quot;
+ETCD_INITIAL_ADVERTISE_PEER_URLS=&amp;quot;http://172.32.148.128:7001&amp;quot;
+# if you use different ETCD_NAME (e.g. test), set ETCD_INITIAL_CLUSTER value for this name, i.e. &amp;quot;test=http://...&amp;quot;
+#ETCD_INITIAL_CLUSTER=&amp;quot;default=http://localhost:2380&amp;quot;
+ETCD_INITIAL_CLUSTER=&amp;quot;etcd-1=http://172.32.148.127:7001,etcd-2=http://172.32.148.128:7001,etcd-3=http://172.32.148.129:7001,etcd-4=http://172.32.148.130:7001&amp;quot;
+ETCD_INITIAL_CLUSTER_STATE=&amp;quot;new&amp;quot;
+#ETCD_INITIAL_CLUSTER_TOKEN=&amp;quot;etcd-cluster&amp;quot;
+#ETCD_ADVERTISE_CLIENT_URLS=&amp;quot;http://localhost:2379&amp;quot;
+ETCD_ADVERTISE_CLIENT_URLS=&amp;quot;http://172.32.148.128:4001&amp;quot;
+#ETCD_DISCOVERY=&amp;quot;&amp;quot;
+#ETCD_DISCOVERY_SRV=&amp;quot;&amp;quot;
+#ETCD_DISCOVERY_FALLBACK=&amp;quot;proxy&amp;quot;
+#ETCD_DISCOVERY_PROXY=&amp;quot;&amp;quot;
+#ETCD_STRICT_RECONFIG_CHECK=&amp;quot;false&amp;quot;
+#ETCD_AUTO_COMPACTION_RETENTION=&amp;quot;0&amp;quot;
+.......
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后增加开机启动配置&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;cat /uusr/lib/systemd/system/etcd.service
+
+[Unit]
+Description=Etcd Server
+After=network.target
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+WorkingDirectory=/var/lib/etcd/
+EnvironmentFile=-/etc/etcd/etcd.conf
+User=root
+# set GOMAXPROCS to number of processors
+#ExecStart=/bin/bash -c &amp;quot;GOMAXPROCS=$(nproc) /usr/bin/etcd --name=\&amp;quot;${
+ETCD_NAME}\&amp;quot; --data-dir=\&amp;quot;${
+ETCD_DATA_DIR}\&amp;quot; --listen-client-urls=\&amp;quot;${
+ETCD_LISTEN_CLIENT_URLS}\&amp;quot;&amp;quot;
+
+
+ExecStart=/bin/bash -c &amp;quot;GOMAXPROCS=$(nproc) /usr/bin/etcd --name=\&amp;quot;${
+ETCD_NAME}\&amp;quot; --data-dir=\&amp;quot;${
+ETCD_DATA_DIR}\&amp;quot; --listen-client-urls=\&amp;quot;${
+ETCD_LISTEN_CLIENT_URLS}\&amp;quot; --listen-peer-urls=\&amp;quot;${
+ETCD_LISTEN_PEER_URLS}\&amp;quot; --advertise-client-urls=\&amp;quot;${
+ETCD_ADVERTISE_CLIENT_URLS}\&amp;quot; --initial-advertise-peer-urls=\&amp;quot;${
+ETCD_INITIAL_ADVERTISE_PEER_URLS}\&amp;quot; --initial-cluster=\&amp;quot;${
+ETCD_INITIAL_CLUSTER}\&amp;quot; --initial-cluster-state=\&amp;quot;${
+ETCD_INITIAL_CLUSTER_STATE}\&amp;quot;&amp;quot;
+
+
+Restart=on-failure
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;当然我们可以使用别人的rpm包来安装，就有现成的配置文件，我们在上面修改就行了。&lt;/p&gt;
+
+&lt;p&gt;下面我们来来系统启动etcd&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;systemctl daemon-reload
+systemctl enable etcd.service
+systemctl start etcd.service
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以检查集群了，有一些需要主要的地方，一个就是服务的用户要有对应目录的权限。&lt;/p&gt;
+
+&lt;h2 id=&#34;k8s部署&#34;&gt;k8s部署&lt;/h2&gt;
+
+&lt;p&gt;一般部署在每个master节点上，组成一个集群。&lt;/p&gt;
+
+&lt;h1 id=&#34;使用&#34;&gt;使用&lt;/h1&gt;
+
+&lt;p&gt;直接参考官方的md文件。就是正常的key/value类型的数据库的使用方法，类似于redis的使用。比如&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;写数据
+#etcdctl put foo bar
+#etcdctl put fool bar1 --lease=1234abcd
+读数据
+#etcdctl get foo
+#etcdctl get foo --rev=3
+删除数据
+#etcdctl del foo
+Watch机制
+#etcdctl watch foo
+租约TTL
+#etcdctl lease grant 10
+#etcdctl put –lease=3269xxx foo bar
+#etcdctl lease revoke 3269xxx
+#etcdctl lease keep-alive 3269xxx
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;etcd碎片整理（defragmentation)&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ etcdctl defrag Finished defragmenting etcd member[127.0.0.1:2379]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;对每个节点的defrag时间需要错开，不能同时进行。&lt;/p&gt;
+
+&lt;h2 id=&#34;client&#34;&gt;client&lt;/h2&gt;
+
+&lt;p&gt;etcd/clientv3 is the official Go etcd client for v3.&lt;/p&gt;
+
+&lt;p&gt;基本实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;time&amp;quot;
+    &amp;quot;github.com/coreos/etcd/clientv3&amp;quot;
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;context&amp;quot;
+    &amp;quot;github.com/coreos/etcd/mvcc/mvccpb&amp;quot;
+    &amp;quot;ketang/netWork/0604_Socket/Tool&amp;quot;
+)
+
+var (
+    dialTimeout = 5 * time.Second
+    requestTimeout = 2 * time.Second
+    endPoints = []string{&amp;quot;127.0.0.1:2379&amp;quot;} //etcd 默认接受数据的端口2379
+)
+//添加 删除 查找 前缀 延时
+
+var etcd *clientv3.Client
+func main()  {
+    fmt.Println(Tool.GetLocalIp())
+    var err error
+    etcd, err =clientv3.New(clientv3.Config{
+        Endpoints:endPoints,
+        DialTimeout:dialTimeout,
+
+
+    })
+    if err != nil {
+        fmt.Println(err)
+    }
+
+    //添加
+    err = putValue(&amp;quot;a&amp;quot;, &amp;quot;abc&amp;quot;)
+    fmt.Println(err)
+
+    //查找
+    result := getValue(&amp;quot;a&amp;quot;)
+    fmt.Println(result)
+
+    //删除
+    cnt := delValue(&amp;quot;a&amp;quot;)
+    fmt.Println(&amp;quot;delete:&amp;quot;, cnt)
+
+
+    err = putValue(&amp;quot;b1&amp;quot;, &amp;quot;abc1&amp;quot;)
+    err = putValue(&amp;quot;b2&amp;quot;, &amp;quot;abc2&amp;quot;)
+    err = putValue(&amp;quot;b3&amp;quot;, &amp;quot;abc3&amp;quot;)
+
+    //按前缀查找
+    result = getValueWIthPrefix(&amp;quot;b&amp;quot;)
+    fmt.Println(result)
+    for _,item := range result {
+        fmt.Println(string(item.Key),string(item.Value))
+    }
+
+    //按前缀删除
+    cnt2 := delValueWithPrefix(&amp;quot;b&amp;quot;)
+    fmt.Println(&amp;quot;批量删除：&amp;quot;, cnt2)
+
+
+
+    //事务处理
+    putValue(&amp;quot;user1&amp;quot;, &amp;quot;zhangsan&amp;quot;)
+    _,err = etcd.Txn(context.TODO()).
+        If(clientv3.Compare(clientv3.Value(&amp;quot;user1&amp;quot;),&amp;quot;=&amp;quot;, &amp;quot;zhangsan&amp;quot;)).
+        Then(clientv3.OpPut(&amp;quot;user1&amp;quot;, &amp;quot;zhangsan&amp;quot;)).
+        Else(clientv3.OpPut(&amp;quot;user1&amp;quot;, &amp;quot;lisi&amp;quot;)).Commit()
+
+    fmt.Println(err)
+    result = getValue(&amp;quot;user1&amp;quot;)
+    fmt.Println(&amp;quot;user1:&amp;quot;, string(result[0].Value))
+
+
+    //lease 设置有效时间
+    resp, err:= etcd.Grant(context.TODO(), 1)
+    _,err = etcd.Put(context.TODO(), &amp;quot;username&amp;quot;,&amp;quot;wangwu&amp;quot;,clientv3.WithLease(resp.ID))
+
+    time.Sleep(3 * time.Second)
+
+    v := getValue(&amp;quot;username&amp;quot;)
+    fmt.Println(&amp;quot;lease:&amp;quot;,v)
+
+
+    //watch监听的使用
+    putValue(&amp;quot;w&amp;quot;, &amp;quot;hello&amp;quot;)
+    go func() {
+        rch := etcd.Watch(context.Background(),&amp;quot;w&amp;quot;)
+        for wresp := range  rch {
+            for _,ev := range wresp.Events {
+                fmt.Printf(&amp;quot;watch&amp;gt;&amp;gt;w  %s %q %q\n&amp;quot;, ev.Type,ev.Kv, ev.Kv)
+            }
+        }
+    }()
+
+    putValue(&amp;quot;w&amp;quot;, &amp;quot;hello world!&amp;quot;)
+
+
+
+    //监听某个key在一定范围内 value的变化
+    //putValue(&amp;quot;fo0&amp;quot;, &amp;quot;a&amp;quot;)
+    go func() {
+        //监听范围 [fo0-fo3)
+        rch := etcd.Watch(context.Background(), &amp;quot;fo0&amp;quot;, clientv3.WithRange(&amp;quot;fo3&amp;quot;))
+
+        for wresp := range  rch {
+            for _,ev := range wresp.Events {
+                fmt.Printf(&amp;quot;watch range  --   %s %q %q\n&amp;quot;, ev.Type,ev.Kv, ev.Kv)
+            }
+        }
+    }()
+
+    putValue(&amp;quot;fo0&amp;quot;, &amp;quot;b&amp;quot;)
+    putValue(&amp;quot;fo1&amp;quot;, &amp;quot;b&amp;quot;)
+    putValue(&amp;quot;fo2&amp;quot;, &amp;quot;c&amp;quot;)
+    putValue(&amp;quot;fo2.5&amp;quot;, &amp;quot;c&amp;quot;)
+    putValue(&amp;quot;fo3&amp;quot;, &amp;quot;c&amp;quot;)
+
+
+    time.Sleep(10 * time.Second)
+
+}
+
+
+//添加键值对
+func putValue(key, value string)  error  {
+    _, err := etcd.Put(context.TODO(),key, value)
+    return err
+}
+
+//查询
+func getValue(key string) []*mvccpb.KeyValue  {
+    resp, err := etcd.Get(context.TODO(), key)
+    if err != nil {
+        return  nil
+    } else {
+        return resp.Kvs
+    }
+}
+
+// 返回删除了几条数据
+func delValue(key string) int64  {
+    res,err := etcd.Delete(context.TODO(),key)
+    if err != nil {
+        return 0
+    } else {
+        return res.Deleted
+    }
+
+}
+
+
+//按照前缀删除
+func delValueWithPrefix(prefix string) int64  {
+    res,err := etcd.Delete(context.TODO(),prefix,clientv3.WithPrefix())
+    if err != nil {
+        fmt.Println(err)
+        return 0
+    } else {
+        return res.Deleted
+    }
+}
+
+func getValueWIthPrefix(prefix string) []*mvccpb.KeyValue {
+    resp, err := etcd.Get(context.TODO(), prefix, clientv3.WithPrefix())
+    if err != nil {
+        return  nil
+    } else {
+        return resp.Kvs
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;使用总结&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;conn.(clientv3.Client).Close()
+
+cannot call pointer method on conn.(clientv3.Client)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;需要使用指针&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;conn.(*clientv3.Client).Close()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;原理&#34;&gt;原理&lt;/h1&gt;
+
+&lt;p&gt;主要使用的raft协议实现，可以查看&lt;a href=&#34;https://kingjcy.github.io/post/algorithm/raft/&#34;&gt;这里&lt;/a&gt;。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>服务发现系列---- Consul</title>
+          <link>https://kingjcy.github.io/post/middleware/serverdiscovery/consul/</link>
+          <pubDate>Sun, 12 Feb 2017 16:04:21 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/middleware/serverdiscovery/consul/</guid>
+          <description>&lt;p&gt;Consul 是一个支持多数据中心分布式高可用的服务发现和配置共享的服务软件,由 HashiCorp 公司用 Go 语言开发, 支持健康检查,并允许 HTTP 和 DNS 协议调用 API 存储键值对。&lt;/p&gt;
+
+&lt;h1 id=&#34;consul&#34;&gt;consul&lt;/h1&gt;
+
+&lt;p&gt;Consul是一个服务发现和注册的工具，其具有分布式、高扩展性能特点,主要包含如下功能：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;服务发现： 支持 http 和 dns 两种协议的服务注册和发现方式。&lt;/li&gt;
+&lt;li&gt;监控检查： 支持多种方式的健康检查。&lt;/li&gt;
+&lt;li&gt;Key/Value存储： 支持通过HTTP API实现分布式KV数据存储。&lt;/li&gt;
+&lt;li&gt;多数据中心支持：支持任意数量数据中心。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Consul 的使用场景&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;实例的注册与配置共享&lt;/li&gt;
+&lt;li&gt;与 confd 服务集成，动态生成 nginx 和 haproxy 配置文件&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;优势&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;使用 Raft 算法来保证一致性, 比复杂的 Paxos 算法更直接. zookeeper 采用的是 Paxos, consul,etcd 使用的则是 Raft.&lt;/li&gt;
+&lt;li&gt;支持多数据中心，内外网的服务采用不同的端口进行监听。 多数据中心集群可以避免单数据中心的单点故障,而其部署则需要考虑网络延迟, 分片等情况等. zookeeper 和 etcd 均不提供多数据中心功能的支持.&lt;/li&gt;
+&lt;li&gt;支持健康检查. etcd 不提供此功能.&lt;/li&gt;
+&lt;li&gt;支持 http 和 dns 协议接口. zookeeper 的集成较为复杂, etcd 只支持 http 协议.&lt;/li&gt;
+&lt;li&gt;官方提供web管理界面, etcd 无此功能.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;角色&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;client: 客户端, 无状态, 将 HTTP 和 DNS 接口请求转发给局域网内的服务端集群.&lt;/li&gt;
+&lt;li&gt;server: 服务端, 保存配置信息, 高可用集群, 在局域网内与本地客户端通讯, 通过广域网与其他数据中心通讯. 每个数据中心的 server 数量推荐为 3 个或是 5 个.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;consul安装&#34;&gt;Consul安装&lt;/h1&gt;
+
+&lt;p&gt;下载并解压&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;## 下载
+wget  https://releases.hashicorp.com/consul/1.0.0/consul_1.0.0_linux_amd64.zip?_ga=2.31706621.2141899075.1510636997-716462484.1510636997
+## 解压
+unzip consul_1.0.0_linux_amd64.zip
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;以UI形式后台启动：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./consul agent -server -ui -bootstrap-expect 1 -data-dir /tmp/consul &amp;amp;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以使用脚本，正常使用的时候是需要完善参数的&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;nohup /opt/consul_1.0.2/consul agent -server -bootstrap-expect 1 -data-dir /opt/consul_1.0.2/data -ui  -http-port=9996 -bind=10.47.178.81 -client 0.0.0.0 -config-dir /opt/consul_1.0.2/consul.d -enable-script-checks  &amp;gt;/opt/consul_1.0.2/logs/start.log  2&amp;gt;&amp;amp;1 &amp;amp;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看启动状态：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@iZ2ze74 home]# ./consul members
+Node     Address   Status  Type    Build  Protocol  DC   Segment
+iZ2ze74  172.17.120.102:8301  alive   server  1.0.0  2         dc1  &amp;lt;all&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;说明：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Address：节点地址&lt;/li&gt;
+&lt;li&gt;Status：alive表示节点健康&lt;/li&gt;
+&lt;li&gt;Type：server运行状态是server状态&lt;/li&gt;
+&lt;li&gt;DC：dc1表示该节点属于DataCenter1&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;查看节点：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;curl 127.0.0.1:8500/v1/catalog/nodes
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;使用&#34;&gt;使用&lt;/h1&gt;
+
+&lt;h2 id=&#34;注册&#34;&gt;注册&lt;/h2&gt;
+
+&lt;p&gt;consul注册注册service 的方式有多种&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;静态注册&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;创建文件夹consul.d&lt;/p&gt;
+
+&lt;p&gt;添加如下test.json：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;{
+  &amp;quot;service&amp;quot;:{
+    &amp;quot;id&amp;quot;: &amp;quot;node&amp;quot;,
+    &amp;quot;name&amp;quot;: &amp;quot;prometheus-node&amp;quot;,
+    &amp;quot;address&amp;quot;: &amp;quot;127.0.0.1&amp;quot;,
+    &amp;quot;port&amp;quot;: 9100,
+    &amp;quot;tags&amp;quot;: [&amp;quot;prometheus-target&amp;quot;],
+    &amp;quot;checks&amp;quot;: [
+        {
+            &amp;quot;http&amp;quot;: &amp;quot;http://127.0.0.1:9100/metrics&amp;quot;,
+            &amp;quot;interval&amp;quot;: &amp;quot;15s&amp;quot;
+        }
+    ]
+  }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在consul启动命令中，指定配置路径&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;-config-dir=consul.d
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;启动后查看Prometheus 和consul 界面，可以看到target是否引入。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;使用http Api 的方式&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;curl -X PUT -d &#39;{&amp;quot;service&amp;quot;:{&amp;quot;id&amp;quot;:&amp;quot;node&amp;quot;,&amp;quot;name&amp;quot;:&amp;quot;prometheus-node&amp;quot;,&amp;quot;address&amp;quot;:&amp;quot;127.0.0.1&amp;quot;,&amp;quot;port&amp;quot;:9100,&amp;quot;tags&amp;quot;:[&amp;quot;prometheus-target&amp;quot;],&amp;quot;checks&amp;quot;:[{&amp;quot;http&amp;quot;:&amp;quot;http://127.0.0.1:9100/metrics&amp;quot;,&amp;quot;interval&amp;quot;:&amp;quot;15s&amp;quot;}]}}&#39; http://127.0.0.1:8500/v1/agent/service/register
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;还可以使用各语言版本的sdk:&lt;a href=&#34;https://www.consul.io/api/libraries-and-sdks.html&#34;&gt;https://www.consul.io/api/libraries-and-sdks.html&lt;/a&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;我这里使用JAVA 版本的&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&amp;lt;dependency&amp;gt;
+  &amp;lt;groupId&amp;gt;com.orbitz.consul&amp;lt;/groupId&amp;gt;
+  &amp;lt;artifactId&amp;gt;consul-client&amp;lt;/artifactId&amp;gt;
+  &amp;lt;version&amp;gt;1.0.0&amp;lt;/version&amp;gt;
+&amp;lt;/dependency&amp;gt;
+使用如下：
+
+public class ConsulTest {
+  Consul client;
+
+  /**
+   * 初始化.
+   */
+  @Before
+  public void init() {
+
+    client = Consul.builder().withHostAndPort(HostAndPort.fromParts(&amp;quot;xx.xx.xx.xx&amp;quot;, 8500)).build();
+    //  catalogClient = client.catalogClient();
+  }
+
+  @Test
+  public void queryAll() {
+    Map&amp;lt;String, Service&amp;gt; services = client.agentClient().getServices();
+    for (Map.Entry&amp;lt;String, Service&amp;gt; entry : services.entrySet()) {
+      System.out.println(&amp;quot;key:&amp;quot; + entry.getKey());
+      System.out.println(&amp;quot;value:&amp;quot; + entry.getValue().toString());
+    }
+
+  }
+
+
+  @Test
+  public void testDelete() {
+    client.agentClient().deregister(&amp;quot;etcd&amp;quot;);
+  }
+
+
+  @Test
+  public void testAdd1() {
+    String serviceName = &amp;quot;prometheus-etcd&amp;quot;;
+    String serviceId = &amp;quot;etcd&amp;quot;;
+    Registration.RegCheck single = Registration.RegCheck.http(&amp;quot;http://127.0.0.1:2379/metrics&amp;quot;, 20);
+    Registration reg = ImmutableRegistration.builder()
+        .check(single)
+        .addTags(&amp;quot;prometheus-target&amp;quot;)
+        .address(&amp;quot;127.0.0.1&amp;quot;)
+        .port(2379)
+        .name(serviceName)
+        .id(serviceId)
+        .build();
+    client.agentClient().register(reg);
+  }
+
+
+
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;发现&#34;&gt;发现&lt;/h2&gt;
+
+&lt;p&gt;查询注册的服务&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;通过DNS api&lt;/p&gt;
+
+&lt;p&gt;dig @127.0.0.1 -p 8600 web.service.consul(dns域名)&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;通过http api&lt;/p&gt;
+
+&lt;p&gt;curl &lt;a href=&#34;http://localhost:8500/v1/catalog/service/web&#34;&gt;http://localhost:8500/v1/catalog/service/web&lt;/a&gt;&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;还有一个connect模块，直接连接，docker和k8s中使用的比较多。&lt;/p&gt;
+
+&lt;h2 id=&#34;健康检查&#34;&gt;健康检查&lt;/h2&gt;
+
+&lt;p&gt;通过调用http api来获取监控状况&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;curl &#39;http://localhost:8500/v1/health/service/web?passing&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;更新consul配置文件&#34;&gt;更新consul配置文件&lt;/h2&gt;
+
+&lt;p&gt;1、可以通过更改配置文件并将SIGHUP代理文件发送到代理来更新服务定义。这使您可以在不停机或不可用于服务查询的情况下更新服务。现在还支持consul reload&lt;/p&gt;
+
+&lt;p&gt;2、HTTP API可用于动态添加，删除和修改服务。&lt;/p&gt;
+
+&lt;h2 id=&#34;常用命令&#34;&gt;常用命令&lt;/h2&gt;
+
+&lt;p&gt;consul&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;agent：运行一个consul agent&lt;/li&gt;
+&lt;li&gt;join：将agent加入到consul cluster&lt;/li&gt;
+&lt;li&gt;members：列出consul cluster集群中的members&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;常用选项option：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;-data-dir
+
+作用：指定agent储存状态的数据目录
+这是所有agent都必须的
+对于server尤其重要，因为他们必须持久化集群的状态
+-config-dir
+
+作用：指定service的配置文件和检查定义所在的位置
+通常会指定为&amp;quot;某一个路径/consul.d&amp;quot;（通常情况下，.d表示一系列配置文件存放的目录）
+-config-file
+
+作用：指定一个要装载的配置文件
+该选项可以配置多次，进而配置多个配置文件（后边的会合并前边的，相同的值覆盖）
+-dev
+
+作用：创建一个开发环境下的server节点
+该参数配置下，不会有任何持久化操作，即不会有任何数据写入到磁盘
+这种模式不能用于生产环境（因为第二条）
+-bootstrap-expect
+
+作用：该命令通知consul server我们现在准备加入的server节点个数，该参数是为了延迟日志复制的启动直到我们指定数量的server节点成功的加入后启动。
+-node
+
+作用：指定节点在集群中的名称
+该名称在集群中必须是唯一的（默认采用机器的host）
+推荐：直接采用机器的IP
+-bind
+
+作用：指明节点的IP地址
+-server
+
+作用：指定节点为server
+每个数据中心（DC）的server数推荐为3或5（理想的是，最多不要超过5）
+所有的server都采用raft一致性算法来确保事务的一致性和线性化，事务修改了集群的状态，且集群的状态保存在每一台server上保证可用性
+server也是与其他DC交互的门面（gateway）
+-client
+
+作用：指定节点为client
+若不指定为-server，其实就是-client
+-join
+
+作用：将节点加入到集群
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;实例&#34;&gt;实例&lt;/h2&gt;
+
+&lt;p&gt;prometheus原生就支持consul的服务发现，可以直接获取consul上的配置，如下&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;scrape_configs:
+  # The job name is added as a label `job=&amp;lt;job_name&amp;gt;` to any timeseries scraped from this config.
+  - job_name: &#39;prometheus&#39;
+
+    # Override the global default and scrape targets from this job every 5 seconds.
+    scrape_interval: 5s
+
+    # metrics_path defaults to &#39;/metrics&#39;
+    # scheme defaults to &#39;http&#39;.
+
+    static_configs:
+      - targets: [&#39;localhost:9090&#39;]
+
+  - job_name: &#39;security&#39;
+    # Override the global default and scrape targets from this job every 5 seconds.
+    scrape_interval: 5s
+
+    metrics_path: &#39;/prometheus&#39;
+    # scheme defaults to &#39;http&#39;.
+
+    static_configs:
+      - targets: [&#39;10.94.20.33:80&#39;]
+
+  - job_name: &#39;overwritten-default&#39;
+    consul_sd_configs:
+    - server:   &#39;10.110.200.29:8500&#39;
+      services: [&#39;lookup&#39;, &#39;security&#39;, &#39;workflow&#39;]
+
+    relabel_configs:
+    - source_labels: [&#39;__metrics_path__&#39;]
+      regex:         &#39;/metrics&#39;
+      target_label:  __metrics_path__
+      replacement:   &#39;/prometheus&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这里简单说明下上面的配置意义，在scrape_configs下，定义了3个job_name&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;job_name: &amp;lsquo;prometheus&amp;rsquo;是监听prometheus服务本身；&lt;/li&gt;
+&lt;li&gt;job_name: &amp;lsquo;security&amp;rsquo;是按固定IP:PORT的方式监听微服务 ；&lt;/li&gt;
+&lt;li&gt;job_name: &amp;lsquo;overwritten-default&amp;rsquo;就是一个监听consul的任务，在consul_sd_configs下，server是consul服务器的访问地址，services是微服务名的数组，如果什么都不填，则默认取consul上注册的所有微服务。relabel_configs是修改默认配置的规则，这里由于使用了springboot和promethues整合，暴露的metrics是通过/promethues路径访问的，而promethues默认的metrics访问路径（即metrics_path配置项）是/metrics，需要修改。&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;consul-template&#34;&gt;consul-template&lt;/h2&gt;
+
+&lt;p&gt;consul-template可以启动多个程序用于生成不同的模版json文件.&lt;/p&gt;
+
+&lt;p&gt;consul-template的两种使用方法：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;直接启动作为进程使用，配置文件中间有一个时间设定，多长时间更新一次&lt;/li&gt;
+&lt;li&gt;使用crontab来定时拉去一次，使用启动参数-once&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;使用consul+consul-template可以构建一套基于文件服务发现的动态注册和配置生成的服务发现功能。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;通过consul的api向consul上注册prometheus的采集信息，使用k/v的模式&lt;/li&gt;
+&lt;li&gt;consul-template设置定时功能，命令行拉去consul上的配置，按着模版的形式生成json文件&lt;/li&gt;
+&lt;li&gt;prometheus使用fd的服务发现模式读取json文件拉去采集信息&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;什么时候使用k/v模式？&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;使用consul的services注册job的服务信息，然后使用consul-template动态生成prometheus的配置文件。然后prometheus通过查询consul中注册的信息正则匹配来完成prometheus的采集操作，在规模请求很小的时候，service完全没有问题
+但是这样当job量很大的时候，比如有20组job，一组job130的target的的时候，就会出现consul请求瓶颈。&lt;/p&gt;
+
+&lt;p&gt;所以在规模扩大的时候使用consul的k/v格式进行注册，直接通过IP：port作为key，对应的label作为vaule，然后使用consul-template动态生成discovery的json文件，然后prometheus使用file sd来发现这个json文件，相当于将对应的json的内容写到了prometheus的配置文件中去，这个时候五分钟consul-template动态生成一次，不会每次都去请求，这样consul的压力就几乎没有了，经过测试可以达到5000个target，prometheus的shard极限，对consul依旧没有什么压力，现在主要瓶颈在于json文件大小，filesd的压力，可以继续优化成多个文件。&lt;/p&gt;
+
+&lt;h1 id=&#34;原理&#34;&gt;原理&lt;/h1&gt;
+
+&lt;h2 id=&#34;raft算法&#34;&gt;raft算法&lt;/h2&gt;
+
+&lt;p&gt;Raft将系统中的角色分为领导者（Leader）、跟从者（Follower）和候选人（Candidate）：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Leader：接受客户端请求，并向Follower同步请求日志，当日志同步到大多数节点上后告诉Follower提交日志。&lt;/li&gt;
+&lt;li&gt;Follower：接受并持久化Leader同步的日志，在Leader告之日志可以提交之后，提交日志。&lt;/li&gt;
+&lt;li&gt;Candidate：Leader选举过程中的临时角色。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Raft实现了和Paxos相同的功能，它将一致性分解为多个子问题：Leader选举（Leader election）、日志同步（Log replication）、安全性（Safety）、日志压缩（Log compaction）、成员变更（Membership change）等,核心就是Leader选举，可以&lt;a href=&#34;https://kingjcy.github.io/post/algorithm/raft/&#34;&gt;详细了解raft&lt;/a&gt;。&lt;/p&gt;
+
+&lt;p&gt;Raft 使用心跳（heartbeat）触发Leader选举。当服务器启动时，初始化为Follower。Leader向所有Followers周期性发送heartbeat。如果Follower在选举超时时间内没有收到Leader的heartbeat，就会等待一段随机的时间后发起一次Leader选举。&lt;/p&gt;
+
+&lt;p&gt;Follower将其当前term加一然后转换为Candidate。它首先给自己投票并且给集群中的其他服务器发送 RequestVote RPC 。结果有以下三种情况：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;赢得了多数的选票，成功选举为Leader；&lt;/li&gt;
+&lt;li&gt;收到了Leader的消息，表示有其它服务器已经抢先当选了Leader；&lt;/li&gt;
+&lt;li&gt;没有服务器赢得多数的选票，Leader选举失败，等待选举时间超时后发起下一次选举。&lt;/li&gt;
+&lt;/ul&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>服务发现系列---- Sd</title>
+          <link>https://kingjcy.github.io/post/middleware/serverdiscovery/sd/</link>
+          <pubDate>Sun, 12 Feb 2017 16:04:18 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/middleware/serverdiscovery/sd/</guid>
+          <description>&lt;p&gt;服务发现就是程序如何通过一个标志来获取服务列表，并且这个服务列表是能够随着服务的状态而动态变更，最终得以调用到相应的服务。&lt;/p&gt;
+
+&lt;p&gt;服务发现是在分布式系统规模越来越大的情况下，服务治理的必然产物，不然服务的配置调用将难以维护。&lt;/p&gt;
+
+&lt;h1 id=&#34;服务发现&#34;&gt;服务发现&lt;/h1&gt;
+
+&lt;p&gt;服务发现可以分为注册和解析两个部分。&lt;/p&gt;
+
+&lt;h2 id=&#34;服务注册&#34;&gt;服务注册&lt;/h2&gt;
+
+&lt;p&gt;存储的信息是域名和ip的对应映射关系，存储的解析信息至少包括正在运行的服务的主机ip和端口信息。&lt;/p&gt;
+
+&lt;p&gt;注册的方式有两种&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;上报，每个服务启动后主动将自己的域名和ip信息上报存储下来&lt;/li&gt;
+&lt;li&gt;监听，服务监听集群中服务的创建，并且获取相关信息存储下来，比如coreDNS&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;解析发现&#34;&gt;解析发现&lt;/h2&gt;
+
+&lt;p&gt;服务发现主要存在有两种模式，客户端模式与服务端模式，两者的本质区别在于，客户端是否保存服务列表信息。&lt;/p&gt;
+
+&lt;h3 id=&#34;客户端模式&#34;&gt;客户端模式&lt;/h3&gt;
+
+&lt;p&gt;在客户端模式下，如果要进行微服务调用，首先要进行的是到服务注册中心获取服务列表，然后再根据调用端本地的负载均衡策略，进行服务调用。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;客户端(自身有服务注册中心--可以获取服务列表)------&amp;gt;调用服务
+   |
+   |
+   |
+服务注册中心--服务列表
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们用图可以看出来&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/middleware/sd/sd&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;优点&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;只需要周期性获取列表，在调用服务时可以直接调用少了一个RT。但需要在每个客户端维护获取列表的逻辑&lt;/li&gt;
+&lt;li&gt;可用性高，即使注册中心出现故障也能正常工作&lt;/li&gt;
+&lt;li&gt;服务上下线对调用方有影响（会出现短暂调用失败）&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;大部分服务发现的实现都采取了客户端模式&lt;/p&gt;
+
+&lt;h3 id=&#34;服务端模式&#34;&gt;服务端模式&lt;/h3&gt;
+
+&lt;p&gt;在服务端模式下，调用方直接向服务注册中心进行请求，服务注册中心再通过自身负载均衡策略，对微服务进行调用。这个模式下，调用方不需要在自身节点维护服务发现逻辑以及服务注册信息，这个模式相对来说比较类似DNS模式。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;客户端(自身没有服务注册中心)------&amp;gt;服务注册中心(在服务端)------&amp;gt;调用服务
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如图&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/middleware/sd/sd1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;优点&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;简单，不需要在客户端维护获取服务列表的逻辑&lt;/li&gt;
+&lt;li&gt;可用性由路由器中间件决定，路由中间件故障则所有服务不可用，同时，由于所有调度以及存储都由中间件服务器完成，中间件服务器可能会面临过高的负载&lt;/li&gt;
+&lt;li&gt;服务上下线调用方无感知&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;框架&#34;&gt;框架&lt;/h2&gt;
+
+&lt;p&gt;目前服务发现框架：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;consul---------go语言编写，常用，简单，无依赖，集成了http/DNS library
+etcd-----------go语言编写，常用，简单，无依赖，集成了Client Binging／http
+Zookeeper------java语言编写，常用，简单，依赖jvm，集成了Client Binging
+Eureka---------java
+smartstsck-----ruby
+nsq------------go
+serf-----------go
+spotify--------DNS
+skydns---------go
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;前三个都是比较常用和通用的，其他都是自己造轮子，适合特定场景。&lt;/p&gt;
+
+&lt;h3 id=&#34;eureka&#34;&gt;Eureka&lt;/h3&gt;
+
+&lt;p&gt;eureka是netflix用于服务注册和发现的框架。在这个框架中，分为server和client两种角色。server负责保存服务的注册信息，同时server之间也可以彼此相互注册，client则需要向特定的server进行注册。&lt;/p&gt;
+
+&lt;p&gt;client/server通过RESTful Api向server进行服务注册，并且定期调用renew接口来更新服务的注册状态，若server在60s内没有收到服务的renew信息，则该服务就会被标志为下线。而如果服务需要主动下线的话，向server调用cancel就可以了。&lt;/p&gt;
+
+&lt;h3 id=&#34;consul&#34;&gt;Consul&lt;/h3&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/middleware/serverdiscovery/consul/&#34;&gt;Consul&lt;/a&gt;是强一致性的数据存储，使用Raft形成动态集群。它提供分级键/值存储方式，不仅可以存储数据，而且可以用于注册器件事各种任务，从发送数据改变通知到运行健康检查和自定义命令，具体如何取决于它们的输出。&lt;/p&gt;
+
+&lt;p&gt;与Zookeeper和etcd不一样，Consul内嵌实现了服务发现系统，所以这样就不需要构建自己的系统或使用第三方系统。这一发现系统除了上述提到的特性之外，还包括节点健康检查和运行在其上的服务。&lt;/p&gt;
+
+&lt;p&gt;Zookeeper和etcd只提供原始的键/值队存储，要求应用程序开发人员构建他们自己的系统提供服务发现功能。而Consul提供了一个内置的服务发现的框架。客户只需要注册服务并通过DNS或HTTP接口执行服务发现。其他两个工具需要一个亲手制作的解决方案或借助于第三方工具。&lt;/p&gt;
+
+&lt;p&gt;Consul为多种数据中心提供了开箱即用的原生支持，其中的gossip系统不仅可以工作在同一集群内部的各个节点，而且还可以跨数据中心工作。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;模版Consul-template&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;confd可以像和etcd搭配一样用于Consul，不过Consul有自己的模板服务，其更适配Consul。&lt;/p&gt;
+
+&lt;p&gt;通过从Consul获得的信息，Consul-template是一个非常方便的创建文件的途径，还有一个额外的好处就是在文件更新后可以运行任意命令，正如confd，Consul-template也可以使用Go模板格式。&lt;/p&gt;
+
+&lt;h3 id=&#34;zookeeper&#34;&gt;Zookeeper&lt;/h3&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/middleware/serverdiscovery/zookeeper/&#34;&gt;Zookeeper&lt;/a&gt;是这种类型的项目中历史最悠久的之一，它起源于Hadoop，帮助在Hadoop集群中维护各种组件。它非常成熟、可靠，被许多大公司（YouTube、eBay、雅虎等）使用。其数据存储的格式类似于文件系统，如果运行在一个服务器集群中，Zookeper将跨所有节点共享配置状态，每个集群选举一个领袖，客户端可以连接到任何一台服务器获取数据。&lt;/p&gt;
+
+&lt;p&gt;Zookeeper的主要优势是其成熟、健壮以及丰富的特性，然而，它也有自己的缺点，其中采用Java开发以及复杂性是罪魁祸首。尽管Java在许多方面非常伟大，然后对于这种类型的工作还是太沉重了，Zookeeper使用Java以及相当数量的依赖使其对于资源竞争非常饥渴。因为上述的这些问题，Zookeeper变得非常复杂，维护它需要比我们期望从这种类型的应用程序中获得的收益更多的知识。这部分地是由于丰富的特性反而将其从优势转变为累赘。应用程序的特性功能越多，就会有越大的可能性不需要这些特性，因此，我们最终将会为这些不需要的特性付出复杂度方面的代价。&lt;/p&gt;
+
+&lt;p&gt;Zookeeper为其他项目相当大的改进铺平了道路，“大数据玩家“在使用它，因为没有更好的选择。今天，Zookeeper已经老态龙钟了，我们有了更好的选择。&lt;/p&gt;
+
+&lt;h3 id=&#34;etcd&#34;&gt;etcd&lt;/h3&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/middleware/serverdiscovery/etcd/&#34;&gt;etcd&lt;/a&gt;是一个采用HTTP协议的健/值对存储系统，它是一个分布式和功能层次配置系统，可用于构建服务发现系统。其很容易部署、安装和使用，提供了可靠的数据持久化特性。它是安全的并且文档也十分齐全。&lt;/p&gt;
+
+&lt;p&gt;etcd比Zookeeper是比更好的选择，因为它很简单，然而，它需要搭配一些第三方工具才可以提供服务发现功能。比如Confd&lt;/p&gt;
+
+&lt;p&gt;Confd是一个轻量级的配置管理工具，常见的用法是通过使用存储在etcd、consul和其他一些数据登记处的数据保持配置文件的最新状态，它也可以用来在配置文件改变时重新加载应用程序。换句话说，我们可以用存储在etcd（或者其他注册中心）的信息来重新配置所有服务。&lt;/p&gt;
+
+&lt;h3 id=&#34;对比&#34;&gt;对比&lt;/h3&gt;
+
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;功能\组件&lt;/th&gt;
+&lt;th&gt;Zookeeper&lt;/th&gt;
+&lt;th&gt;etcd&lt;/th&gt;
+&lt;th&gt;Consul&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;产生时间&lt;/td&gt;
+&lt;td&gt;长&lt;/td&gt;
+&lt;td&gt;短&lt;/td&gt;
+&lt;td&gt;短&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;原生语言&lt;/td&gt;
+&lt;td&gt;JAVA&lt;/td&gt;
+&lt;td&gt;Go&lt;/td&gt;
+&lt;td&gt;Go&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;算法&lt;/td&gt;
+&lt;td&gt;Paxos&lt;/td&gt;
+&lt;td&gt;Raft&lt;/td&gt;
+&lt;td&gt;Raft&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;多数据中心&lt;/td&gt;
+&lt;td&gt;不支持&lt;/td&gt;
+&lt;td&gt;不支持&lt;/td&gt;
+&lt;td&gt;支持&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;健康检查&lt;/td&gt;
+&lt;td&gt;支持&lt;/td&gt;
+&lt;td&gt;不支持&lt;/td&gt;
+&lt;td&gt;支持&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;web管理界面&lt;/td&gt;
+&lt;td&gt;支持&lt;/td&gt;
+&lt;td&gt;不支持&lt;/td&gt;
+&lt;td&gt;支持&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;http协议&lt;/td&gt;
+&lt;td&gt;较为复杂&lt;/td&gt;
+&lt;td&gt;支持&lt;/td&gt;
+&lt;td&gt;支持&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;DNS协议&lt;/td&gt;
+&lt;td&gt;较为复杂&lt;/td&gt;
+&lt;td&gt;不支持&lt;/td&gt;
+&lt;td&gt;支持&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;对比的情况下，我们在k8s的集群中可以使用etcd做服务发现，但是在常规情况下，consul更加的全面直接的做服务发现，比如自带服务发现功能，支持多数据中心，直接界面友好等。&lt;/p&gt;
+
+&lt;h2 id=&#34;高可用&#34;&gt;高可用&lt;/h2&gt;
+
+&lt;p&gt;在多注册中心（server）的情况下，单个server在接收到服务的注册/更新信息的时候，它还会将这些信息同步给同样为server的peer(replicate to peer)，为了避免广播风暴，这些信息只会传递一次，也就是说，接收到的server，不会再同步给自身的peer。&lt;/p&gt;
+
+&lt;p&gt;服务注册完成之后，当client需要进行服务调用的时候，就可以向server获取当前的服务列表，再根据服务列表中的ip地址以及端口号进行调用了。&lt;/p&gt;
+
+&lt;p&gt;Consul是目前较为流行的一个服务发现以及配置工具，Consul能够承担包括服务注册与发现、健康检查（health check)以及键值对存储等，同时，Consul还支持多个数据中心。&lt;/p&gt;
+
+&lt;p&gt;我们可以通过Consul的Restful Api（&lt;code&gt;curl -request PUT http://consul/v1//agent/service/register&lt;/code&gt;） 向Consul Agent注册服务信息，提交服务的端口号，ip地址，以及健康检查的方式。随后，这个Client就按照配置中的周期以及方式执行健康检查，当健康检查失败的时候，就会像Server Agent发送服务不可用的消息，这个服务就会被Consul标记为不可用了。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>Golang使用系列---- Strings</title>
           <link>https://kingjcy.github.io/post/golang/go-strings/</link>
           <pubDate>Wed, 12 Oct 2016 19:37:30 CST</pubDate>
@@ -25946,6 +28571,602 @@ func main() {
     // 结果：
     // ABC DEFG abc de
     // 4 无效格式：x
+}
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>Golang使用系列---- flag</title>
+          <link>https://kingjcy.github.io/post/golang/go-flag/</link>
+          <pubDate>Sun, 29 May 2016 10:09:03 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-flag/</guid>
+          <description>&lt;p&gt;golang自身带的命令行包flag，各种case，有代码洁癖的人看着就令人头大,我们一般使用其他的命令行解析包比如pflag，cobra等，cobra是个非常不错的命令行包(golang命令行解析库)，docker，hugo都在使用.&lt;/p&gt;
+
+&lt;h1 id=&#34;cobra&#34;&gt;cobra&lt;/h1&gt;
+
+&lt;h2 id=&#34;基命令&#34;&gt;基命令&lt;/h2&gt;
+
+&lt;p&gt;首先创建一个基命令&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package cmd
+
+import (
+    &amp;quot;github.com/spf13/cobra&amp;quot;
+)
+
+var RootCmd = &amp;amp;cobra.Command{
+    Use: &amp;quot;gonne&amp;quot;,
+    Run: func(cmd *cobra.Command, args []string) {
+        println(&amp;quot;gonne is my ai friend&amp;quot;)
+    },
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;使用命令&lt;/p&gt;
+
+&lt;p&gt;在main方法中调用命令，恩，就这么简单&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;os&amp;quot;
+
+    &amp;quot;lastsweetop.com/cmd&amp;quot;
+)
+
+func main() {
+    if err := cmd.RootCmd.Execute(); err != nil {
+        fmt.Println(err)
+        os.Exit(1)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在命令行输入 gonne，就会执行基命令中Run方法&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;appletekiMacBook-Pro:src apple$ gonne
+gonne is my ai friend
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;子命令&#34;&gt;子命令&lt;/h2&gt;
+
+&lt;p&gt;在基命令上增加子命令也相当简单，根本无需在基命令和main方法中写任何代码，只需新建一个go文件，多个子命令间也是相互独立的，多么优雅的代码，告别各种case&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package cmd
+
+import &amp;quot;github.com/spf13/cobra&amp;quot;
+
+func init() {
+    RootCmd.AddCommand(versionCmd)
+}
+
+var versionCmd = &amp;amp;cobra.Command{
+    Use:   &amp;quot;version&amp;quot;,
+    Short: &amp;quot;Print the version number of Gonne&amp;quot;,
+    Run: func(cmd *cobra.Command, args []string) {
+        println(&amp;quot;gonne version is 0.0.1&amp;quot;)
+    },
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;效果如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;appletekiMacBook-Pro:src apple$ gonne version
+gonne version is 0.0.1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;启动命令&#34;&gt;启动命令&lt;/h2&gt;
+
+&lt;p&gt;我们先来个非后台运行的启动命令&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func init() {
+    startCmd := &amp;amp;cobra.Command{
+        Use:   &amp;quot;start&amp;quot;,
+        Short: &amp;quot;Start Gonne&amp;quot;,
+        Run: func(cmd *cobra.Command, args []string) {
+            startHttp()
+        },
+    }
+    startCmd.Flags().BoolVarP(&amp;amp;daemon, &amp;quot;deamon&amp;quot;, &amp;quot;d&amp;quot;, false, &amp;quot;is daemon?&amp;quot;)
+    RootCmd.AddCommand(startCmd)
+
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;startHttp方法启动一个http的web服务&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func startHttp() {
+    http.HandleFunc(&amp;quot;/&amp;quot;, func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, &amp;quot;Hello cmd!&amp;quot;)
+    })
+    if err := http.ListenAndServe(&amp;quot;:9090&amp;quot;, nil); err != nil {
+        log.Fatal(&amp;quot;ListenAndServe: &amp;quot;, err)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;现在通过gonne start便可以启动一个web服务了，但是程序停留在命令行，如果ctrl+C程序也会终止了&lt;/p&gt;
+
+&lt;h2 id=&#34;命令行参数&#34;&gt;命令行参数&lt;/h2&gt;
+
+&lt;p&gt;如果想要后台启动，那么得让start命令知道是要后台运行的，参照docker命令行的方式就是加上-d，给一个命令添加参数的判断只需很少的代码&lt;/p&gt;
+
+&lt;p&gt;改造一下代码&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func init() {
+    var daemon bool
+    startCmd := &amp;amp;cobra.Command{
+        Use:   &amp;quot;start&amp;quot;,
+        Short: &amp;quot;Start Gonne&amp;quot;,
+        Run: func(cmd *cobra.Command, args []string) {
+            if daemon {
+        fmt.Println(&amp;quot;gonne start&amp;quot;,daemon)        
+            }
+            startHttp()
+        },
+    }
+    startCmd.Flags().BoolVarP(&amp;amp;daemon, &amp;quot;deamon&amp;quot;, &amp;quot;d&amp;quot;, false, &amp;quot;is daemon?&amp;quot;)
+    RootCmd.AddCommand(startCmd)
+
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;命令行输入&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;gonne start -d
+1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这样就可以接收到-d参数了，这里要说明一下，第一个参数取值，第二个参数代码&amp;ndash;deamon，第三个参数代表-d ,第四个参数代码不加-d时候的默认值，第五参数是描述&lt;/p&gt;
+
+&lt;h2 id=&#34;后台运行&#34;&gt;后台运行&lt;/h2&gt;
+
+&lt;p&gt;后台运行其实这里使用的是一个巧妙的方法，就是使用系统的command命令行启动自己的命令行输入，是不是有点绕，再看看看改造后的代码&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Run: func(cmd *cobra.Command, args []string) {
+  if daemon {
+    command := exec.Command(&amp;quot;gonne&amp;quot;, &amp;quot;start&amp;quot;)
+    command.Start()
+    fmt.Printf(&amp;quot;gonne start, [PID] %d running...\n&amp;quot;, command.Process.Pid)
+    ioutil.WriteFile(&amp;quot;gonne.lock&amp;quot;, []byte(fmt.Sprintf(&amp;quot;%d&amp;quot;, command.Process.Pid)), 0666)
+    daemon = false
+    os.Exit(0)
+  } else {
+    fmt.Println(&amp;quot;gonne start&amp;quot;)
+  }
+  startHttp()
+},
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;用exec的Command启动刚输入的gonne start -d，就会拦截到这条请求然后通过gonne start,但是程序就不会停留在命令行了，然后发现http服务还在，还可以访问。&lt;/p&gt;
+
+&lt;p&gt;还有一点就是把pid输出到gonne.lock文件，给停止的程序调用&lt;/p&gt;
+
+&lt;h2 id=&#34;终止后台程序&#34;&gt;终止后台程序&lt;/h2&gt;
+
+&lt;p&gt;有了之前的操作后，停止就简单多了&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func init() {
+    RootCmd.AddCommand(stopCmd)
+}
+
+var stopCmd = &amp;amp;cobra.Command{
+    Use:   &amp;quot;stop&amp;quot;,
+    Short: &amp;quot;Stop Gonne&amp;quot;,
+    Run: func(cmd *cobra.Command, args []string) {
+        strb, _ := ioutil.ReadFile(&amp;quot;gonne.lock&amp;quot;)
+        command := exec.Command(&amp;quot;kill&amp;quot;, string(strb))
+        command.Start()
+        println(&amp;quot;gonne stop&amp;quot;)
+    },
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;执行 gonne stop 即可终止之前启动的http服务&lt;/p&gt;
+
+&lt;h2 id=&#34;help命令&#34;&gt;help命令&lt;/h2&gt;
+
+&lt;p&gt;好了，关于命令的操作讲完了，再看看cobra给的福利，自动生成的help命令&lt;/p&gt;
+
+&lt;p&gt;这个不需要你做什么操作，只需要输入gonne help,相关信息已经帮你生产好了。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;appletekiMacBook-Pro:andev apple$ gonne help
+Usage:
+  gonne [flags]
+  gonne [command]
+
+Available Commands:
+  help        Help about any command
+  start       Start Gonne
+  stop        Stop Gonne
+  version     Print the version number of Gonne
+
+Flags:
+  -h, --help   help for gonne
+
+Use &amp;quot;gonne [command] --help&amp;quot; for more information about a command.
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;当然，子命令也有&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;appletekiMacBook-Pro:andev apple$ gonne start -h
+Start Gonne
+
+Usage:
+  gonne start [flags]
+
+Flags:
+  -d, --deamon   is daemon?
+  -h, --help     help for start
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;自此告别各种脚本&lt;/p&gt;
+
+&lt;h1 id=&#34;flag&#34;&gt;flag&lt;/h1&gt;
+
+&lt;p&gt;golang自带的一个解析命令行参数的方法或库，是经常用的。&lt;/p&gt;
+
+&lt;h2 id=&#34;结构体和默认实例&#34;&gt;结构体和默认实例&lt;/h2&gt;
+
+&lt;p&gt;首先&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type FlagSet struct {
+    // Usage is the function called when an error occurs while parsing flags.
+    // The field is a function (not a method) that may be changed to point to
+    // a custom error handler. What happens after Usage is called depends
+    // on the ErrorHandling setting; for the command line, this defaults
+    // to ExitOnError, which exits the program after calling Usage.
+    Usage func()
+
+    name          string
+    parsed        bool
+    actual        map[string]*Flag
+    formal        map[string]*Flag
+    args          []string // arguments after flags
+    errorHandling ErrorHandling
+    output        io.Writer // nil means stderr; use out() accessor
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;一个flag的集合&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Flag struct {
+    Name     string // flag在命令行中的名字
+    Usage    string // 帮助信息
+    Value    Value  // 要设置的值
+    DefValue string // 默认值（文本格式），用于使用信息
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;flag库中使用了CommandLine对flagset进行了初始化，默认传入参数是启动文件名&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;var CommandLine = NewFlagSet(os.Args[0], ExitOnError)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;返回一个flagset的指针。&lt;/p&gt;
+
+&lt;h2 id=&#34;定义&#34;&gt;定义&lt;/h2&gt;
+
+&lt;p&gt;定义 flags 有三种方式&lt;/p&gt;
+
+&lt;p&gt;1）flag.Xxx()，其中 Xxx 可以是 Int、String 等；返回一个相应类型的指针，如：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;var ip = flag.Int(&amp;quot;flagname&amp;quot;, 1234, &amp;quot;help message for flagname&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这种模式其实是对第二种模式的一种封装，是一种最顶层的使用，其实是使用默认的CommandLine实例调用下面这种方式声明的XxxVar（）函数。对应的第一个变量直接new一个，其实这个是用于存储默认值的。&lt;/p&gt;
+
+&lt;p&gt;2）flag.XxxVar()，将 flag 绑定到一个变量上，如：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;var flagvar int
+flag.IntVar(&amp;amp;flagvar, &amp;quot;flagname&amp;quot;, 1234, &amp;quot;help message for flagname&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这种模式其实是对自定义的一种封装，其实就是调用了var（）函数。&lt;/p&gt;
+
+&lt;p&gt;3）还可以创建自定义 flag，只要实现 flag.Value 接口即可（要求 receiver 是指针），这时候可以通过如下方式定义该 flag：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;flag.Var(&amp;amp;flagVal, &amp;quot;name&amp;quot;, &amp;quot;help message for flagname&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这边才是真正的实现，其实就是将启动参数按着flag的结构体存储到flagset种的formal这个map中去，最后给parse去解析。第一个参数是一个value的接口&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Value interface {
+    String() string
+    Set(string) error
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;用于接收定义类型的结构体对象指针，最终找到对应方法的实现。&lt;/p&gt;
+
+&lt;p&gt;自定义这个可以举个例子加强理解&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type sliceValue []string
+
+func newSliceValue(vals []string, p *[]string) *sliceValue {
+    *p = vals
+    return (*sliceValue)(p)
+}
+
+func (s *sliceValue) Set(val string) error {
+    *s = sliceValue(strings.Split(val, &amp;quot;,&amp;quot;))
+    return nil
+}
+
+func (s *sliceValue) Get() interface{} { return []string(*s) }
+
+func (s *sliceValue) String() string { return strings.Join([]string(*s), &amp;quot;,&amp;quot;) }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;之后可以这么使用：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;var languages []string
+flag.Var(newSliceValue([]string{}, &amp;amp;languages), &amp;quot;slice&amp;quot;, &amp;quot;I like programming `languages`&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这样通过 -slice &amp;ldquo;go,php&amp;rdquo; 这样的形式传递参数，languages 得到的就是 [go, php]。&lt;/p&gt;
+
+&lt;p&gt;flag 中对 Duration 这种非基本类型的支持，使用的就是类似这样的方式。&lt;/p&gt;
+
+&lt;h2 id=&#34;解析&#34;&gt;解析&lt;/h2&gt;
+
+&lt;p&gt;在所有的 flag 定义完成之后，可以通过调用 flag.Parse() 进行解析。&lt;/p&gt;
+
+&lt;p&gt;命令行 flag 的语法有如下三种形式：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;-flag // 只支持bool类型
+-flag=x
+-flag x // 只支持非bool类型
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;实例&#34;&gt;实例&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;flag&amp;quot;
+    &amp;quot;fmt&amp;quot;
+)
+
+var inputName = flag.String(&amp;quot;name&amp;quot;, &amp;quot;CHENJIAN&amp;quot;, &amp;quot;Input Your Name.&amp;quot;)
+var inputAge = flag.Int(&amp;quot;age&amp;quot;, 27, &amp;quot;Input Your Age&amp;quot;)
+var inputGender = flag.String(&amp;quot;gender&amp;quot;, &amp;quot;female&amp;quot;, &amp;quot;Input Your Gender&amp;quot;)
+var inputFlagvar int
+
+func Init() {
+    flag.IntVar(&amp;amp;inputFlagvar, &amp;quot;flagname&amp;quot;, 1234, &amp;quot;Help&amp;quot;)
+}
+func main() {
+    Init()
+    flag.Parse()
+    // func Args() []string
+    // Args returns the non-flag command-line arguments.
+    // func NArg() int
+    // NArg is the number of arguments remaining after flags have been processed.
+    fmt.Printf(&amp;quot;args=%s, num=%d\n&amp;quot;, flag.Args(), flag.NArg())
+    for i := 0; i != flag.NArg(); i++ {
+        fmt.Printf(&amp;quot;arg[%d]=%s\n&amp;quot;, i, flag.Arg(i))
+    }
+    fmt.Println(&amp;quot;name=&amp;quot;, *inputName)
+    fmt.Println(&amp;quot;age=&amp;quot;, *inputAge)
+    fmt.Println(&amp;quot;gender=&amp;quot;, *inputGender)
+    fmt.Println(&amp;quot;flagname=&amp;quot;, inputFlagvar)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;操作:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;go build example_flag.go
+
+./example_flag -h
+
+&amp;lt;&amp;lt;&#39;COMMENT&#39;
+Usage of ./exampleFlag:
+  -age int
+        Input Your Age (default 27)
+  -flagname int
+        Help (default 1234)
+  -gender string
+        Input Your Gender (default &amp;quot;female&amp;quot;)
+  -name string
+        Input Your Name. (default &amp;quot;CHENJIAN&amp;quot;)
+COMMENT
+
+ ./example_flag chenjian
+
+ &amp;lt;&amp;lt;&#39;COMMENT&#39;
+args=[chenjian], num=1
+arg[0]=chenjian
+name= CHENJIAN
+age= 27
+gender= female
+flagname= 1234
+COMMENT
+
+./example_flag -name balbalba -age 1111 -flagname=12333 dfdf xccccc eette
+
+ &amp;lt;&amp;lt;&#39;COMMENT&#39;
+args=[dfdf xccccc eette], num=3
+arg[0]=dfdf
+arg[1]=xccccc
+arg[2]=eette
+name= balbalba
+age= 1111
+gender= female
+flagname= 12333
+COMMENT
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;kingpin&#34;&gt;kingpin&lt;/h1&gt;
+
+&lt;p&gt;功能比flag库强大，用法差不多，相比flag库，最重要的一点就是支持不加&amp;rdquo;-&amp;ldquo;的调用。&lt;/p&gt;
+
+&lt;p&gt;下面实例就说明了大部分的用法&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+import (
+    &amp;quot;os&amp;quot;
+    &amp;quot;strings&amp;quot;
+    &amp;quot;gopkg.in/alecthomas/kingpin.v2&amp;quot;
+)
+var (
+    app          = kingpin.New(&amp;quot;chat&amp;quot;, &amp;quot;A command-line chat application.&amp;quot;)
+    //bool类型参数，可以通过 --debug使该值为true
+    debug        = app.Flag(&amp;quot;debug&amp;quot;, &amp;quot;Enable debug mode.&amp;quot;).Bool()
+    //识别 ./cli register
+    register     = app.Command(&amp;quot;register&amp;quot;, &amp;quot;Register a new user.&amp;quot;)
+    // ./cli register之后的参数，可通过./cli register gggle 123456 传入name为gggle pwd为123456 参数类型为字符串
+    registerName = register.Arg(&amp;quot;name&amp;quot;, &amp;quot;Name for user.&amp;quot;).Required().String()
+    registerPwd  = register.Arg(&amp;quot;pwd&amp;quot;, &amp;quot;pwd of user.&amp;quot;).Required().String()
+    //识别 ./cli post
+    post         = app.Command(&amp;quot;post&amp;quot;, &amp;quot;Post a message to a channel.&amp;quot;)
+    //可以通过 ./cli post --image file  或者 ./cli post -i file 传入文件
+    postImage    = post.Flag(&amp;quot;image&amp;quot;, &amp;quot;Image to post.&amp;quot;).Short(&#39;i&#39;).String()
+    //可以通过./cli post txt 传入字符串，有默认值&amp;quot;hello world&amp;quot;
+    postText     = post.Arg(&amp;quot;text&amp;quot;, &amp;quot;Text to post.&amp;quot;).Default(&amp;quot;hello world&amp;quot;).Strings()
+)
+func main() {
+    //从os接收参数传给kingpin处理
+    switch kingpin.MustParse(app.Parse(os.Args[1:])) {
+    case register.FullCommand():
+        println(&amp;quot;name:&amp;quot; + *registerName)
+        println(&amp;quot;pwd:&amp;quot; + *registerPwd)
+    case post.FullCommand():
+        println((*postImage))
+        text := strings.Join(*postText, &amp;quot; &amp;quot;)
+        println(&amp;quot;Post:&amp;quot;, text)
+    }
+    if *debug == true {
+        println(&amp;quot;debug&amp;quot;)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;pflag&#34;&gt;Pflag&lt;/h1&gt;
+
+&lt;p&gt;Docker源码中使用了Pflag，安装spf13/pflag&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;go get github.com/spf13/pflag
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;使用&#34;&gt;使用&lt;/h2&gt;
+
+&lt;p&gt;基本的使用和“flag包”基本相同&lt;/p&gt;
+
+&lt;p&gt;新增:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;添加shorthand参数
+// func IntP(name, shorthand string, value int, usage string) *int
+// IntP is like Int, but accepts a shorthand letter that can be used after a single dash.
+var ip= flag.IntP(&amp;quot;flagname&amp;quot;, &amp;quot;f&amp;quot;, 1234, &amp;quot;help message&amp;quot;)
+设置非必须选项的默认值
+var ip = flag.IntP(&amp;quot;flagname&amp;quot;, &amp;quot;f&amp;quot;, 1234, &amp;quot;help message&amp;quot;)
+flag.Lookup(&amp;quot;flagname&amp;quot;).NoOptDefVal = &amp;quot;4321&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;结果如下图:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;Parsed Arguments    Resulting Value
+–flagname=1357  ip=1357
+–flagname   ip=4321
+[nothing]   ip=1234
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;命令行语法&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;--flag    // 布尔flags, 或者非必须选项默认值
+--flag x  // 只对于没有默认值的flags
+--flag=x
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;flag定制化&#34;&gt;flag定制化&lt;/h2&gt;
+
+&lt;p&gt;例如希望使用“-”，“_”或者“.”，像&amp;ndash;my-flag == &amp;ndash;my_flag == &amp;ndash;my.flag:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func wordSepNormalizeFunc(f *pflag.FlagSet, name string) pflag.NormalizedName {
+    from := []string{&amp;quot;-&amp;quot;, &amp;quot;_&amp;quot;}
+    to := &amp;quot;.&amp;quot;
+    for _, sep := range from {
+        name = strings.Replace(name, sep, to, -1)
+    }
+    return pflag.NormalizedName(name)
+}
+
+myFlagSet.SetNormalizeFunc(wordSepNormalizeFunc)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;例如希望联合两个参数,像&amp;ndash;old-flag-name == &amp;ndash;new-flag-name:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func aliasNormalizeFunc(f *pflag.FlagSet, name string) pflag.NormalizedName {
+    switch name {
+    case &amp;quot;old-flag-name&amp;quot;:
+        name = &amp;quot;new-flag-name&amp;quot;
+        break
+    }
+    return pflag.NormalizedName(name)
+}
+
+myFlagSet.SetNormalizeFunc(aliasNormalizeFunc)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;弃用flag或者它的shothand&lt;/p&gt;
+
+&lt;p&gt;例如希望弃用名叫badflag参数，并告知开发者使用代替参数:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// deprecate a flag by specifying its name and a usage message
+flags.MarkDeprecated(&amp;quot;badflag&amp;quot;, &amp;quot;please use --good-flag instead&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;从而当使用badflag时，会提示Flag &amp;ndash;badflag has been deprecated, please use &amp;ndash;good-flag instead&lt;/p&gt;
+
+&lt;p&gt;例如希望保持使用noshorthandflag，但想弃用简称n:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// deprecate a flag shorthand by specifying its flag name and a usage message
+flags.MarkShorthandDeprecated(&amp;quot;noshorthandflag&amp;quot;, &amp;quot;please use --noshorthandflag only&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;从而当使用n时，会提示Flag shorthand -n has been deprecated, please use &amp;ndash;noshorthandflag only&lt;/p&gt;
+
+&lt;p&gt;隐藏flag&lt;/p&gt;
+
+&lt;p&gt;例如希望保持使用secretFlag参数，但在help文档中隐藏这个参数的说明：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;// hide a flag by specifying its name
+flags.MarkHidden(&amp;quot;secretFlag&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;关闭flags的排序&lt;/p&gt;
+
+&lt;p&gt;例如希望关闭对help文档或使用说明的flag排序：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;flags.BoolP(&amp;quot;verbose&amp;quot;, &amp;quot;v&amp;quot;, false, &amp;quot;verbose output&amp;quot;)
+flags.String(&amp;quot;coolflag&amp;quot;, &amp;quot;yeaah&amp;quot;, &amp;quot;it&#39;s really cool flag&amp;quot;)
+flags.Int(&amp;quot;usefulflag&amp;quot;, 777, &amp;quot;sometimes it&#39;s very useful&amp;quot;)
+flags.SortFlags = false
+flags.PrintDefaults()
+输出：
+
+-v, --verbose           verbose output
+    --coolflag string   it&#39;s really cool flag (default &amp;quot;yeaah&amp;quot;)
+    --usefulflag int    sometimes it&#39;s very useful (default 777)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;同时使用flag包和pflag包&#34;&gt;同时使用flag包和pflag包&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;import (
+    goflag &amp;quot;flag&amp;quot;
+    flag &amp;quot;github.com/spf13/pflag&amp;quot;
+)
+
+var ip *int = flag.Int(&amp;quot;flagname&amp;quot;, 1234, &amp;quot;help message for flagname&amp;quot;)
+
+func main() {
+    flag.CommandLine.AddGoFlagSet(goflag.CommandLine)
+    flag.Parse()
 }
 &lt;/code&gt;&lt;/pre&gt;</description>
         </item>
