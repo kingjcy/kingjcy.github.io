@@ -6,13 +6,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <meta name="author" content="fatedier">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<meta name="description" content="node_exporter 主要用于 LINUX 系统监控, 用 Golang 编写，是我们最常用于监控服务器资源的探针。">
+<meta name="description" content="一个完整的监控体系包括：采集数据、分析存储数据、展示数据、告警以及自动化处理、监控工具自身的安全机制，我们来看看如何使用prometheus进行基础设施监控架构。">
 <meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
-<meta property="og:title" content="监控metrics系列---- Prometheus Node Exporter - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+<meta property="og:title" content="监控metrics系列---- Infrastructure监控方案 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
 
 <title>
     
-    监控metrics系列---- Prometheus Node Exporter
+    监控metrics系列---- Infrastructure监控方案
     
 </title>
 
@@ -66,161 +66,86 @@
 
             <header>
                 <div class="post-date">
-                    2018年03月19日 
+                    2018年06月13日 
                 </div>
-                <h1 class="post-title">监控metrics系列---- Prometheus Node Exporter</h1>
+                <h1 class="post-title">监控metrics系列---- Infrastructure监控方案</h1>
             </header>
 
             <div class="post-content">
-                <p>node_exporter 主要用于 LINUX 系统监控, 用 Golang 编写，是我们最常用于监控服务器资源的探针。</p>
+                <p>一个完整的监控体系包括：采集数据、分析存储数据、展示数据、告警以及自动化处理、监控工具自身的安全机制，我们来看看如何使用prometheus进行基础设施监控架构。</p>
 
-<h1 id="安装">安装</h1>
+<h1 id="架构">架构</h1>
 
-<p>1、二进制</p>
+<p>首先可以看一下官方给出的架构方案</p>
 
-<p><a href="https://github.com/prometheus/node_exporter/releases/download/v0.14.0/node_exporter-0.14.0.linux-amd64.tar.gz">https://github.com/prometheus/node_exporter/releases/download/v0.14.0/node_exporter-0.14.0.linux-amd64.tar.gz</a></p>
+<p><img src="/media/monitor/prometheus/monitor-scheme/20190315.png" alt="" /></p>
 
-<p>我们可以直接使用 ./node_exporter -h 查看运行选项，./node_exporter 运行 Node Exporter</p>
+<p>这边对架构正常使用做一个补充说明：</p>
 
-<p>2、docker</p>
+<ol>
+<li>grafana是无状态的，可以多部署几个通过nginx来负载均衡，通过不同的端口去访问不同的thanos-query。</li>
+<li>thanos-query查询对应的prometheus集群，获取数据。这边使用thanos来完成了prometheus集群功能，具体看<a href="/post/monitor/metrics/prometheus/cluster/thanos/">thanos的实现</a>。</li>
+<li>prometheus使用hashmod来实现对数据采集的分片，把数据放到不同的prometheus的节点上，实现集群，这个没有使用federation，因为联合在大规模的情况下，瓶颈比较严重，还有目前只是单采集模式，可以设置双采，使用vip+keepalive来实现主备切换。</li>
+<li>prometheus去采集数据并不是直接使用target连接，使用nginx进行了转发采集，使用prometheus的relabel来设置<strong>address</strong>,使得所有采集都连接nginx，然后使用target作为参数，最终访问target地址，获取数据，这样可以将nginx的网络打通，就能实现跨机房跨区域采集了，后面有网络问题也是处理nginx所在的机器就好。这两步具体可以查看<a href="/post/monitor/metrics/prometheus/prometheus">prometheus的实现</a>。</li>
+<li>具体的采集<a href="/post/monitor/metrics/prometheus/monitor-scheme/infrastructure-base/#监控内容">监控内容</a>可以通过探针的部署使用来区分。</li>
+<li>prometheus的数据可以提供给第三方使用，可以直接将数据通过<a href="/post/monitor/metrics/prometheus/prometheus/#adapter">adapter</a>推送的kafka，给其他使用方消费</li>
+<li><a href="/post/monitor/metrics/prometheus/prometheus-principle/#remote-storage">远程存储</a>这一块，直接使用了remote read／write，当原生数据库不支持的时候，需要使用adapter进行转化发送。其实大部分我们使用的<a href="/post/monitor/metrics/prometheus/cluster/thanos">prometheus的扩展</a>来做存储查询。</li>
+<li>告警直接根据rule文件推送的<a href="/post/monitor/metrics/prometheus/alertmanager/">alartmanager</a>，这个alartmanager是一个分布式的，在prometheus的yaml文件中都要配置上，alartmanager也可以将数据推送给mq（需要改造），正常可以使用kafka，给一些告警平台进行消费使用。rule文件直接使用consul的注册信息生成，注册信息是后台管理的。</li>
+<li><a href="/post/middleware/serverdiscovery/sd/">动态注册，服务发现</a>这一块，可以看见，使用的是consul+consul-template,使用consul注册，并且保存注册信息，这边使用了consul的k/v模式（为什么使用这个下面有说明），然后使用consul-template这个工具将注册的信息生成json文件给prometheus的file_sd_condig使用。使用crontab 来定时更新文件，实现配置文件的自动加载。</li>
+</ol>
 
-<pre><code>docker run -d -p 9100:9100 \
-  -v &quot;/proc:/host/proc:ro&quot; \
-  -v &quot;/sys:/host/sys:ro&quot; \
-  -v &quot;/:/rootfs:ro&quot; \
-  --net=&quot;host&quot; \
-  quay.io/prometheus/node-exporter \
-    -collector.procfs /host/proc \
-    -collector.sysfs /host/sys \
-    -collector.filesystem.ignored-mount-points &quot;^/(sys|proc|dev|host|etc)($|/)&quot;
-</code></pre>
+<p>大体架构如此，就可以实现一套物理环境的基础设施监控。</p>
 
-<h1 id="源码原理解析">源码原理解析</h1>
+<blockquote>
+<p>2020.08.08</p>
+</blockquote>
 
-<p>node探针进程启动的时候，会调用collector的package，就会初始化所有的collect注册到</p>
+<p><strong>NOTE：基于thanos查询慢，VM优秀的写入和查询性能，已经使用远程存储将数据都存储到VM进行查询，所以prometheus将数据都写到VM</strong>，VM具体查看<a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">VM的实现</a>。</p>
 
-<pre><code>factories      = make(map[string]func() (Collector, error))
-collectorState = make(map[string]*bool)
-</code></pre>
+<h1 id="设计原则">设计原则</h1>
 
-<p>这个中，根据初始化中传递的参数，确定采集是否开启，处理函数是什么</p>
+<ul>
+<li>监控的是基础设施，目的是为了解决问题，没有必要朝着大而全的方向去做，对于没有必要采集的指标，不浪费资源。</li>
+<li>需要处理的告警才发出来，发出来的是必须要处理的告警</li>
+<li>业务系统和监控分离，哪怕业务系统挂了，监控也不能挂，监控挂了，不影响业务系统的运行。</li>
+</ul>
 
-<p>然后会创建一个结构体</p>
+<h1 id="监控内容">监控内容</h1>
 
-<pre><code>type nodeCollector struct {
-    Collectors map[string]Collector
-}
-</code></pre>
+<p>具体见监控内容可以查看每个探针，我们来看一下prometheus的<a href="/post/monitor/metrics/prometheus/exporter/">exporter</a>。</p>
 
-<p>将开启采集的数据，创建对应的结构体，其实也是一个实现interface的结构，最后存储在这个结构中</p>
+<h2 id="采集组件">采集组件</h2>
 
-<p>然后将这些collector进行注册，启动监听端口和一些其他设置</p>
+<p>prometheus的exporter都是独立的，简单几个使用还是不错，解耦还开箱即用，但是数量多了，运维的压力变大了，例如探针管理升级，运行情况的检查等，有几种方案解决</p>
 
-<p>然后就是调用client_golang中的describe和collect的重写函数</p>
+<ul>
+<li>做一个管理平台，类似于我们的后台系统，专门对exporter进行管理</li>
+<li>用一个主进程整合几个探针，每个探针依旧是原来的版本</li>
+<li>用telegraf来支持各种类型的input，all in one</li>
+</ul>
 
-<p>在collect中启动多协程进行每个类型的处理</p>
+<h1 id="prometheus使用总结">prometheus使用总结</h1>
 
-<p>调用update函数实现数据赋值与采集</p>
+<blockquote>
+<p>consul的service的瓶颈问题</p>
+</blockquote>
 
-<h1 id="开启默认关闭的采集">开启默认关闭的采集</h1>
+<p>之前使用consul的services注册job的服务信息，然后使用consul-template动态生成prometheus的配置文件。然后prometheus通过查询consul中注册的信息正则匹配来完成prometheus的采集操作
+但是这样当job量很大的时候，比如有20组job，一组job130的target的的时候，就会出现consul请求api瓶颈</p>
 
-<p>我们可以使用 &ndash;collectors.enabled 运行参数指定 node_exporter 收集的功能模块, 如果不指定，将使用默认模块。</p>
+<p>现在使用consul的k/v格式进行注册，直接通过IP：port作为key，对应的label作为vaule，然后使用consul-template动态生成discovery的json文件，然后prometheus使用file sd来发现这个json文件，相当于将对应的json的内容写到了prometheus的配置文件中去，这个时候五分钟consul-template动态生成一次，不会每次都去请求，这样consul的压力就几乎没有了，经过测试可以达到5000个target，prometheus的shard极限，对consul依旧没有什么压力，现在主要瓶颈在于json文件大小，filesd的压力，可以继续优化成多个文件。</p>
 
-<p>比如开启ntp采集</p>
+<blockquote>
+<p>自动刷新配置文件</p>
+</blockquote>
 
-<pre><code>./node_exporter --collector.ntp
-</code></pre>
-
-<p>输出相关指标：</p>
-
-<pre><code># HELP node_ntp_leap NTPD leap second indicator, 2 bits.
-# TYPE node_ntp_leap gauge
-node_ntp_leap 3
-# HELP node_ntp_offset_seconds ClockOffset between NTP and local clock.
-# TYPE node_ntp_offset_seconds gauge
-node_ntp_offset_seconds -1.6239e-05
-# HELP node_ntp_reference_timestamp_seconds NTPD ReferenceTime, UNIX timestamp.
-# TYPE node_ntp_reference_timestamp_seconds gauge
-node_ntp_reference_timestamp_seconds 0
-# HELP node_ntp_root_delay_seconds NTPD RootDelay.
-# TYPE node_ntp_root_delay_seconds gauge
-node_ntp_root_delay_seconds 0
-# HELP node_ntp_root_dispersion_seconds NTPD RootDispersion.
-# TYPE node_ntp_root_dispersion_seconds gauge
-node_ntp_root_dispersion_seconds 0.060363769
-# HELP node_ntp_rtt_seconds RTT to NTPD.
-# TYPE node_ntp_rtt_seconds gauge
-node_ntp_rtt_seconds 8.6646e-05
-# HELP node_ntp_sanity NTPD sanity according to RFC5905 heuristics and configured limits.
-# TYPE node_ntp_sanity gauge
-node_ntp_sanity 0
-# HELP node_ntp_stratum NTPD stratum.
-# TYPE node_ntp_stratum gauge
-node_ntp_stratum 0
-</code></pre>
-
-<h1 id="计算表达式">计算表达式</h1>
-
-<p>收集到 node_exporter 的数据后，我们可以使用 PromQL 进行一些业务查询和监控，下面是一些比较常见的查询</p>
-
-<p>CPU 各 mode 占比率</p>
-
-<pre><code>avg by (instance, mode) (irate(node_cpu_seconds_total{instance=&quot;xxx&quot;}[5m])) * 100
-</code></pre>
-
-<p>cpu的使用率</p>
-
-<pre><code>avg(irate(node_cpu_seconds_total{ip=&quot;$host&quot;}[1m]))by (mode)
-</code></pre>
-
-<p>node_cpu_seconds_total采集出来的是cpu使用时间的累加，在linux机器上cpu的使用就是这样记录的，所以可以使用速率的方式来求使用率，GPU貌似不是这样记录的。并不是递增的。因为可能是多核的，所以要使用avg平均出所有核。</p>
-
-<p>pod的cpu使用率</p>
-
-<pre><code>sum(rate(container_cpu_usage_seconds_total{image!=&quot;&quot;, container_name!=&quot;POD&quot;}[5m])) by (pod_name,sn_pod_ip,container_name,namespace) / sum(container_spec_cpu_quota{image!=&quot;&quot;, container_name!=&quot;POD&quot;}/container_spec_cpu_period{image!=&quot;&quot;, container_name!=&quot;POD&quot;}) by (pod_name,sn_pod_ip,container_name,namespace)
-</code></pre>
-
-<p>机器平均负载</p>
-
-<pre><code>node_load1{instance=&quot;xxx&quot;} // 1分钟负载
-node_load5{instance=&quot;xxx&quot;} // 5分钟负载
-node_load15{instance=&quot;xxx&quot;} // 15分钟负载
-</code></pre>
-
-<p>内存使用率</p>
-
-<pre><code>100 - ((node_memory_MemFree{instance=&quot;xxx&quot;}+node_memory_Cached{instance=&quot;xxx&quot;}+node_memory_Buffers{instance=&quot;xxx&quot;})/node_memory_MemTotal) * 100
-</code></pre>
-
-<p>磁盘使用率</p>
-
-<pre><code>100 - node_filesystem_free{instance=&quot;xxx&quot;,fstype!~&quot;rootfs|selinuxfs|autofs|rpc_pipefs|tmpfs|udev|none|devpts|sysfs|debugfs|fuse.*&quot;} / node_filesystem_size{instance=&quot;xxx&quot;,fstype!~&quot;rootfs|selinuxfs|autofs|rpc_pipefs|tmpfs|udev|none|devpts|sysfs|debugfs|fuse.*&quot;} * 100
-或者你也可以直接使用 {fstype=&quot;xxx&quot;} 来指定想查看的磁盘信息
-</code></pre>
-
-<p>网络 IO</p>
-
-<pre><code>// 上行带宽
-sum by (instance) (irate(node_network_receive_bytes{instance=&quot;xxx&quot;,device!~&quot;bond.*?|lo&quot;}[5m])/128)
-
-// 下行带宽
-sum by (instance) (irate(node_network_transmit_bytes{instance=&quot;xxx&quot;,device!~&quot;bond.*?|lo&quot;}[5m])/128)
-</code></pre>
-
-<p>网卡出/入包</p>
-
-<pre><code>// 入包量
-sum by (instance) (rate(node_network_receive_bytes{instance=&quot;xxx&quot;,device!=&quot;lo&quot;}[5m]))
-
-// 出包量
-sum by (instance) (rate(node_network_transmit_bytes{instance=&quot;xxx&quot;,device!=&quot;lo&quot;}[5m]))
-</code></pre>
+<p>由于Prometheus是“拉”的方式主动监测，所以需要在server端指定被监控节点的列表。当被监控的节点增多之后，每次增加节点都需要更改配置文件，非常麻烦，我这里用consul-template+consul动态生成配置文件，这种方式同样适用于其他需要频繁更改配置文件的服务。另外一种解决方案是etcd+confd，基本现在主流的动态配置系统分这两大阵营。consul-template的定位和confd差不多，不过它是consul自家推出的模板系统。</p>
             </div>
             
             <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
                 <div>
                     <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
-                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/node-exporter/">https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/node-exporter/</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/monitor-scheme/infrastructure-base/">https://kingjcy.github.io/post/monitor/metrics/prometheus/monitor-scheme/infrastructure-base/</a>
                     <br />
                     文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
                 </div>
@@ -229,6 +154,13 @@ sum by (instance) (rate(node_network_transmit_bytes{instance=&quot;xxx&quot;,dev
             <aside>
                 
                 <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/infrastructure/">
+                            <i class="fa fa-tags"></i>
+                            Infrastructure
+                        </a>
+                    </li>
                     
                     <li>
                         <a href="/tags/monitor/">
@@ -251,20 +183,6 @@ sum by (instance) (rate(node_network_transmit_bytes{instance=&quot;xxx&quot;,dev
                         </a>
                     </li>
                     
-                    <li>
-                        <a href="/tags/exporter/">
-                            <i class="fa fa-tags"></i>
-                            exporter
-                        </a>
-                    </li>
-                    
-                    <li>
-                        <a href="/tags/node_exporter/">
-                            <i class="fa fa-tags"></i>
-                            node_exporter
-                        </a>
-                    </li>
-                    
                 </ul>
 
                 
@@ -279,13 +197,13 @@ sum by (instance) (rate(node_network_transmit_bytes{instance=&quot;xxx&quot;,dev
                     <ul class="pager">
 
                         
-                        <li class="previous"><a href="/post/monitor/metrics/prometheus/monitor-scheme/k8s-base/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/exporter/server/nginx/"><span aria-hidden="true">&larr;</span> Prev</a></li>
                         
 
                         <li><a href="/post/">All Posts</a></li>
 
                         
-                        <li class="next"><a href="/post/golang/go-ioutil/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/monitor-scheme/monitor-scheme/">Next <span aria-hidden="true">&rarr;</span></a></li>
                         
 
                     </ul>
@@ -304,10 +222,13 @@ sum by (instance) (rate(node_network_transmit_bytes{instance=&quot;xxx&quot;,dev
 
             <nav id="TableOfContents">
 <ul>
-<li><a href="#安装">安装</a></li>
-<li><a href="#源码原理解析">源码原理解析</a></li>
-<li><a href="#开启默认关闭的采集">开启默认关闭的采集</a></li>
-<li><a href="#计算表达式">计算表达式</a></li>
+<li><a href="#架构">架构</a></li>
+<li><a href="#设计原则">设计原则</a></li>
+<li><a href="#监控内容">监控内容</a>
+<ul>
+<li><a href="#采集组件">采集组件</a></li>
+</ul></li>
+<li><a href="#prometheus使用总结">prometheus使用总结</a></li>
 </ul>
 </nav>
         </div>
