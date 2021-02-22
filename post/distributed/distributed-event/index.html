@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="事务提供一种机制将一个活动涉及的所有操作纳入到一个不可分割的执行单元，组成事务的所有操作只有在所有操作均能正常执行的情况下方能提交，只要其中任一操作执行失败，都将导致整个事务的回滚。简单地说，事务提供一种“要么什么都不做，要么做全套（All or Nothing）”机制。
+
+">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="分布式系列---- Event And Distributed Event - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    分布式系列---- Event And Distributed Event
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年04月07日 
+                </div>
+                <h1 class="post-title">分布式系列---- Event And Distributed Event</h1>
+            </header>
+
+            <div class="post-content">
+                <p>事务提供一种机制将一个活动涉及的所有操作纳入到一个不可分割的执行单元，组成事务的所有操作只有在所有操作均能正常执行的情况下方能提交，只要其中任一操作执行失败，都将导致整个事务的回滚。简单地说，事务提供一种“要么什么都不做，要么做全套（All or Nothing）”机制。</p>
+
+<p><img src="/media/distribute/event/event" alt="" /></p>
+
+<h1 id="数据库事务">数据库事务</h1>
+
+<p>数据库事务中的四大特性，ACID:</p>
+
+<p>A:原子性(Atomicity)</p>
+
+<p>一个事务(transaction)中的所有操作，要么全部完成，要么全部不完成，不会结束在中间某个环节。事务在执行过程中发生错误，会被回滚（Rollback）到事务开始前的状态，就像这个事务从来没有执行过一样。
+就像你买东西要么交钱收货一起都执行，要么要是发不出货，就退钱。</p>
+
+<p>C:一致性(Consistency)</p>
+
+<p>事务的一致性指的是在一个事务执行之前和执行之后数据库都必须处于一致性状态。如果事务成功地完成，那么系统中所有变化将正确地应用，系统处于有效状态。如果在事务中出现错误，那么系统中的所有变化将自动地回滚，系统返回到原始状态。</p>
+
+<p>I:隔离性(Isolation)</p>
+
+<p>指的是在并发环境中，当不同的事务同时操纵相同的数据时，每个事务都有各自的完整数据空间。由并发事务所做的修改必须与任何其他并发事务所做的修改隔离。事务查看数据更新时，数据所处的状态要么是另一事务修改它之前的状态，要么是另一事务修改它之后的状态，事务不会查看到中间状态的数据。
+打个比方，你买东西这个事情，是不影响其他人的。</p>
+
+<p>D:持久性(Durability)</p>
+
+<p>指的是只要事务成功结束，它对数据库所做的更新就必须永久保存下来。即使发生系统崩溃，重新启动数据库系统后，数据库还能恢复到事务成功结束时的状态。
+打个比方，你买东西的时候需要记录在账本上，即使老板忘记了那也有据可查。</p>
+
+<p>正常数据库操作：</p>
+
+<pre><code>1. 开始会话
+2. 开始事务
+3. 操作1，2，3，4。。。。
+4. 提交／回滚事务
+5. 完成会话
+</code></pre>
+
+<p>很清晰的看出什么是事务。</p>
+
+<h1 id="分布式事务">分布式事务</h1>
+
+<p>分布式事务就是指事务的参与者、支持事务的服务器、资源服务器以及事务管理器分别位于不同的分布式系统的不同节点之上。简单的说，就是一次大的操作由不同的小操作组成，这些小的操作分布在不同的服务器上，且属于不同的应用，分布式事务需要保证这些小操作要么全部成功，要么全部失败。本质上来说，分布式事务就是为了保证不同数据库的数据一致性。</p>
+
+<h2 id="分布式事务产生的原因">分布式事务产生的原因</h2>
+
+<p>从上面本地事务来看，我们可以看为两块，一个是service产生多个节点（微服务，将服务拆分成多个，然后按一定步骤调用，但是属于一个事务），另一个是resource（多个数据中心，分库分表）产生多个节点。</p>
+
+<p>举个互联网常用的交易业务为例</p>
+
+<p><img src="/media/distribute/event/event1" alt="" /></p>
+
+<p>上图中包含了库存和订单两个独立的微服务，每个微服务维护了自己的数据库。</p>
+
+<p>在交易系统的业务逻辑中，一个商品在下单之前需要先调用库存服务，进行扣除库存，再调用订单服务，创建订单记录。</p>
+
+<p><img src="/media/distribute/event/event2" alt="" /></p>
+
+<p>可以看到，如果多个数据库之间的数据更新没有保证事务，将会导致出现子系统数据不一致，业务出现问题。</p>
+
+<h2 id="分布式事务的难点">分布式事务的难点</h2>
+
+<p>事务的原子性</p>
+
+<pre><code>事务操作跨不同节点，当多个节点某一节点操作失败时，需要保证多节点操作的要么什么都不做，要么做全套（All or Nothing）的原子性。
+</code></pre>
+
+<p>事务的一致性</p>
+
+<pre><code>当发生网络传输故障或者节点故障，节点间数据复制通道中断，在进行事务操作时需要保证数据一致性，保证事务的任何操作都不会使得数据违反数据库定义的约束、触发器等规则。
+</code></pre>
+
+<p>事务的隔离性</p>
+
+<pre><code>事务隔离性的本质就是如何正确处理多个并发事务的读写冲突和写写冲突，因为在分布式事务控制中，可能会出现提交不同步的现象，这个时候就有可能出现“部分已经提交”的事务。
+</code></pre>
+
+<p>此时并发应用访问数据如果没有加以控制，有可能出现“脏读”问题。</p>
+
+<p>这些的最终影响是导致数据出现不一致，可见现在基本的ACID四大特性，已经无法满足我们分布式事务，所以引入了CAP定理，又被叫作布鲁尔定理。</p>
+
+<h2 id="cap-base">CAP&amp;BASE</h2>
+
+<p>在分布式系统中，一致性(Consistency)、可用性(Availability)和分区容忍性(Partition Tolerance)3 个要素最多只能同时满足两个，不可兼得。其中，分区容忍性又是不可或缺的。</p>
+
+<ul>
+<li>C (一致性):分布式环境下，多个节点的数据是否强一致。</li>
+<li>A (可用性)：非故障的节点在合理的时间内返回合理的响应(不是错误和超时的响应)。可用性的两个关键一个是合理的时间，一个是合理的响应。合理的时间指的是请求不能无限被阻塞，应该在合理的时间给出返回。合理的响应指的是系统应该明确返回结果并且结果是正确的，这里的正确指的是比如应该返回50，而不是返回40。</li>
+<li>P (分区容错性):当出现网络分区后，系统能够继续工作。打个比方，这里个集群有多台机器，有台机器网络出现了问题，但是这个集群仍然可以正常工作。</li>
+</ul>
+
+<p>根据时间证明cap不能共存。比舍弃其中一个，看使用场景取舍。比如Cassandra、Dynamo 等，默认优先选择 AP，弱化 C;HBase、MongoDB 等，默认优先选择 CP，弱化 A。</p>
+
+<p><img src="/media/distribute/event/cap" alt="" /></p>
+
+<p>两阶段提交协议(简称2PC)是实现分布式事务较为经典的方案，但 2PC 的可扩展性很差，在分布式架构下应用代价较大,mysql的分布式集群就是使用这个分布式事务的解决方法。</p>
+
+<p>eBay 架构师 Dan Pritchett 提出了 BASE 理论，用于解决大规模分布式系统下的数据一致性问题。</p>
+
+<p>BASE 理论告诉我们：可以通过放弃系统在每个时刻的强一致性来换取系统的可扩展性。</p>
+
+<p>BASE 是 Basically Available(基本可用)、Soft state(软状态)和 Eventually consistent (最终一致性)三个短语的缩写。是对CAP中AP的一个扩展</p>
+
+<ul>
+<li>基本可用:分布式系统在出现故障时，允许损失部分可用功能，保证核心功能可用。</li>
+<li>软状态:允许系统中存在中间状态，这个状态不影响系统可用性，这里指的是CAP中的不一致。</li>
+<li>最终一致:最终一致是指经过一段时间后，所有节点数据都将会达到一致。</li>
+</ul>
+
+<p>它的核心思想是即使无法做到强一致性（CAP 的一致性就是强一致性），但应用可以采用适合的方式达到最终一致性。</p>
+
+<p>这里的关键词是“一定时间” 和 “最终”，“一定时间”和数据的特性是强关联的，不同业务不同数据能够容忍的不一致时间是不同的。</p>
+
+<p>例如支付类业务是要求秒级别内达到一致，因为用户时时关注；用户发的最新微博，可以容忍 30 分钟内达到一致的状态，因为用户短时间看不到明星发的微博是无感知的。</p>
+
+<p>而“最终”的含义就是不管多长时间，最终还是要达到一致性的状态。</p>
+
+<p>BASE 理论本质上是对 CAP 的延伸和补充，更具体地说，是对 CAP 中 AP 方案的一个补充：CAP 理论是忽略延时的，而实际应用中延时是无法避免的。</p>
+
+<p>这一点就意味着完美的 CP 场景是不存在的，即使是几毫秒的数据复制延迟，在这几毫秒时间间隔内，系统是不符合 CP 要求的。</p>
+
+<p>因此 CAP 中的 CP 方案，实际上也是实现了最终一致性，只是“一定时间”是指几毫秒而已。</p>
+
+<p>AP 方案中牺牲一致性只是指发生分区故障期间，而不是永远放弃一致性。</p>
+
+<p>这一点其实就是 BASE 理论延伸的地方，分区期间牺牲一致性，但分区故障恢复后，系统应该达到最终一致性。</p>
+
+<h2 id="数据一致性模型">数据一致性模型</h2>
+
+<p>前面介绍的 BASE 模型提过“强一致性”和“最终一致性”，下面对这些一致性模型展开介绍。</p>
+
+<p>分布式系统通过复制数据来提高系统的可靠性和容错性，并且将数据的不同的副本存放在不同的机器上，由于维护数据副本的一致性代价很高，因此许多系统采用弱一致性来提高性能。</p>
+
+<p>下面介绍常见的一致性模型：</p>
+
+<ul>
+<li>强一致性：要求无论更新操作是在哪个数据副本上执行，之后所有的读操作都要能获得最新的数据。 对于单副本数据来说，读写操作是在同一数据上执行的，容易保证强一致性。对多副本数据来说，则需要使用分布式事务协议。</li>
+<li>弱一致性：在这种一致性下，用户读到某一操作对系统特定数据的更新需要一段时间，我们将这段时间称为&rdquo;不一致性窗口&rdquo;。</li>
+<li>最终一致性：是弱一致性的一种特例，在这种一致性下系统保证用户最终能够读取到某操作对系统特定数据的更新（读取操作之前没有该数据的其他更新操作）。 &ldquo;不一致性窗口&rdquo;的大小依赖于交互延迟、系统的负载，以及数据的副本数等。</li>
+</ul>
+
+<p>系统选择哪种一致性模型取决于应用对一致性的需求，所选取的一致性模型还会影响到系统如何处理用户的请求以及对副本维护技术的选择等。</p>
+
+<p>后面将基于上面介绍的一致性模型分别介绍分布式事务的解决方案。</p>
+
+<h1 id="分布式事务解决方案">分布式事务解决方案</h1>
+
+<p>有了上面的理论基础后，这里介绍开始介绍几种常见的分布式事务的解决方案。</p>
+
+<h2 id="两阶段提交-2pc-two-phase-commit-方案-强一致性-还有3pc">两阶段提交（2PC, Two Phase Commit）方案（强一致性），还有3PC</h2>
+
+<p>mysql使用的这种模式。核心就是通过事务协调器将多个事务合并为一个大的事务。</p>
+
+<p>基于XA协议的两阶段提交:</p>
+
+<ul>
+<li>第一阶段是表决阶段，所有参与者都将本事务能否成功的信息反馈发给协调者；</li>
+<li>第二阶段是执行阶段，协调者根据所有参与者的反馈，通知所有参与者，步调一致地在所有分支上提交或者回滚;</li>
+</ul>
+
+<p><img src="/media/distribute/event/2pc" alt="" /></p>
+
+<p><img src="/media/distribute/event/mothod11" alt="" />
+<img src="/media/distribute/event/mothod12" alt="" /></p>
+
+<p>缺点：</p>
+
+<ul>
+<li>单点问题：事务管理器在整个流程中扮演的角色很关键，如果其宕机，比如在第一阶段已经完成，在第二阶段正准备提交的时候事务管理器宕机，资源管理器就会一直阻塞，导致数据库无法使用。</li>
+<li>同步阻塞：在准备就绪之后，资源管理器中的资源一直处于阻塞，直到提交完成，释放资源。</li>
+<li>数据不一致：两阶段提交协议虽然为分布式数据强一致性所设计，但仍然存在数据不一致性的可能。比如：在第二阶段中，假设协调者发出了事务 Commit 的通知，但是因为网络问题该通知仅被一部分参与者所收到并执行了 Commit 操作，其余的参与者则因为没有收到通知一直处于阻塞状态，这时候就产生了数据的不一致性。</li>
+</ul>
+
+<p>总的来说，XA 协议比较简单，成本较低，但是其单点问题，以及不能支持高并发(由于同步阻塞)依然是其最大的弱点。</p>
+
+<h2 id="基于可靠消息的最终一致性方案">基于可靠消息的最终一致性方案</h2>
+
+<p>本地消息表的方案最初是由 eBay 提出，核心思路是将分布式事务拆分成本地事务进行处理。通过可靠消息系统进行同步，可以是各种消息中间件，也可以是MQ等。</p>
+
+<p>业务处理服务在业务事务提交之前，向实时消息服务请求发送消息，实时消息服务只记录消息数据，而不是真正的发送。业务处理服务在业务事务提交之后，向实时消息服务确认发送。只有在得到确认发送指令后，实时消息服务才会真正发送。</p>
+
+<p><img src="/media/distribute/event/mothod1" alt="" /></p>
+
+<p>方案通过在事务主动发起方额外新建事务消息表，事务发起方处理业务和记录事务消息在本地事务中完成，轮询事务消息表的数据发送事务消息，事务被动方基于消息中间件消费事务消息表中的事务。</p>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>下面把分布式事务最先开始处理的事务方称为事务主动方，在事务主动方之后处理的业务内的其他事务称为事务被动方。</p>
+
+<p>为了方便理解，下面继续以电商下单为例进行方案解析，这里把整个过程简单分为扣减库存，订单创建 2 个步骤。</p>
+
+<p>库存服务和订单服务分别在不同的服务器节点上，其中库存服务是事务主动方，订单服务是事务被动方。</p>
+
+<p>事务的主动方需要额外新建事务消息表，用于记录分布式事务的消息的发生、处理状态。</p>
+
+<p>整个业务处理流程如下：</p>
+
+<p><img src="/media/distribute/event/mothod10" alt="" /></p>
+
+<p>步骤1：事务主动方处理本地事务。</p>
+
+<p>事务主动方在本地事务中处理业务更新操作和写消息表操作。上面例子中库存服务阶段在本地事务中完成扣减库存和写消息表(图中 1、2)。</p>
+
+<p>步骤 2：事务主动方通过消息中间件，通知事务被动方处理事务通知事务待消息。
+消息中间件可以基于 Kafka、RocketMQ 消息队列，事务主动方主动写消息到消息队列，事务消费方消费并处理消息队列中的消息。</p>
+
+<p>上面例子中，库存服务把事务待处理消息写到消息中间件，订单服务消费消息中间件的消息，完成新增订单（图中 3 - 5）。</p>
+
+<p>步骤 3：事务被动方通过消息中间件，通知事务主动方事务已处理的消息。
+上面例子中，订单服务把事务已处理消息写到消息中间件，库存服务消费中间件的消息，并将事务消息的状态更新为已完成(图中 6 - 8)。</p>
+
+<p>为了数据的一致性，当处理错误需要重试，事务发送方和事务接收方相关业务处理需要支持幂等。</p>
+
+<p>具体保存一致性的容错处理如下：</p>
+
+<ul>
+<li>当步骤 1 处理出错，事务回滚，相当于什么都没发生。</li>
+<li>当步骤 2、步骤 3 处理出错，由于未处理的事务消息还是保存在事务发送方，事务发送方可以定时轮询为超时消息数据，再次发送到消息中间件进行处理。事务被动方消费事务消息重试处理。</li>
+<li>如果是业务上的失败，事务被动方可以发消息给事务主动方进行回滚。</li>
+<li>如果多个事务被动方已经消费消息，事务主动方需要回滚事务时需要通知事务被动方回滚。</li>
+</ul>
+
+<h2 id="tcc事务补偿型方案-原子性-最终一致性">TCC事务补偿型方案（原子性，最终一致性）</h2>
+
+<p>某业务模型如图，由服务 A、服务B、服务C、服务D 共同组成的一个微服务架构系统。服务A 需要依次调用服务B、服务C 和服务D 共同完成一个操作。当服务A 调用服务D 失败时，若要保证整个系统数据的一致性，就要对服务B 和服务C 的invoke 操作进行回滚，执行反向的revert 操作。回滚成功后，整个微服务系统是数据一致的。</p>
+
+<p><img src="/media/distribute/event/mothod22" alt="" /></p>
+
+<ul>
+<li>实现：一个完整的业务活动由一个主业务服务于若干的从业务服务组成。主业务服务负责发起并完成整个业务活动。从业务服务提供TCC型业务操作。业务活动管理器控制业务活动的一致性，它登记业务活动的操作，并在业务活动提交时确认所有的TCC型操作的Confirm操作，在业务活动取消时调用所有TCC型操作的Cancel操作。</li>
+<li>成本：实现TCC操作的成本较高，业务活动结束的时候Confirm和Cancel操作的执行成本。业务活动的日志成本。TCC 的 Try、Confirm 和 Cancel 操作功能要按具体业务来实现，业务耦合度较高，提高了开发成本。</li>
+<li>使用范围：强隔离性，严格一致性要求的业务活动。适用于执行时间较短的业务，比如处理账户或者收费等等。</li>
+<li>特点：不与具体的服务框架耦合，位于业务服务层，而不是资源层，可以灵活的选择业务资源的锁定粒度。TCC里对每个服务资源操作的是本地事务，数据被锁住的时间短，可扩展性好，可以说是为独立部署的SOA服务而设计的。</li>
+</ul>
+
+<p><img src="/media/distribute/event/mothod2" alt="" /></p>
+
+<p>TCC方案很少用人使用，因为事务回滚操作实际上是严重依赖于手动编写代码来进行回滚和补偿操作，这样的话就会造成补偿代码过多，使得项目非常难以维护。比较适合的场景就是除非真的一致性要求非常高，是系统中的核心业务场景，例如常见的就是资金类的场景，那可以用TCC方案。</p>
+
+<p>实例</p>
+
+<p>为了方便理解，下面以电商下单为例进行方案解析，这里把整个过程简单分为扣减库存，订单创建 2 个步骤，库存服务和订单服务分别在不同的服务器节点上。</p>
+
+<blockquote>
+<p>Try 阶段</p>
+</blockquote>
+
+<p>从执行阶段来看，与传统事务机制中业务逻辑相同。但从业务角度来看，却不一样。</p>
+
+<p>TCC 机制中的 Try 仅是一个初步操作，它和后续的确认一起才能真正构成一个完整的业务逻辑，这个阶段主要完成：</p>
+
+<ul>
+<li>完成所有业务检查( 一致性 ) 。</li>
+<li>预留必须业务资源( 准隔离性 ) 。</li>
+<li>Try 尝试执行业务。</li>
+</ul>
+
+<p>TCC 事务机制以初步操作（Try）为中心的，确认操作（Confirm）和取消操作（Cancel）都是围绕初步操作（Try）而展开。</p>
+
+<p>因此，Try 阶段中的操作，其保障性是最好的，即使失败，仍然有取消操作（Cancel）可以将其执行结果撤销。</p>
+
+<p><img src="/media/distribute/event/mothod23" alt="" /></p>
+
+<p>假设商品库存为 100，购买数量为 2，这里检查和更新库存的同时，冻结用户购买数量的库存，同时创建订单，订单状态为待确认。</p>
+
+<blockquote>
+<p>Confirm / Cancel 阶段</p>
+</blockquote>
+
+<p>根据 Try 阶段服务是否全部正常执行，继续执行确认操作（Confirm）或取消操作（Cancel）。</p>
+
+<p>Confirm 和 Cancel 操作满足幂等性，如果 Confirm 或 Cancel 操作执行失败，将会不断重试直到执行完成。</p>
+
+<p>Confirm：当 Try 阶段服务全部正常执行， 执行确认业务逻辑操作</p>
+
+<p><img src="/media/distribute/event/mothod24" alt="" /></p>
+
+<p>这里使用的资源一定是 Try 阶段预留的业务资源。在 TCC 事务机制中认为，如果在 Try 阶段能正常的预留资源，那 Confirm 一定能完整正确的提交。</p>
+
+<p>Confirm 阶段也可以看成是对 Try 阶段的一个补充，Try+Confirm 一起组成了一个完整的业务逻辑。</p>
+
+<p>Cancel：当 Try 阶段存在服务执行失败， 进入 Cancel 阶段</p>
+
+<p><img src="/media/distribute/event/mothod25" alt="" /></p>
+
+<p>Cancel 取消执行，释放 Try 阶段预留的业务资源，上面的例子中，Cancel 操作会把冻结的库存释放，并更新订单状态为取消。</p>
+
+<h2 id="最大努力通知型-弱一致性">最大努力通知型（弱一致性）</h2>
+
+<pre><code>实现：业务活动的主动方在完成处理之后向业务活动的被动方发送消息，允许消息丢失。业务活动的被动方根据定时策略，向业务活动的主动方查询，恢复丢失的业务消息。
+约束：被动方的处理结果不影响主动方的处理结果。
+成本：业务查询与校对系统的建设成本。
+使用范围：对业务最终一致性的时间敏感度低。跨企业的业务活动。
+特点：业务活动的主动方在完成业务处理之后，向业务活动的被动方发送通知消息。主动方可以设置时间阶梯通知规则，在通知失败后按规则重复通知，知道通知N次后不再通知。主动方提供校对查询接口给被动方按需校对查询，用户恢复丢失的业务消息。
+适用范围：银行通知，商户通知。
+</code></pre>
+
+<p><img src="/media/distribute/event/mothod3.png" alt="" /></p>
+
+<p>最大努力通知方案的主要思路如下：</p>
+
+<ul>
+<li>系统A本地事务执行完毕之后，发送个消息到消息服务MQ</li>
+<li>这里会有个专门消费消息服务MQ的最大努力通知服务，该服务会消费消息服务MQ，然后写入数据库中记录下来或者是放入个内存队列，接下来调用系统B的接口</li>
+<li>要是系统B执行成功就ok了；要是系统B执行失败了，那么最大努力通知服务就定时尝试重新调用系统B，反复N次，最后还是失败就放弃。</li>
+</ul>
+
+<p>目前国内互联网公司大都是这么玩儿的，要不你使用RocketMQ支持的，要不你就基于其他MQ中间件自己封装一套类似的逻辑，总之思路就是这样的。其实就是MQ是上面可靠消息的一种，这边只是强调不一定可靠，还有通知。</p>
+
+<h1 id="总结">总结</h1>
+
+<p>从应用角度看，分布式事务的现实场景常常无法规避，在有能力给出其他解决方案前，2PC也是一个不错的选择。</p>
+
+<p>对购物转账等电商和金融业务，中间件层的2PC最大问题在于业务不可见，一旦出现不可抗力或意想不到的一致性破坏，如数据节点永久性宕机，业务难以根据2PC的日志进行补偿。金融场景下，数据一致性是命根，业务需要对数据有百分之百的掌控力，建议使用TCC这类分布式事务模型，或基于消息队列的柔性事务框架，这两种方案都在业务层实现，业务开发者具有足够掌控力，可以结合SOA框架来架构，包括Dubbo、Spring Cloud等</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/distributed/distributed-event/">https://kingjcy.github.io/post/distributed/distributed-event/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/event/">
+                            <i class="fa fa-tags"></i>
+                            event
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/distribute/">
+                            <i class="fa fa-tags"></i>
+                            distribute
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/architecture/concurrencesafe/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/zabbix/zabbix/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#数据库事务">数据库事务</a></li>
+<li><a href="#分布式事务">分布式事务</a>
+<ul>
+<li><a href="#分布式事务产生的原因">分布式事务产生的原因</a></li>
+<li><a href="#分布式事务的难点">分布式事务的难点</a></li>
+<li><a href="#cap-base">CAP&amp;BASE</a></li>
+<li><a href="#数据一致性模型">数据一致性模型</a></li>
+</ul></li>
+<li><a href="#分布式事务解决方案">分布式事务解决方案</a>
+<ul>
+<li><a href="#两阶段提交-2pc-two-phase-commit-方案-强一致性-还有3pc">两阶段提交（2PC, Two Phase Commit）方案（强一致性），还有3PC</a></li>
+<li><a href="#基于可靠消息的最终一致性方案">基于可靠消息的最终一致性方案</a></li>
+<li><a href="#tcc事务补偿型方案-原子性-最终一致性">TCC事务补偿型方案（原子性，最终一致性）</a></li>
+<li><a href="#最大努力通知型-弱一致性">最大努力通知型（弱一致性）</a></li>
+</ul></li>
+<li><a href="#总结">总结</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

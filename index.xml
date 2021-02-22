@@ -1777,6 +1777,160 @@ Usage:
     
       
         <item>
+          <title>监控trace系列---- jaeger</title>
+          <link>https://kingjcy.github.io/post/monitor/trace/jaeger/</link>
+          <pubDate>Tue, 13 Aug 2019 11:16:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/trace/jaeger/</guid>
+          <description>&lt;p&gt;Jaeger 是 Uber 开源的分布式追踪系统，兼容 OpenTracing 标准，于 2017 年 9 月加入 CNCF 基金会。&lt;/p&gt;
+
+&lt;h1 id=&#34;jaeger&#34;&gt;jaeger&lt;/h1&gt;
+
+&lt;p&gt;受Dapper和OpenZipkin启发的Jaeger是由Uber Technologies作为开源发布的分布式跟踪系统。它用于监视和诊断基于微服务的分布式系统，包括：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;分布式上下文传播&lt;/li&gt;
+&lt;li&gt;分布式交易监控&lt;/li&gt;
+&lt;li&gt;根本原因分析&lt;/li&gt;
+&lt;li&gt;服务依赖性分析性能/延迟优化&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;特性&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;高扩展性&lt;/p&gt;
+
+&lt;p&gt;Jaeger后端的设计没有单点故障，可以根据业务需求进行扩展。例如，Uber上任何给定的Jaeger安装通常每天要处理数十亿个跨度。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;原生支持OpenTracing&lt;/p&gt;
+
+&lt;p&gt;Jaeger后端，Web UI和工具库已完全设计为支持OpenTracing标准。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;通过跨度引用将迹线表示为有向无环图（不仅是树）&lt;/li&gt;
+&lt;li&gt;支持强类型的跨度标签和结构化日志通过行李&lt;/li&gt;
+&lt;li&gt;支持通用的分布式上下文传播机制&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;多存储后端&lt;/p&gt;
+
+&lt;p&gt;Jaeger支持两个流行的开源NoSQL数据库作为跟踪存储后端：Cassandra 3.4+和Elasticsearch 5.x / 6.x / 7.x。正在进行使用其他数据库的社区实验，例如ScyllaDB，InfluxDB，Amazon DynamoDB。Jaeger还附带了一个简单的内存存储区，用于测试设置。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;现代化的UI&lt;/p&gt;
+
+&lt;p&gt;Jaeger Web UI是使用流行的开源框架（如React）以Javascript实现的。v1.0中发布了几项性能改进，以允许UI有效处理大量数据，并显示具有成千上万个跨度的跟踪（例如，我们尝试了具有80,000个跨度的跟踪）。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;云原生部署&lt;/p&gt;
+
+&lt;p&gt;Jaeger后端作为Docker映像的集合进行分发。这些二进制文件支持各种配置方法，包括命令行选项，环境变量和多种格式（yaml，toml等）的配置文件。Kubernetes模板和Helm图表有助于将其部署到Kubernetes集群。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;可观察性&lt;/p&gt;
+
+&lt;p&gt;默认情况下，所有Jaeger后端组件都公开Prometheus指标（也支持其他指标后端）。使用结构化日志库zap将日志写到标准输出。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;安全&lt;/p&gt;
+
+&lt;p&gt;Jaeger的第三方安全审核可在&lt;a href=&#34;https://github.com/jaegertracing/security-audits&#34;&gt;https://github.com/jaegertracing/security-audits&lt;/a&gt; 中获得。有关Jaeger中可用安全机制的摘要，请参见问题＃1718。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;与Zipkin的向后兼容性&lt;/p&gt;
+
+&lt;p&gt;尽管我们建议使用OpenTracing API来对应用程序进行检测并绑定到Jaeger客户端库，以从其他地方无法获得的高级功能中受益，但是如果您的组织已经使用Zipkin库对检测进行了投资，则不必重写所有代码。Jaeger通过在HTTP上接受Zipkin格式（Thrift或JSON v1 / v2）的跨度来提供与Zipkin的向后兼容性。从Zipkin后端切换只是将流量从Zipkin库路由到Jaeger后端的问题。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;安装部署&#34;&gt;安装部署&lt;/h2&gt;
+
+&lt;p&gt;开始多合一的最简单方法是使用发布到DockerHub的预构建映像（单个命令行）。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;docker run -d --name jaeger \
+  -e COLLECTOR_ZIPKIN_HTTP_PORT=9411 \
+  -p 5775:5775/udp \
+  -p 6831:6831/udp \
+  -p 6832:6832/udp \
+  -p 5778:5778 \
+  -p 16686:16686 \
+  -p 14268:14268 \
+  -p 9411:9411 \
+  jaegertracing/all-in-one:1.14
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Or run the jaeger-all-in-one(.exe) executable from the binary distribution archives:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;jaeger-all-in-one --collector.zipkin.http-port=9411
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;You can then navigate to &lt;a href=&#34;http://localhost:16686&#34;&gt;http://localhost:16686&lt;/a&gt; to access the Jaeger UI.&lt;/p&gt;
+
+&lt;h1 id=&#34;架构&#34;&gt;架构&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/trace/jaeger&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;整体可以分为四个部分：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;jaeger-client：Jaeger 的客户端，实现了 OpenTracing 的 API，支持主流编程语言。客户端直接集成在目标 Application 中，其作用是记录和发送 Span 到 Jaeger Agent。在 Application 中调用 Jaeger Client Library 记录 Span 的过程通常被称为埋点。&lt;/li&gt;
+&lt;li&gt;jaeger-agent：暂存 Jaeger Client 发来的 Span，并批量向 Jaeger Collector 发送 Span，一般每台机器上都会部署一个 Jaeger Agent。官方的介绍中还强调了 Jaeger Agent 可以将服务发现的功能从 Client 中抽离出来，不过从架构角度讲，如果是部署在 Kubernetes 或者是 Nomad 中，Jaeger Agent 存在的意义并不大。&lt;/li&gt;
+&lt;li&gt;jaeger-collector：接受 Jaeger Agent 发来的数据，并将其写入存储后端，目前支持采用 Cassandra 和 Elasticsearch 作为存储后端。个人还是比较推荐用 Elasticsearch，既可以和日志服务共用同一个 ES，又可以使用 Kibana 对 Trace 数据进行额外的分析。架构图中的存储后端是 Cassandra，旁边还有一个 Spark，讲的就是可以用 Spark 等其他工具对存储后端中的 Span 进行直接分析。&lt;/li&gt;
+&lt;li&gt;jaeger-query &amp;amp; jaeger-ui：读取存储后端中的数据，以直观的形式呈现。&lt;/li&gt;
+&lt;/ul&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控trace系列---- zipkin</title>
+          <link>https://kingjcy.github.io/post/monitor/trace/zipkin/</link>
+          <pubDate>Tue, 13 Aug 2019 11:16:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/trace/zipkin/</guid>
+          <description>&lt;p&gt;zipkin是分布式链路调用监控系统，聚合各业务系统调用延迟数据，达到链路调用监控跟踪。&lt;/p&gt;
+
+&lt;h1 id=&#34;zipkin&#34;&gt;zipkin&lt;/h1&gt;
+
+&lt;p&gt;一个独立的分布式追踪系统，客户端存在于应用中（即各服务中），应具备追踪信息生成、采集发送等功能，而服务端应该包含以下基本的三个功能：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;信息收集：用来收集各服务端采集的信息，并对这些信息进行梳理存储、建立索引。&lt;/li&gt;
+&lt;li&gt;数据存储：存储追踪数据。&lt;/li&gt;
+&lt;li&gt;查询服务：提供查询请求链路信息的接口。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;安装使用&#34;&gt;安装使用&lt;/h2&gt;
+
+&lt;p&gt;下载jar包，直接运行。简单粗暴，但要注意必须jdk1.8及以上。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;wget -O zipkin.jar &#39;https://search.maven.org/remote_content?g=io.zipkin.java&amp;amp;a=zipkin-server&amp;amp;v=LATEST&amp;amp;c=exec&#39;
+java -jar zipkin.jar
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;启动成功后，打开浏览器访问zipkin的webUI，输入&lt;a href=&#34;http://ip:9411/&#34;&gt;http://ip:9411/&lt;/a&gt; ,显示web界面。&lt;/p&gt;
+
+&lt;h1 id=&#34;架构&#34;&gt;架构&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/trace/zipkin&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;zipkin(服务端)包含四个组件，分别是collector、storage、search、web UI。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;collector 就是信息收集器,作为一个守护进程，它会时刻等待客户端传递过来的追踪数据，对这些数据进行验证、存储以及创建查询需要的索引。&lt;/li&gt;
+&lt;li&gt;storage  是存储组件。zipkin 默认直接将数据存在内存中，此外支持使用Cassandra、ElasticSearch 和 Mysql。&lt;/li&gt;
+&lt;li&gt;search 是一个查询进程，它提供了简单的JSON API来供外部调用查询。&lt;/li&gt;
+&lt;li&gt;web UI 是zipkin的服务端展示平台，主要调用search提供的接口，用图表将链路信息清晰地展示给开发人员。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;数据发送&#34;&gt;数据发送&lt;/h2&gt;
+
+&lt;p&gt;一个 span 表示一次服务调用，那么追踪器必定是被服务调用发起的动作触发，生成基本信息，同时为了追踪服务提供方对其他服务的调用情况，便需要传递本次追踪链路的traceId和本次调用的span-id。服务提供方完成服务将结果响应给调用方时，需要根据调用发起时记录的时间戳与当前时间戳计算本次服务的持续时间进行记录，至此这次调用的追踪span完成，就可以发送给zipkin服务端了。但是需要注意的是，发送span给zipkin collector不得影响此次业务结果，其发送成功与否跟业务无关，因此这里需要采用异步的方式发送，防止追踪系统发送延迟与发送失败导致用户系统的延迟与中断。下图就表示了一次http请求调用的追踪流程（基于zipkin官网提供的流程图）：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/trace/zipkin1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;可以看出服务A请求服务B时先被追踪器拦截，记录tag信息、时间戳，同时将追踪标识添加进http header中传递给服务B，在服务B响应后，记录持续时间，最终采取异步的方式发送给zipkin收集器。span从被追踪的服务传送到Zipkin收集器有三种主要的传送方式：http、Kafka以及Scribe（Facebook开源的日志收集系统）。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控metrics系列---- Prometheus blackbox_exporter</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/blackbox_exporter/</link>
           <pubDate>Wed, 03 Jul 2019 10:10:09 CST</pubDate>
@@ -7754,6 +7908,76 @@ ifOutQLen 輸出隊長 其中， 號標識的是與網絡流量有關的信息�
     
       
         <item>
+          <title>监控系列---- 监控总纲</title>
+          <link>https://kingjcy.github.io/post/monitor/monitor/</link>
+          <pubDate>Fri, 02 Nov 2018 19:51:38 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/monitor/</guid>
+          <description>&lt;p&gt;几乎所有的系统（我们通常都是APM：应用系统监控）都可以通过是三个方面来构建三维一体立体化监控体系。&lt;/p&gt;
+
+&lt;h1 id=&#34;总体架构&#34;&gt;总体架构&lt;/h1&gt;
+
+&lt;p&gt;立体化监控分三个维度,三种相互辅助的完整监控体系。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Metrics：   可以用于服务告警&lt;/li&gt;
+&lt;li&gt;Logging：   用于调试发现问题&lt;/li&gt;
+&lt;li&gt;Tracing：   用于调试发现问题&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/monitor&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;不同的指标表示不同维度的监控，构成一个完成的监控体系。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/monitor1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&#34;监控分类&#34;&gt;监控分类&lt;/h1&gt;
+
+&lt;h2 id=&#34;metrics&#34;&gt;Metrics&lt;/h2&gt;
+
+&lt;p&gt;metrics就是指标监控，通过定义的指标来表示资源的使用情况或者状态等。针对这一类监控，我们通常使用时序数据库来做图表面展示，我们常用的监控系统有&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/metrics/&#34;&gt;prometheus生态,zabbix&lt;/a&gt;等，目前来说时序更加符合监控的需求，无论重数据的存储到数据的使用上都是时序数据库有优势。&lt;/p&gt;
+
+&lt;h2 id=&#34;logging&#34;&gt;Logging&lt;/h2&gt;
+
+&lt;p&gt;log就是日志监控，采集日志，进行处理，存储，展示，重日志中获取到运行的信息，我们通常用的日志系统有&lt;a href=&#34;https://kingjcy.github.io/post/monitor/log/log-scheme/&#34;&gt;EFK生态&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h2 id=&#34;tracing&#34;&gt;Tracing&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/trace/trace/&#34;&gt;trace&lt;/a&gt;就是调用链监控，即一次完整的事务调用请求。比方说一个用户的下单请求，经过层层服务预处理，到支付服务成功，数据落库，成功返回，这就是一条完整的 Trace 。Trace 最大的特点就是它含有上下文环境，通常来说会由一个唯一的 ID 来进行标识。一个 Trace 内可能有多个不同的事务 (Transaction) 以及标志事件 (Event) 组成。我们通常使用的是[Skywalking]()，CNCF推荐的是[jaeger]()。&lt;/p&gt;
+
+&lt;h2 id=&#34;对比结合&#34;&gt;对比结合&lt;/h2&gt;
+
+&lt;p&gt;三种对比&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;metrics监控前期的搭建难度适中，后期维护比较简单，在出现问题的时候，灵敏度比较高，比较容易发现问题，发出告警，但是在排查问题的只有表面的数据，不能找到具体的根因。&lt;/li&gt;
+&lt;li&gt;log监控前期的搭建难度比较低，现在搭建一套ELK已经很成熟了，后期维护比较高，因为日志的数据量都是巨大的，在出现问题的时候，灵敏度比较适中，不是太容易发现问题，发出告警，主要在排查问题的进行查看。&lt;/li&gt;
+&lt;li&gt;trace监控前期的搭建难度很高，后期维护也比较适中，在出现问题的时候，灵敏度很低，不容易发现问题，发出告警，但是在排查问题的时候能找到具体的根因，主要是用于排查问题。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;结合&lt;/p&gt;
+
+&lt;p&gt;一般系统出问题的时候，都是metrics先发现问题，发出告警，然后我们去查看日志查看问题，查看trace来定位到具体的原因。&lt;/p&gt;
+
+&lt;h1 id=&#34;监控分层&#34;&gt;监控分层&lt;/h1&gt;
+
+&lt;p&gt;在不同的层面都可以使用上面三种监控类型进行监控，结合起来完成每一层完整的监控体系。&lt;/p&gt;
+
+&lt;p&gt;从底到上分为：基础设施监控、系统层监控、应用层监控、业务层监控、端用户体验监控&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/monitor2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;端侧监控主要是用调用链监控，来监控一些调用延迟，错误等，比如听云。&lt;/li&gt;
+&lt;li&gt;业务层监控主要是用metrics监控，日志监控，来监控注册登陆转化订单数据，这些业务的错误情况下还需要通过日志来进行排查。&lt;/li&gt;
+&lt;li&gt;应用层其实也就是我们的服务层了，需要通过三位一体化的监控，形成完整的监控体系，来监控一些调用延迟错误。&lt;/li&gt;
+&lt;li&gt;系统层就是底层基础设施的监控，一些系统的指标日志。&lt;/li&gt;
+&lt;/ul&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控系列---- log</title>
           <link>https://kingjcy.github.io/post/monitor/log/log-scheme/</link>
           <pubDate>Mon, 13 Aug 2018 11:16:45 CST</pubDate>
@@ -7809,6 +8033,92 @@ ifOutQLen 輸出隊長 其中， 號標識的是與網絡流量有關的信息�
 &lt;h2 id=&#34;展示&#34;&gt;展示&lt;/h2&gt;
 
 &lt;p&gt;在数据展示报表方面，目前对日志也没有什么选择，只有kibana。Kibana主要负责读取ElasticSearch中的数据，并进行可视化展示。并且，它还自带Tool，可以方便调用ElasticSearch的Rest API。在日志平台中，我们通过Kibana查看日志。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>监控系列---- trace</title>
+          <link>https://kingjcy.github.io/post/monitor/trace/trace/</link>
+          <pubDate>Mon, 13 Aug 2018 11:16:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/monitor/trace/trace/</guid>
+          <description>&lt;p&gt;全链路监控系统 - APM（Application Performance Managemen）主要用于调用链路追踪，对每一次调用都做性能分析。&lt;/p&gt;
+
+&lt;p&gt;当我们需要解决以下的问题的时候，我们就需要引入APM了。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;上线发布后，如何确认服务一切正常？&lt;/li&gt;
+&lt;li&gt;客户端收到了错误的提示，但是到底是哪个服务抛出的这个错误？&lt;/li&gt;
+&lt;li&gt;程序性能有问题，但是具体是哪个环节成了性能的瓶颈？&lt;/li&gt;
+&lt;li&gt;接口响应很慢，到底是网络问题还是代码问题？&lt;/li&gt;
+&lt;li&gt;服务调用链路长，每个环节都可能是一个出问题的风险点？&lt;/li&gt;
+&lt;li&gt;做技术优化，如何丈量我们的服务质量呢？&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;调用链&#34;&gt;调用链&lt;/h1&gt;
+
+&lt;h2 id=&#34;基本概念&#34;&gt;基本概念&lt;/h2&gt;
+
+&lt;p&gt;调用链中的核心概念&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Trace 一次分布式调用的链路&lt;/li&gt;
+&lt;li&gt;Span 一次本地或者远程方法的调用&lt;/li&gt;
+&lt;li&gt;Annotation 附加在 Span 上的日志信息&lt;/li&gt;
+&lt;li&gt;Sampling 采样率（客户端按照比例将埋点信息提交给服务端）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;我们来通过实例来具体展示以下对应的概念&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/trace/trace&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;如上我们图示了一次分布式调用的全过程，图中有三个分布式服务 Service A、Service B、Service B，每个方法的调用链信息中涉及到如下三个标记：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;tid：tid 即为 trace id，代表该次调用的唯一 ID，在一次分布式调用中，所有方法的 tid 都相同。如上图中的 Tid:1。&lt;/li&gt;
+&lt;li&gt;sid：sid 即为 span id， 代表的是一个本地/远程方法调用的唯一 ID。如上图中每个绿色框代表的是一次方法调用，每次调用都有自己的 sid。&lt;/li&gt;
+&lt;li&gt;pid：pid 其实也是一个 span id，但是它代表的是当前方法的父级方法的 span id。如上图中第一方法调用由客户端发起，是没有 pid 的。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;在上图中所示的调用链中总共包含了 7 个方法（本地/远程）调用，依次如下：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;用客户端发起调用请求后，首先请求进入到 A 服务。此时会产生调用链信息 tid:1, sid:1 。&lt;/li&gt;
+&lt;li&gt;接着发生了一次远程调用 Tid:1, pid:1, sid:2，pid 为 1 代表父级方法的 span id 为 1 即为 sid = 1 的方法，同理本次 redis 远程调用的 span id 为 2。&lt;/li&gt;
+&lt;li&gt;Redis 远程调用结束后发生了对 Service B 的远程调用 Tid:1, pid:1, sid:3，与方法 2 类似，不同的是本次方法调用的 span id 为 3。&lt;/li&gt;
+&lt;li&gt;在 Service B 中，首先是一个本地方法调用 Tid:1, pid:3, sid:4，从 pid = 3 可以得出它的父级方法正是方法 3。&lt;/li&gt;
+&lt;li&gt;接着发生了一次对 Mysql 的远程调用 Tid:1, pid:4, sid:5，pid = 4 代表父级方法为方法 4，span id 为 5。&lt;/li&gt;
+&lt;li&gt;Mysql 远程调用结束后，Service B 对 Service C 进行了一次远程调用 Tid:1, pid:4, sid:6，同样通过 pid 和 tid 我们可以将本次方法调用与整个调用链关联起来。&lt;/li&gt;
+&lt;li&gt;最后是 Service C 的一个本地方法调用 Tid:1, pid:6, sid:7，至此整个调用链到达最远端，这是本次分布式调用链最深处的一个方法。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;发展&#34;&gt;发展&lt;/h2&gt;
+
+&lt;p&gt;2010 年 Google Dapper 问世，其实早在 2002 年 eBay 已经有了自己的调用链监控产品，它叫 CAL（Central Application Logging）。当时 eBay 中国研发中心的一位资深工程师作为 CAL 的核心维护人员，对 CAL 的方方面面都非常熟悉。&lt;/p&gt;
+
+&lt;p&gt;后来他去了美团点评，在 2011 年的时候，他带领团队研发出了 CAT（Central Application Tracing），CAT 继承了 CAL 的优点，也增加了很多自己的特色功能，并且它已经在 GitHub 开源，也在美团点评经受了大流量，高并发应用的检验，是目前业界应用比较广泛和成熟的生产级别调用链监控产品。&lt;/p&gt;
+
+&lt;p&gt;随后由于 Google Dapper 论文的发布，也伴随着互联网产品的迅速发展，各个大厂依据 Dapper 纷纷实现了自己的调用链监控产品。在 2012 年就诞生了 3 款产品，携程的 CTrace，韩国公司 Naver 的 PinPoint，Twitter 的 Zipkin。&lt;/p&gt;
+
+&lt;p&gt;随后在 2014 年，阿里研发了 Eagleye，京东研发了 Hydra。接着诞生了调用链监控的标准规范 Open Tracing，面对各大厂的调用链监控产品，他们使用不兼容的 API 来实现各自的应用需求。尽管这些分布式追踪系统有着相似的 API 语法，但各种语言的开发人员依然很难将他们各自的系统（使用不同的语言和技术）和特定的分布式追踪系统进行整合，Open Tracing 希望可以解决这个问题，因此颁布了这套标准。于此也诞生了 Uber 的 Jaeger，国人吴晟做的 SkyWalking（现在已经捐赠给了 Apache）均实现了 Open Tracing 标准&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/trace/trace1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;各大调用链产品分为了典型的三类：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;CAT 类：鼻祖 CAL，侵入式埋点，国内公司使用较广。&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/monitor/trace/zipkin&#34;&gt;Zipkin&lt;/a&gt; 类：鼻祖 Google Dapper，侵入式埋点，国内使用不广(s)。&lt;/li&gt;
+&lt;li&gt;PinPiont类：鼻祖 Google Dapper，非侵入式卖点，采用字节码增强技术。&lt;/li&gt;
+&lt;li&gt;opentacing：&lt;a href=&#34;https://kingjcy.github.io/post/monitor/trace/jaeger&#34;&gt;jaeger&lt;/a&gt;，skywalking&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/monitor/trace/trace2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h2 id=&#34;es&#34;&gt;ES&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/database/elasticsearch/&#34;&gt;ES&lt;/a&gt;数据库很重要，不管在日志还是在调用链都是存储数据的核心模块，也是提供聚合查询的基础。&lt;/p&gt;</description>
         </item>
       
     
@@ -24058,6 +24368,330 @@ else
 CAS的好处是不需要程序去创建临界区，而是让CPU去把两个指令变成原子性操作，性能更好，但是如果变量会被频繁更改的话，重试的次数变多反而会使得效率不如加锁高。&lt;/p&gt;
 
 &lt;p&gt;在golang中也提供了CAS机制，也就是Goroutine 通过 atomic进行安全读写共享变量。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>分布式系列---- Event And Distributed Event</title>
+          <link>https://kingjcy.github.io/post/distributed/distributed-event/</link>
+          <pubDate>Fri, 07 Apr 2017 14:53:56 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/distributed/distributed-event/</guid>
+          <description>&lt;p&gt;事务提供一种机制将一个活动涉及的所有操作纳入到一个不可分割的执行单元，组成事务的所有操作只有在所有操作均能正常执行的情况下方能提交，只要其中任一操作执行失败，都将导致整个事务的回滚。简单地说，事务提供一种“要么什么都不做，要么做全套（All or Nothing）”机制。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/event&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&#34;数据库事务&#34;&gt;数据库事务&lt;/h1&gt;
+
+&lt;p&gt;数据库事务中的四大特性，ACID:&lt;/p&gt;
+
+&lt;p&gt;A:原子性(Atomicity)&lt;/p&gt;
+
+&lt;p&gt;一个事务(transaction)中的所有操作，要么全部完成，要么全部不完成，不会结束在中间某个环节。事务在执行过程中发生错误，会被回滚（Rollback）到事务开始前的状态，就像这个事务从来没有执行过一样。
+就像你买东西要么交钱收货一起都执行，要么要是发不出货，就退钱。&lt;/p&gt;
+
+&lt;p&gt;C:一致性(Consistency)&lt;/p&gt;
+
+&lt;p&gt;事务的一致性指的是在一个事务执行之前和执行之后数据库都必须处于一致性状态。如果事务成功地完成，那么系统中所有变化将正确地应用，系统处于有效状态。如果在事务中出现错误，那么系统中的所有变化将自动地回滚，系统返回到原始状态。&lt;/p&gt;
+
+&lt;p&gt;I:隔离性(Isolation)&lt;/p&gt;
+
+&lt;p&gt;指的是在并发环境中，当不同的事务同时操纵相同的数据时，每个事务都有各自的完整数据空间。由并发事务所做的修改必须与任何其他并发事务所做的修改隔离。事务查看数据更新时，数据所处的状态要么是另一事务修改它之前的状态，要么是另一事务修改它之后的状态，事务不会查看到中间状态的数据。
+打个比方，你买东西这个事情，是不影响其他人的。&lt;/p&gt;
+
+&lt;p&gt;D:持久性(Durability)&lt;/p&gt;
+
+&lt;p&gt;指的是只要事务成功结束，它对数据库所做的更新就必须永久保存下来。即使发生系统崩溃，重新启动数据库系统后，数据库还能恢复到事务成功结束时的状态。
+打个比方，你买东西的时候需要记录在账本上，即使老板忘记了那也有据可查。&lt;/p&gt;
+
+&lt;p&gt;正常数据库操作：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1. 开始会话
+2. 开始事务
+3. 操作1，2，3，4。。。。
+4. 提交／回滚事务
+5. 完成会话
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;很清晰的看出什么是事务。&lt;/p&gt;
+
+&lt;h1 id=&#34;分布式事务&#34;&gt;分布式事务&lt;/h1&gt;
+
+&lt;p&gt;分布式事务就是指事务的参与者、支持事务的服务器、资源服务器以及事务管理器分别位于不同的分布式系统的不同节点之上。简单的说，就是一次大的操作由不同的小操作组成，这些小的操作分布在不同的服务器上，且属于不同的应用，分布式事务需要保证这些小操作要么全部成功，要么全部失败。本质上来说，分布式事务就是为了保证不同数据库的数据一致性。&lt;/p&gt;
+
+&lt;h2 id=&#34;分布式事务产生的原因&#34;&gt;分布式事务产生的原因&lt;/h2&gt;
+
+&lt;p&gt;从上面本地事务来看，我们可以看为两块，一个是service产生多个节点（微服务，将服务拆分成多个，然后按一定步骤调用，但是属于一个事务），另一个是resource（多个数据中心，分库分表）产生多个节点。&lt;/p&gt;
+
+&lt;p&gt;举个互联网常用的交易业务为例&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/event1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;上图中包含了库存和订单两个独立的微服务，每个微服务维护了自己的数据库。&lt;/p&gt;
+
+&lt;p&gt;在交易系统的业务逻辑中，一个商品在下单之前需要先调用库存服务，进行扣除库存，再调用订单服务，创建订单记录。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/event2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;可以看到，如果多个数据库之间的数据更新没有保证事务，将会导致出现子系统数据不一致，业务出现问题。&lt;/p&gt;
+
+&lt;h2 id=&#34;分布式事务的难点&#34;&gt;分布式事务的难点&lt;/h2&gt;
+
+&lt;p&gt;事务的原子性&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;事务操作跨不同节点，当多个节点某一节点操作失败时，需要保证多节点操作的要么什么都不做，要么做全套（All or Nothing）的原子性。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;事务的一致性&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;当发生网络传输故障或者节点故障，节点间数据复制通道中断，在进行事务操作时需要保证数据一致性，保证事务的任何操作都不会使得数据违反数据库定义的约束、触发器等规则。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;事务的隔离性&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;事务隔离性的本质就是如何正确处理多个并发事务的读写冲突和写写冲突，因为在分布式事务控制中，可能会出现提交不同步的现象，这个时候就有可能出现“部分已经提交”的事务。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;此时并发应用访问数据如果没有加以控制，有可能出现“脏读”问题。&lt;/p&gt;
+
+&lt;p&gt;这些的最终影响是导致数据出现不一致，可见现在基本的ACID四大特性，已经无法满足我们分布式事务，所以引入了CAP定理，又被叫作布鲁尔定理。&lt;/p&gt;
+
+&lt;h2 id=&#34;cap-base&#34;&gt;CAP&amp;amp;BASE&lt;/h2&gt;
+
+&lt;p&gt;在分布式系统中，一致性(Consistency)、可用性(Availability)和分区容忍性(Partition Tolerance)3 个要素最多只能同时满足两个，不可兼得。其中，分区容忍性又是不可或缺的。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;C (一致性):分布式环境下，多个节点的数据是否强一致。&lt;/li&gt;
+&lt;li&gt;A (可用性)：非故障的节点在合理的时间内返回合理的响应(不是错误和超时的响应)。可用性的两个关键一个是合理的时间，一个是合理的响应。合理的时间指的是请求不能无限被阻塞，应该在合理的时间给出返回。合理的响应指的是系统应该明确返回结果并且结果是正确的，这里的正确指的是比如应该返回50，而不是返回40。&lt;/li&gt;
+&lt;li&gt;P (分区容错性):当出现网络分区后，系统能够继续工作。打个比方，这里个集群有多台机器，有台机器网络出现了问题，但是这个集群仍然可以正常工作。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;根据时间证明cap不能共存。比舍弃其中一个，看使用场景取舍。比如Cassandra、Dynamo 等，默认优先选择 AP，弱化 C;HBase、MongoDB 等，默认优先选择 CP，弱化 A。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/cap&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;两阶段提交协议(简称2PC)是实现分布式事务较为经典的方案，但 2PC 的可扩展性很差，在分布式架构下应用代价较大,mysql的分布式集群就是使用这个分布式事务的解决方法。&lt;/p&gt;
+
+&lt;p&gt;eBay 架构师 Dan Pritchett 提出了 BASE 理论，用于解决大规模分布式系统下的数据一致性问题。&lt;/p&gt;
+
+&lt;p&gt;BASE 理论告诉我们：可以通过放弃系统在每个时刻的强一致性来换取系统的可扩展性。&lt;/p&gt;
+
+&lt;p&gt;BASE 是 Basically Available(基本可用)、Soft state(软状态)和 Eventually consistent (最终一致性)三个短语的缩写。是对CAP中AP的一个扩展&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;基本可用:分布式系统在出现故障时，允许损失部分可用功能，保证核心功能可用。&lt;/li&gt;
+&lt;li&gt;软状态:允许系统中存在中间状态，这个状态不影响系统可用性，这里指的是CAP中的不一致。&lt;/li&gt;
+&lt;li&gt;最终一致:最终一致是指经过一段时间后，所有节点数据都将会达到一致。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;它的核心思想是即使无法做到强一致性（CAP 的一致性就是强一致性），但应用可以采用适合的方式达到最终一致性。&lt;/p&gt;
+
+&lt;p&gt;这里的关键词是“一定时间” 和 “最终”，“一定时间”和数据的特性是强关联的，不同业务不同数据能够容忍的不一致时间是不同的。&lt;/p&gt;
+
+&lt;p&gt;例如支付类业务是要求秒级别内达到一致，因为用户时时关注；用户发的最新微博，可以容忍 30 分钟内达到一致的状态，因为用户短时间看不到明星发的微博是无感知的。&lt;/p&gt;
+
+&lt;p&gt;而“最终”的含义就是不管多长时间，最终还是要达到一致性的状态。&lt;/p&gt;
+
+&lt;p&gt;BASE 理论本质上是对 CAP 的延伸和补充，更具体地说，是对 CAP 中 AP 方案的一个补充：CAP 理论是忽略延时的，而实际应用中延时是无法避免的。&lt;/p&gt;
+
+&lt;p&gt;这一点就意味着完美的 CP 场景是不存在的，即使是几毫秒的数据复制延迟，在这几毫秒时间间隔内，系统是不符合 CP 要求的。&lt;/p&gt;
+
+&lt;p&gt;因此 CAP 中的 CP 方案，实际上也是实现了最终一致性，只是“一定时间”是指几毫秒而已。&lt;/p&gt;
+
+&lt;p&gt;AP 方案中牺牲一致性只是指发生分区故障期间，而不是永远放弃一致性。&lt;/p&gt;
+
+&lt;p&gt;这一点其实就是 BASE 理论延伸的地方，分区期间牺牲一致性，但分区故障恢复后，系统应该达到最终一致性。&lt;/p&gt;
+
+&lt;h2 id=&#34;数据一致性模型&#34;&gt;数据一致性模型&lt;/h2&gt;
+
+&lt;p&gt;前面介绍的 BASE 模型提过“强一致性”和“最终一致性”，下面对这些一致性模型展开介绍。&lt;/p&gt;
+
+&lt;p&gt;分布式系统通过复制数据来提高系统的可靠性和容错性，并且将数据的不同的副本存放在不同的机器上，由于维护数据副本的一致性代价很高，因此许多系统采用弱一致性来提高性能。&lt;/p&gt;
+
+&lt;p&gt;下面介绍常见的一致性模型：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;强一致性：要求无论更新操作是在哪个数据副本上执行，之后所有的读操作都要能获得最新的数据。 对于单副本数据来说，读写操作是在同一数据上执行的，容易保证强一致性。对多副本数据来说，则需要使用分布式事务协议。&lt;/li&gt;
+&lt;li&gt;弱一致性：在这种一致性下，用户读到某一操作对系统特定数据的更新需要一段时间，我们将这段时间称为&amp;rdquo;不一致性窗口&amp;rdquo;。&lt;/li&gt;
+&lt;li&gt;最终一致性：是弱一致性的一种特例，在这种一致性下系统保证用户最终能够读取到某操作对系统特定数据的更新（读取操作之前没有该数据的其他更新操作）。 &amp;ldquo;不一致性窗口&amp;rdquo;的大小依赖于交互延迟、系统的负载，以及数据的副本数等。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;系统选择哪种一致性模型取决于应用对一致性的需求，所选取的一致性模型还会影响到系统如何处理用户的请求以及对副本维护技术的选择等。&lt;/p&gt;
+
+&lt;p&gt;后面将基于上面介绍的一致性模型分别介绍分布式事务的解决方案。&lt;/p&gt;
+
+&lt;h1 id=&#34;分布式事务解决方案&#34;&gt;分布式事务解决方案&lt;/h1&gt;
+
+&lt;p&gt;有了上面的理论基础后，这里介绍开始介绍几种常见的分布式事务的解决方案。&lt;/p&gt;
+
+&lt;h2 id=&#34;两阶段提交-2pc-two-phase-commit-方案-强一致性-还有3pc&#34;&gt;两阶段提交（2PC, Two Phase Commit）方案（强一致性），还有3PC&lt;/h2&gt;
+
+&lt;p&gt;mysql使用的这种模式。核心就是通过事务协调器将多个事务合并为一个大的事务。&lt;/p&gt;
+
+&lt;p&gt;基于XA协议的两阶段提交:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;第一阶段是表决阶段，所有参与者都将本事务能否成功的信息反馈发给协调者；&lt;/li&gt;
+&lt;li&gt;第二阶段是执行阶段，协调者根据所有参与者的反馈，通知所有参与者，步调一致地在所有分支上提交或者回滚;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/2pc&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod11&#34; alt=&#34;&#34; /&gt;
+&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod12&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;单点问题：事务管理器在整个流程中扮演的角色很关键，如果其宕机，比如在第一阶段已经完成，在第二阶段正准备提交的时候事务管理器宕机，资源管理器就会一直阻塞，导致数据库无法使用。&lt;/li&gt;
+&lt;li&gt;同步阻塞：在准备就绪之后，资源管理器中的资源一直处于阻塞，直到提交完成，释放资源。&lt;/li&gt;
+&lt;li&gt;数据不一致：两阶段提交协议虽然为分布式数据强一致性所设计，但仍然存在数据不一致性的可能。比如：在第二阶段中，假设协调者发出了事务 Commit 的通知，但是因为网络问题该通知仅被一部分参与者所收到并执行了 Commit 操作，其余的参与者则因为没有收到通知一直处于阻塞状态，这时候就产生了数据的不一致性。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;总的来说，XA 协议比较简单，成本较低，但是其单点问题，以及不能支持高并发(由于同步阻塞)依然是其最大的弱点。&lt;/p&gt;
+
+&lt;h2 id=&#34;基于可靠消息的最终一致性方案&#34;&gt;基于可靠消息的最终一致性方案&lt;/h2&gt;
+
+&lt;p&gt;本地消息表的方案最初是由 eBay 提出，核心思路是将分布式事务拆分成本地事务进行处理。通过可靠消息系统进行同步，可以是各种消息中间件，也可以是MQ等。&lt;/p&gt;
+
+&lt;p&gt;业务处理服务在业务事务提交之前，向实时消息服务请求发送消息，实时消息服务只记录消息数据，而不是真正的发送。业务处理服务在业务事务提交之后，向实时消息服务确认发送。只有在得到确认发送指令后，实时消息服务才会真正发送。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;方案通过在事务主动发起方额外新建事务消息表，事务发起方处理业务和记录事务消息在本地事务中完成，轮询事务消息表的数据发送事务消息，事务被动方基于消息中间件消费事务消息表中的事务。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;实例&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;下面把分布式事务最先开始处理的事务方称为事务主动方，在事务主动方之后处理的业务内的其他事务称为事务被动方。&lt;/p&gt;
+
+&lt;p&gt;为了方便理解，下面继续以电商下单为例进行方案解析，这里把整个过程简单分为扣减库存，订单创建 2 个步骤。&lt;/p&gt;
+
+&lt;p&gt;库存服务和订单服务分别在不同的服务器节点上，其中库存服务是事务主动方，订单服务是事务被动方。&lt;/p&gt;
+
+&lt;p&gt;事务的主动方需要额外新建事务消息表，用于记录分布式事务的消息的发生、处理状态。&lt;/p&gt;
+
+&lt;p&gt;整个业务处理流程如下：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod10&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;步骤1：事务主动方处理本地事务。&lt;/p&gt;
+
+&lt;p&gt;事务主动方在本地事务中处理业务更新操作和写消息表操作。上面例子中库存服务阶段在本地事务中完成扣减库存和写消息表(图中 1、2)。&lt;/p&gt;
+
+&lt;p&gt;步骤 2：事务主动方通过消息中间件，通知事务被动方处理事务通知事务待消息。
+消息中间件可以基于 Kafka、RocketMQ 消息队列，事务主动方主动写消息到消息队列，事务消费方消费并处理消息队列中的消息。&lt;/p&gt;
+
+&lt;p&gt;上面例子中，库存服务把事务待处理消息写到消息中间件，订单服务消费消息中间件的消息，完成新增订单（图中 3 - 5）。&lt;/p&gt;
+
+&lt;p&gt;步骤 3：事务被动方通过消息中间件，通知事务主动方事务已处理的消息。
+上面例子中，订单服务把事务已处理消息写到消息中间件，库存服务消费中间件的消息，并将事务消息的状态更新为已完成(图中 6 - 8)。&lt;/p&gt;
+
+&lt;p&gt;为了数据的一致性，当处理错误需要重试，事务发送方和事务接收方相关业务处理需要支持幂等。&lt;/p&gt;
+
+&lt;p&gt;具体保存一致性的容错处理如下：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;当步骤 1 处理出错，事务回滚，相当于什么都没发生。&lt;/li&gt;
+&lt;li&gt;当步骤 2、步骤 3 处理出错，由于未处理的事务消息还是保存在事务发送方，事务发送方可以定时轮询为超时消息数据，再次发送到消息中间件进行处理。事务被动方消费事务消息重试处理。&lt;/li&gt;
+&lt;li&gt;如果是业务上的失败，事务被动方可以发消息给事务主动方进行回滚。&lt;/li&gt;
+&lt;li&gt;如果多个事务被动方已经消费消息，事务主动方需要回滚事务时需要通知事务被动方回滚。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;tcc事务补偿型方案-原子性-最终一致性&#34;&gt;TCC事务补偿型方案（原子性，最终一致性）&lt;/h2&gt;
+
+&lt;p&gt;某业务模型如图，由服务 A、服务B、服务C、服务D 共同组成的一个微服务架构系统。服务A 需要依次调用服务B、服务C 和服务D 共同完成一个操作。当服务A 调用服务D 失败时，若要保证整个系统数据的一致性，就要对服务B 和服务C 的invoke 操作进行回滚，执行反向的revert 操作。回滚成功后，整个微服务系统是数据一致的。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod22&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;实现：一个完整的业务活动由一个主业务服务于若干的从业务服务组成。主业务服务负责发起并完成整个业务活动。从业务服务提供TCC型业务操作。业务活动管理器控制业务活动的一致性，它登记业务活动的操作，并在业务活动提交时确认所有的TCC型操作的Confirm操作，在业务活动取消时调用所有TCC型操作的Cancel操作。&lt;/li&gt;
+&lt;li&gt;成本：实现TCC操作的成本较高，业务活动结束的时候Confirm和Cancel操作的执行成本。业务活动的日志成本。TCC 的 Try、Confirm 和 Cancel 操作功能要按具体业务来实现，业务耦合度较高，提高了开发成本。&lt;/li&gt;
+&lt;li&gt;使用范围：强隔离性，严格一致性要求的业务活动。适用于执行时间较短的业务，比如处理账户或者收费等等。&lt;/li&gt;
+&lt;li&gt;特点：不与具体的服务框架耦合，位于业务服务层，而不是资源层，可以灵活的选择业务资源的锁定粒度。TCC里对每个服务资源操作的是本地事务，数据被锁住的时间短，可扩展性好，可以说是为独立部署的SOA服务而设计的。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;TCC方案很少用人使用，因为事务回滚操作实际上是严重依赖于手动编写代码来进行回滚和补偿操作，这样的话就会造成补偿代码过多，使得项目非常难以维护。比较适合的场景就是除非真的一致性要求非常高，是系统中的核心业务场景，例如常见的就是资金类的场景，那可以用TCC方案。&lt;/p&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;p&gt;为了方便理解，下面以电商下单为例进行方案解析，这里把整个过程简单分为扣减库存，订单创建 2 个步骤，库存服务和订单服务分别在不同的服务器节点上。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Try 阶段&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;从执行阶段来看，与传统事务机制中业务逻辑相同。但从业务角度来看，却不一样。&lt;/p&gt;
+
+&lt;p&gt;TCC 机制中的 Try 仅是一个初步操作，它和后续的确认一起才能真正构成一个完整的业务逻辑，这个阶段主要完成：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;完成所有业务检查( 一致性 ) 。&lt;/li&gt;
+&lt;li&gt;预留必须业务资源( 准隔离性 ) 。&lt;/li&gt;
+&lt;li&gt;Try 尝试执行业务。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;TCC 事务机制以初步操作（Try）为中心的，确认操作（Confirm）和取消操作（Cancel）都是围绕初步操作（Try）而展开。&lt;/p&gt;
+
+&lt;p&gt;因此，Try 阶段中的操作，其保障性是最好的，即使失败，仍然有取消操作（Cancel）可以将其执行结果撤销。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod23&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;假设商品库存为 100，购买数量为 2，这里检查和更新库存的同时，冻结用户购买数量的库存，同时创建订单，订单状态为待确认。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Confirm / Cancel 阶段&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;根据 Try 阶段服务是否全部正常执行，继续执行确认操作（Confirm）或取消操作（Cancel）。&lt;/p&gt;
+
+&lt;p&gt;Confirm 和 Cancel 操作满足幂等性，如果 Confirm 或 Cancel 操作执行失败，将会不断重试直到执行完成。&lt;/p&gt;
+
+&lt;p&gt;Confirm：当 Try 阶段服务全部正常执行， 执行确认业务逻辑操作&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod24&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这里使用的资源一定是 Try 阶段预留的业务资源。在 TCC 事务机制中认为，如果在 Try 阶段能正常的预留资源，那 Confirm 一定能完整正确的提交。&lt;/p&gt;
+
+&lt;p&gt;Confirm 阶段也可以看成是对 Try 阶段的一个补充，Try+Confirm 一起组成了一个完整的业务逻辑。&lt;/p&gt;
+
+&lt;p&gt;Cancel：当 Try 阶段存在服务执行失败， 进入 Cancel 阶段&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod25&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Cancel 取消执行，释放 Try 阶段预留的业务资源，上面的例子中，Cancel 操作会把冻结的库存释放，并更新订单状态为取消。&lt;/p&gt;
+
+&lt;h2 id=&#34;最大努力通知型-弱一致性&#34;&gt;最大努力通知型（弱一致性）&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;实现：业务活动的主动方在完成处理之后向业务活动的被动方发送消息，允许消息丢失。业务活动的被动方根据定时策略，向业务活动的主动方查询，恢复丢失的业务消息。
+约束：被动方的处理结果不影响主动方的处理结果。
+成本：业务查询与校对系统的建设成本。
+使用范围：对业务最终一致性的时间敏感度低。跨企业的业务活动。
+特点：业务活动的主动方在完成业务处理之后，向业务活动的被动方发送通知消息。主动方可以设置时间阶梯通知规则，在通知失败后按规则重复通知，知道通知N次后不再通知。主动方提供校对查询接口给被动方按需校对查询，用户恢复丢失的业务消息。
+适用范围：银行通知，商户通知。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod3.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;最大努力通知方案的主要思路如下：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;系统A本地事务执行完毕之后，发送个消息到消息服务MQ&lt;/li&gt;
+&lt;li&gt;这里会有个专门消费消息服务MQ的最大努力通知服务，该服务会消费消息服务MQ，然后写入数据库中记录下来或者是放入个内存队列，接下来调用系统B的接口&lt;/li&gt;
+&lt;li&gt;要是系统B执行成功就ok了；要是系统B执行失败了，那么最大努力通知服务就定时尝试重新调用系统B，反复N次，最后还是失败就放弃。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;目前国内互联网公司大都是这么玩儿的，要不你使用RocketMQ支持的，要不你就基于其他MQ中间件自己封装一套类似的逻辑，总之思路就是这样的。其实就是MQ是上面可靠消息的一种，这边只是强调不一定可靠，还有通知。&lt;/p&gt;
+
+&lt;h1 id=&#34;总结&#34;&gt;总结&lt;/h1&gt;
+
+&lt;p&gt;从应用角度看，分布式事务的现实场景常常无法规避，在有能力给出其他解决方案前，2PC也是一个不错的选择。&lt;/p&gt;
+
+&lt;p&gt;对购物转账等电商和金融业务，中间件层的2PC最大问题在于业务不可见，一旦出现不可抗力或意想不到的一致性破坏，如数据节点永久性宕机，业务难以根据2PC的日志进行补偿。金融场景下，数据一致性是命根，业务需要对数据有百分之百的掌控力，建议使用TCC这类分布式事务模型，或基于消息队列的柔性事务框架，这两种方案都在业务层实现，业务开发者具有足够掌控力，可以结合SOA框架来架构，包括Dubbo、Spring Cloud等&lt;/p&gt;</description>
         </item>
       
     

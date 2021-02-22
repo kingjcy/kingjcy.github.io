@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Jaeger 是 Uber 开源的分布式追踪系统，兼容 OpenTracing 标准，于 2017 年 9 月加入 CNCF 基金会。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控trace系列---- jaeger - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控trace系列---- jaeger
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年08月13日 
+                </div>
+                <h1 class="post-title">监控trace系列---- jaeger</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Jaeger 是 Uber 开源的分布式追踪系统，兼容 OpenTracing 标准，于 2017 年 9 月加入 CNCF 基金会。</p>
+
+<h1 id="jaeger">jaeger</h1>
+
+<p>受Dapper和OpenZipkin启发的Jaeger是由Uber Technologies作为开源发布的分布式跟踪系统。它用于监视和诊断基于微服务的分布式系统，包括：</p>
+
+<ul>
+<li>分布式上下文传播</li>
+<li>分布式交易监控</li>
+<li>根本原因分析</li>
+<li>服务依赖性分析性能/延迟优化</li>
+</ul>
+
+<blockquote>
+<p>特性</p>
+</blockquote>
+
+<ul>
+<li><p>高扩展性</p>
+
+<p>Jaeger后端的设计没有单点故障，可以根据业务需求进行扩展。例如，Uber上任何给定的Jaeger安装通常每天要处理数十亿个跨度。</p></li>
+
+<li><p>原生支持OpenTracing</p>
+
+<p>Jaeger后端，Web UI和工具库已完全设计为支持OpenTracing标准。</p>
+
+<ul>
+<li>通过跨度引用将迹线表示为有向无环图（不仅是树）</li>
+<li>支持强类型的跨度标签和结构化日志通过行李</li>
+<li>支持通用的分布式上下文传播机制</li>
+</ul></li>
+
+<li><p>多存储后端</p>
+
+<p>Jaeger支持两个流行的开源NoSQL数据库作为跟踪存储后端：Cassandra 3.4+和Elasticsearch 5.x / 6.x / 7.x。正在进行使用其他数据库的社区实验，例如ScyllaDB，InfluxDB，Amazon DynamoDB。Jaeger还附带了一个简单的内存存储区，用于测试设置。</p></li>
+
+<li><p>现代化的UI</p>
+
+<p>Jaeger Web UI是使用流行的开源框架（如React）以Javascript实现的。v1.0中发布了几项性能改进，以允许UI有效处理大量数据，并显示具有成千上万个跨度的跟踪（例如，我们尝试了具有80,000个跨度的跟踪）。</p></li>
+
+<li><p>云原生部署</p>
+
+<p>Jaeger后端作为Docker映像的集合进行分发。这些二进制文件支持各种配置方法，包括命令行选项，环境变量和多种格式（yaml，toml等）的配置文件。Kubernetes模板和Helm图表有助于将其部署到Kubernetes集群。</p></li>
+
+<li><p>可观察性</p>
+
+<p>默认情况下，所有Jaeger后端组件都公开Prometheus指标（也支持其他指标后端）。使用结构化日志库zap将日志写到标准输出。</p></li>
+
+<li><p>安全</p>
+
+<p>Jaeger的第三方安全审核可在<a href="https://github.com/jaegertracing/security-audits">https://github.com/jaegertracing/security-audits</a> 中获得。有关Jaeger中可用安全机制的摘要，请参见问题＃1718。</p></li>
+
+<li><p>与Zipkin的向后兼容性</p>
+
+<p>尽管我们建议使用OpenTracing API来对应用程序进行检测并绑定到Jaeger客户端库，以从其他地方无法获得的高级功能中受益，但是如果您的组织已经使用Zipkin库对检测进行了投资，则不必重写所有代码。Jaeger通过在HTTP上接受Zipkin格式（Thrift或JSON v1 / v2）的跨度来提供与Zipkin的向后兼容性。从Zipkin后端切换只是将流量从Zipkin库路由到Jaeger后端的问题。</p></li>
+</ul>
+
+<h2 id="安装部署">安装部署</h2>
+
+<p>开始多合一的最简单方法是使用发布到DockerHub的预构建映像（单个命令行）。</p>
+
+<pre><code>docker run -d --name jaeger \
+  -e COLLECTOR_ZIPKIN_HTTP_PORT=9411 \
+  -p 5775:5775/udp \
+  -p 6831:6831/udp \
+  -p 6832:6832/udp \
+  -p 5778:5778 \
+  -p 16686:16686 \
+  -p 14268:14268 \
+  -p 9411:9411 \
+  jaegertracing/all-in-one:1.14
+</code></pre>
+
+<p>Or run the jaeger-all-in-one(.exe) executable from the binary distribution archives:</p>
+
+<pre><code>jaeger-all-in-one --collector.zipkin.http-port=9411
+</code></pre>
+
+<p>You can then navigate to <a href="http://localhost:16686">http://localhost:16686</a> to access the Jaeger UI.</p>
+
+<h1 id="架构">架构</h1>
+
+<p><img src="/media/monitor/trace/jaeger" alt="" /></p>
+
+<p>整体可以分为四个部分：</p>
+
+<ul>
+<li>jaeger-client：Jaeger 的客户端，实现了 OpenTracing 的 API，支持主流编程语言。客户端直接集成在目标 Application 中，其作用是记录和发送 Span 到 Jaeger Agent。在 Application 中调用 Jaeger Client Library 记录 Span 的过程通常被称为埋点。</li>
+<li>jaeger-agent：暂存 Jaeger Client 发来的 Span，并批量向 Jaeger Collector 发送 Span，一般每台机器上都会部署一个 Jaeger Agent。官方的介绍中还强调了 Jaeger Agent 可以将服务发现的功能从 Client 中抽离出来，不过从架构角度讲，如果是部署在 Kubernetes 或者是 Nomad 中，Jaeger Agent 存在的意义并不大。</li>
+<li>jaeger-collector：接受 Jaeger Agent 发来的数据，并将其写入存储后端，目前支持采用 Cassandra 和 Elasticsearch 作为存储后端。个人还是比较推荐用 Elasticsearch，既可以和日志服务共用同一个 ES，又可以使用 Kibana 对 Trace 数据进行额外的分析。架构图中的存储后端是 Cassandra，旁边还有一个 Spark，讲的就是可以用 Spark 等其他工具对存储后端中的 Span 进行直接分析。</li>
+<li>jaeger-query &amp; jaeger-ui：读取存储后端中的数据，以直观的形式呈现。</li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/trace/jaeger/">https://kingjcy.github.io/post/monitor/trace/jaeger/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/trace/">
+                            <i class="fa fa-tags"></i>
+                            trace
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/jaeger/">
+                            <i class="fa fa-tags"></i>
+                            jaeger
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">监控metrics系列---- Prometheus mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/trace/zipkin/">监控trace系列---- zipkin</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">监控metrics系列---- Prometheus blackbox_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月03日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/gpu_exporter/">监控metrics系列---- Prometheus gpu_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月15日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/process_exporter/">监控metrics系列---- Prometheus Process Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/trace/zipkin/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#jaeger">jaeger</a>
+<ul>
+<li><a href="#安装部署">安装部署</a></li>
+</ul></li>
+<li><a href="#架构">架构</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

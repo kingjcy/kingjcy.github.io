@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="zipkin是分布式链路调用监控系统，聚合各业务系统调用延迟数据，达到链路调用监控跟踪。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控trace系列---- zipkin - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控trace系列---- zipkin
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年08月13日 
+                </div>
+                <h1 class="post-title">监控trace系列---- zipkin</h1>
+            </header>
+
+            <div class="post-content">
+                <p>zipkin是分布式链路调用监控系统，聚合各业务系统调用延迟数据，达到链路调用监控跟踪。</p>
+
+<h1 id="zipkin">zipkin</h1>
+
+<p>一个独立的分布式追踪系统，客户端存在于应用中（即各服务中），应具备追踪信息生成、采集发送等功能，而服务端应该包含以下基本的三个功能：</p>
+
+<ul>
+<li>信息收集：用来收集各服务端采集的信息，并对这些信息进行梳理存储、建立索引。</li>
+<li>数据存储：存储追踪数据。</li>
+<li>查询服务：提供查询请求链路信息的接口。</li>
+</ul>
+
+<h2 id="安装使用">安装使用</h2>
+
+<p>下载jar包，直接运行。简单粗暴，但要注意必须jdk1.8及以上。</p>
+
+<pre><code>wget -O zipkin.jar 'https://search.maven.org/remote_content?g=io.zipkin.java&amp;a=zipkin-server&amp;v=LATEST&amp;c=exec'
+java -jar zipkin.jar
+</code></pre>
+
+<p>启动成功后，打开浏览器访问zipkin的webUI，输入<a href="http://ip:9411/">http://ip:9411/</a> ,显示web界面。</p>
+
+<h1 id="架构">架构</h1>
+
+<p><img src="/media/monitor/trace/zipkin" alt="" /></p>
+
+<p>zipkin(服务端)包含四个组件，分别是collector、storage、search、web UI。</p>
+
+<ul>
+<li>collector 就是信息收集器,作为一个守护进程，它会时刻等待客户端传递过来的追踪数据，对这些数据进行验证、存储以及创建查询需要的索引。</li>
+<li>storage  是存储组件。zipkin 默认直接将数据存在内存中，此外支持使用Cassandra、ElasticSearch 和 Mysql。</li>
+<li>search 是一个查询进程，它提供了简单的JSON API来供外部调用查询。</li>
+<li>web UI 是zipkin的服务端展示平台，主要调用search提供的接口，用图表将链路信息清晰地展示给开发人员。</li>
+</ul>
+
+<h2 id="数据发送">数据发送</h2>
+
+<p>一个 span 表示一次服务调用，那么追踪器必定是被服务调用发起的动作触发，生成基本信息，同时为了追踪服务提供方对其他服务的调用情况，便需要传递本次追踪链路的traceId和本次调用的span-id。服务提供方完成服务将结果响应给调用方时，需要根据调用发起时记录的时间戳与当前时间戳计算本次服务的持续时间进行记录，至此这次调用的追踪span完成，就可以发送给zipkin服务端了。但是需要注意的是，发送span给zipkin collector不得影响此次业务结果，其发送成功与否跟业务无关，因此这里需要采用异步的方式发送，防止追踪系统发送延迟与发送失败导致用户系统的延迟与中断。下图就表示了一次http请求调用的追踪流程（基于zipkin官网提供的流程图）：</p>
+
+<p><img src="/media/monitor/trace/zipkin1" alt="" /></p>
+
+<p>可以看出服务A请求服务B时先被追踪器拦截，记录tag信息、时间戳，同时将追踪标识添加进http header中传递给服务B，在服务B响应后，记录持续时间，最终采取异步的方式发送给zipkin收集器。span从被追踪的服务传送到Zipkin收集器有三种主要的传送方式：http、Kafka以及Scribe（Facebook开源的日志收集系统）。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/trace/zipkin/">https://kingjcy.github.io/post/monitor/trace/zipkin/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/trace/">
+                            <i class="fa fa-tags"></i>
+                            trace
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/zipkin/">
+                            <i class="fa fa-tags"></i>
+                            zipkin
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">监控metrics系列---- Prometheus mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/trace/jaeger/">监控trace系列---- jaeger</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">监控metrics系列---- Prometheus blackbox_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月03日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/gpu_exporter/">监控metrics系列---- Prometheus gpu_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月15日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/process_exporter/">监控metrics系列---- Prometheus Process Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/trace/jaeger/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#zipkin">zipkin</a>
+<ul>
+<li><a href="#安装使用">安装使用</a></li>
+</ul></li>
+<li><a href="#架构">架构</a>
+<ul>
+<li><a href="#数据发送">数据发送</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

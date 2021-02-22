@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="全链路监控系统 - APM（Application Performance Managemen）主要用于调用链路追踪，对每一次调用都做性能分析。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控系列---- trace - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控系列---- trace
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年08月13日 
+                </div>
+                <h1 class="post-title">监控系列---- trace</h1>
+            </header>
+
+            <div class="post-content">
+                <p>全链路监控系统 - APM（Application Performance Managemen）主要用于调用链路追踪，对每一次调用都做性能分析。</p>
+
+<p>当我们需要解决以下的问题的时候，我们就需要引入APM了。</p>
+
+<ul>
+<li>上线发布后，如何确认服务一切正常？</li>
+<li>客户端收到了错误的提示，但是到底是哪个服务抛出的这个错误？</li>
+<li>程序性能有问题，但是具体是哪个环节成了性能的瓶颈？</li>
+<li>接口响应很慢，到底是网络问题还是代码问题？</li>
+<li>服务调用链路长，每个环节都可能是一个出问题的风险点？</li>
+<li>做技术优化，如何丈量我们的服务质量呢？</li>
+</ul>
+
+<h1 id="调用链">调用链</h1>
+
+<h2 id="基本概念">基本概念</h2>
+
+<p>调用链中的核心概念</p>
+
+<ul>
+<li>Trace 一次分布式调用的链路</li>
+<li>Span 一次本地或者远程方法的调用</li>
+<li>Annotation 附加在 Span 上的日志信息</li>
+<li>Sampling 采样率（客户端按照比例将埋点信息提交给服务端）</li>
+</ul>
+
+<p>我们来通过实例来具体展示以下对应的概念</p>
+
+<p><img src="/media/monitor/trace/trace" alt="" /></p>
+
+<p>如上我们图示了一次分布式调用的全过程，图中有三个分布式服务 Service A、Service B、Service B，每个方法的调用链信息中涉及到如下三个标记：</p>
+
+<ul>
+<li>tid：tid 即为 trace id，代表该次调用的唯一 ID，在一次分布式调用中，所有方法的 tid 都相同。如上图中的 Tid:1。</li>
+<li>sid：sid 即为 span id， 代表的是一个本地/远程方法调用的唯一 ID。如上图中每个绿色框代表的是一次方法调用，每次调用都有自己的 sid。</li>
+<li>pid：pid 其实也是一个 span id，但是它代表的是当前方法的父级方法的 span id。如上图中第一方法调用由客户端发起，是没有 pid 的。</li>
+</ul>
+
+<p>在上图中所示的调用链中总共包含了 7 个方法（本地/远程）调用，依次如下：</p>
+
+<ul>
+<li>用客户端发起调用请求后，首先请求进入到 A 服务。此时会产生调用链信息 tid:1, sid:1 。</li>
+<li>接着发生了一次远程调用 Tid:1, pid:1, sid:2，pid 为 1 代表父级方法的 span id 为 1 即为 sid = 1 的方法，同理本次 redis 远程调用的 span id 为 2。</li>
+<li>Redis 远程调用结束后发生了对 Service B 的远程调用 Tid:1, pid:1, sid:3，与方法 2 类似，不同的是本次方法调用的 span id 为 3。</li>
+<li>在 Service B 中，首先是一个本地方法调用 Tid:1, pid:3, sid:4，从 pid = 3 可以得出它的父级方法正是方法 3。</li>
+<li>接着发生了一次对 Mysql 的远程调用 Tid:1, pid:4, sid:5，pid = 4 代表父级方法为方法 4，span id 为 5。</li>
+<li>Mysql 远程调用结束后，Service B 对 Service C 进行了一次远程调用 Tid:1, pid:4, sid:6，同样通过 pid 和 tid 我们可以将本次方法调用与整个调用链关联起来。</li>
+<li>最后是 Service C 的一个本地方法调用 Tid:1, pid:6, sid:7，至此整个调用链到达最远端，这是本次分布式调用链最深处的一个方法。</li>
+</ul>
+
+<h2 id="发展">发展</h2>
+
+<p>2010 年 Google Dapper 问世，其实早在 2002 年 eBay 已经有了自己的调用链监控产品，它叫 CAL（Central Application Logging）。当时 eBay 中国研发中心的一位资深工程师作为 CAL 的核心维护人员，对 CAL 的方方面面都非常熟悉。</p>
+
+<p>后来他去了美团点评，在 2011 年的时候，他带领团队研发出了 CAT（Central Application Tracing），CAT 继承了 CAL 的优点，也增加了很多自己的特色功能，并且它已经在 GitHub 开源，也在美团点评经受了大流量，高并发应用的检验，是目前业界应用比较广泛和成熟的生产级别调用链监控产品。</p>
+
+<p>随后由于 Google Dapper 论文的发布，也伴随着互联网产品的迅速发展，各个大厂依据 Dapper 纷纷实现了自己的调用链监控产品。在 2012 年就诞生了 3 款产品，携程的 CTrace，韩国公司 Naver 的 PinPoint，Twitter 的 Zipkin。</p>
+
+<p>随后在 2014 年，阿里研发了 Eagleye，京东研发了 Hydra。接着诞生了调用链监控的标准规范 Open Tracing，面对各大厂的调用链监控产品，他们使用不兼容的 API 来实现各自的应用需求。尽管这些分布式追踪系统有着相似的 API 语法，但各种语言的开发人员依然很难将他们各自的系统（使用不同的语言和技术）和特定的分布式追踪系统进行整合，Open Tracing 希望可以解决这个问题，因此颁布了这套标准。于此也诞生了 Uber 的 Jaeger，国人吴晟做的 SkyWalking（现在已经捐赠给了 Apache）均实现了 Open Tracing 标准</p>
+
+<p><img src="/media/monitor/trace/trace1" alt="" /></p>
+
+<p>各大调用链产品分为了典型的三类：</p>
+
+<ul>
+<li>CAT 类：鼻祖 CAL，侵入式埋点，国内公司使用较广。</li>
+<li><a href="/post/monitor/trace/zipkin">Zipkin</a> 类：鼻祖 Google Dapper，侵入式埋点，国内使用不广(s)。</li>
+<li>PinPiont类：鼻祖 Google Dapper，非侵入式卖点，采用字节码增强技术。</li>
+<li>opentacing：<a href="/post/monitor/trace/jaeger">jaeger</a>，skywalking</li>
+</ul>
+
+<p><img src="/media/monitor/trace/trace2.png" alt="" /></p>
+
+<h2 id="es">ES</h2>
+
+<p><a href="/post/database/elasticsearch/">ES</a>数据库很重要，不管在日志还是在调用链都是存储数据的核心模块，也是提供聚合查询的基础。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/trace/trace/">https://kingjcy.github.io/post/monitor/trace/trace/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/trace/">
+                            <i class="fa fa-tags"></i>
+                            trace
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">监控metrics系列---- Prometheus mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/trace/jaeger/">监控trace系列---- jaeger</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/trace/zipkin/">监控trace系列---- zipkin</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">监控metrics系列---- Prometheus blackbox_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月03日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/gpu_exporter/">监控metrics系列---- Prometheus gpu_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月15日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/process_exporter/">监控metrics系列---- Prometheus Process Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月09日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/log/log-scheme/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/exporter/postgres_exporter/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#调用链">调用链</a>
+<ul>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#发展">发展</a></li>
+<li><a href="#es">ES</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
