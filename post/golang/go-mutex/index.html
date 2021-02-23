@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="锁是一种常见的并发控制技术，我们一般会将锁分成乐观锁和悲观锁，即乐观并发控制和悲观并发控制。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Golang使用系列---- mutex - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Golang使用系列---- mutex
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年02月28日 
+                </div>
+                <h1 class="post-title">Golang使用系列---- mutex</h1>
+            </header>
+
+            <div class="post-content">
+                <p>锁是一种常见的并发控制技术，我们一般会将锁分成乐观锁和悲观锁，即乐观并发控制和悲观并发控制。</p>
+
+<h1 id="悲观锁">悲观锁</h1>
+
+<p>悲观锁就是我们常用的锁机制，不管它会不会发生，只要存在并发安全问题，就在操作这个资源的时候给他先加上锁。常见的锁有互斥锁，读写锁等。</p>
+
+<p>golang中除了atomic其他都是悲观锁。</p>
+
+<blockquote>
+<p>互斥锁Mutex</p>
+</blockquote>
+
+<p>实例</p>
+
+<pre><code>var l sync.Mutex
+func foo() {
+     l.Lock()
+     defer l.Unlock()
+     //...
+}
+</code></pre>
+
+<p>其中Mutex为互斥锁，Lock()加锁，Unlock()解锁，如果在使用Unlock()前未加锁，就会引起一个运行错误，使用Lock()加锁后，便不能再次对其进行加锁，直到利用Unlock()解锁对其解锁后，才能再次加锁．适用于读写不确定场景，即读写次数没有明显的区别，并且只允许只有一个读或者写的场景，所以该锁也叫做全局锁。</p>
+
+<blockquote>
+<p>读写锁RWMutex</p>
+</blockquote>
+
+<pre><code>func (rw *RWMutex) Lock()　　
+</code></pre>
+
+<p>写锁，如果在添加写锁之前已经有其他的读锁和写锁，则lock就会阻塞直到该锁可用，为确保该锁最终可用，已阻塞的 Lock 调用会从获得的锁中排除新的读取器，即写锁权限高于读锁，有写锁时优先进行写锁定</p>
+
+<pre><code>func (rw *RWMutex) Unlock()　
+</code></pre>
+
+<p>写锁解锁，如果没有进行写锁定，则就会引起一个运行时错误</p>
+
+<pre><code>func (rw *RWMutex) RLock()
+</code></pre>
+
+<p>读锁，当有写锁时，无法加载读锁，当只有读锁或者没有锁时，可以加载读锁，读锁可以加载多个，所以适用于＂读多写少＂的场景</p>
+
+<pre><code>func (rw *RWMutex)RUnlock()　
+</code></pre>
+
+<p>读锁解锁，RUnlock 撤销单次RLock 调用，它对于其它同时存在的读取器则没有效果。若 rw 并没有为读取而锁定，调用 RUnlock 就会引发一个运行时错误(注：这种说法在go1.3版本中是不对的，例如下面这个例子)。</p>
+
+<p>读写锁是针对于读写操作的互斥锁。</p>
+
+<p>基本遵循两大原则：</p>
+
+<ul>
+<li>加读锁后就不能写，允许存在多个读锁，但只能有一把写锁；读锁的时候不能写，可以随便读。多个goroutin同时读。</li>
+<li>加写锁的时候，当写锁未被释放时或此时有正被等待的写锁（只有当全部读锁结束，写锁才可用），读锁不可用；</li>
+</ul>
+
+<p>下面再用一个实例来简单介绍一下 RWMutex 的几条规则：</p>
+
+<pre><code>var rw sync.RWMutex
+
+func reader(readerID int) {
+    fmt.Printf(&quot;[reader-%d] try to get read lock\n&quot;, readerID)
+    rw.RLock()
+    fmt.Printf(&quot;[reader-%d] get read lock and sleep\n&quot;, readerID)
+    time.Sleep(1 * time.Second)
+    fmt.Printf(&quot;[reader-%d] release read lock\n&quot;, readerID)
+    rw.RUnlock()
+}
+
+func writer(writerID int) {
+    fmt.Printf(&quot;[writer-%d] try to get write lock\n&quot;, writerID)
+    rw.Lock()
+    fmt.Printf(&quot;[writer-%d] get write lock and sleep\n&quot;, writerID)
+    time.Sleep(3 * time.Second)
+    fmt.Printf(&quot;[writer-%d] release write lock\n&quot;, writerID)
+    rw.Unlock()
+}
+
+func main() {
+    // 启动多个 goroutine 获取 read lock 后 sleep 一段时间
+    // 由于此时没有写者，所以两个 reader 都可以同时获取到读锁
+    go reader(1)
+    go reader(2)
+
+    time.Sleep(500 * time.Millisecond)
+
+    // 写者获取写锁，由于读锁未被释放，所以一开始写者获取不到写锁
+    go writer(1)
+
+    time.Sleep(1 * time.Second)
+
+    // 由于写锁还未释放，新的读者获取不到读锁
+    go reader(3)
+    go reader(4)
+
+    // 主 goroutine 等待足够长时间让所有 goroutine 执行完
+    time.Sleep(10 * time.Second)
+}
+</code></pre>
+
+<p>执行后输出为：</p>
+
+<pre><code>[reader-2] try to get read lock
+[reader-1] try to get read lock
+[reader-2] get read lock and sleep
+[reader-1] get read lock and sleep
+[writer-1] try to get write lock      --&gt; 尝试获取写锁失败，因为读锁未释放
+[reader-2] release read lock          --&gt; 读锁释放
+[reader-1] release read lock
+[writer-1] get write lock and sleep   --&gt; 读锁释放后，获取写锁成功
+[reader-4] try to get read lock       --&gt; 获取读锁失败因为写锁未释放
+[reader-3] try to get read lock
+[writer-1] release write lock         --&gt; 写锁释放
+[reader-3] get read lock and sleep    --&gt; 写锁释放后，获取读锁成功
+[reader-4] get read lock and sleep
+[reader-4] release read lock
+[reader-3] release read lock
+</code></pre>
+
+<h1 id="乐观锁">乐观锁</h1>
+
+<p>乐观锁并不是一把真正的锁，不像上面的锁一样有api，而是一种并发控制的思想：总是假设最好的情况，每次去拿数据的时候都认为别人不会修改，所以不会上锁，但是在更新的时候会判断一下在此期间别人有没有去更新这个数据，可以使用版本号机制和CAS算法实现。</p>
+
+<blockquote>
+<p>版本号机制</p>
+</blockquote>
+
+<p>一般是在数据表中加上一个数据版本号version字段，表示数据被修改的次数，当数据被修改时，version值会加一。当线程A要更新数据值时，在读取数据的同时也会读取version值，在提交更新时，若刚才读取到的version值为当前数据库中的version值相等时才更新，否则重试更新操作，直到更新成功。</p>
+
+<blockquote>
+<p>CAS算法</p>
+</blockquote>
+
+<p>即compare and swap（比较与交换），是一种有名的无锁算法。无锁编程，即不使用锁的情况下实现多线程之间的变量同步，也就是在没有线程被阻塞的情况下实现变量的同步，所以也叫非阻塞同步（Non-blocking Synchronization）。CAS算法涉及到三个操作数</p>
+
+<ul>
+<li>需要读写的内存值 V</li>
+<li>进行比较的值 A</li>
+<li>拟写入的新值 B</li>
+</ul>
+
+<p>当且仅当 V 的值等于 A时，CAS通过原子方式用新值B来更新V的值，否则不会执行任何操作（比较和替换是一个原子操作）。一般情况下是一个自旋操作，即不断的重试。</p>
+
+<p>CAS在golang的库sync/atomic中得到了实现。atomic基本使用了乐观锁的原理，但是只是支持int32/int64/uint32/uint64/uintptr这几种数据类型的一些基础操作，操作共五种：增减， 比较并交换， 载入， 存储，交换。</p>
+
+<p>一般无锁的操作都是使用乐观并发控制思想来实现的。</p>
+
+<h2 id="实现方式">实现方式</h2>
+
+<p>1、基于数据库的version字段进行实现，在表中新增一个字段version就可以，执行sql的时候加上这个字段的比较</p>
+
+<p>2、基于缓存数据库实现，比如redis的watch，和memcached的gets和cas</p>
+
+<h1 id="锁的原理">锁的原理</h1>
+
+<p>锁的实现一般会依赖于信号量，信号量则是一个非负的整数计数器。</p>
+
+<p>信号量：多线程同步使用的；一个线程完成某个动作后通过信号告诉别的线程，别的线程才可以执行某些动作；信号量可以是多值的，当信号量在0和1之间操作时候就是互斥量</p>
+
+<p>互斥量：多线程互斥使用的；一个线程占用某个资源，那么别的线程就无法访问，直到该线程离开，其他线程才可以访问该资源；0或1</p>
+
+<p>具体互斥锁的实现原理可以参考这篇文章：<a href="https://www.cnblogs.com/sylz/p/6030201.html">https://www.cnblogs.com/sylz/p/6030201.html</a></p>
+
+<p>简单来说，就是加锁时，就把信号量减一，如果是零说明加锁成功。释放锁时把信号量加一，如果是一说明释放成功。</p>
+
+<p>但是在实际应用中大家都使用信号量，因为信号量是多值得，可以通过信号量加等待队列，减少唤醒的次数。</p>
+
+<p>pv原语</p>
+
+<pre><code>P（S）：将信号量S的值减1，即S=S-1；
+        如果S&gt;=0，则该进程继续执行；否则该进程置为等待状态，排入等待队列。-----申请资源
+V（S）：将信号量S的值加1，即S=S+1；
+        如果S&gt;0，则该进程继续执行；否则释放队列中第一个等待信号量的进程。------释放资源
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-mutex/">https://kingjcy.github.io/post/golang/go-mutex/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/sync/">
+                            <i class="fa fa-tags"></i>
+                            sync
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/mutex/">
+                            <i class="fa fa-tags"></i>
+                            mutex
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-runtime/">Golang使用系列---- Runtime</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/golang/go-map/">Golang使用系列---- Map</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月28日)</span></li><li id="li-rels"><a href="/post/golang/go-sync/">Golang使用系列---- Sync</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月28日)</span></li><li id="li-rels"><a href="/post/golang/go-sort/">Golang使用系列---- Sort</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月01日)</span></li><li id="li-rels"><a href="/post/golang/go-math/">Golang使用系列---- Math</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月01日)</span></li><li id="li-rels"><a href="/post/golang/go-bufio/">Golang使用系列---- Bufio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-ioutil/">Golang使用系列---- Ioutil</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年01月13日)</span></li><li id="li-rels"><a href="/post/golang/go-bytes/">Golang使用系列---- Bytes</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年12月25日)</span></li><li id="li-rels"><a href="/post/golang/go-net-http/">Golang使用系列---- Net/Http 应用层</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年09月26日)</span></li><li id="li-rels"><a href="/post/golang/go-strings/">Golang使用系列---- Strings</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年10月12日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-sync/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/database/elasticsearch/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#悲观锁">悲观锁</a></li>
+<li><a href="#乐观锁">乐观锁</a>
+<ul>
+<li><a href="#实现方式">实现方式</a></li>
+</ul></li>
+<li><a href="#锁的原理">锁的原理</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

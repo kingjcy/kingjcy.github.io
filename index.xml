@@ -3389,6 +3389,225 @@ process_names:
     
       
         <item>
+          <title>分布式系列---- Distributed Lock</title>
+          <link>https://kingjcy.github.io/post/distributed/distributed-lock/</link>
+          <pubDate>Wed, 03 Apr 2019 19:57:56 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/distributed/distributed-lock/</guid>
+          <description>&lt;p&gt;锁可以分为正常的进程内锁和分布式的进程间的锁。&lt;/p&gt;
+
+&lt;h1 id=&#34;正常锁&#34;&gt;正常锁&lt;/h1&gt;
+
+&lt;p&gt;我们一般所说的锁，就是指单进程多线程的锁机制。在单进程中，如果有多个线程并发访问某个某个全局资源，存在并发修改的问题。如果要避免这个问题，我们需要对资源进行同步，同步其实就是可以加一个锁来保证同一时刻只有一个线程能操作这个资源。&lt;/p&gt;
+
+&lt;p&gt;具体的锁可以看go的&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-mutex/&#34;&gt;锁&lt;/a&gt;,当然在golang中主要是使用channel来实现进程内通信和共享。&lt;/p&gt;
+
+&lt;h1 id=&#34;分布式锁&#34;&gt;分布式锁&lt;/h1&gt;
+
+&lt;p&gt;涉及到分布式环境，以集群为例，就是多个实例，也就是多个进程，而且这些进程完全可能不在同一个机器上。我们知道多线程可以共享父进程的资源，包括内存。所以多线程可以看见锁，但是多进程之间无法共享资源，甚至都不在一台机器上，所以这时候分布式环境下，就需要其他的方式来让所有进程都可以知道这个锁，来控制对全局资源的并发修改。&lt;/p&gt;
+
+&lt;p&gt;为了解决分布式的问题，我们可以把这个锁放入所有进程都可以访问的地方，比如数据库，redis，memcached或者是zookeeper。这些也是目前实现分布式锁的主要实现方式。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;基于数据库表实现分布式锁&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;我们可以将我们分布式要操作的资源都定义成表，然后对表进行查询数据，如果查到了没有数据，可以进行update，否则，说明该锁被其他线程持有，还没有释放&lt;/p&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;p&gt;更新之前会多一次查询，增加了数据库的操作&lt;/p&gt;
+
+&lt;p&gt;数据库链接资源宝贵，如果并发量太大，数据库的性能有影响&lt;/p&gt;
+
+&lt;p&gt;如果单个数据库存在单点问题，所以最好是高可用的。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;基于Redis实现分布式锁&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;通过Redis的setnx key命令，如果不存在某个key就设置值，设置成功表示获取锁。&lt;/p&gt;
+
+&lt;p&gt;缺点：如果设置成功后，还没有释放锁，对应的业务节点就挂掉了，那么这时候锁就没有释放。其他业务节点也无法获取这个锁。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;使用setnx设置命令成功后，则使用expire命令设置到期时间，就算业务节点还没有释放锁就挂掉了，但是我们还是可以保证这个锁到期就会释放。&lt;/p&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;p&gt;setnx 和 expire不是原子操作，即设置了setnx还没有来得及设置到期时间，业务节点就挂了。&lt;/p&gt;
+
+&lt;p&gt;而且key到期了，业务节点业务还没有执行完，怎么办？&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;使用set命令 我们知道set命令格式如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;set key value [EX seconds] [PX milliseconds][NX|XX]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;即首先可以根据这个key不存在，则设置值，即使用NX。然后可以设置到期时间，EX表示秒数，PX表示毫秒数，这个操作就是原子性的，解决了上述问题。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;set id EX 10 NX
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;zookeeper，memcached&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;利用Memcached的add命令。此命令是原子性操作，只有在key不存在的情况下，才能add成功，也就意味着线程得到了锁。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;利用Zookeeper的顺序临时节点，来实现分布式锁和等待队列。Zookeeper设计的初衷，就是为了实现分布式锁服务的。&lt;/p&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;实例&#34;&gt;实例&lt;/h2&gt;
+
+&lt;p&gt;1、简单实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;log&amp;quot;
+    &amp;quot;time&amp;quot;
+
+    &amp;quot;github.com/garyburd/redigo/redis&amp;quot;
+)
+
+type Lock struct {
+    resource string
+    token    string
+    conn     redis.Conn
+    timeout  int
+}
+
+func (lock *Lock) tryLock() (ok bool, err error) {
+    _, err = redis.String(lock.conn.Do(&amp;quot;SET&amp;quot;, lock.key(), lock.token, &amp;quot;EX&amp;quot;, int(lock.timeout), &amp;quot;NX&amp;quot;))
+    if err == redis.ErrNil {
+        // The lock was not successful, it already exists.
+        return false, nil
+    }
+    if err != nil {
+        return false, err
+    }
+    return true, nil
+}
+
+func (lock *Lock) Unlock() (err error) {
+    _, err = lock.conn.Do(&amp;quot;del&amp;quot;, lock.key())
+    return
+}
+
+func (lock *Lock) key() string {
+    return fmt.Sprintf(&amp;quot;redislock:%s&amp;quot;, lock.resource)
+}
+
+func (lock *Lock) AddTimeout(ex_time int64) (ok bool, err error) {
+    ttl_time, err := redis.Int64(lock.conn.Do(&amp;quot;TTL&amp;quot;, lock.key()))
+    fmt.Println(ttl_time)
+    if err != nil {
+        log.Fatal(&amp;quot;redis get failed:&amp;quot;, err)
+    }
+    if ttl_time &amp;gt; 0 {
+        fmt.Println(11)
+        _, err := redis.String(lock.conn.Do(&amp;quot;SET&amp;quot;, lock.key(), lock.token, &amp;quot;EX&amp;quot;, int(ttl_time+ex_time)))
+        if err == redis.ErrNil {
+            return false, nil
+        }
+        if err != nil {
+            return false, err
+        }
+    }
+    return false, nil
+}
+
+func TryLock(conn redis.Conn, resource string, token string, DefaulTimeout int) (lock *Lock, ok bool, err error) {
+    return TryLockWithTimeout(conn, resource, token, DefaulTimeout)
+}
+
+func TryLockWithTimeout(conn redis.Conn, resource string, token string, timeout int) (lock *Lock, ok bool, err error) {
+    lock = &amp;amp;Lock{resource, token, conn, timeout}
+
+    ok, err = lock.tryLock()
+
+    if !ok || err != nil {
+        lock = nil
+    }
+
+    return
+}
+
+func main() {
+    fmt.Println(&amp;quot;start&amp;quot;)
+    DefaultTimeout := 10
+    conn, err := redis.Dial(&amp;quot;tcp&amp;quot;, &amp;quot;localhost:6379&amp;quot;)
+
+    lock, ok, err := TryLock(conn, &amp;quot;xiaoru.cc&amp;quot;, &amp;quot;token&amp;quot;, int(DefaultTimeout))
+    if err != nil {
+        log.Fatal(&amp;quot;Error while attempting lock&amp;quot;)
+    }
+    if !ok {
+        log.Fatal(&amp;quot;Lock&amp;quot;)
+    }
+    lock.AddTimeout(100)
+
+    time.Sleep(time.Duration(DefaultTimeout) * time.Second)
+    fmt.Println(&amp;quot;end&amp;quot;)
+    defer lock.Unlock()
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这段golang代码运行后的正常结果是:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ go run lock.go
+start
+10
+11
+end
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果同时起多个进程去测试，会遇到这么一个结果:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ go run lock.go
+start
+2016/03/23 01:23:22 Lock
+exit status 1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2、promes告警事件进行加锁&lt;/p&gt;
+
+&lt;p&gt;后台是分布式的admin程序，分布在几台机器上，同时去消费kafka中的告警信息事件，对于同一个id的有着不同的事件，对于同一个id可能在不同的实例进行事件的处理，比如一个发生事件，一个恢复事件，这个时候就要使用分布式锁了。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;set id EX 10 NX
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;redis分布式锁实现乐观锁-悲观锁&#34;&gt;Redis分布式锁实现乐观锁、悲观锁&lt;/h1&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;乐观锁的实现&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;乐观锁实现中的锁就是商品的键值对。使用jedis的watch方法监视商品键值对，如果事务提交exec时发现监视的键值对发生变化，事务将被取消，商品数目不会被改动。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1).multi，开启Redis的事务，置客户端为事务态。
+
+2).exec，提交事务，执行从multi到此命令前的命令队列，置客户端为非事务态。
+
+3).discard，取消事务，置客户端为非事务态。
+
+4).watch,监视键值对，作用时如果事务提交exec时发现监视的监视对发生变化，事务将被取消。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;悲观锁实现&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;悲观锁中的锁是一个唯一标识的锁lockKey和该锁的过期时间。首先确定缓存中有商品，然后在拿数据(商品数目改动)之前先获取到锁，之后对商品数目进行减一操作，操作完成释放锁，一个秒杀操作完成。这个锁是基于redis的setNX操作实现的阻塞式分布式锁。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控metrics系列---- M3db</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/cluster/remotestore/m3db/</link>
           <pubDate>Wed, 13 Mar 2019 17:13:10 CST</pubDate>
@@ -5566,6 +5785,191 @@ oldval：=atomic.StoreInt32(&amp;amp;value,newaddr)
     
       
         <item>
+          <title>Golang使用系列---- mutex</title>
+          <link>https://kingjcy.github.io/post/golang/go-mutex/</link>
+          <pubDate>Thu, 28 Feb 2019 17:42:24 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-mutex/</guid>
+          <description>&lt;p&gt;锁是一种常见的并发控制技术，我们一般会将锁分成乐观锁和悲观锁，即乐观并发控制和悲观并发控制。&lt;/p&gt;
+
+&lt;h1 id=&#34;悲观锁&#34;&gt;悲观锁&lt;/h1&gt;
+
+&lt;p&gt;悲观锁就是我们常用的锁机制，不管它会不会发生，只要存在并发安全问题，就在操作这个资源的时候给他先加上锁。常见的锁有互斥锁，读写锁等。&lt;/p&gt;
+
+&lt;p&gt;golang中除了atomic其他都是悲观锁。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;互斥锁Mutex&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;var l sync.Mutex
+func foo() {
+     l.Lock()
+     defer l.Unlock()
+     //...
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;其中Mutex为互斥锁，Lock()加锁，Unlock()解锁，如果在使用Unlock()前未加锁，就会引起一个运行错误，使用Lock()加锁后，便不能再次对其进行加锁，直到利用Unlock()解锁对其解锁后，才能再次加锁．适用于读写不确定场景，即读写次数没有明显的区别，并且只允许只有一个读或者写的场景，所以该锁也叫做全局锁。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;读写锁RWMutex&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;func (rw *RWMutex) Lock()　　
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;写锁，如果在添加写锁之前已经有其他的读锁和写锁，则lock就会阻塞直到该锁可用，为确保该锁最终可用，已阻塞的 Lock 调用会从获得的锁中排除新的读取器，即写锁权限高于读锁，有写锁时优先进行写锁定&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (rw *RWMutex) Unlock()　
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;写锁解锁，如果没有进行写锁定，则就会引起一个运行时错误&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (rw *RWMutex) RLock()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;读锁，当有写锁时，无法加载读锁，当只有读锁或者没有锁时，可以加载读锁，读锁可以加载多个，所以适用于＂读多写少＂的场景&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func (rw *RWMutex)RUnlock()　
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;读锁解锁，RUnlock 撤销单次RLock 调用，它对于其它同时存在的读取器则没有效果。若 rw 并没有为读取而锁定，调用 RUnlock 就会引发一个运行时错误(注：这种说法在go1.3版本中是不对的，例如下面这个例子)。&lt;/p&gt;
+
+&lt;p&gt;读写锁是针对于读写操作的互斥锁。&lt;/p&gt;
+
+&lt;p&gt;基本遵循两大原则：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;加读锁后就不能写，允许存在多个读锁，但只能有一把写锁；读锁的时候不能写，可以随便读。多个goroutin同时读。&lt;/li&gt;
+&lt;li&gt;加写锁的时候，当写锁未被释放时或此时有正被等待的写锁（只有当全部读锁结束，写锁才可用），读锁不可用；&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;下面再用一个实例来简单介绍一下 RWMutex 的几条规则：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;var rw sync.RWMutex
+
+func reader(readerID int) {
+    fmt.Printf(&amp;quot;[reader-%d] try to get read lock\n&amp;quot;, readerID)
+    rw.RLock()
+    fmt.Printf(&amp;quot;[reader-%d] get read lock and sleep\n&amp;quot;, readerID)
+    time.Sleep(1 * time.Second)
+    fmt.Printf(&amp;quot;[reader-%d] release read lock\n&amp;quot;, readerID)
+    rw.RUnlock()
+}
+
+func writer(writerID int) {
+    fmt.Printf(&amp;quot;[writer-%d] try to get write lock\n&amp;quot;, writerID)
+    rw.Lock()
+    fmt.Printf(&amp;quot;[writer-%d] get write lock and sleep\n&amp;quot;, writerID)
+    time.Sleep(3 * time.Second)
+    fmt.Printf(&amp;quot;[writer-%d] release write lock\n&amp;quot;, writerID)
+    rw.Unlock()
+}
+
+func main() {
+    // 启动多个 goroutine 获取 read lock 后 sleep 一段时间
+    // 由于此时没有写者，所以两个 reader 都可以同时获取到读锁
+    go reader(1)
+    go reader(2)
+
+    time.Sleep(500 * time.Millisecond)
+
+    // 写者获取写锁，由于读锁未被释放，所以一开始写者获取不到写锁
+    go writer(1)
+
+    time.Sleep(1 * time.Second)
+
+    // 由于写锁还未释放，新的读者获取不到读锁
+    go reader(3)
+    go reader(4)
+
+    // 主 goroutine 等待足够长时间让所有 goroutine 执行完
+    time.Sleep(10 * time.Second)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;执行后输出为：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[reader-2] try to get read lock
+[reader-1] try to get read lock
+[reader-2] get read lock and sleep
+[reader-1] get read lock and sleep
+[writer-1] try to get write lock      --&amp;gt; 尝试获取写锁失败，因为读锁未释放
+[reader-2] release read lock          --&amp;gt; 读锁释放
+[reader-1] release read lock
+[writer-1] get write lock and sleep   --&amp;gt; 读锁释放后，获取写锁成功
+[reader-4] try to get read lock       --&amp;gt; 获取读锁失败因为写锁未释放
+[reader-3] try to get read lock
+[writer-1] release write lock         --&amp;gt; 写锁释放
+[reader-3] get read lock and sleep    --&amp;gt; 写锁释放后，获取读锁成功
+[reader-4] get read lock and sleep
+[reader-4] release read lock
+[reader-3] release read lock
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;乐观锁&#34;&gt;乐观锁&lt;/h1&gt;
+
+&lt;p&gt;乐观锁并不是一把真正的锁，不像上面的锁一样有api，而是一种并发控制的思想：总是假设最好的情况，每次去拿数据的时候都认为别人不会修改，所以不会上锁，但是在更新的时候会判断一下在此期间别人有没有去更新这个数据，可以使用版本号机制和CAS算法实现。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;版本号机制&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;一般是在数据表中加上一个数据版本号version字段，表示数据被修改的次数，当数据被修改时，version值会加一。当线程A要更新数据值时，在读取数据的同时也会读取version值，在提交更新时，若刚才读取到的version值为当前数据库中的version值相等时才更新，否则重试更新操作，直到更新成功。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;CAS算法&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;即compare and swap（比较与交换），是一种有名的无锁算法。无锁编程，即不使用锁的情况下实现多线程之间的变量同步，也就是在没有线程被阻塞的情况下实现变量的同步，所以也叫非阻塞同步（Non-blocking Synchronization）。CAS算法涉及到三个操作数&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;需要读写的内存值 V&lt;/li&gt;
+&lt;li&gt;进行比较的值 A&lt;/li&gt;
+&lt;li&gt;拟写入的新值 B&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;当且仅当 V 的值等于 A时，CAS通过原子方式用新值B来更新V的值，否则不会执行任何操作（比较和替换是一个原子操作）。一般情况下是一个自旋操作，即不断的重试。&lt;/p&gt;
+
+&lt;p&gt;CAS在golang的库sync/atomic中得到了实现。atomic基本使用了乐观锁的原理，但是只是支持int32/int64/uint32/uint64/uintptr这几种数据类型的一些基础操作，操作共五种：增减， 比较并交换， 载入， 存储，交换。&lt;/p&gt;
+
+&lt;p&gt;一般无锁的操作都是使用乐观并发控制思想来实现的。&lt;/p&gt;
+
+&lt;h2 id=&#34;实现方式&#34;&gt;实现方式&lt;/h2&gt;
+
+&lt;p&gt;1、基于数据库的version字段进行实现，在表中新增一个字段version就可以，执行sql的时候加上这个字段的比较&lt;/p&gt;
+
+&lt;p&gt;2、基于缓存数据库实现，比如redis的watch，和memcached的gets和cas&lt;/p&gt;
+
+&lt;h1 id=&#34;锁的原理&#34;&gt;锁的原理&lt;/h1&gt;
+
+&lt;p&gt;锁的实现一般会依赖于信号量，信号量则是一个非负的整数计数器。&lt;/p&gt;
+
+&lt;p&gt;信号量：多线程同步使用的；一个线程完成某个动作后通过信号告诉别的线程，别的线程才可以执行某些动作；信号量可以是多值的，当信号量在0和1之间操作时候就是互斥量&lt;/p&gt;
+
+&lt;p&gt;互斥量：多线程互斥使用的；一个线程占用某个资源，那么别的线程就无法访问，直到该线程离开，其他线程才可以访问该资源；0或1&lt;/p&gt;
+
+&lt;p&gt;具体互斥锁的实现原理可以参考这篇文章：&lt;a href=&#34;https://www.cnblogs.com/sylz/p/6030201.html&#34;&gt;https://www.cnblogs.com/sylz/p/6030201.html&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;简单来说，就是加锁时，就把信号量减一，如果是零说明加锁成功。释放锁时把信号量加一，如果是一说明释放成功。&lt;/p&gt;
+
+&lt;p&gt;但是在实际应用中大家都使用信号量，因为信号量是多值得，可以通过信号量加等待队列，减少唤醒的次数。&lt;/p&gt;
+
+&lt;p&gt;pv原语&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;P（S）：将信号量S的值减1，即S=S-1；
+        如果S&amp;gt;=0，则该进程继续执行；否则该进程置为等待状态，排入等待队列。-----申请资源
+V（S）：将信号量S的值加1，即S=S+1；
+        如果S&amp;gt;0，则该进程继续执行；否则释放队列中第一个等待信号量的进程。------释放资源
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>数据库系列---- Elasticsearch</title>
           <link>https://kingjcy.github.io/post/database/elasticsearch/</link>
           <pubDate>Thu, 21 Feb 2019 19:28:32 CST</pubDate>
@@ -6879,6 +7283,245 @@ http_requests_total{method=&amp;quot;post&amp;quot;,code=&amp;quot;400&amp;quot;
 &lt;li&gt;用一个主进程整合几个探针，每个探针依旧是原来的版本&lt;/li&gt;
 &lt;li&gt;用telegraf来支持各种类型的input，all in one&lt;/li&gt;
 &lt;/ul&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>Golang使用系列---- Sort</title>
+          <link>https://kingjcy.github.io/post/golang/go-sort/</link>
+          <pubDate>Fri, 01 Feb 2019 11:54:17 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-sort/</guid>
+          <description>&lt;p&gt;golang中也实现了排序算法的包sort包．&lt;/p&gt;
+
+&lt;h1 id=&#34;sort&#34;&gt;sort&lt;/h1&gt;
+
+&lt;p&gt;sort包中实现了4种基本的排序算法：插入排序．归并排序，快排和堆排序．和其他语言中一样，这四种方式都是不公开的，他们只在sort包内部使用．所以用户在使用sort包进行排序时无需考虑使用那种排序方式，sort包会根据实际数据自动选择高效的排序算法，只要实现sort.Interface接口就行。&lt;/p&gt;
+
+&lt;h1 id=&#34;接口&#34;&gt;接口&lt;/h1&gt;
+
+&lt;p&gt;sort.Interface定义的三个方法：获取数据集合长度的Len()方法、比较两个元素大小的Less()方法和交换两个元素位置的Swap()方法，就可以顺利对数据集合进行排序。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Interface interface {
+
+    Len() int    // Len 为集合内元素的总数
+
+    Less(i, j int) bool　//如果index为i的元素小于index为j的元素，则返回true，否则返回false
+
+    Swap(i, j int)  // Swap 交换索引为 i 和 j 的元素
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;任何实现了 sort.Interface 的类型（一般为集合），均可使用该包中的方法进行排序。&lt;/p&gt;
+
+&lt;h1 id=&#34;实例&#34;&gt;实例&lt;/h1&gt;
+
+&lt;p&gt;golang自身实现的interface有三种，Float64Slice，IntSlice，StringSlice，具体如下所示：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;type Float64Slice
+
+type Float64Slice []float64
+Float64Slice 针对 []float6 实现接口的方法，以升序排列。
+func (p Float64Slice) Len() int　　　　//求长度
+func (p Float64Slice) Less(i, j int) bool　//比大小
+func (p Float64Slice) Search(x float64) int　//查找
+func (p Float64Slice) Sort()　　　　　　//排序
+func (p Float64Slice) Swap(i, j int)　　　//交换位置
+
+
+
+type IntSlice
+
+type IntSlice []int
+IntSlice 针对 []int 实现接口的方法，以升序排列。
+
+func (p IntSlice) Len() int
+func (p IntSlice) Less(i, j int) bool
+func (p IntSlice) Search(x int) int
+func (p IntSlice) Sort()
+func (p IntSlice) Swap(i, j int)
+
+
+type StringSlice
+
+type StringSlice []string
+StringSlice 针对 []string 实现接口的方法，以升序排列。
+
+func (p StringSlice) Len() int
+func (p StringSlice) Less(i, j int) bool
+func (p StringSlice) Search(x string) int
+func (p StringSlice) Sort()
+func (p StringSlice) Swap(i, j int)
+
+
+func Reverse(data Interface) Interface
+func Reverse(data Interface) Interface
+Reverse实现对data的逆序排列
+package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;sort&amp;quot;
+)
+
+func main() {
+    a := []int{1, 2, 5, 3, 4}
+    fmt.Println(a)        // [1 2 5 3 4]
+    sort.Sort(sort.Reverse(sort.IntSlice(a)))
+    fmt.Println(a)        // [5 4 3 2 1]
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;内部已经实现的float，int，string等排序，这些方法要求集合内列出元素的索引为整数。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Float64s(a []float64)     //Float64s将类型为float64的slice a以升序方式进行排序
+func Float64sAreSorted(a []float64) bool　　//判定是否已经进行排序func Ints(a []int)
+
+func Ints(a []int)                       //Ints 以升序排列 int 切片。
+func IntsAreSorted(a []int) bool　　　  //IntsAreSorted 判断 int 切片是否已经按升序排列。
+func IsSorted(data Interface) bool    IsSorted 判断数据是否已经排序。包括各种可sort的数据类型的判断．
+
+func Strings(a []string)//Strings 以升序排列 string 切片。
+func StringsAreSorted(a []string) bool//StringsAreSorted 判断 string 切片是否已经按升序排列。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;sort&amp;quot;
+)
+
+//定义interface{},并实现sort.Interface接口的三个方法
+type IntSlice []int
+
+func (c IntSlice) Len() int {
+    return len(c)
+}
+func (c IntSlice) Swap(i, j int) {
+    c[i], c[j] = c[j], c[i]
+}
+func (c IntSlice) Less(i, j int) bool {
+    return c[i] &amp;lt; c[j]
+}
+
+func main() {
+    a := IntSlice{1, 3, 5, 7, 2}
+    b := []float64{1.1, 2.3, 5.3, 3.4}
+    c := []int{1, 3, 5, 4, 2}
+    fmt.Println(sort.IsSorted(a)) //false
+    if !sort.IsSorted(a) {
+        sort.Sort(a) 
+    }
+
+    if !sort.Float64sAreSorted(b) {
+        sort.Float64s(b)
+    }
+    if !sort.IntsAreSorted(c) {
+        sort.Ints(c)
+    }
+    fmt.Println(a)//[1 2 3 5 7]
+    fmt.Println(b)//[1.1 2.3 3.4 5.3]
+    fmt.Println(c)// [1 2 3 4 5]
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;search&#34;&gt;search&lt;/h1&gt;
+
+&lt;pre&gt;&lt;code&gt;func Search(n int, f func(int) bool) int   
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;search使用二分法进行查找，Search()方法回使用“二分查找”算法来搜索某指定切片[0:n]，并返回能够使f(i)=true的最小的i（0&amp;lt;=i&amp;lt;n）值，并且会假定，如果f(i)=true，则f(i+1)=true，即对于切片[0:n]，i之前的切片元素会使f()函数返回false，i及i之后的元素会使f()函数返回true。但是，当在切片中无法找到时f(i)=true的i时（此时切片元素都不能使f()函数返回true），Search()方法会返回n（而不是返回-1）。&lt;/p&gt;
+
+&lt;p&gt;Search 常用于在一个已排序的，可索引的数据结构中寻找索引为 i 的值 x，例如数组或切片。这种情况下，实参 f，一般是一个闭包，会捕获所要搜索的值，以及索引并排序该数据结构的方式。&lt;/p&gt;
+
+&lt;p&gt;为了查找某个值，而不是某一范围的值时，如果slice以升序排序，则　f func中应该使用＞＝,如果slice以降序排序，则应该使用&amp;lt;=. 例子如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;sort&amp;quot;
+)
+
+func main() {
+    a := []int{1, 2, 3, 4, 5}
+    b := sort.Search(len(a), func(i int) bool { return a[i] &amp;gt;= 30 })
+    fmt.Println(b)　　　　　　　//5，查找不到，返回a slice的长度５，而不是-1
+    c := sort.Search(len(a), func(i int) bool { return a[i] &amp;lt;= 3 })
+    fmt.Println(c)                             //0，利用二分法进行查找，返回符合条件的最左边数值的index，即为０
+    d := sort.Search(len(a), func(i int) bool { return a[i] == 3 })
+    fmt.Println(d)                          //2　　　
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;官网上面有趣的例子：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func GuessingGame() {
+    var s string
+    fmt.Printf(&amp;quot;Pick an integer from 0 to 100.\n&amp;quot;)
+    answer := sort.Search(100, func(i int) bool {
+        fmt.Printf(&amp;quot;Is your number &amp;lt;= %d? &amp;quot;, i)
+        fmt.Scanf(&amp;quot;%s&amp;quot;, &amp;amp;s)
+        return s != &amp;quot;&amp;quot; &amp;amp;&amp;amp; s[0] == &#39;y&#39;
+    })
+    fmt.Printf(&amp;quot;Your number is %d.\n&amp;quot;, answer)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;还实现了指定类型的search&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func SearchFloat64s(a []float64, x float64) int　　//SearchFloat64s 在float64s切片中搜索x并返回索引如Search函数所述. 返回可以插入x值的索引位置，如果x不存在，返回数组a的长度切片必须以升序排列
+func SearchInts(a []int, x int) int  //SearchInts 在ints切片中搜索x并返回索引如Search函数所述. 返回可以插入x值的索引位置，如果x不存在，返回数组a的长度切片必须以升序排列
+func SearchStrings(a []string, x string) int//SearchFloat64s 在strings切片中搜索x并返回索引如Search函数所述. 返回可以插入x值的索引位置，如果x不存在，返回数组a的长度切片必须以升序排列
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;其中需要注意的是，以上三种search查找方法，其对应的slice必须按照升序进行排序，否则会出现奇怪的结果．&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;sort&amp;quot;
+)
+
+func main() {
+    a := []string{&amp;quot;a&amp;quot;, &amp;quot;c&amp;quot;}
+    i := sort.SearchStrings(a, &amp;quot;b&amp;quot;)
+    fmt.Println(i) //1
+    b := []string{&amp;quot;a&amp;quot;, &amp;quot;b&amp;quot;, &amp;quot;c&amp;quot;, &amp;quot;d&amp;quot;}
+    i = sort.SearchStrings(b, &amp;quot;b&amp;quot;)
+    fmt.Println(i) //1
+    c := []string{&amp;quot;d&amp;quot;, &amp;quot;c&amp;quot;}
+    i = sort.SearchStrings(c, &amp;quot;b&amp;quot;)
+    fmt.Println(i) //0
+    d := []string{&amp;quot;c&amp;quot;, &amp;quot;d&amp;quot;, &amp;quot;b&amp;quot;}
+    i = sort.SearchStrings(d, &amp;quot;b&amp;quot;)
+    fmt.Println(i) //0，由于d不是以升序方式排列，所以出现奇怪的结果，这可以根据SearchStrings的定义进行解释．见下方．
+}
+
+
+func SearchStrings(a []string, x string) int {
+return Search(len(a), func(i int) bool { return a[i] &amp;gt;= x })
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;由此可见，为了精确查找，必须对[]string　以升序方式进行排序。&lt;/p&gt;
+
+&lt;h1 id=&#34;其他函数&#34;&gt;其他函数&lt;/h1&gt;
+
+&lt;pre&gt;&lt;code&gt;func Sort(data Interface)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Sort 对 data 进行排序。它调用一次 data.Len 来决定排序的长度 n，调用 data.Less 和 data.Swap 的开销为O(n*log(n))。此排序为不稳定排序。他根据不同形式决定使用不同的排序方式（插入排序，堆排序，快排）&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func Stable(data Interface)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Stable对data进行排序，不过排序过程中，如果data中存在相等的元素，则他们原来的顺序不会改变，即如果有两个相等元素num,他们的初始index分别为i和j，并且i&amp;lt;j，则利用Stable对data进行排序后，i依然小于ｊ．直接利用sort进行排序则不能够保证这一点。&lt;/p&gt;</description>
         </item>
       
     
@@ -19939,6 +20582,262 @@ sum by (instance) (rate(node_network_receive_bytes{instance=&amp;quot;xxx&amp;qu
 // 出包量
 sum by (instance) (rate(node_network_transmit_bytes{instance=&amp;quot;xxx&amp;quot;,device!=&amp;quot;lo&amp;quot;}[5m]))
 &lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>架构系列---- 微服务</title>
+          <link>https://kingjcy.github.io/post/architecture/microservices/microservices/</link>
+          <pubDate>Mon, 05 Mar 2018 19:11:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/microservices/microservices/</guid>
+          <description>&lt;p&gt;微服务其实就是服务化的一种概念，由过去单体架构演变成分布式系统的一个产物。&lt;/p&gt;
+
+&lt;h1 id=&#34;微服务架构演变由来&#34;&gt;微服务架构演变由来&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/microservices/architecture-change&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&#34;微服务&#34;&gt;微服务&lt;/h1&gt;
+
+&lt;p&gt;微服务是一种软件架构思想，它将一个大且聚合的业务项目拆解为多个小且独立的业务模块，模块即服务，各服务间使用高效的协议（protobuf、JSON 等）相互调用即是 RPC。这种拆分代码库的方式有以下特点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;每个服务应作为小规模的、独立的业务模块在运行，类似 Unix 的 Do one thing and do it well，这就是微服务参考了unix的设计哲学，包括独立开发，自动化测试（细致的错误检查和处理）和（分布式）部署，不影响其他服务。同时也加快了开发交付周期，降低代码耦合度导致的沟通成本。&lt;/li&gt;
+&lt;li&gt;从依赖库到依赖服务，增加了开发者选择的自由（语言，框架，库），提高了复用效率，只要符合服务 API 契约，开发人员可以自由选择开发技术。这就意味着开发人员可以采用新技术编写或重构服务，由于服务相对较小，所以这并不会对整体应用造成太大影响。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;可见微服务也是分布式系统，但是微服务注重的注册中心，和服务发现，可以实现简单的扩缩容的方式，这也是微服务的一大重大特点。也就是服务治理，其实后面出现的各大框架也是着重解决这个问题。&lt;/p&gt;
+
+&lt;p&gt;为什么要服务化？&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;随着模块越来越多，相互调用会产生很多的冗余，所以需要服务化架构（SOA）。&lt;/li&gt;
+&lt;li&gt;解耦，解决冲突与臃肿。比如sql在专门的sql服务运行，统一检测修改。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;第一代微服务-服务化&#34;&gt;第一代微服务&amp;mdash;服务化&lt;/h2&gt;
+
+&lt;p&gt;微服务落地目前存在的主要困难有如下几方面：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;服务间通信：单体应用拆分为分布式系统后，进程间的通讯机制和故障处理措施变的更加复杂。&lt;/li&gt;
+&lt;li&gt;分布式事务：系统微服务化后，一个看似简单的功能，内部可能需要调用多个服务并操作多个数据库实现，服务调用的分布式事务问题变的非常突出。&lt;/li&gt;
+&lt;li&gt;大规模部署：微服务数量众多，其测试、部署、监控等都变的更加困难。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;随着RPC框架的成熟，第一个问题已经逐渐得到解决。例如springcloud可以非常好的支持restful调用，dubbo可以支持多种通讯协议，包括现在k8s上istio都志在解决服务间通信。&lt;/p&gt;
+
+&lt;p&gt;对于第三个问题，随着docker、devops技术的发展以及各公有云paas平台自动化运维工具的推出，微服务的测试、部署与运维会变得越来越容易。&lt;/p&gt;
+
+&lt;p&gt;而对于第二个问题，现在还没有通用方案很好的解决微服务产生的事务问题。分布式事务已经成为微服务落地最大的阻碍，也是最具挑战性的一个技术难题,目前&lt;a href=&#34;https://kingjcy.github.io/post/distributed/distributed-event/&#34;&gt;主要解决方案&lt;/a&gt;。&lt;/p&gt;
+
+&lt;p&gt;当然微服务架构的还有很多缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;微服务强调了服务大小，但实际上这并没有一个统一的标准：业务逻辑应该按照什么规则划分为微服务，这本身就是一个经验工程。有些开发者主张 10-100 行代码就应该建立一个微服务。虽然建立小型服务是微服务架构崇尚的，但要记住，微服务是达到目的的手段，而不是目标。微服务的目标是充分分解应用程序，以促进敏捷开发和持续集成部署。&lt;/li&gt;
+&lt;li&gt;微服务的分布式特点带来的复杂性：开发人员需要基于 RPC 或者消息实现微服务之间的调用和通信，而这就使得服务之间的发现、服务调用链的跟踪和质量问题变得的相当棘手。微服务的精髓之一就是服务之间传递的是可序列化消息，而不是对象和引用，这个思想是和 DCOM 及 EJB 完全相反的。只有数据，不包含逻辑；这个设计的好处不用我多说也很好理解，参考 CSP&lt;/li&gt;
+&lt;li&gt;分区的数据库体系和分布式事务：更新多个业务实体的业务交易相当普遍，不同服务可能拥有不同的数据库。CAP 原理的约束，使得我们不得不放弃传统的强一致性，而转而追求最终一致性，这个对开发人员来说是一个挑战。&lt;/li&gt;
+&lt;li&gt;测试挑战：传统的单体WEB应用只需测试单一的 REST API 即可，而对微服务进行测试，需要启动它依赖的所有其他服务。这种复杂性不可低估。&lt;/li&gt;
+&lt;li&gt;跨多个服务的更改：比如在传统单体应用中，若有 A、B、C 三个服务需要更改，A 依赖 B，B 依赖 C。我们只需更改相应的模块，然后一次性部署即可。但是在微服务架构中，我们需要仔细规划和协调每个服务的变更部署。我们需要先更新 C，然后更新 B，最后更新 A。&lt;/li&gt;
+&lt;li&gt;部署复杂：微服务由不同的大量服务构成。每种服务可能拥有自己的配置、应用实例数量以及基础服务地址。这里就需要不同的配置、部署、扩展和监控组件。此外，我们还需要服务发现机制，以便服务可以发现与其通信的其他服务的地址。因此，成功部署微服务应用需要开发人员有更好地部署策略和高度自动化的水平。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;总的来说（问题和挑战）：API Gateway、服务间调用、服务发现、服务容错、服务部署、数据调用。其实大部分也是我们一开始的说的微服务落地的三大难题。&lt;/p&gt;
+
+&lt;p&gt;不过，现在很多微服务的框架（比如 Spring Cloud、Dubbo）已经很好的解决了上面的问题。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Spring Cloud&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Spring Cloud为开发者提供了快速构建分布式系统的通用模型的工具（包括配置管理、服务发现、熔断器、智能路由、微代理、控制总线、一次性令牌、全局锁、领导选举、分布式会话、集群状态等）&lt;/p&gt;
+
+&lt;p&gt;其实主要解决了部署的问题，他就是一个很好的部署工具，目前也开始拥抱docker了。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Dubbo&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Dubbo是一个阿里巴巴开源出来的一个分布式服务框架，致力于提供高性能和透明化的RPC远程服务调用方案，以及SOA服务治理方案，其实主要解决的服务间通信的问题。&lt;/p&gt;
+
+&lt;p&gt;在这个时候组织架构就发生了很大的变化，基本都是要加上一层网关或者企业总线，也就是&lt;strong&gt;前台-网关（ESB）-后台&lt;/strong&gt;的结构。&lt;/p&gt;
+
+&lt;h3 id=&#34;soa&#34;&gt;SOA&lt;/h3&gt;
+
+&lt;p&gt;SOA是什么？SOA全英文是Service-Oriented Architecture，中文意思是面向服务架构，是一种思想，一种方法论，一种分布式的服务架构。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/microservices/20180305.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;其实就是上面实现的架构思想，抽象共享解耦。&lt;/p&gt;
+
+&lt;h2 id=&#34;下一代微服务-去中心化&#34;&gt;下一代微服务&amp;ndash;去中心化&lt;/h2&gt;
+
+&lt;h3 id=&#34;service-mesh&#34;&gt;Service Mesh&lt;/h3&gt;
+
+&lt;p&gt;随着注册中心的出现，任何调用都走网关，网关的瓶颈有到来，于是出现了下一代的微服务架构service mesh，主要落地的项目就是istio，还有一些其他的项目，主要是去中心化的设计。&lt;/p&gt;
+
+&lt;p&gt;在云原生模型里，一个应用可以由数百个服务组成，每个服务可能有数千个实例，而每个实例可能会持续地发生变化。这种情况下，服务间通信不仅异常复杂，而且也是运行时行为的基础。管理好服务间通信对于保证端到端的性能和可靠性来说是无疑是非常重要的。种种复杂局面便催生了服务间通信层的出现，这个层既不会与应用程序的代码耦合，又能捕捉到底层环境高度动态的特点，让业务开发者只关注自己的业务代码，并将应用云化后带来的诸多问题以不侵入业务代码的方式提供给开发者。&lt;/p&gt;
+
+&lt;p&gt;这个服务间通信层就是 Service Mesh，它可以提供安全、快速、可靠的服务间通讯（service-to-service）。&lt;/p&gt;
+
+&lt;p&gt;Service Mesh，可以将它比作是应用程序或者说微服务间的 TCP/IP，负责服务之间的网络调用、限流、熔断和监控。对于编写应用程序来说一般无须关心 TCP/IP 这一层（比如通过 HTTP 协议的 RESTful 应用），同样使用 Service Mesh 也就无须关系服务之间的那些原来是通过应用程序或者其他框架实现的事情，比如 Spring Cloud、OSS，现在只要交给 Service Mesh 就可以了。&lt;/p&gt;
+
+&lt;p&gt;微服务的各种框架也有一些。但这些框架大多是编程语言层面来解决的，需要用户的业务代码中集成框架的类库，语言的选择也受限。这种方案很难作为单独的产品或者服务给用户使用，升级更新也受限于应用本身的更新与迭代。直到 Service Mesh 的概念的提出。Service Mesh 貌似也没有比较契合的翻译（有的译做服务齿合层，有的翻译做服务网格），这个概念就是试图在网络层抽象出一层，来统一接管一些微服务治理的功能。这样就可以做到跨语言，无侵入，独立升级。其中前一段时间 Google，IBM，Lyft 联合开源的&lt;a href=&#34;https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-istio/&#34;&gt;istio&lt;/a&gt;就是这样一个工具，先看下它的功能简介：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;智能路由以及负载均衡&lt;/li&gt;
+&lt;li&gt;跨语言以及平台&lt;/li&gt;
+&lt;li&gt;全范围（Fleet-wide）策略执行&lt;/li&gt;
+&lt;li&gt;深度监控和报告&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;主要做了什么&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;可视化 其实本质上微服务治理的许多技术点都包含可视化要求，比如监控和链路追踪，比如服务依赖&lt;/li&gt;
+&lt;li&gt;弹性（Resiliency 或者应该叫柔性，因为弹性很容易想到 scale） 就是网络层可以不那么生硬，比如超时控制，重试策略，错误注入，熔断，延迟注入都属于这个范围。&lt;/li&gt;
+&lt;li&gt;效率（Efficiency） 网络层可以帮应用层多做一些事情，提升效率。比如卸载 TLS，协议转换兼容&lt;/li&gt;
+&lt;li&gt;流量控制 比如根据一定规则分发流量到不同的 Service 后端，但对调用方来说是透明的。&lt;/li&gt;
+&lt;li&gt;安全保护 在网络层对流量加密/解密，增加安全认证机制，而对应用透明。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;目前流行的 Service Mesh 开源软件还有 Linkerd、Envoy，而最近 Buoyant（开源 Linkerd 的公司）又发布了基于 Kubernetes 的 Service Mesh 开源项目 Conduit。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Linkerd（&lt;a href=&#34;https://github.com/linkerd/linkerd）：第一代&#34;&gt;https://github.com/linkerd/linkerd）：第一代&lt;/a&gt; Service Mesh，2016 年 1 月 15 日首发布，业界第一个 Service Mesh 项目，由 Buoyant 创业小公司开发（前 Twitter 工程师），2017 年 7 月 11 日，宣布和 Istio 集成，成为 Istio 的数据面板。&lt;/li&gt;
+&lt;li&gt;Envoy（&lt;a href=&#34;https://github.com/envoyproxy/envoy）：第一代&#34;&gt;https://github.com/envoyproxy/envoy）：第一代&lt;/a&gt; Service Mesh，2016 年 9 月 13 日首发布，由 Matt Klein 个人开发（Lyft 工程师），之后默默发展，版本较稳定。&lt;/li&gt;
+&lt;li&gt;Conduit（&lt;a href=&#34;https://github.com/runconduit/conduit）：第二代&#34;&gt;https://github.com/runconduit/conduit）：第二代&lt;/a&gt; Service Mesh，2017 年 12 月 5 日首发布，由 Buoyant 公司开发（借鉴 Istio 整体架构，部分进行了优化），对抗 Istio 压力山大，也期待 Buoyant 公司的毅力。&lt;/li&gt;
+&lt;li&gt;nginMesh（&lt;a href=&#34;https://github.com/nginmesh/nginmesh）：2017&#34;&gt;https://github.com/nginmesh/nginmesh）：2017&lt;/a&gt; 年 9 月首发布，由 Nginx 开发，定位是作为 Istio 的服务代理，也就是替代 Envoy，思路跟 Linkerd 之前和 Istio 集成很相似，极度低调，GitHub 上的 star 也只有不到 100。&lt;/li&gt;
+&lt;li&gt;Kong（&lt;a href=&#34;https://github.com/Kong/kong）：比&#34;&gt;https://github.com/Kong/kong）：比&lt;/a&gt; nginMesh 更加低调，默默发展中。&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/architecture/microservices/go-micro/&#34;&gt;go-micro&lt;/a&gt;是基于Go语言实现的插件化RPC微服务框架，与go-kit，kite等微服务框架相比，它具有易上手、部署简单、工具插件化等优点。go-micro框架提供了服务发现、负载均衡、同步传输、异步通信以及事件驱动等机制，它尝试去简化分布式系统间的通信，让我们可以专注于自身业务逻辑的开发。所以对于新手而言，go-micro是个不错的微服务实践的开始。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;目前，市面上有许多 Service Mesh 的实现。我们这里挑选 4 种当前最主流的 Service Mesh，对其诸多方面( 包括功能特性、支持平台、是否付费等 )进行横向对比，用以说明 Istio 所存在的优势和不足。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/microservices/servicemesh&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;关于微服务和服务网格的区别，我的一些理解：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;service mesh主要是解决了微服务框架中三大难题之一的服务间通信的问题，类似于上一代服务架构dubbo的作用，是在容器docker和k8s的原生基础上实现的服务间通信的方案，所以比java系的dubbo方案更加友好。&lt;/li&gt;
+&lt;li&gt;service mesh在上一代的SOA架构上做了升级，设计的是去中性化的通信架构，解决的网关或者总线的瓶颈问题。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;k8s和微服务&#34;&gt;k8s和微服务&lt;/h3&gt;
+
+&lt;p&gt;k8s在docker的基础上实现了管理，促使了下一代的微服务得以落地，主要解决了微服务三大难题的部署问题。类似于springcloud，springcloud目前也开始拥抱k8s了，可见k8s是一种趋势。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/microservices/k8s-ecology&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;随着docker、容器的日渐成熟，容器编排的问题就凸显出来，大量的容器怎么去管理，怎么调度，怎么启停都成了迫切需要解决的问题。有需求就有人去解决，ApacheMesos、kubernetes、docker swarm陆续登场，大有三足鼎立之势，而随着各自的发展，到了2017年下半年，google的亲儿子kubernetes的呼声越来越高，社区也更加活跃、成熟。2017年底，docker swarm和ApacheMesos陆续宣称支持kubernetes，预示着容器编排大战的结束，kubernetes已然成为容器编排领域的事实标准。&lt;/p&gt;
+
+&lt;p&gt;服务编排框架的成熟，使得容器的管理越来越方便、高效，容器带来的好处也随之凸显：提升资源利用率节省成本、更高效的持续集成，持续交付、解放运维、快速扩缩容，应对突发流量&amp;hellip;&lt;/p&gt;
+
+&lt;p&gt;服务编排框架的成熟也让微服务的概念得以落地，同时也催生了java界微服务化的方案，像SpringBoot，SpringCloud。然而服务编排一定是对微服务的编排吗？也就是我们容器里运行的一定是微服务吗？不是的，我们可以运行任何服务，我们现有的业务可以不做任何改造就运行到容器中，让kubernetes去管理、调度。至于微服务呢，只是有了kubernetes，让微服务变得容易管理了。让我们有条件把服务拆分的足够小，足够简单。再也不用担心运维管理的复杂了。了解了docker，服务编排，微服务的关系，我们在看看他们在企业的落地情况。&lt;/p&gt;
+
+&lt;p&gt;k8s实现了容器编排工具，能够满足微服务架构拆分落地的需求，包括了管理和运维。k8s算是一个工具，而微服务更多的是个一个概念，架构，可以使用k8s实现，Istio就是微服务使用k8s实现的一个实现。&lt;/p&gt;
+
+&lt;h4 id=&#34;serverless&#34;&gt;Serverless&lt;/h4&gt;
+
+&lt;p&gt;Serverless被翻译为“无服务器架构”，重应用，轻服务器，k8s其实就是这么一个概念。&lt;/p&gt;
+
+&lt;h1 id=&#34;互联网架构的服务化&#34;&gt;互联网架构的服务化&lt;/h1&gt;
+
+&lt;h2 id=&#34;为什么服务化&#34;&gt;为什么服务化&lt;/h2&gt;
+
+&lt;p&gt;在服务化之前，互联网的高可用架构大致是这样一个架构：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/microservices/server.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;用户端是浏览器browser，APP客户端&lt;/li&gt;
+&lt;li&gt;后端入口是高可用的nginx集群，用于做反向代理&lt;/li&gt;
+&lt;li&gt;中间核心是高可用的web-server集群，研发工程师主要编码工作就是在这一层&lt;/li&gt;
+&lt;li&gt;后端存储是高可用的db集群，数据存储在这一层&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;痛点：代码冗余&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;比如各个业务线都是自己通过DAO写SQL访问user库来存取用户数据，这无形中就导致了代码的拷贝。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/microservices/server1.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;痛点：复杂性扩散&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;随着并发量的越来越高，用户数据的访问数据库成了瓶颈，需要加入缓存来降低数据库的读压力，于是架构中引入了缓存，由于没有统一的服务层，各个业务线都需要关注缓存的引入导致的复杂性,这个复杂性是典型的“业务无关”的复杂性，业务方需要被迫升级。&lt;/p&gt;
+
+&lt;p&gt;随着数据量的越来越大，数据库需要进行水平拆分，于是架构中又引入了分库分表，由于没有统一的服务层，各个业务线都需要关注分库分表的引入导致的复杂性,这个复杂性也是典型的“业务无关”的复杂性，业务方需要被迫升级。&lt;/p&gt;
+
+&lt;p&gt;包括bug的修改，发现一个bug，多个地方都需要修改。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;痛点：库的复用与耦合&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;服务化并不是唯一的解决上述两痛点的方法，抽象出统一的“库”是最先容易想到的解决,的方法。抽象出一个user.so，负责整个用户数据的存取，从而避免代码的拷贝。至于复杂性，也只有user.so这一个地方需要关注了。&lt;/p&gt;
+
+&lt;p&gt;但是解决了旧的问题，会引入新的问题，库的版本维护与业务线之间代码的耦合，服务化在这个时候各用各自的实例可以实现解耦。&lt;/p&gt;
+
+&lt;p&gt;SQL质量得不到保障，业务相互影响，本质上SQL语句还是各个业务线拼装的，资深的工程师写出高质量的SQL没啥问题，经验没有这么丰富的工程师可能会写出一些低效的SQL，假如业务线A写了一个全表扫描的SQL，导致数据库的CPU100%，影响的不只是一个业务线，而是所有的业务线都会受影响。&lt;/p&gt;
+
+&lt;h2 id=&#34;服务化&#34;&gt;服务化&lt;/h2&gt;
+
+&lt;p&gt;为了解决上面的诸多问题，互联网高可用分层架构演进的过程中，引入了“服务层”，其实就是对db的服务封装。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/microservices/server2.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;好处：调用直接&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;有服务层之前：业务方访问用户数据，需要通过DAO拼装SQL访问&lt;/p&gt;
+
+&lt;p&gt;有服务层之后：业务方通过RPC访问用户数据，就像调用一个本地函数一样，非常之爽&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;好处：复用性，防止代码拷贝，屏蔽底层，统一优化&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;升级一处升级，bug修改一处修改。&lt;/p&gt;
+
+&lt;p&gt;在有了服务层之后，只有服务层需要专注关注底层的复杂性了，向上游屏蔽了细节。&lt;/p&gt;
+
+&lt;p&gt;有了服务层之后，所有的SQL都是服务层提供的，业务线不能再为所欲为了。底层服务对于稳定性的要求更好的话，可以由更资深的工程师维护，而不是像原来SQL难以收口，难以控制。&lt;/p&gt;
+
+&lt;h2 id=&#34;总结&#34;&gt;总结&lt;/h2&gt;
+
+&lt;p&gt;这里只是一个简单的数据库的封装，给数据库新增的一个服务层，通过本地调用函数的方式来获取数据，具体的数据库优化交给数据库专业的人来处理。其实实际业务中还可以服务化的组件有很多，比如会员订单等子业务和序列化、反序列化、网络框架、连接池、收发线程、超时处理、状态机等非业务，最后其实就是我们常说的SOA的架构。&lt;/p&gt;
+
+&lt;h1 id=&#34;微服务的粒度&#34;&gt;微服务的粒度&lt;/h1&gt;
+
+&lt;p&gt;大家也都认可，随着数据量、流量、业务复杂度的提升，服务化架构是架构演进中的必由之路，但是微服务架构多“微”才合适？&lt;/p&gt;
+
+&lt;p&gt;不同粒度的服务化各有优缺点总的来说，细粒度拆分的优点有：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;服务都能够独立部署&lt;/li&gt;
+&lt;li&gt;扩容和缩容方便，有利于提高资源利用率&lt;/li&gt;
+&lt;li&gt;拆得越细，耦合相对会减小&lt;/li&gt;
+&lt;li&gt;拆得越细，容错相对会更好，一个服务出问题不影响其他服务&lt;/li&gt;
+&lt;li&gt;扩展性更好&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;细粒度拆分的不足也很明显：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;拆得越细，系统越复杂&lt;/li&gt;
+&lt;li&gt;系统之间的依赖关系也更复杂&lt;/li&gt;
+&lt;li&gt;运维复杂度提升&lt;/li&gt;
+&lt;li&gt;监控更加复杂&lt;/li&gt;
+&lt;li&gt;出问题时定位问题更难&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;个人觉得，以“子业务系统”粒度作为微服务的单位是比较合适的。&lt;/p&gt;</description>
         </item>
       
     
