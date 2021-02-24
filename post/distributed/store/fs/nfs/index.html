@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="NFS是Network File System的缩写，就是网络文件系统，主要功能是让应用程序在客户端通过网络访问位于服务器磁盘中的数据，是在类Unix系统间实现磁盘文件共享的一种方法。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="分布式系列---- 文件存储系统nfs - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    分布式系列---- 文件存储系统nfs
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年01月16日 
+                </div>
+                <h1 class="post-title">分布式系列---- 文件存储系统nfs</h1>
+            </header>
+
+            <div class="post-content">
+                <p>NFS是Network File System的缩写，就是网络文件系统，主要功能是让应用程序在客户端通过网络访问位于服务器磁盘中的数据，是在类Unix系统间实现磁盘文件共享的一种方法。</p>
+
+<p>NFS系统和Windows网络共享、网络驱动器类似, 只不过windows用于局域网, NFS用于企业集群架构中, 如果是大型网站, 会用到更复杂的分布式文件系统<a href="/post/distributed/store/fs/fastfs/">fastdfs</a>,<a href="/post/distributed/store/fs/glusterfs/">glusterfs</a>,<a href="/post/distributed/store/fs/hfds/">HDFS</a>。</p>
+
+<h1 id="安装使用">安装使用</h1>
+
+<h2 id="服务器">服务器</h2>
+
+<p>系统的默认软件包安装：</p>
+
+<pre><code>nfs-utils-* :包括基本的NFS命令与监控程序
+</code></pre>
+
+<p>note：这里要注意的是需要在集群每个节点都安装nfs-utils安装包，不然挂载会失败！</p>
+
+<pre><code>[root@master mnt]# yum install nfs-utils
+已加载插件：fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.cn99.com
+ * extras: mirrors.cn99.com
+ * updates: mirrors.cn99.com
+软件包 1:nfs-utils-1.3.0-0.61.el7.x86_64 已安装并且是最新版本
+无须任何处理
+</code></pre>
+
+<p>NFS服务的配置相对简单，只需要在对应文件中进行配置，然后启动NFS服务即可。</p>
+
+<p>NFS常用文件：</p>
+
+<ul>
+<li>/etc/exports NFS服务的主要配置文件</li>
+<li>/usr/sbin/exportfs NFS服务的管理命令</li>
+<li>/usr/sbin/showmount 客户端的查看命令</li>
+<li>/var/lib/nfs/etab 记录NFS分享出来的目录的完整权限设定值</li>
+<li>/var/lib/nfs/xtab 记录曾经登录过的Clinent 信息</li>
+</ul>
+
+<p>编辑/etc/exports文件添加以下内容</p>
+
+<pre><code>[root@localhost share]# vim /etc/exports
+    /share  192.168.254.0/24(insecure,rw,no_root_squash)
+</code></pre>
+
+<p>配置文件说明：</p>
+
+<pre><code>[输出目录 客户端 选项（访问权限,用户映射,其他）] [客户端2 选项（访问权限,用户映射,其他）]
+
+1、输出目录：
+输出目录是指NFS系统中需要共享给客户端使用的目录
+2、客户端：
+客户端是指网络中可以访问这个NFS Server的主机，客户端常用的指定方式如下：
+    指定IP地址：172.16.7.57
+    指定子网中的主机：172.16.7.0/24
+    指定域名的主机：ssq-54-57.zerounix.com
+    指定域中的所有主机：*.zerounix.com
+    所有主机：*
+3、选项
+主要有3类选项：
+访问权限选项：
+    设置输出目录只读：ro
+    设置输出目录读写：rw
+用户映射选项：
+    all_squash： 将远程访问的所有普通用户及属组都映射为匿名用户或用户组(nfsnobody)；
+    no_all_squash： 与all_squash相反（default）；
+    root_squash： 将root用户及属组都映射问匿名用户或用户组（default）；
+    no_root_squash：
+    anonuid=xxx： 将远程访问的所有用户都映射为匿名用户，并指定用户问本地用户（UID=xxx）；
+    anongid=xxx： 将远程访问的所有用户都映射为匿名用户组，并指定用户问本地用户组（GID=xxx）；
+其他选项：
+    secure： 限制客户端只能从小于1024的tcp端口连接NFS Server（default）；
+    insecure： 允许客户端从大于1024的tcp端口连接NFS Server；
+    sync： 将数据同步下乳内存缓冲区与磁盘中，效率低，但是可以保证数据的一致性；
+    async： 将数据先保存在内存缓冲区中，必要时才写入磁盘；
+    wdelay： 检查是否有相关的写操作，如果有则见这些写操作一起执行，可以提高效率（default）；
+    no_wdelay： 若有写操作立即执行，应与sync配合使用；
+    subtree： 若输出目录是一个子目录，则NFS Server将检查其父目录权限（default）；
+    no_subtree： 若输出目录是一个子目录，则NFS Server将不检查其父目录权限；
+</code></pre>
+
+<p>在启动之前需要关闭防火墙。</p>
+
+<p>启动NFS Server</p>
+
+<pre><code>service nfs start
+</code></pre>
+
+<p>查看进程状态</p>
+
+<pre><code># systemctl status nfs-server
+● nfs-server.service - NFS server and services
+   Loaded: loaded (/usr/lib/systemd/system/nfs-server.service; enabled; vendor preset: disabled)
+   Active: active (exited) since Thu 2019-10-31 09:53:29 CST; 20s ago
+ Main PID: 20402 (code=exited, status=0/SUCCESS)
+   CGroup: /system.slice/nfs-server.service
+</code></pre>
+
+<p>验证nfs的服务是否正常</p>
+
+<pre><code>$ sudo rpcinfo -p|grep nfs
+100003    3   tcp   2049  nfs
+100003    4   tcp   2049  nfs
+100003    3   udp   2049  nfs
+</code></pre>
+
+<p>查看具体目录的挂载</p>
+
+<pre><code>$ cat /var/lib/nfs/etab
+/share  *(rw,sync,wdelay,hide,nocrossmnt,secure,no_root_squash,no_all_squash,no_subtree_check,secure_locks,acl,no_pnfs,anonuid=65534,anongid=65534,sec=sys,rw,secure,no_root_squash,no_all_squash)
+</code></pre>
+
+<p>在/share目录中写一个index.html文件并且写入内容</p>
+
+<pre><code>[root@localhost share]# echo &quot;nfs server&quot; &gt; /share/index.html
+</code></pre>
+
+<h2 id="客户端">客户端</h2>
+
+<p>同样是安装nfs服务，然后可以通过命令来查看server端的共享信息</p>
+
+<pre><code>[root@web01 ~]# showmount -e 172.16.1.31
+
+Export list for 172.16.1.31:
+
+/share 172.16.1.0/24
+</code></pre>
+
+<p>然后我们使用挂载命令将远程服务的共享目录挂载到本地</p>
+
+<pre><code>[root@web01 ~]# mkdir /share
+
+[root@web01 ~]# mount -t nfs 172.16.1.31:/share /share/
+
+[root@web01 ~]# df -h
+
+文件系统                   容量  已用   可用    已用% 挂载
+
+172.16.1.31:/share         50G  2.6G   48G    6% /share
+</code></pre>
+
+<p>然后就可以到/share目录下获取文件了。</p>
+
+<h1 id="原理">原理</h1>
+
+<p><img src="/media/distribute/fs/nfs" alt="" /></p>
+
+<p>NFS在文件传送或信息传送过程中依赖于RPC协议。</p>
+
+<ul>
+<li>用户进程访问NFS客户端，使用不同的函数对数据进行处理</li>
+<li>NFS客户端通过TCP/IP的方式传递给NFS服务端。</li>
+<li>NFS服务端接收到请求后，会先调用portmap进程进行端口映射。</li>
+<li>nfsd进程用于判断NFS客户端是否拥有权限连接NFS服务端。</li>
+<li>Rpc.mount进程判断客户端是否有对应的权限进行验证。</li>
+<li>idmap进程实现用户映射和压缩</li>
+<li>最后NFS服务端会将对应请求的函数转换为本地能识别的命令，传递至内核，由内核驱动硬件。</li>
+</ul>
+
+<p>可见，nfs其实就是一个rpc调用传输文件的系统，在这个过程中加了很多权限的控制。</p>
+
+<h1 id="应用">应用</h1>
+
+<p>NFS存储优点</p>
+
+<ul>
+<li>NFS文件系统简单易用、方便部署，数据可靠，服务稳定，满足中小企业需求</li>
+<li>、NFS文件系统内存放的数据都在文件系统之上，所有数据都是可见的。</li>
+</ul>
+
+<p>NFS存储局限</p>
+
+<ul>
+<li>存在单点故障，构建高可用维护麻烦web&mdash;nfs&mdash;backup</li>
+<li>NFS数据明文，没有校验</li>
+<li>客户端挂载没有密码，安全性一般（也就内网使用）</li>
+</ul>
+
+<p>NFS应用建议</p>
+
+<ul>
+<li>生产场景应用将静态数据尽可能向前推送，减少后端存储的压力</li>
+<li>必须将存储的静态资源通过CDN缓存jpg/png/mp4/avi/css/js</li>
+<li>如果没有缓存，存储再多对网站的速度也没有太大帮助</li>
+</ul>
+
+<p>大小问题</p>
+
+<p>当我们在WEB上挂载了NFS共享的/data目录之后，查看一下，我们发现/data的大小是50G，为什么是50G，我们难道共享了一个目录就一下子共享了50G吗？其实就是这样的，你想呀，我们在/data的根下创建了目录，那这个目录是多大？我们在创建目录的时候也不能指定这个目录最大能到多少G，这就是和我们在windows上创建一个文件夹一样，这个文件夹最终能变大取决于该文件夹所在的分区有多大，在NFS上/data是在根所有的分区上创建的，理论上NFS的根最大能变多大，/data目录就能变多大。</p>
+
+<pre><code>[root@Web01 html]# df -h
+Filesystem               Size  Used Avail Use% Mounted on
+192.168.80.221:/data      50G  4.0G   47G   8% /var/www/html
+</code></pre>
+
+<p>我们在NFS上查看一下根的大小，发现根就是50G，这下你明白了吧！</p>
+
+<pre><code>[root@Nfs ~]# df -h
+Filesystem               Size  Used Avail Use% Mounted on
+/dev/mapper/centos-root   50G  4.0G   47G   8% /
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/distributed/store/fs/nfs/">https://kingjcy.github.io/post/distributed/store/fs/nfs/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/store/">
+                            <i class="fa fa-tags"></i>
+                            store
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/distribute/">
+                            <i class="fa fa-tags"></i>
+                            distribute
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/fs/">
+                            <i class="fa fa-tags"></i>
+                            fs
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/nfs/">
+                            <i class="fa fa-tags"></i>
+                            nfs
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/distributed/distributed-event/">分布式系列---- Event And Distributed Event</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年04月07日)</span></li><li id="li-rels"><a href="/post/distributed/store/store/">分布式系列---- 分布式存储</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年12月15日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/glusterfs/">分布式系列---- 文件存储系统glusterfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年12月15日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/hfds/">分布式系列---- 文件存储系统hdfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年12月15日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/fastfs/">分布式系列---- 文件存储系统Fastdfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年01月16日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/distributed/store/fs/fastfs/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/tool/hugo-blog-build/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#安装使用">安装使用</a>
+<ul>
+<li><a href="#服务器">服务器</a></li>
+<li><a href="#客户端">客户端</a></li>
+</ul></li>
+<li><a href="#原理">原理</a></li>
+<li><a href="#应用">应用</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

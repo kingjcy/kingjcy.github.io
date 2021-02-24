@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="分布式存储是相对于集中式存储来说的，分布式存储是一个大的概念，其包含的种类繁多，除了传统意义上的分布式文件系统、分布式块存储和分布式对象存储外，还包括分布式数据库和分布式缓存等。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="分布式系列---- 分布式存储 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    分布式系列---- 分布式存储
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年12月15日 
+                </div>
+                <h1 class="post-title">分布式系列---- 分布式存储</h1>
+            </header>
+
+            <div class="post-content">
+                <p>分布式存储是相对于集中式存储来说的，分布式存储是一个大的概念，其包含的种类繁多，除了传统意义上的分布式文件系统、分布式块存储和分布式对象存储外，还包括分布式数据库和分布式缓存等。</p>
+
+<h1 id="块存储">块存储</h1>
+
+<p>我们需要先理解一下块的概念：块级是指以扇区为基础，一个或我连续的扇区组成一个块，也叫物理块。它是在文件系统与块设备（例如：磁盘驱动器）之间。</p>
+
+<p>块存储主要是将裸磁盘空间整个映射给主机使用的。比如磁盘阵列里面有5块硬盘，每个硬盘1G，然后可以通过划逻辑盘、做Raid、或者LVM（逻辑卷）等种种方式逻辑划分出N个逻辑的硬盘。假设划分完的逻辑盘也是5个，每个也是1G，但是这5个1G的逻辑盘已经于原来的5个物理硬盘意义完全不同了。比如第一个逻辑硬盘A里面，可能第一个200M是来自物理硬盘1，第二个200M是来自物理硬盘2，所以逻辑硬盘A是由多个物理硬盘逻辑虚构出来的硬盘。</p>
+
+<p>块存储会采用映射的方式将这几个逻辑盘映射给主机，主机上面的操作系统会识别到有5块硬盘，但是操作系统是区分不出到底是逻辑还是物理的，它一概就认为只是5块裸的物理硬盘而已，跟直接拿一块物理硬盘挂载到操作系统没有区别的，至少操作系统感知上没有区别。</p>
+
+<p>优点</p>
+
+<ul>
+<li>磁盘组合变大容量，几块磁盘可以并发读写，提供读写效率</li>
+<li>直接雨磁盘进行交互，能满足一些需要直接裸盘映射的需求，比如数据库</li>
+</ul>
+
+<p>缺点</p>
+
+<ul>
+<li>需要网络连接，成本高</li>
+<li>数据无法在不同主机，不同操作系统之间共享</li>
+<li>相对来说，效率低下</li>
+<li>不能形象展示</li>
+</ul>
+
+<p>简单来说，块存储就是直接与磁盘打交道，比如数据库需要将数据直接映射到磁盘上，就需要用到块存储，一般现在就是数据库在使用块存储，其他的应用都使用更加高级的文件存储，甚至对象存储。通常使用块存储的都是系统而非用户，在市场上并没有很多的块存储的产品，大多数都是数据库直接使用，目前只知道<a href="/post/distributed/store/fs/ceph/ceph/">ceph</a>在对象存储的基础上提供了块存储的能力RDB。</p>
+
+<h1 id="文件存储">文件存储</h1>
+
+<p>我们需要先理解一下文件的概念：文件级是指文件系统，单个文件可能由于一个或多个逻辑块组成，且逻辑块之间是不连续分布。逻辑块大于或等于物理块整数倍，与上面的块之间的关系是扇区→物理块→逻辑块→文件系统。</p>
+
+<p>计算机中所有的数据都是0和1，存储在硬件介质上的一连串的01组合对我们来说完全无法去分辨以及管理。因此我们用“文件”这个概念对这些数据进行组织，所有用于同一用途的数据，按照不同应用程序要求的结构方式组成不同类型的文件（通常用不同的后缀来指代不同的类型），然后我们给每一个文件起一个方便理解记忆的名字。而当文件很多的时候，我们按照某种划分方式给这些文件分组，每一组文件放在同一个目录（或者叫文件夹）里面，当然我们也需要给这些目录起一个容易理解和记忆的名字。而且目录下面除了文件还可以有下一级目录（称之为子目录或者子文件夹），所有的文件、目录形成一个树状结构</p>
+
+<p>把存储介质上的数据组织成目录-子目录-文件这种形式的数据结构，用于从这个结构中寻找、添加、修改、删除文件的程序，以及用于维护这个结构的程序，组成的系统有一个专用的名字：文件系统（File System）。</p>
+
+<p>文件系统有很多，常见的有Windows的FAT/FAT32/NTFS，Linux的EXT2/EXT3/EXT4/XFS/BtrFS等。而在网络存储中，底层数据并非存储在本地的存储介质，而是另外一台服务器上，不同的客户端都可以用类似文件系统的方式访问这台服务器上的文件，这样的系统叫网络文件系统（Network File System），常见的网络文件系统有Windows网络的CIFS（也叫SMB）、类Unix系统网络的NFS等。而文件存储除了网络文件系统外，FTP、HTTP其实也算是文件存储的某种特殊实现，都是可以通过某个url来访问一个文件。</p>
+
+<p>优点</p>
+
+<ul>
+<li>形象，使用方便</li>
+<li>网络文件系统可以实现共享</li>
+</ul>
+
+<p>缺点</p>
+
+<ul>
+<li>需要文件系统的协调</li>
+<li>由于封装速度变慢</li>
+</ul>
+
+<p>其实文件系统是我们最常使用的，分布式文件系统也是一步步演化过来的:</p>
+
+<blockquote>
+<p>单机时代</p>
+</blockquote>
+
+<p>初创时期由于时间紧迫，在各种资源有限的情况下，通常就直接在项目目录下建立静态文件夹，用于用户存放项目中的文件资源。如果按不同类型再细分，可以在项目目录下再建立不同的子目录来区分。例如：resources\static\file、resources\static\img等。</p>
+
+<p>优点：这样做比较便利，项目直接引用就行，实现起来也简单，无需任何复杂技术，保存数据库记录和访问起来也很方便。</p>
+
+<p>缺点：如果只是后台系统的使用一般也不会有什么问题，但是作为一个前端网站使用的话就会存在弊端。一方面，文件和代码耦合在一起，文件越多存放越混乱；另一方面，如果流量比较大，静态文件访问会占据一定的资源，影响正常业务进行，不利于网站快速发展。</p>
+
+<blockquote>
+<p>独立文件服务器</p>
+</blockquote>
+
+<p>随着公司业务不断发展，将代码和文件放在同一服务器的弊端就会越来越明显。为了解决上面的问题引入独立图片服务器，工作流程如下：项目上传文件时，首先通过ftp或者ssh将文件上传到图片服务器的某个目录下，再通过ngnix或者apache来访问此目录下的文件，返回一个独立域名的图片URL地址，前端使用文件时就通过这个URL地址读取。</p>
+
+<p>优点：图片访问是很消耗服务器资源的（因为会涉及到操作系统的上下文切换和磁盘I/O操作），分离出来后，Web/App服务器可以更专注发挥动态处理的能力；独立存储，更方便做扩容、容灾和数据迁移；方便做图片访问请求的负载均衡，方便应用各种缓存策略（HTTP Header、Proxy Cache等），也更加方便迁移到CDN。</p>
+
+<p>缺点：单机存在性能瓶颈，容灾、垂直扩展性稍差</p>
+
+<blockquote>
+<p>分布式文件系统</p>
+</blockquote>
+
+<p>通过独立文件服务器可以解决一些问题，如果某天存储文件的那台服务突然down了怎么办？可能你会说，定时将文件系统备份，这台down机的时候，迅速切换到另一台就OK了，但是这样处理需要人工来干预。另外，当存储的文件超过100T的时候怎么办？单台服务器的性能问题？这个时候我们就应该考虑分布式文件系统了。</p>
+
+<p>业务继续发展，单台服务器存储和响应也很快到达了瓶颈，新的业务需要文件访问具有高响应性、高可用性来支持系统。分布式文件系统，一般分为三块内容来配合，服务的存储、访问的仲裁系统，文件存储系统，文件的容灾系统来构成，仲裁系统相当于文件服务器的大脑，根据一定的算法来决定文件存储的位置，文件存储系统负责保存文件，容灾系统负责文件系统和自己的相互备份。</p>
+
+<p>优点：扩展能力: 毫无疑问，扩展能力是一个分布式文件系统最重要的特点；高可用性: 在分布式文件系统中，高可用性包含两层，一是整个文件系统的可用性，二是数据的完整和一致性；弹性存储: 可以根据业务需要灵活地增加或缩减数据存储以及增删存储池中的资源，而不需要中断系统运行</p>
+
+<p>缺点：系统复杂度稍高，需要更多服务器</p>
+
+<p>文件存储其实就是在块存储之上包装出来的，有了文件的概念，加上文件系统的管理，更加形象的记录展示使用，是我们最长使用的方式。其实在分布式文件系统之前，我们也是经常使用文件来存储的，比如日志，比如持久化数据等。只不过随着数据量的越来越多，数据共享需求越来越多，我们需要使用分布式存储系统，我们常用的分布式文件存储系统有很多，比如<a href="/post/distributed/store/fs/nfs/">NFS</a>(nfs主要是在共享，还不能算分布式，不过确实是存在网络节点上的。)，<a href="/post/distributed/store/fs/glusterfs/">glusterfs</a>，<a href="/post/distributed/store/fs/fastfs/">fastdfs</a>，<a href="/post/distributed/store/fs/hfds/">hdfs</a>等，包括上面块存储<a href="/post/distributed/store/fs/ceph/ceph/">ceph</a>也提供了文件存储。</p>
+
+<h1 id="对象存储">对象存储</h1>
+
+<p>对象存储就是面向对象的存储，英文是Object-based Storage。现在很多云厂商，也直接称之为“云存储”。以下是对象存储出现的主要原因：</p>
+
+<ul>
+<li>数据量爆炸式增长。Web应用的崛起、社交需求的刺激，极大地推动了多媒体内容的创作和分享。人们开始上传大量的照片、音乐、视频，加剧了数据量的爆发。</li>
+<li>非结构化数据的占比显著增加。图像、音频、视频、word文章、演示胶片这样的数据，就是非结构化数据。2020年（也就是今年），全球数据总量的80%，将是非结构化数据。</li>
+</ul>
+
+<p>所以对象存储</p>
+
+<ul>
+<li>能够处理大量非结构化数据的数据存储架构，我们日常生活中见到的文档、文本、图片、XML, HTML、各类报表、音视频信息等等都是非结构化数据。据统计，自社交网络发展以来，非结构化数据占总数据量的75%。。</li>
+<li>扁平结构：对象存储中没有文件夹的概念，所有数据均存储在同一个层级中，你不需要知道他存在哪里，只需要通过“凭证”就可以快速获取数据。</li>
+<li>弹性扩容：可以通过分布式多节点快速扩容。</li>
+</ul>
+
+<p>目前有<a href="/post/distributed/store/oss/">很多公有云提供对象存储</a>，比如阿里云的OSS,华为云的OBS，腾讯云的COS，七牛云Kodo，百度云BOS，网易云NOS。通过提供的SDK就可以访问。如果不想用公有云的话，也有一些开源方案可以自己搭建，比如ceph，minio。</p>
+
+<p>在对象存储系统里，你不能直接打开/修改文件，只能先下载、修改，再上传文件。（如果大家用过百度网盘或ftp服务，一定可以秒懂。），所以只是一个存储系统，而不是我们的文件系统。所以我们也需要块存储和文件存储。</p>
+
+<blockquote>
+<p>为什么对象存储兼具块存储与文件存储的好处，还要使用块存储或文件存储呢？</p>
+</blockquote>
+
+<p>1、有一类应用是需要存储直接裸盘映射的，例如数据库。因为数据库需要存储裸盘映射给自己后，再根据自己的数据库文件系统来对裸盘进行格式化的，所以是不能够采用其他已经被格式化为某种文件系统的存储的。此类应用更适合使用块存储。</p>
+
+<p>2、对象存储的成本比起普通的文件存储还是较高，需要购买专门的对象存储软件以及大容量硬盘。如果对数据量要求不是海量，只是为了做文件共享的时候，直接用文件存储的形式好了，性价比高。</p>
+
+<blockquote>
+<p>基本原理</p>
+</blockquote>
+
+<p>对象存储最常用的方案，就是多台服务器内置大容量硬盘，再装上对象存储软件，然后再额外搞几台服务作为管理节点，安装上对象存储管理软件。管理节点可以管理其他服务器对外提供读写访问功能。其实就是一个文件存储或者块存储的分布式管理系统方案。</p>
+
+<p>比如AT32这种文件系统，是直接将一份文件的数据与metadata一起存储的，存储过程先将文件按照文件系统的最小块大小来打散（如4M的文件，假设文件系统要求一个块4K，那么就将文件打散成为1000个小块），再写进硬盘里面，过程中没有区分数据/metadata的。而每个块最后会告知你下一个要读取的块的地址，然后一直这样顺序地按图索骥，最后完成整份文件的所有块的读取。这种情况下读写速率很慢，因为就算你有100个机械手臂在读写，但是由于你只有读取到第一个块，才能知道下一个块在哪里，其实相当于只能有1个机械手臂在实际工作。</p>
+
+<p>而对象存储则将元数据独立了出来，控制节点叫元数据服务器（服务器+对象存储管理软件），里面主要负责存储对象的属性（主要是对象的数据被打散存放到了那几台分布式服务器中的信息），而其他负责存储数据的分布式服务器叫做OSD，主要负责存储文件的数据部分。当用户访问对象，会先访问元数据服务器，元数据服务器只负责反馈对象存储在哪些OSD，假设反馈文件A存储在B、C、D三台OSD，那么用户就会再次直接访问3台OSD服务器去读取数据。这时候由于是3台OSD同时对外传输数据，所以传输的速度就加快了。当OSD服务器数量越多，这种读写速度的提升就越大，通过此种方式，实现了读写快的目的。</p>
+
+<p>另一方面，对象存储软件是有专门的文件系统的，所以OSD对外又相当于文件服务器，那么就不存在文件共享方面的困难了，也解决了文件共享方面的问题。</p>
+
+<h1 id="总结">总结</h1>
+
+<ul>
+<li>1、所有的存储底层都是硬盘。</li>
+<li>2、块存储，操作对象是磁盘。存储协议是SCSI、iSCSI、FC，以 SCSI 为例，主要接口命令有 Read/Write/Read Capacity/Inquiry 等等。比如DAS和SAN，基于物理块的存储方式。</li>
+<li>3、文件存储，操作对象是文件和文件夹。存储协议是NFS、SAMBA（SMB）、POSIX等。以NFS（大家应该都用过“网上邻居”共享文件吧？就是那个）为例，文件相关的接口命令包括：READ/WRITE/CREATE/REMOVE/RENAME/LOOKUP/ACCESS 等等，文件夹相关的接口命令包括：MKDIR/RMDIR/READDIR 等等。</li>
+<li>4、对象存储，主要操作对象是对象（Object）。存储协议是S3、Swift等。以 S3 为例，主要接口命令有 PUT/GET/DELETE 等。</li>
+</ul>
+
+<h1 id="架构">架构</h1>
+
+<p>分布式存储的基本架构无非就是中心控制和无中心结构，无中心架构也是中心架构的中心瓶颈发展而成的，其实不管是分布式存储还是其他分布式实现，使用中心架构都会出现性能瓶颈，都在往无中心化架构的实现方法发展，使用最多的就是哈希映射思想。</p>
+
+<h2 id="中间控制节点架构-hdfs">中间控制节点架构（HDFS）</h2>
+
+<p>分布式存储最早是由谷歌提出的，其目的是通过廉价的服务器来提供使用与大规模，高并发场景下的Web访问问题。如图3是谷歌分布式存储（HDFS）的简化的模型。在该系统的整个架构中将服务器分为两种类型，一种名为namenode，这种类型的节点负责管理管理数据（元数据），另外一种名为datanode，这种类型的服务器负责实际数据的管理。</p>
+
+<p><img src="/media/distribute/store/hdfs" alt="" /></p>
+
+<p>上图分布式存储中，如果客户端需要从某个文件读取数据，首先从namenode获取该文件的位置（具体在哪个datanode），然后从该位置获取具体的数据。在该架构中namenode通常是主备部署，而datanode则是由大量节点构成一个集群。由于元数据的访问频度和访问量相对数据都要小很多，因此namenode通常不会成为性能瓶颈，而datanode集群可以分散客户端的请求。因此，通过这种分布式存储架构可以通过横向扩展datanode的数量来增加承载能力，也即实现了动态横向扩展的能力。</p>
+
+<h2 id="完全无中心架构">完全无中心架构</h2>
+
+<h3 id="计算模式-ceph">计算模式（Ceph）</h3>
+
+<p>如图是Ceph存储系统的架构，在该架构中与HDFS不同的地方在于该架构中没有中心节点。客户端是通过一个设备映射关系计算出来其写入数据的位置，这样客户端可以直接与存储节点通信，从而避免中心节点的性能瓶颈。</p>
+
+<p><img src="/media/distribute/store/ceph" alt="" /></p>
+
+<p>在Ceph存储系统架构中核心组件有Mon服务、OSD服务和MDS服务等。对于块存储类型只需要Mon服务、OSD服务和客户端的软件即可。其中Mon服务用于维护存储系统的硬件逻辑关系，主要是服务器和硬盘等在线信息。Mon服务通过集群的方式保证其服务的可用性。OSD服务用于实现对磁盘的管理，实现真正的数据读写，通常一个磁盘对应一个OSD服务。
+客户端访问存储的大致流程是，客户端在启动后会首先从Mon服务拉取存储资源布局信息，然后根据该布局信息和写入数据的名称等信息计算出期望数据的位置（包含具体的物理服务器信息和磁盘信息），然后该位置信息直接通信，读取或者写入数据。</p>
+
+<p>底层是RADOS，这是个标准的对象存储。以RADOS为基础，Ceph 能够提供文件，块和对象三种存储服务。其中通过RBD提供出来的块存储是比较有价值的地方，毕竟因为市面上开源的分布式块存储少见嘛（以前倒是有个sheepdog，但是现在不当红了）。当然它也通过CephFS模块和相应的私有Client提供了文件服务，这也是很多人认为Ceph是个文件系统的原因。另外它自己原生的对象存储可以通过RadosGW存储网关模块向外提供对象存储服务，并且和对象存储的事实标准Amazon S3以及Swift兼容。所以能看出来这其实是个大一统解决方案，啥都齐全。</p>
+
+<h3 id="一致性哈希-swift">一致性哈希（Swift）</h3>
+
+<p>与Ceph的通过计算方式获得数据位置的方式不同，另外一种方式是通过一致性哈希的方式获得数据位置。一致性哈希的方式就是将设备做成一个哈希环，然后根据数据名称计算出的哈希值映射到哈希环的某个位置，从而实现数据的定位。</p>
+
+<p><img src="/media/distribute/store/swift" alt="" /></p>
+
+<p>如图是一致性哈希的基本原理，为了绘制简单，本文以一个服务器上的一个磁盘为例进行介绍。为了保证数据分配的均匀性及出现设备故障时数据迁移的均匀性，一致性哈希将磁盘划分为比较多的虚拟分区，每个虚拟分区是哈希环上的一个节点。整个环是一个从0到32位最大值的一个区间，并且首尾相接。当计算出数据（或者数据名称）的哈希值后，必然落到哈希环的某个区间，然后以顺时针，必然能够找到一个节点。那么，这个节点就是存储数据的位置。
+Swift存储的整个数据定位算法就是基于上述一致性哈希实现的。在Swift对象存储中，通过账户名/容器名/对象名三个名称组成一个位置的标识，通过该唯一标识可以计算出一个整型数来。而在存储设备方面，Swift构建一个虚拟分区表，表的大小在创建集群是确定（通常为几十万），这个表其实就是一个数组。这样，根据上面计算的整数值，以及这个数组，通过一致性哈希算法就可以确定该整数在数组的位置。而数组中的每项内容是数据3个副本（也可以是其它副本数量）的设备信息（包含服务器和磁盘等信息）。也就是经过上述计算，可以确定一个数据存储的具体位置。这样，Swift就可以将请求重新定向到该设备进行处理。</p>
+
+<p><img src="/media/distribute/store/swift2" alt="" /></p>
+
+<p>上述计算过程是在一个名为Proxy的服务中进行的，该服务可以集群化部署。因此可以分摊请求的负载，不会成为性能瓶颈。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/distributed/store/store/">https://kingjcy.github.io/post/distributed/store/store/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/store/">
+                            <i class="fa fa-tags"></i>
+                            store
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/distribute/">
+                            <i class="fa fa-tags"></i>
+                            distribute
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/distributed/distributed-event/">分布式系列---- Event And Distributed Event</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年04月07日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/glusterfs/">分布式系列---- 文件存储系统glusterfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年12月15日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/hfds/">分布式系列---- 文件存储系统hdfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年12月15日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/fastfs/">分布式系列---- 文件存储系统Fastdfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年01月16日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/nfs/">分布式系列---- 文件存储系统nfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年01月16日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/designpatterns/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/distributed/store/fs/glusterfs/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#块存储">块存储</a></li>
+<li><a href="#文件存储">文件存储</a></li>
+<li><a href="#对象存储">对象存储</a></li>
+<li><a href="#总结">总结</a></li>
+<li><a href="#架构">架构</a>
+<ul>
+<li><a href="#中间控制节点架构-hdfs">中间控制节点架构（HDFS）</a></li>
+<li><a href="#完全无中心架构">完全无中心架构</a>
+<ul>
+<li><a href="#计算模式-ceph">计算模式（Ceph）</a></li>
+<li><a href="#一致性哈希-swift">一致性哈希（Swift）</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
