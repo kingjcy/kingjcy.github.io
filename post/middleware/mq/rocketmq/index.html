@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="RocketMQ 一个纯java、分布式、队列模型的开源消息中间件，是阿里巴巴在2012年开源的分布式消息中间件，目前已经捐赠给 Apache 软件基金会，并于2017年9月25日成为 Apache 的顶级项目。作为经历过多次阿里巴巴双十一这种“超级工程”的洗礼并有稳定出色表现的国产中间件，以其高性能、低延时和高可靠等特性近年来已经也被越来越多的国内企业使用。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="消息队列系列---- Rocketmq - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    消息队列系列---- Rocketmq
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年03月28日 
+                </div>
+                <h1 class="post-title">消息队列系列---- Rocketmq</h1>
+            </header>
+
+            <div class="post-content">
+                <p>RocketMQ 一个纯java、分布式、队列模型的开源消息中间件，是阿里巴巴在2012年开源的分布式消息中间件，目前已经捐赠给 Apache 软件基金会，并于2017年9月25日成为 Apache 的顶级项目。作为经历过多次阿里巴巴双十一这种“超级工程”的洗礼并有稳定出色表现的国产中间件，以其高性能、低延时和高可靠等特性近年来已经也被越来越多的国内企业使用。</p>
+
+<h1 id="基本概念">基本概念</h1>
+
+<p>RocketMQ具有以下特点：</p>
+
+<ol>
+<li><p>灵活可扩展性</p>
+
+<p>RocketMQ 天然支持集群，其核心四组件（Name Server、Broker、Producer、Consumer）每一个都可以在没有单点故障的情况下进行水平扩展。</p></li>
+
+<li><p>海量消息堆积能力</p>
+
+<p>RocketMQ 采用零拷贝原理实现超大的消息的堆积能力，据说单机已可以支持亿级消息堆积，而且在堆积了这么多消息后依然保持写入低延迟。</p></li>
+
+<li><p>支持顺序消息</p>
+
+<p>可以保证消息消费者按照消息发送的顺序对消息进行消费。顺序消息分为全局有序和局部有序，一般推荐使用局部有序，即生产者通过将某一类消息按顺序发送至同一个队列来实现。</p></li>
+
+<li><p>多种消息过滤方式</p>
+
+<p>消息过滤分为在服务器端过滤和在消费端过滤。服务器端过滤时可以按照消息消费者的要求做过滤，优点是减少不必要消息传输，缺点是增加了消息服务器的负担，实现相对复杂。消费端过滤则完全由具体应用自定义实现，这种方式更加灵活，缺点是很多无用的消息会传输给消息消费者。</p></li>
+
+<li><p>支持事务消息</p>
+
+<p>RocketMQ 除了支持普通消息，顺序消息之外还支持事务消息，这个特性对于分布式事务来说提供了又一种解决思路。</p></li>
+
+<li><p>回溯消费</p>
+
+<p>回溯消费是指消费者已经消费成功的消息，由于业务上需求需要重新消费，RocketMQ 支持按照时间回溯消费，时间维度精确到毫秒，可以向前回溯，也可以向后回溯。</p></li>
+
+<li><p>多客户端</p>
+
+<p>RocketMQ 目前支持 Java、C++、Go 三种语言访问。</p></li>
+</ol>
+
+<p>通过下面的基本部署图，我们看一下一些概念</p>
+
+<p><img src="/media/middleware/mq/rocketmq/20180328.png" alt="" /></p>
+
+<p>1、生产者(Producer）</p>
+
+<p>生产者（Producer）负责产生消息，生产者向消息服务器发送由业务应用程序系统生成的消息。 RocketMQ 提供了三种方式发送消息：同步、异步和单向。</p>
+
+<ol>
+<li><p>同步发送</p>
+
+<p>同步发送指消息发送方发出数据后会在收到接收方发回响应之后才发下一个数据包。一般用于重要通知消息，例如重要通知邮件、营销短信。</p></li>
+
+<li><p>异步发送</p>
+
+<p>异步发送指发送方发出数据后，不等接收方发回响应，接着发送下个数据包，一般用于可能链路耗时较长而对响应时间敏感的业务场景，例如用户视频上传后通知启动转码服务。</p></li>
+
+<li><p>单向发送</p>
+
+<p>单向发送是指只负责发送消息而不等待服务器回应且没有回调函数触发，适用于某些耗时非常短但对可靠性要求并不高的场景，例如日志收集。</p></li>
+</ol>
+
+<p>2、生产者组（Producer Group）</p>
+
+<p>生产者组（Producer Group）是一类 Producer 的集合，这类 Producer 通常发送一类消息并且发送逻辑一致，所以将这些 Producer 分组在一起。从部署结构上看生产者通过 Producer Group 的名字来标记自己是一个集群。</p>
+
+<p>3、消费者（Consumer</p>
+
+<p>消费者（Consumer）负责消费消息，消费者从消息服务器拉取信息并将其输入用户应用程序。站在用户应用的角度消费者有两种类型：拉取型消费者、推送型消费者。</p>
+
+<ol>
+<li><p>拉取型消费者</p>
+
+<p>拉取型消费者（Pull Consumer）主动从消息服务器拉取信息，只要批量拉取到消息，用户应用就会启动消费过程，所以 Pull 称为主动消费型。这是第一代的模式，典型代表包括Notify、Napoli。</p></li>
+
+<li><p>推送型消费者</p>
+
+<p>推送型消费者（Push Consumer）封装了消息的拉取、消费进度和其他的内部维护工作，将消息到达时执行的回调接口留给用户应用程序来实现。所以 Push 称为被动消费类型，但从实现上看还是从消息服务器中拉取消息，不同于 Pull 的是 Push 首先要注册消费监听器，当监听器处触发后才开始消费消息。这是第二代的模式，典型代表MetaQ。</p>
+
+<p>最后第三代是以拉模式为主，兼有推模式低延迟消息引擎RocketMQ，在二代功能特性的基础上，为电商金融领域添加了可靠重试、基于文件存储的分布式事务等特性。</p></li>
+</ol>
+
+<p>4、消费者组（Consumer Group）</p>
+
+<p>消费者组（Consumer Group）一类 Consumer 的集合名称，这类 Consumer 通常消费同一类消息并且消费逻辑一致，所以将这些 Consumer 分组在一起。消费者组与生产者组类似，都是将相同角色的分组在一起并命名，分组是个很精妙的概念设计，RocketMQ 正是通过这种分组机制，实现了天然的消息负载均衡。消费消息时通过 Consumer Group 实现了将消息分发到多个消费者服务器实例，比如某个 Topic 有9条消息，其中一个 Consumer Group 有3个实例（3个进程或3台机器），那么每个实例将均摊3条消息，这也意味着我们可以很方便的通过加机器来实现水平扩展。</p>
+
+<p>5、消息服务器（Broker）</p>
+
+<p>消息服务器（Broker）是消息存储中心，主要作用是接收来自 Producer 的消息并存储， Consumer 从这里取得消息。它还存储与消息相关的元数据，包括用户组、消费进度偏移量、队列信息等。从部署结构图中可以看出 Broker 有 Master 和 Slave 两种类型，Master 既可以写又可以读，Slave 不可以写只可以读。从物理结构上看 Broker 的集群部署方式有四种：单 Master 、多 Master 、多 Master 多 Slave（同步刷盘）、多 Master多 Slave（异步刷盘）。</p>
+
+<ol>
+<li><p>单 Master</p>
+
+<p>这种方式一旦 Broker 重启或宕机会导致整个服务不可用，这种方式风险较大，所以显然不建议线上环境使用。</p></li>
+
+<li><p>多 Master</p>
+
+<p>所有消息服务器都是 Master ，没有 Slave 。这种方式优点是配置简单，单个 Master 宕机或重启维护对应用无影响。缺点是单台机器宕机期间，该机器上未被消费的消息在机器恢复之前不可订阅，消息实时性会受影响。</p></li>
+
+<li><p>多 Master 多 Slave（异步复制）</p>
+
+<p>每个 Master 配置一个 Slave，所以有多对 Master-Slave，消息采用异步复制方式，主备之间有毫秒级消息延迟。这种方式优点是消息丢失的非常少，且消息实时性不会受影响，Master 宕机后消费者可以继续从 Slave 消费，中间的过程对用户应用程序透明，不需要人工干预，性能同多 Master 方式几乎一样。缺点是 Master 宕机时在磁盘损坏情况下会丢失极少量消息。</p></li>
+
+<li><p>多 Master 多 Slave（同步双写）</p>
+
+<p>每个 Master 配置一个 Slave，所以有多对 Master-Slave ，消息采用同步双写方式，主备都写成功才返回成功。这种方式优点是数据与服务都没有单点问题，Master 宕机时消息无延迟，服务与数据的可用性非常高。缺点是性能相对异步复制方式略低，发送消息的延迟会略高。</p></li>
+</ol>
+
+<p>6、名称服务器（NameServer）</p>
+
+<p>名称服务器（NameServer）用来保存 Broker 相关元信息并给 Producer 和 Consumer 查找 Broker 信息。NameServer 被设计成几乎无状态的，可以横向扩展，节点之间相互之间无通信，通过部署多台机器来标记自己是一个伪集群。每个 Broker 在启动的时候会到 NameServer 注册，Producer 在发送消息前会根据 Topic 到 NameServer 获取到 Broker 的路由信息，Consumer 也会定时获取 Topic 的路由信息。所以从功能上看应该是和 ZooKeeper 差不多，据说 RocketMQ 的早期版本确实是使用的 ZooKeeper ，后来改为了自己实现的 NameServer 。</p>
+
+<p>7、消息（Message）</p>
+
+<p>消息（Message）就是要传输的信息。一条消息必须有一个主题（Topic），主题可以看做是你的信件要邮寄的地址。一条消息也可以拥有一个可选的标签（Tag）和额处的键值对，它们可以用于设置一个业务 key 并在 Broker 上查找此消息以便在开发期间查找问题。</p>
+
+<p>8、主题（Topic）</p>
+
+<p>主题（Topic）可以看做消息的规类，它是消息的第一级类型。比如一个电商系统可以分为：交易消息、物流消息等，一条消息必须有一个 Topic 。Topic 与生产者和消费者的关系非常松散，一个 Topic 可以有0个、1个、多个生产者向其发送消息，一个生产者也可以同时向不同的 Topic 发送消息。一个 Topic 也可以被 0个、1个、多个消费者订阅。</p>
+
+<p>9、标签（Tag）</p>
+
+<p>标签（Tag）可以看作子主题，它是消息的第二级类型，用于为用户提供额外的灵活性。使用标签，同一业务模块不同目的的消息就可以用相同 Topic 而不同的 Tag 来标识。比如交易消息又可以分为：交易创建消息、交易完成消息等，一条消息可以没有 Tag 。标签有助于保持您的代码干净和连贯，并且还可以为 RocketMQ 提供的查询系统提供帮助。</p>
+
+<p>10、消息队列（Message Queue）</p>
+
+<p>消息队列（Message Queue），主题被划分为一个或多个子主题，即消息队列。一个 Topic 下可以设置多个消息队列，发送消息时执行该消息的 Topic ，RocketMQ 会轮询该 Topic 下的所有队列将消息发出去。下图 Broker 内部消息情况：</p>
+
+<h1 id="基本原理">基本原理</h1>
+
+<p><img src="/media/middleware/mq/rocketmq/rocketmq" alt="" /></p>
+
+<p>其实在上面已经看过架构图了，我们对集群工作流程做一个整理</p>
+
+<ul>
+<li>启动Namesrv，Namesrv起来后监听端口，等待Broker、Produer、Consumer连上来，相当于一个路由控制中心。</li>
+<li>Broker启动，跟所有的Namesrv保持长连接，定时发送心跳包。心跳包中包含当前Broker信息(IP+端口等)以及存储所有topic信息。注册成功后，namesrv集群中就有Topic跟Broker的映射关系。</li>
+<li>收发消息前，先创建topic，创建topic时需要指定该topic要存储在哪些Broker上。也可以在发送消息时自动创建Topic。</li>
+<li>Producer发送消息，启动时先跟Namesrv集群中的其中一台建立长连接，并从Namesrv中获取当前发送的Topic存在哪些Broker上，然后跟对应的Broker建长连接，直接向Broker发消息。</li>
+<li>Consumer跟Producer类似。跟其中一台Namesrv建立长连接，获取当前订阅Topic存在哪些Broker，然后直接跟Broker建立连接通道，开始消费消息。</li>
+</ul>
+
+<p>大体的流程就是这样，其实基本原理也就清楚了。</p>
+
+<blockquote>
+<p>消息消费模式</p>
+</blockquote>
+
+<p>消息消费模式有两种：集群消费（Clustering）和广播消费（Broadcasting）。默认情况下就是集群消费，该模式下一个消费者集群共同消费一个主题的多个队列，一个队列只会被一个消费者消费，如果某个消费者挂掉，分组内其它消费者会接替挂掉的消费者继续消费。而广播消费消息会发给消费者组中的每一个消费者进行消费。</p>
+
+<blockquote>
+<p>消息顺序</p>
+</blockquote>
+
+<p>消息顺序（Message Order）有两种：顺序消费（Orderly）和并行消费（Concurrently）。顺序消费表示消息消费的顺序同生产者为每个消息队列发送的顺序一致，所以如果正在处理全局顺序是强制性的场景，需要确保使用的主题只有一个消息队列。并行消费不再保证消息顺序，消费的最大并行数量受每个消费者客户端指定的线程池限制。</p>
+
+<h1 id="应用">应用</h1>
+
+<p>其实也就是一般消息队列的的基本应用。</p>
+
+<p>1.削峰填谷</p>
+
+<p>比如如秒杀等大型活动时会带来较高的流量脉冲，如果没做相应的保护，将导致系统超负荷甚至崩溃。如果因限制太过导致请求大量失败而影响用户体验，可以利用MQ 超高性能的消息处理能力来解决。</p>
+
+<p>2.异步解耦</p>
+
+<p>通过上、下游业务系统的松耦合设计，比如：交易系统的下游子系统（如积分等）出现不可用甚至宕机，都不会影响到核心交易系统的正常运转。</p>
+
+<p>3.顺序消息</p>
+
+<p>与FIFO原理类似，MQ提供的顺序消息即保证消息的先进先出，可以应用于交易系统中的订单创建、支付、退款等流程。</p>
+
+<p>4.分布式事务消息</p>
+
+<p>比如阿里的交易系统、支付红包等场景需要确保数据的最终一致性，需要引入 MQ 的分布式事务，既实现了系统之间的解耦，又可以保证最终的数据一致性。</p>
+
+<p>将大事务拆分成小事务，减少系统间的交互，既高效又可靠。再利用MQ 的可靠传输与多副本技术确保消息不丢，At-Least-Once 特性来最终确保数据的最终一致性。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/middleware/mq/rocketmq/">https://kingjcy.github.io/post/middleware/mq/rocketmq/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/mq/">
+                            <i class="fa fa-tags"></i>
+                            mq
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/rocketmq/">
+                            <i class="fa fa-tags"></i>
+                            Rocketmq
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/middleware/">
+                            <i class="fa fa-tags"></i>
+                            middleware
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/middleware/mq/kafka-client/">消息队列系列---- Kafka Client</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月08日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/zookeeper/">服务发现系列---- Zookeeper</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月19日)</span></li><li id="li-rels"><a href="/post/middleware/mq/mq-compare/">消息队列系列---- Mq Compare</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年04月21日)</span></li><li id="li-rels"><a href="/post/middleware/mq/rabbitmq/">消息队列系列---- Rabbitmq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月20日)</span></li><li id="li-rels"><a href="/post/middleware/mq/activemq/">消息队列系列---- Activemq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月19日)</span></li><li id="li-rels"><a href="/post/middleware/mq/kafka/">消息队列系列---- Kafka</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年07月19日)</span></li><li id="li-rels"><a href="/post/middleware/mq/nsq/">消息队列系列---- Nsq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年06月19日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/etcd/">服务发现系列---- Etcd</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年02月14日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/consul/">服务发现系列---- Consul</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年02月12日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/sd/">服务发现系列---- Sd</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年02月12日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/distributed/distributed-lock/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#基本原理">基本原理</a></li>
+<li><a href="#应用">应用</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Go Kafka客户端简单示例">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="消息队列系列---- Kafka Client - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    消息队列系列---- Kafka Client
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年08月08日 
+                </div>
+                <h1 class="post-title">消息队列系列---- Kafka Client</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Go Kafka客户端简单示例</p>
+
+<h1 id="客户端">客户端</h1>
+
+<h2 id="生产者">生产者</h2>
+
+<h3 id="库">库</h3>
+
+<p>1.sarama目前使用最多的golang的client</p>
+
+<pre><code>go get github.com/Shopify/sarama
+</code></pre>
+
+<p>该库要求kafka版本在0.8及以上，支持kafka定义的high-level API和low-level API，但不支持常用的consumer自动rebalance和offset追踪，所以一般得结合cluster版本使用。</p>
+
+<p>2.sarama-cluster依赖库，弥补了上面了不足</p>
+
+<pre><code>go get github.com/bsm/sarama-cluster
+</code></pre>
+
+<p>需要kafka 0.9及以上版本</p>
+
+<h3 id="生产模式">生产模式</h3>
+
+<blockquote>
+<p>同步消息模式</p>
+</blockquote>
+
+<pre><code>import (
+    &quot;github.com/Shopify/sarama&quot;
+    &quot;time&quot;
+    &quot;log&quot;
+    &quot;fmt&quot;
+    &quot;os&quot;
+    &quot;os/signal&quot;
+    &quot;sync&quot;
+)
+
+var Address = []string{&quot;10.130.138.164:9092&quot;,&quot;10.130.138.164:9093&quot;,&quot;10.130.138.164:9094&quot;}
+
+func main()  {
+    syncProducer(Address)
+    //asyncProducer1(Address)
+}
+
+//同步消息模式
+func syncProducer(address []string)  {
+    config := sarama.NewConfig()
+    config.Producer.Return.Successes = true
+    config.Producer.Timeout = 5 * time.Second
+    p, err := sarama.NewSyncProducer(address, config)
+    if err != nil {
+        log.Printf(&quot;sarama.NewSyncProducer err, message=%s \n&quot;, err)
+        return
+    }
+    defer p.Close()
+    topic := &quot;test&quot;
+    srcValue := &quot;sync: this is a message. index=%d&quot;
+    for i:=0; i&lt;10; i++ {
+        value := fmt.Sprintf(srcValue, i)
+        msg := &amp;sarama.ProducerMessage{
+            Topic:topic,
+            Value:sarama.ByteEncoder(value),
+        }
+        part, offset, err := p.SendMessage(msg)
+        if err != nil {
+            log.Printf(&quot;send message(%s) err=%s \n&quot;, value, err)
+        }else {
+            fmt.Fprintf(os.Stdout, value + &quot;发送成功，partition=%d, offset=%d \n&quot;, part, offset)
+        }
+        time.Sleep(2*time.Second)
+    }
+}
+</code></pre>
+
+<p>同步生产者发送消息，使用的不是channel，并且SendMessage方法有三个返回的值，分别为这条消息的被发送到了哪个partition，处于哪个offset，是否有error。</p>
+
+<p>也就是说，只有在消息成功的发送并写入了broker，才会有返回值。</p>
+
+<blockquote>
+<p>异步消息之Goroutines</p>
+</blockquote>
+
+<p>异步消费者(Goroutines)：用不同的goroutine异步读取Successes和Errors channel</p>
+
+<pre><code>func asyncProducer1(address []string)  {
+    config := sarama.NewConfig()
+    config.Producer.Return.Successes = true
+    //config.Producer.Partitioner = 默认为message的hash
+    p, err := sarama.NewAsyncProducer(address, config)
+    if err != nil {
+        log.Printf(&quot;sarama.NewSyncProducer err, message=%s \n&quot;, err)
+        return
+    }
+
+    //Trap SIGINT to trigger a graceful shutdown.
+    signals := make(chan os.Signal, 1)
+    signal.Notify(signals, os.Interrupt)
+
+    var wg sync.WaitGroup
+    var enqueued, successes, errors int
+    wg.Add(2) //2 goroutine
+
+    // 发送成功message计数
+    go func() {
+        defer wg.Done()
+        for range p.Successes() {
+            successes++
+        }
+    }()
+
+    // 发送失败计数
+    go func() {
+        defer wg.Done()
+        for err := range p.Errors() {
+            log.Printf(&quot;%s 发送失败，err：%s\n&quot;, err.Msg, err.Err)
+            errors++
+        }
+    }()
+
+    // 循环发送信息
+    asrcValue := &quot;async-goroutine: this is a message. index=%d&quot;
+    var i int
+    Loop:
+    for {
+        i++
+        value := fmt.Sprintf(asrcValue, i)
+        msg := &amp;sarama.ProducerMessage{
+            Topic:&quot;test&quot;,
+            Value:sarama.ByteEncoder(value),
+        }
+        select {
+        case p.Input() &lt;- msg: // 发送消息
+            enqueued++
+            fmt.Fprintln(os.Stdout, value)
+        case &lt;-signals: // 中断信号
+            p.AsyncClose()
+            break Loop
+        }
+        time.Sleep(2 * time.Second)
+    }
+    wg.Wait()
+
+    fmt.Fprintf(os.Stdout, &quot;发送数=%d，发送成功数=%d，发送失败数=%d \n&quot;, enqueued, successes, errors)
+
+}
+</code></pre>
+
+<p>异步生产者使用channel接收（生产成功或失败）的消息，并且也通过channel来发送消息，这样做通常是性能最高的。</p>
+
+<blockquote>
+<p>异步消息之Select</p>
+</blockquote>
+
+<p>异步消费者(Select)：同一线程内，通过select同时发送消息 和 处理errors计数。该方式效率较低，如果有大量消息发送， 很容易导致success和errors的case无法执行，从而阻塞一定时间。</p>
+
+<p>当然可以通过设置config.Producer.Return.Successes=false;config.Producer.Return.Errors=false来解决</p>
+
+<pre><code>func asyncProducer2(address []string)  {
+    config := sarama.NewConfig()
+    config.Producer.Return.Errors = true
+    p, err := sarama.NewAsyncProducer(address, config)
+    if err != nil {
+        log.Printf(&quot;sarama.NewSyncProducer err, message=%s \n&quot;, err)
+        return
+    }
+
+    //Trap SIGINT to trigger a graceful shutdown.
+    signals := make(chan os.Signal, 1)
+    signal.Notify(signals, os.Interrupt)
+
+    var enqueued, successes, errors int
+    asrcValue := &quot;async-select: this is a message. index=%d&quot;
+    var i int
+    Loop:
+    for {
+        i++
+        value := fmt.Sprintf(asrcValue, i)
+        msg := &amp;sarama.ProducerMessage{
+            Topic:&quot;test&quot;,
+            Value:sarama.ByteEncoder(value),
+        }
+        select {
+        case p.Input() &lt;- msg:
+            fmt.Fprintln(os.Stdout, value)
+            enqueued++
+        case &lt;-p.Successes():
+            successes++
+        case err := &lt;-p.Errors():
+            log.Printf(&quot;%s 发送失败，err：%s\n&quot;, err.Msg, err.Err)
+            errors++
+        case &lt;-signals:
+            p.AsyncClose()
+            break Loop
+        }
+        time.Sleep(2 * time.Second)
+    }
+
+    fmt.Fprintf(os.Stdout, &quot;发送数=%d，发送失败数=%d \n&quot;, enqueued, errors)
+}
+</code></pre>
+
+<h3 id="注意事项">注意事项</h3>
+
+<p>我们在来看看Shopify/sarama的producer有两种运行模式的一些注意的的地方</p>
+
+<blockquote>
+<p>同步模式:producer把消息发给kafka之后会等待结果返回。</p>
+</blockquote>
+
+<pre><code>config := sarama.NewConfig()
+config.Producer.Return.Successes = true
+client, err := sarama.NewClient([]{&quot;localhost:9092&quot;}, config)
+if err != nil {
+    log.Fatalf(&quot;unable to create kafka client: %q&quot;, err)
+}
+
+producer, err := sarama.NewSyncProducerFromClient(client)
+if err != nil {
+    log.Fatalf(&quot;unable to create kafka producer: %q&quot;, err)
+}
+defer producer.Close()
+
+text := fmt.Sprintf(&quot;message %08d&quot;, i)
+partition, offset , err := producer.SendMessage(&amp;sarama.ProducerMessage{Topic: topic, Key: nil, Value: sarama.StringEncoder(text)})
+if err != nil {
+    log.Fatalf(&quot;unable to produce message: %q&quot;, err)
+}
+...
+</code></pre>
+
+<p>注意同步模式下，下面配置必须置上：</p>
+
+<pre><code>config.Producer.Return.Successes = true
+</code></pre>
+
+<p>否则运行报错：</p>
+
+<pre><code>2018/12/25 08:08:30 unable to create kafka producer: &quot;kafka:
+invalid configuration (Producer.Return.Successes must be true to be used in a SyncProducer)&quot;
+</code></pre>
+
+<blockquote>
+<p>异步模式:producer把消息发给kafka之后不会等待结果返回。</p>
+</blockquote>
+
+<p>异步模式，顾名思义就是produce一个message之后不等待发送完成返回；这样调用者可以继续做其他的工作。</p>
+
+<pre><code>config := sarama.NewConfig()
+// config.Producer.Return.Successes = true
+client, err := sarama.NewClient([]{&quot;localhost:9092&quot;}, config)
+if err != nil {
+    log.Fatalf(&quot;unable to create kafka client: %q&quot;, err)
+}
+
+producer, err := sarama.NewAsyncProducerFromClient
+if err != nil {
+    log.Fatalf(&quot;unable to create kafka producer: %q&quot;, err)
+}
+defer producer.Close()
+
+text := fmt.Sprintf(&quot;message %08d&quot;, i)
+producer.Input() &lt;- &amp;sarama.ProducerMessage{Topic: topic, Key: nil, Value: sarama.StringEncoder(text)}
+// wait response
+select {
+        //case msg := &lt;-producer.Successes():
+        //    log.Printf(&quot;Produced message successes: [%s]\n&quot;,msg.Value)
+        case err := &lt;-producer.Errors():
+            log.Println(&quot;Produced message failure: &quot;, err)
+        default:
+            log.Println(&quot;Produced message default&quot;,)
+}
+...
+</code></pre>
+
+<blockquote>
+<p>异步模式produce一个消息后，缺省并不会报告成功状态，需要打开返回配置。</p>
+</blockquote>
+
+<pre><code>config.Producer.Return.Successes = false
+...
+producer.Input() &lt;- &amp;sarama.ProducerMessage{Topic: topic, Key: nil, Value: sarama.StringEncoder(text)}
+log.Printf(&quot;Produced message: [%s]\n&quot;,text)
+
+// wait response
+select {
+    case msg := &lt;-producer.Successes():
+        log.Printf(&quot;Produced message successes: [%s]\n&quot;,msg.Value)
+    case err := &lt;-producer.Errors():
+        log.Println(&quot;Produced message failure: &quot;, err)
+}
+</code></pre>
+
+<p>则这段代码会挂住，因为设置没有要求返回成功config.Producer.Return.Successes = false，那么在select等待的时候producer.Successes()不会返回，producer.Errors()也不会返回(假设没有错误发生)，就挂在这儿。当然可以加一个default分支绕过去，就不会挂住了：</p>
+
+<pre><code>select {
+    case msg := &lt;-producer.Successes():
+        log.Printf(&quot;Produced message successes: [%s]\n&quot;,msg.Value)
+    case err := &lt;-producer.Errors():
+        log.Println(&quot;Produced message failure: &quot;, err)
+    default:
+        log.Println(&quot;Produced message default&quot;)
+}
+</code></pre>
+
+<p>如果打开了Return.Successes配置，则上述代码段等同于同步方式</p>
+
+<pre><code>config.Producer.Return.Successes = true
+...
+producer.Input() &lt;- &amp;sarama.ProducerMessage{Topic: topic, Key: nil, Value: sarama.StringEncoder(text)}
+log.Printf(&quot;Produced message: [%s]\n&quot;,text)
+
+// wait response
+select {
+    case msg := &lt;-producer.Successes():
+        log.Printf(&quot;Produced message successes: [%s]\n&quot;,msg.Value)
+    case err := &lt;-producer.Errors():
+        log.Println(&quot;Produced message failure: &quot;, err)
+}
+</code></pre>
+
+<p>从log可以看到，每发送一条消息，收到一条Return.Successes，类似于：</p>
+
+<pre><code>2018/12/25 08:51:51 Produced message: [message 00002537]
+2018/12/25 08:51:51 Produced message successes: [message 00002537]
+2018/12/25 08:51:51 Produced message: [message 00002538]
+2018/12/25 08:51:51 Produced message successes: [message 00002538]
+2018/12/25 08:51:51 Produced message: [message 00002539]
+2018/12/25 08:51:51 Produced message successes: [message 00002539]
+2018/12/25 08:51:51 Produced message: [message 00002540]
+2018/12/25 08:51:51 Produced message successes: [message 00002540]
+2018/12/25 08:51:51 Produced message: [message 00002541]
+2018/12/25 08:51:51 Produced message successes: [message 00002541]
+2018/12/25 08:51:51 Produced message: [message 00002542]
+2018/12/25 08:51:51 Produced message successes: [message 00002542]
+2018/12/25 08:51:51 Produced message: [message 00002543]
+2018/12/25 08:51:51 Produced message successes: [message 00002543]
+...
+</code></pre>
+
+<p>就像是同步produce一样的行为了。</p>
+
+<p>如果打开了Return.Successes配置，而又没有producer.Successes()提取，那么Successes()这个chan消息会被写满。</p>
+
+<pre><code>config.Producer.Return.Successes = true
+...
+log.Printf(&quot;Reade to Produced message: [%s]\n&quot;,text)
+producer.Input() &lt;- &amp;sarama.ProducerMessage{Topic: topic, Key: nil, Value: sarama.StringEncoder(text)}
+log.Printf(&quot;Produced message: [%s]\n&quot;,text)
+
+// wait response
+select {
+    //case msg := &lt;-producer.Successes():
+    //    log.Printf(&quot;Produced message successes: [%s]\n&quot;,msg.Value)
+    case err := &lt;-producer.Errors():
+        log.Println(&quot;Produced message failure: &quot;, err)
+    default:
+        log.Println(&quot;Produced message default&quot;,)
+}
+</code></pre>
+
+<p>写满的结果就是不能再写入了，导致后面的Return.Successes消息丢失, 而且producer也会挂住，因为共享的buffer被占满了，大量的Return.Successes没有被消耗掉。</p>
+
+<p>运行一段时间后：</p>
+
+<pre><code>2018/12/25 08:58:24 Reade to Produced message: [message 00000603]
+2018/12/25 08:58:24 Produced message: [message 00000603]
+2018/12/25 08:58:24 Produced message default
+2018/12/25 08:58:24 Reade to Produced message: [message 00000604]
+2018/12/25 08:58:24 Produced message: [message 00000604]
+2018/12/25 08:58:24 Produced message default
+2018/12/25 08:58:24 Reade to Produced message: [message 00000605]
+2018/12/25 08:58:24 Produced message: [message 00000605]
+2018/12/25 08:58:24 Produced message default
+2018/12/25 08:58:24 Reade to Produced message: [message 00000606]
+2018/12/25 08:58:24 Produced message: [message 00000606]
+2018/12/25 08:58:24 Produced message default
+2018/12/25 08:58:24 Reade to Produced message: [message 00000607]
+2018/12/25 08:58:24 Produced message: [message 00000607]
+2018/12/25 08:58:24 Produced message default
+2018/12/25 08:58:24 Reade to Produced message: [message 00000608]
+</code></pre>
+
+<p>在produce第00000608个message的时候被挂住了，因为消息缓冲满了；这个缓冲的大小是可配的(可能是这个MaxRequestSize?)，但是不管大小是多少，如果没有去提取Success消息最终都会被占满的。</p>
+
+<p>结论就是说配置config.Producer.Return.Successes = true和操作&lt;-producer.Successes()必须配套使用；配置成true，那么就要去读取Successes，如果配置成false，则不能去读取Successes。</p>
+
+<h3 id="重要配置参数">重要配置参数</h3>
+
+<p>1、MaxMessageBytes int</p>
+
+<p>这个参数影响了一条消息的最大字节数，默认是1000000。但是注意，这个参数必须要小于broker中的 message.max.bytes。</p>
+
+<p>2、RequiredAcks RequiredAcks</p>
+
+<p>这个参数影响了消息需要被多少broker写入之后才返回。取值可以是0、1、-1</p>
+
+<ul>
+<li>1代表了不需要等待broker确认才返回、这样最容易丢失消息但同时性能却是最好的</li>
+<li>0代表需要分区的leader确认后才返回，这是一种折中的方案，它会等待副本 Leader 响应，但不会等到 follower 的响应。一旦 Leader 挂掉消息就会丢失。但性能和消息安全性都得到了一定的保证。</li>
+<li>-1代表需要分区的所有副本确认后返回这样可以保证消息不会丢失，但同时性能和吞吐量却是最低的。</li>
+</ul>
+
+<p>3、Partitioner PartitionerConstructor</p>
+
+<p>这个是分区器。Sarama默认提供了几种分区器，如果不指定默认使用Hash分区器。</p>
+
+<p>4、Retry</p>
+
+<p>这个参数代表了重试的次数，以及重试的时间，主要发生在一些可重试的错误中。</p>
+
+<p>在重试过程中需要考虑幂等操作了，比如当同时发送了2个请求，如果第一个请求发送到broker中，broker写入失败了，但是第二个请求写入成功了，那么客户端将重新发送第一个消息的请求，这个时候会造成乱序。又比如当第一个请求返回acks的时候，因为网络原因，客户端没有收到，所以客户端进行了重发，这个时候就会造成消息的重复。</p>
+
+<p>所以，幂等生产者就是为了保证消息发送到broker中是有序且不重复的。一共有两个参数</p>
+
+<p>5、MaxOpenRequests int</p>
+
+<p>这个参数代表了允许没有收到acks而可以同时发送的最大batch数。</p>
+
+<p>6、Idempotent bool</p>
+
+<p>用于幂等生产者，当这一项设置为true的时候，生产者将保证生产的消息一定是有序且精确一次的。</p>
+
+<p>7、Flush</p>
+
+<p>用于设置将消息打包发送，简单来讲就是每次发送消息到broker的时候，不是生产一条消息就发送一条消息，而是等消息累积到一定的程度了，再打包发送。所以里面含有两个参数。一个是多少条消息触发打包发送，一个是累计的消息大小到了多少，然后发送。</p>
+
+<p>8、Compression</p>
+
+<p>压缩数据进行发送，选择不同支持的压缩方式，也可以不压缩，压缩比较消耗资源，不压缩可以提高速度。</p>
+
+<h2 id="源码解析">源码解析</h2>
+
+<h3 id="创建过程">创建过程</h3>
+
+<pre><code>producer, err := sarama.NewAsyncProducer([]string{&quot;localhost:9092&quot;}, config)
+</code></pre>
+
+<p>一切都从这么一行开始讲起。在这里其实就只有两个部分，先是通过地址和配置，构建一个 client 。</p>
+
+<pre><code>func NewAsyncProducer(addrs []string, conf *Config) (AsyncProducer, error) {
+
+  // 构建client
+    client, err := NewClient(addrs, conf)
+    if err != nil {
+        return nil, err
+    }
+
+  // 构建AsyncProducer
+    return newAsyncProducer(client)
+}
+</code></pre>
+
+<blockquote>
+<p>Client的创建</p>
+</blockquote>
+
+<p>先构建一个 client 结构体。然后创建完之后，刷新元数据，并且启动一个协程，在后台进行刷新。</p>
+
+<pre><code>func NewClient(addrs []string, conf *Config) (Client, error) {
+    ...
+  // 构建一个client
+  client := &amp;client{
+        conf:                    conf,
+        closer:                  make(chan none),
+        closed:                  make(chan none),
+        brokers:                 make(map[int32]*Broker),
+        metadata:                make(map[string]map[int32]*PartitionMetadata),
+        metadataTopics:          make(map[string]none),
+        cachedPartitionsResults: make(map[string][maxPartitionIndex][]int32),
+        coordinators:            make(map[string]int32),
+    }
+  // 把用户输入的broker地址作为“种子broker”增加到seedBrokers中
+  // 随后客户端会根据已有的broker地址，自动刷新元数据，以获取更多的broker地址
+  // 所以称之为种子
+  random := rand.New(rand.NewSource(time.Now().UnixNano()))
+    for _, index := range random.Perm(len(addrs)) {
+        client.seedBrokers = append(client.seedBrokers, NewBroker(addrs[index]))
+    }
+    ...
+  // 启动协程在后台刷新元数据
+  go withRecover(client.backgroundMetadataUpdater)
+  return client, nil
+}
+</code></pre>
+
+<blockquote>
+<p>元数据的更新</p>
+</blockquote>
+
+<p>后台更新元数据的设计其实很简单，利用一个 ticker ，按时对元数据进行更新，直到 client 关闭。</p>
+
+<pre><code>func (client *client) backgroundMetadataUpdater() {
+
+  // 按照配置的时间更新元数据
+  ticker := time.NewTicker(client.conf.Metadata.RefreshFrequency)
+    defer ticker.Stop()
+
+  // 循环获取channel，判断是执行更新操作还是终止
+  for {
+        select {
+        case &lt;-ticker.C:
+            if err := client.refreshMetadata(); err != nil {
+                Logger.Println(&quot;Client background metadata update:&quot;, err)
+            }
+        case &lt;-client.closer:
+            return
+        }
+    }
+}
+</code></pre>
+
+<p>然后我们继续来看看 client.refreshMetadata() 这个方法，在这里我们设置了需要刷新元数据的主题，重试的次数，超时的时间。</p>
+
+<pre><code>func (client *client) RefreshMetadata(topics ...string) error {
+  deadline := time.Time{}
+    if client.conf.Metadata.Timeout &gt; 0 {
+        deadline = time.Now().Add(client.conf.Metadata.Timeout)
+    }
+  // 设置参数
+    return client.tryRefreshMetadata(topics, client.conf.Metadata.Retry.Max, deadline)
+}
+</code></pre>
+
+<p>再看tryRefreshMetadata这个方法。在这个方法中，会选取已经存在的broker，构造获取元数据的请求。在收到回应后，如果不存在任何的错误，就将这些元数据用于更新客户端。</p>
+
+<pre><code>func (client *client) tryRefreshMetadata(topics []string, attemptsRemaining int, deadline time.Time) error {
+  ...
+
+  broker := client.any()
+    for ; broker != nil &amp;&amp; !pastDeadline(0); broker = client.any() {
+    ...
+            req := &amp;MetadataRequest{
+          Topics: topics,
+          // 是否允许创建不存在的主题
+          AllowAutoTopicCreation: allowAutoTopicCreation
+        }
+    response, err := broker.GetMetadata(req)
+    switch err.(type) {
+        case nil:
+            allKnownMetaData := len(topics) == 0
+      // 对元数据进行更新
+            shouldRetry, err := client.updateMetadata(response, allKnownMetaData)
+            if shouldRetry {
+                Logger.Println(&quot;client/metadata found some partitions to be leaderless&quot;)
+                return retry(err)
+            }
+            return err
+        case ...
+      ...
+    }
+  }
+</code></pre>
+
+<p>当客户端拿到了 response 之后，首先，先对本地保存 broker 进行更新。然后，对 topic 进行更新，以及这个 topic 下面的那些 partition 。</p>
+
+<pre><code>func (client *client) updateMetadata(data *MetadataResponse, allKnownMetaData bool) (retry bool, err error) {
+  ...
+  // 假设返回了新的broker id，那么保存这些新的broker，这意味着增加了broker、或者下线的broker重新上线了
+  // 如果返回的id我们已经保存了，但是地址变化了，那么更新地址
+  // 如果本地保存的一些id没有返回，说明这些broker下线了，那么删除他们
+  client.updateBroker(data.Brokers)
+
+  // 然后对topic也进行元数据的更新
+  // 主要是更新topic以及topic对应的partition
+  for _, topic := range data.Topics {
+    ...
+    // 更新每个topic以及对应的partition
+    client.metadata[topic.Name] = make(map[int32]*PartitionMetadata, len(topic.Partitions))
+        for _, partition := range topic.Partitions {
+            client.metadata[topic.Name][partition.ID] = partition
+            ...
+        }
+  }
+</code></pre>
+
+<blockquote>
+<p>与Broker建立连接</p>
+</blockquote>
+
+<p>主要是通过broker := client.any()来实现的。</p>
+
+<pre><code>func (client *client) any() *Broker {
+    ...
+    if len(client.seedBrokers) &gt; 0 {
+        _ = client.seedBrokers[0].Open(client.conf)
+        return client.seedBrokers[0]
+    }
+
+    // 不保证一定是按顺序的
+    for _, broker := range client.brokers {
+        _ = broker.Open(client.conf)
+        return broker
+    }
+
+    return nil
+}
+</code></pre>
+
+<p>Open方法异步的建立了一个tcp连接，然后创建了一个缓冲大小为MaxOpenRequests的channel。</p>
+
+<pre><code>func (b *Broker) Open(conf *Config) error {
+  if conf == nil {
+        conf = NewConfig()
+    }
+  ...
+  go withRecover(func() {
+    ...
+    dialer := conf.getDialer()
+        b.conn, b.connErr = dialer.Dial(&quot;tcp&quot;, b.addr)
+
+    ...
+    b.responses = make(chan responsePromise, b.conf.Net.MaxOpenRequests-1)
+    ...
+    go withRecover(b.responseReceiver)
+  })
+</code></pre>
+
+<p>这个名为 responses 的 channel ，用于接收从 broker发送回来的消息。然后，又启动了一个协程，用于接收消息。</p>
+
+<blockquote>
+<p>从Broker接收响应</p>
+</blockquote>
+
+<p>当 broker 收到一个 response 的时候，先解析消息的头部，然后再解析消息的内容。并把这些内容写进 response 的 packets 中。</p>
+
+<pre><code>func (b *Broker) responseReceiver() {
+  for response := range b.responses {
+
+    ...
+    // 先根据Header的版本读取对应长度的Header
+    var headerLength = getHeaderLength(response.headerVersion)
+        header := make([]byte, headerLength)
+        bytesReadHeader, err := b.readFull(header)
+    decodedHeader := responseHeader{}
+        err = versionedDecode(header, &amp;decodedHeader, response.headerVersion)
+
+    ...
+    // 解析具体的内容
+    buf := make([]byte, decodedHeader.length-int32(headerLength)+4)
+        bytesReadBody, err := b.readFull(buf)
+
+    // 省略了一些错误处理，总之，如果发生了错误，就把错误信息写进 response.errors 中
+    response.packets &lt;- buf
+  }
+}
+</code></pre>
+
+<blockquote>
+<p>发送与接受消息</p>
+</blockquote>
+
+<p>我们回到这一行代码：</p>
+
+<pre><code>response, err := broker.GetMetadata(req)
+</code></pre>
+
+<p>我们直接进去，之前看的是元数据的处理，其实也可以用于发送接收消息。发现在这里构造了一个接受返回信息的结构体，然后调用了sendAndReceive方法。</p>
+
+<pre><code>func (b *Broker) GetMetadata(request *MetadataRequest) (*MetadataResponse, error) {
+    response := new(MetadataResponse)
+
+    err := b.sendAndReceive(request, response)
+
+    if err != nil {
+        return nil, err
+    }
+
+    return response, nil
+}
+</code></pre>
+
+<p>在这里我们可以看到，先是调用了send方法，然后返回了一个promise。并且当有消息写入这个promise的时候，就得到了结果。</p>
+
+<p>而且回想一下我们在receiver中，是不是把获取到的 response 写进了 packets ，把错误结果写进了 errors 呢，跟这里是一致的</p>
+
+<pre><code>func (b *Broker) sendAndReceive(req protocolBody, res protocolBody) error {
+    responseHeaderVersion := int16(-1)
+    if res != nil {
+        responseHeaderVersion = res.headerVersion()
+    }
+
+    promise, err := b.send(req, res != nil, responseHeaderVersion)
+    if err != nil {
+        return err
+    }
+
+    if promise == nil {
+        return nil
+    }
+
+  // 这里的promise，是上面send方法返回的
+    select {
+    case buf := &lt;-promise.packets:
+        return versionedDecode(buf, res, req.version())
+    case err = &lt;-promise.errors:
+        return err
+    }
+}
+</code></pre>
+
+<p>在send方法中，把需要发送的消息通过与broker的tcp连接，同步发送到broker中。</p>
+
+<p>然后构建了一个responsePromise类型的channel，然后直接将这个结构体丢进这个channel中。然后回想一下，我们在responseReceiver这个方法中，不断消费接收到的response。</p>
+
+<p>此时在responseReceiver中，收到了send方法传递的responsePromise，他就会通过conn来读取数据，然后将数据写入这个responsePromise的packets中，或者将错误信息写入errors中。</p>
+
+<p>而此时，再看看send方法，他返回了这个responsePromise的指针。所以，sendAndReceive方法就在等待这个responsePromise内的packets或者errors的channel被写入数据。当responseReceiver接收到了响应并且写入数据的时候，packets或者errors就会被写入消息。</p>
+
+<pre><code>func (b *Broker) send(rb protocolBody, promiseResponse bool, responseHeaderVersion int16) (*responsePromise, error) {
+
+  ...
+  // 将请求的内容封装进 request ，然后发送到Broker中
+  // 注意一下这里的 b.write(buf)
+  // 里面做了 b.conn.Write(buf) 这件事情
+  req := &amp;request{correlationID: b.correlationID, clientID: b.conf.ClientID, body: rb}
+    buf, err := encode(req, b.conf.MetricRegistry)
+  bytes, err := b.write(buf)
+
+  ...
+  // 如果我们的response为nil，也就是说当不需要response的时候，是不会放进inflight发送队列的
+  if !promiseResponse {
+        // Record request latency without the response
+        b.updateRequestLatencyAndInFlightMetrics(time.Since(requestTime))
+        return nil, nil
+    }
+
+  // 构建一个接收响应的 channel ，返回这个channel的指针
+  // 这个 channel 内部包含了两个 channel，一个用来接收响应，一个用来接收错误
+  promise := responsePromise{requestTime, req.correlationID, responseHeaderVersion, make(chan []byte), make(chan error)}
+    b.responses &lt;- promise
+
+  // 这里返回指针特别的关键，是把消息的发送跟消息的接收联系在一起了
+    return &amp;promise, nil
+}
+</code></pre>
+
+<p>让我们来用一张图说明一下上面这个发送跟接收的过程：</p>
+
+<p><img src="/media/middleware/mq/kafka/sarama.jpg" alt="" /></p>
+
+<h3 id="asyncprocuder">AsyncProcuder</h3>
+
+<p>AsyncProcuder是如何发送消息的。我们从newAsyncProducer(client)这一行开始讲起。</p>
+
+<pre><code>func newAsyncProducer(client Client) (AsyncProducer, error) {
+  ...
+  p := &amp;asyncProducer{
+        client:     client,
+        conf:       client.Config(),
+        errors:     make(chan *ProducerError),
+        input:      make(chan *ProducerMessage),
+        successes:  make(chan *ProducerMessage),
+        retries:    make(chan *ProducerMessage),
+        brokers:    make(map[*Broker]*brokerProducer),
+        brokerRefs: make(map[*brokerProducer]int),
+        txnmgr:     txnmgr,
+    }
+
+  go withRecover(p.dispatcher)
+    go withRecover(p.retryHandler)
+}
+</code></pre>
+
+<p>先是构建了asyncProducer结构体，然后协程启动的go withRecover(p.dispatcher)。</p>
+
+<pre><code>func (p *asyncProducer) dispatcher() {
+  handlers := make(map[string]chan&lt;- *ProducerMessage)
+  ...
+  for msg := range p.input {
+    ...
+    // 拦截器
+    for _, interceptor := range p.conf.Producer.Interceptors {
+            msg.safelyApplyInterceptor(interceptor)
+        }
+
+    ...
+    // 找到这个Topic对应的Handler
+    handler := handlers[msg.Topic]
+        if handler == nil {
+      // 如果此时还不存在这个Topic对应的Handler，那么创建一个
+      // 虽然说他叫Handler，但他其实是一个无缓冲的
+            handler = p.newTopicProducer(msg.Topic)
+            handlers[msg.Topic] = handler
+        }
+        // 然后把这条消息写进这个Handler中
+        handler &lt;- msg
+  }
+}
+</code></pre>
+
+<p>在这个方法中，首先创建了一个以Topic为key的map，这个map的value是无缓冲的channel。</p>
+
+<p>到这里我们很容易可以推测得出，当通过input发送一条消息的时候，消息会到dispatcher这里，被分配到各个Topic中。</p>
+
+<p>然后让我们来handler = p.newTopicProducer(msg.Topic)这一行的代码。</p>
+
+<p>在这里创建了一个缓冲大小为ChannelBufferSize的channel，用于存放发送到这个主题的消息。</p>
+
+<p>然后创建了一个topicProducer，在这个时候你可以认为消息已经交付给各个topic的topicProducer了。</p>
+
+<pre><code>func (p *asyncProducer) newTopicProducer(topic string) chan&lt;- *ProducerMessage {
+    input := make(chan *ProducerMessage, p.conf.ChannelBufferSize)
+    tp := &amp;topicProducer{
+        parent:      p,
+        topic:       topic,
+        input:       input,
+        breaker:     breaker.New(3, 1, 10*time.Second),
+        handlers:    make(map[int32]chan&lt;- *ProducerMessage),
+        partitioner: p.conf.Producer.Partitioner(topic),
+    }
+    go withRecover(tp.dispatch)
+    return input
+}
+</code></pre>
+
+<p>然后我们来看看go withRecover(tp.dispatch)这一行代码。同样是启动了一个协程，来处理消息。</p>
+
+<p>也就是说，到了这一步，对于每一个Topic，都有一个协程来处理消息。</p>
+
+<p>在这个dispatch()方法中，也同样的接收到一条消息，就会去找这条消息所在的分区的channel，然后把消息写进去。</p>
+
+<pre><code>func (tp *topicProducer) dispatch() {
+  for msg := range tp.input {
+    ...
+
+    // 同样是找到这条消息所在的分区对应的channel，然后把消息丢进去
+    handler := tp.handlers[msg.Partition]
+        if handler == nil {
+            handler = tp.parent.newPartitionProducer(msg.Topic, msg.Partition)
+            tp.handlers[msg.Partition] = handler
+        }
+
+        handler &lt;- msg
+  }
+}
+</code></pre>
+
+<p>我们进tp.parent.newPartitionProducer(msg.Topic, msg.Partition)这里看看。</p>
+
+<p>你可以发现partitionProducer跟topicProducer是很像的。</p>
+
+<p>其实他们就是代表了一条消息的分发，从producer到topic到partition。</p>
+
+<p>注意，这里面的channel缓冲大小，也是ChannelBufferSize。</p>
+
+<pre><code>func (p *asyncProducer) newPartitionProducer(topic string, partition int32) chan&lt;- *ProducerMessage {
+    input := make(chan *ProducerMessage, p.conf.ChannelBufferSize)
+    pp := &amp;partitionProducer{
+        parent:    p,
+        topic:     topic,
+        partition: partition,
+        input:     input,
+
+        breaker:    breaker.New(3, 1, 10*time.Second),
+        retryState: make([]partitionRetryState, p.conf.Producer.Retry.Max+1),
+    }
+    go withRecover(pp.dispatch)
+    return input
+}
+</code></pre>
+
+<p>到了这一步，我们再来看看消息到了每个partition所在的channel，是如何处理的。</p>
+
+<p>其实在这一步中，主要是做一些错误处理之类的，然后把消息丢进brokerProducer。</p>
+
+<p>可以理解为这一步是业务逻辑层到网络IO层的转变，在这之前我们只关心消息去到了哪个分区，而在这之后，我们需要找到这个分区所在的broker的地址，并使用之前已经建立好的TCP连接，发送这条消息。</p>
+
+<pre><code>func (pp *partitionProducer) dispatch() {
+
+  // 找到这个主题和分区的leader所在的broker
+  pp.leader, _ = pp.parent.client.Leader(pp.topic, pp.partition)
+  // 如果此时找到了这个leader
+  if pp.leader != nil {
+        pp.brokerProducer = pp.parent.getBrokerProducer(pp.leader)
+        pp.parent.inFlight.Add(1)
+    // 发送一条消息来表示同步
+        pp.brokerProducer.input &lt;- &amp;ProducerMessage{Topic: pp.topic, Partition: pp.partition, flags: syn}
+    }
+  ...// 各种异常情况
+
+  // 然后把消息丢进brokerProducer中
+  pp.brokerProducer.input &lt;- msg
+}
+</code></pre>
+
+<p>到了这里，大概算是整个发送流程最后的一个步骤了。</p>
+
+<p>我们来看看pp.parent.getBrokerProducer(pp.leader)这行代码里面的内容。</p>
+
+<p>其实就是找到asyncProducer中的brokerProducer，如果不存在，则创建一个。</p>
+
+<pre><code>func (p *asyncProducer) getBrokerProducer(broker *Broker) *brokerProducer {
+    p.brokerLock.Lock()
+    defer p.brokerLock.Unlock()
+
+    bp := p.brokers[broker]
+
+    if bp == nil {
+        bp = p.newBrokerProducer(broker)
+        p.brokers[broker] = bp
+        p.brokerRefs[bp] = 0
+    }
+
+    p.brokerRefs[bp]++
+
+    return bp
+}
+</code></pre>
+
+<p>那我们就来看看brokerProducer是怎么创建出来的。</p>
+
+<p>看这个方法中启动的第二个协程，我们可以推测bridge这个channel收到消息后，会把收到的消息打包成一个request，然后调用Produce方法。</p>
+
+<p>并且，将返回的结果的指针地址，写进response中。</p>
+
+<p>然后构造好brokerProducerResponse，并且写入responses中。</p>
+
+<pre><code>func (p *asyncProducer) newBrokerProducer(broker *Broker) *brokerProducer {
+    var (
+        input     = make(chan *ProducerMessage)
+        bridge    = make(chan *produceSet)
+        responses = make(chan *brokerProducerResponse)
+    )
+
+    bp := &amp;brokerProducer{
+        parent:         p,
+        broker:         broker,
+        input:          input,
+        output:         bridge,
+        responses:      responses,
+        stopchan:       make(chan struct{}),
+        buffer:         newProduceSet(p),
+        currentRetries: make(map[string]map[int32]error),
+    }
+    go withRecover(bp.run)
+
+    // minimal bridge to make the network response `select`able
+    go withRecover(func() {
+        for set := range bridge {
+            request := set.buildRequest()
+
+            response, err := broker.Produce(request)
+
+            responses &lt;- &amp;brokerProducerResponse{
+                set: set,
+                err: err,
+                res: response,
+            }
+        }
+        close(responses)
+    })
+
+    if p.conf.Producer.Retry.Max &lt;= 0 {
+        bp.abandoned = make(chan struct{})
+    }
+
+    return bp
+}
+</code></pre>
+
+<p>让我们再来看看broker.Produce(request)这一行代码。</p>
+
+<p>是不是很熟悉呢，我们在client部分讲到的sendAndReceive方法。</p>
+
+<p>而且我们可以发现，如果我们设置了需要Acks，就会返回一个response；如果没设置，那么消息发出去之后，就不管了。</p>
+
+<p>此时在获取了response，并且填入了response的内容后，返回这个response的内容。</p>
+
+<pre><code>func (b *Broker) Produce(request *ProduceRequest) (*ProduceResponse, error) {
+    var (
+        response *ProduceResponse
+        err      error
+    )
+
+    if request.RequiredAcks == NoResponse {
+        err = b.sendAndReceive(request, nil)
+    } else {
+        response = new(ProduceResponse)
+        err = b.sendAndReceive(request, response)
+    }
+
+    if err != nil {
+        return nil, err
+    }
+
+    return response, nil
+}
+</code></pre>
+
+<p>至此，Sarama生产者相关的内容就介绍完毕了。</p>
+
+<h3 id="syncproducer-和asyncproducer的关系">syncProducer 和asyncProducer的关系</h3>
+
+<p>syncProducer 是所有功能都是由asyncProducer实现的，而syncProducer 之所以可以同步发送消息，答案就在SendMessage 函数中，源码如下</p>
+
+<pre><code> func(sp *syncProducer)SendMessage(msg *ProducerMessage) (partitionint32,offsetint64,errerror) {
+
+   expectation :=make(chan*ProducerError,1)
+
+   msg.expectation = expectation
+
+   sp.producer.Input() &lt;- msg
+
+   if err := &lt;-expectation;err != nil {    // 阻塞等待返回结果
+
+        return-1,-1,err.Err
+
+    }
+
+   return msg.Partition,msg.Offset,nil
+
+}
+</code></pre>
+
+<p>而使用asyncProducer 时，只需要 直接将信息producer.Input()&lt;-&amp;ProducerMessage{} 放入进producer.Input(), 然后异步读取返回结果 chan*ProducerError</p>
+
+<p>消息传递过程</p>
+
+<pre><code> // one per topic
+
+// partitions messages, then dispatches them by partition
+
+type topicProducer struct{
+
+    parent *asyncProducer
+
+    topic string
+
+    input &lt;-chan*ProducerMessage
+
+    breaker *breaker.Breaker
+
+    handlers map[int32] chan&lt;- *ProducerMessage
+
+    partitioner Partitioner
+
+}
+
+
+
+type brokerProducer struct{
+
+    parent *asyncProducer
+
+    broker *Broker
+
+    input  &lt;-chan*ProducerMessage
+
+    output chan&lt;- *produceSet
+
+    responses  &lt;-chan*brokerProducerResponse
+
+    buffer *produceSet
+
+    timer  &lt;-chantime.Time
+
+    timerFired bool
+
+    closing error
+
+    currentRetries map[string]map[int32]error
+
+}
+</code></pre>
+
+<p>由代码可以看出topicProducer，partitionProducer，brokerProducer的parent都是asyncProducer</p>
+
+<p>消息传递过程：</p>
+
+<p>asyncProducer.dispatcher -&gt;topicProducer.dispath -&gt; partitionProducer.dispatch -&gt; brokerProducer -&gt;produceSet</p>
+
+<p>其中produceSet 对消息进行聚集，若配置了压缩的参数，则会压缩一个set中的所有的msg, 即批量压缩， 然后构建一个ProduceRequest ,然后由 broker.Produce 将请求发送出去，其中 broker 结构体代表一个kafka broker 的连接</p>
+
+<p>partitionProducer 会选择leader broker地址 ,若选择失败，则会重新选择leader broker ，然后由这个连接发送消息根据kafka版本不同，消息会放入到不同的结构体中若版本大于V0.11，set.recordsToSend.RecordBatch.addRecord(rec) 将一个rec添加进去，否则将set.recordsToSend.MsgSet.addMessage(msgToSend)
+ </p>
+
+<p>在生成一个newBrokerProducer时，broker会开启消费output, 而output就是一个存放produceSet的channel,阻塞等待刷新ProduceRequest  并将其发送出去</p>
+
+<h2 id="消费者">消费者</h2>
+
+<p>消费者集群模实现</p>
+
+<pre><code>func main()  {
+    topic := []string{&quot;test&quot;}
+    var wg = &amp;sync.WaitGroup{}
+    wg.Add(2)
+    //广播式消费：消费者1
+    go clusterConsumer(wg, Address, topic, &quot;group-1&quot;)
+    //广播式消费：消费者2
+    go clusterConsumer(wg, Address, topic, &quot;group-2&quot;)
+
+    wg.Wait()
+}
+
+// 支持brokers cluster的消费者
+func clusterConsumer(wg *sync.WaitGroup,brokers, topics []string, groupId string)  {
+    defer wg.Done()
+    config := cluster.NewConfig()
+    config.Consumer.Return.Errors = true
+    config.Group.Return.Notifications = true
+    config.Consumer.Offsets.Initial = sarama.OffsetNewest
+
+    // init consumer
+    consumer, err := cluster.NewConsumer(brokers, groupId, topics, config)
+    if err != nil {
+        log.Printf(&quot;%s: sarama.NewSyncProducer err, message=%s \n&quot;, groupId, err)
+        return
+    }
+    defer consumer.Close()
+
+    // trap SIGINT to trigger a shutdown
+    signals := make(chan os.Signal, 1)
+    signal.Notify(signals, os.Interrupt)
+
+    // consume errors
+    go func() {
+        for err := range consumer.Errors() {
+            log.Printf(&quot;%s:Error: %s\n&quot;, groupId, err.Error())
+        }
+    }()
+
+    // consume notifications
+    go func() {
+        for ntf := range consumer.Notifications() {
+            log.Printf(&quot;%s:Rebalanced: %+v \n&quot;, groupId, ntf)
+        }
+    }()
+
+    // consume messages, watch signals
+    var successes int
+    Loop:
+    for {
+        select {
+        case msg, ok := &lt;-consumer.Messages():
+            if ok {
+                fmt.Fprintf(os.Stdout, &quot;%s:%s/%d/%d\t%s\t%s\n&quot;, groupId, msg.Topic, msg.Partition, msg.Offset, msg.Key, msg.Value)
+                consumer.MarkOffset(msg, &quot;&quot;)  // mark message as processed
+                successes++
+            }
+        case &lt;-signals:
+            break Loop
+        }
+    }
+    fmt.Fprintf(os.Stdout, &quot;%s consume %d messages \n&quot;, groupId, successes)
+}
+</code></pre>
+
+<h1 id="如何优雅的使用-kafka-生产者">如何优雅的使用 Kafka 生产者</h1>
+
+<h2 id="发送流程">发送流程</h2>
+
+<ul>
+<li>初始化以及真正发送消息的 kafka-producer-network-thread IO 线程。</li>
+<li>将消息序列化。</li>
+<li>得到需要发送的分区。</li>
+<li>写入内部的一个缓存区中。</li>
+<li>初始化的 IO 线程不断的消费这个缓存来发送消息。</li>
+</ul>
+
+<h2 id="分区策略">分区策略</h2>
+
+<ul>
+<li>指定分区</li>
+<li>自定义路由</li>
+<li>默认策略，通常都是使用这种策略，其实就是一种对分区的轮询简单的来说分为以下几步：
+
+<ul>
+<li>获取 Topic 分区数。</li>
+<li>将内部维护的一个线程安全计数器 +1。</li>
+<li>与分区数取模得到分区编号。</li>
+</ul></li>
+</ul>
+
+<p>其实这就是很典型的轮询算法，所以只要分区数不频繁变动这种方式也会比较均匀。</p>
+
+<h1 id="性能">性能</h1>
+
+<p>生产速度</p>
+
+<pre><code>12c32G1000M--3台
+
+单个生产者线程，单副本--821557个记录/秒（78.3 MB /秒）
+单个生产者线程，三个副本，异步方式--786980 record / sec（75.1 MB / sec）
+单个生产者线程，3个副本，同步复制----428823条记录/秒（40.2 MB /秒）
+三个生产者，3个副本，异步复制----2024032个记录/秒（193.0 MB /秒）
+</code></pre>
+
+<h1 id="问题">问题</h1>
+
+<h2 id="golang连接kafka-sarama-内存暴涨问题记录">golang连接kafka(sarama)内存暴涨问题记录</h2>
+
+<blockquote>
+<p>问题背景</p>
+</blockquote>
+
+<p>使用kafka客户端类库(sarama）步发布消息， qps为100+， 上线后内存，cpu爆炸。</p>
+
+<blockquote>
+<p>排查过程</p>
+</blockquote>
+
+<ul>
+<li>首先排查代码层面写的有逻辑bug， 比如连接未close， 排查无问题</li>
+<li>排查发布的消息较大， 导致golang频繁gc, 和同事确认，无频繁gc</li>
+<li>通过查看源码，发现每次http请求，操作kafka都是短链接， 即频繁的会新建短链接， 排查到这里，还是不能特别确认是因为短链接导致， 因为之前接入rabbitmq类库，也是使用的短链接。</li>
+<li>使用pprof打印出火焰图, profile, 和block的， 也没发现特别大的bug点。</li>
+<li>使用sarama meory搜索官方issue, 和谷歌查询。 得到出具体结论</li>
+</ul>
+
+<blockquote>
+<p>分析具体问题</p>
+</blockquote>
+
+<p>从官方issue 得知， sarama类库自动依赖第三方的统计类库go-mertic, 主要是为了方便给prometheus统计数据。 sarama类库默认打开。导致该统计站的内存，迟迟未释放</p>
+
+<p>因此使用sarama前， 将该统计关闭即可。</p>
+
+<p>对应代码:</p>
+
+<pre><code>metrics.UseNilMetrics = true
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/middleware/mq/kafka-client/">https://kingjcy.github.io/post/middleware/mq/kafka-client/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/mq/">
+                            <i class="fa fa-tags"></i>
+                            mq
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/kafka/">
+                            <i class="fa fa-tags"></i>
+                            kafka
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/client/">
+                            <i class="fa fa-tags"></i>
+                            client
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/middleware/mq/rocketmq/">消息队列系列---- Rocketmq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月28日)</span></li><li id="li-rels"><a href="/post/middleware/mq/mq-compare/">消息队列系列---- Mq Compare</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年04月21日)</span></li><li id="li-rels"><a href="/post/middleware/mq/rabbitmq/">消息队列系列---- Rabbitmq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月20日)</span></li><li id="li-rels"><a href="/post/middleware/mq/activemq/">消息队列系列---- Activemq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月19日)</span></li><li id="li-rels"><a href="/post/middleware/mq/kafka/">消息队列系列---- Kafka</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年07月19日)</span></li><li id="li-rels"><a href="/post/middleware/mq/nsq/">消息队列系列---- Nsq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年06月19日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/trace/zipkin/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#客户端">客户端</a>
+<ul>
+<li><a href="#生产者">生产者</a>
+<ul>
+<li><a href="#库">库</a></li>
+<li><a href="#生产模式">生产模式</a></li>
+<li><a href="#注意事项">注意事项</a></li>
+<li><a href="#重要配置参数">重要配置参数</a></li>
+</ul></li>
+<li><a href="#源码解析">源码解析</a>
+<ul>
+<li><a href="#创建过程">创建过程</a></li>
+<li><a href="#asyncprocuder">AsyncProcuder</a></li>
+<li><a href="#syncproducer-和asyncproducer的关系">syncProducer 和asyncProducer的关系</a></li>
+</ul></li>
+<li><a href="#消费者">消费者</a></li>
+</ul></li>
+<li><a href="#如何优雅的使用-kafka-生产者">如何优雅的使用 Kafka 生产者</a>
+<ul>
+<li><a href="#发送流程">发送流程</a></li>
+<li><a href="#分区策略">分区策略</a></li>
+</ul></li>
+<li><a href="#性能">性能</a></li>
+<li><a href="#问题">问题</a>
+<ul>
+<li><a href="#golang连接kafka-sarama-内存暴涨问题记录">golang连接kafka(sarama)内存暴涨问题记录</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

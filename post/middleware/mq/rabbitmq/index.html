@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="RabbitMQ是一个在AMQP（Advanced Message Queuing Protocol ）基础上实现的，由Erlang开发，可复用的企业消息系统。它可以用于大型软件系统各个模块之间的高效通信，支持高并发，支持可扩展。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="消息队列系列---- Rabbitmq - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    消息队列系列---- Rabbitmq
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年03月20日 
+                </div>
+                <h1 class="post-title">消息队列系列---- Rabbitmq</h1>
+            </header>
+
+            <div class="post-content">
+                <p>RabbitMQ是一个在AMQP（Advanced Message Queuing Protocol ）基础上实现的，由Erlang开发，可复用的企业消息系统。它可以用于大型软件系统各个模块之间的高效通信，支持高并发，支持可扩展。</p>
+
+<h1 id="基本概念">基本概念</h1>
+
+<p>1、Broker:消息队列服务器实体</p>
+
+<p>2、messages（消息）：每个消息都有一个路由键(routing key)的属性。就是一个简单的字符串。</p>
+
+<p>3、connection：应用程序与broker的网络连接。</p>
+
+<p>4、channel:几乎所有的操作都在channel中进行，channel是进行消息读写的通道。客户端可建立多个channel，每个channel代表一个会话任务。</p>
+
+<p>5、exchange（交换机）：消息交换机，它指定消息按什么规则，路由到哪个队列。</p>
+
+<p>6、Routing Key：路由关键字，exchange根据这个关键字进行消息投递</p>
+
+<p>7、binding（绑定）：它的作用就是把exchange和queue按照路由规则绑定起来。一个绑定就是基于路由键将交换机和队列连接起来的路由规则，所以交换机不过就是一个由绑定构成的路由表。</p>
+
+<p>比如一个具有路由键“key1”的消息要发送到两个队列，queueA和queueB。要做到这点就要建立两个绑定，每个绑定连接一个交换机和一个队列。两者都是由路由键“key1”触发，这种情况，交换机会复制一份消息并把它们分别发送到两个队列中。</p>
+
+<p>8、queues（队列）：消息的容器，也是消息的终点。一个消息可投入一个或多个队列。消息一直在队列里面，等待消费者连接到这个队列将其取走。</p>
+
+<p>9、vhost：虚拟主机，一个broker里可以开设多个vhost，用作不同用户的权限分离。</p>
+
+<p>10、producer：消息生产者，就是投递消息的程序。</p>
+
+<p>11、consumer：消息消费者，就是接受消息的程序。</p>
+
+<h1 id="基本原理">基本原理</h1>
+
+<p>先看rabbitmq的一个使用组件流程图</p>
+
+<p><img src="/media/middleware/mq/rabbitmq/20180320.png" alt="" /></p>
+
+<p>AMQP模型中，消息在producer中产生，发送到MQ的exchange上，exchange根据配置的路由方式发到相应的Queue上，Queue又将消息发送给consumer，消息从queue到consumer有push和pull两种方式。</p>
+
+<p>整理大概如下：</p>
+
+<ul>
+<li>客户端连接到消息队列服务器，打开一个channel。</li>
+<li>客户端声明一个exchange，并设置相关属性。</li>
+<li>客户端声明一个queue，并设置相关属性。</li>
+<li>客户端使用routing key，在exchange和queue之间建立好绑定关系。</li>
+<li>客户端投递消息到exchange。</li>
+<li>exchange接收到消息后，就根据消息的key和已经设置的binding，进行消息路由，将消息投递到一个或多个队列里。exchange也有几个类型，完全根据key进行投递的叫做Direct交换机，例如，绑定时设置了routing key为”abc”，那么客户端提交的消息，只有设置了key为”abc”的才会投递到队列。</li>
+</ul>
+
+<p>rabbitmq的核心就是exchange构成的路由规则和queues组成的队列，下面我们核心讲解一下这两个</p>
+
+<blockquote>
+<p>exchange（交换机）</p>
+</blockquote>
+
+<p>交换机基本有3种类型：direct，topic，fanout。</p>
+
+<p>为什么不创建一种交换机来处理所有类型的路由规则？因为每种规则匹配时的CPU开销是不同的，所以根据不同需求选择合适交换机。</p>
+
+<p>举例：一个&rdquo;topic&rdquo;类型的交换机会将消息的路由键与类似“dog.*”的模式进行匹配。一个“direct”类型的交换机会将路由键与“dogs”进行比较。匹配末端通配符比直接比较消耗更多的cpu,所以如果用不到“topic”类型交换机带来的灵活性，就通过“direct”类型交换机获得更高的处理效率。</p>
+
+<p>1、Direct交换机：转发消息到routingKey指定队列（完全匹配，单播）。</p>
+
+<p>routingKey与队列名完全匹配，如果一个队列绑定到交换机要求路由键为“dog”，则只转发routingkey标记为dog的消息，不会转发dog.puppy，也不会转发dog.guard等。</p>
+
+<p>2、Topic交换机：按规则转发消息（最灵活，组播）</p>
+
+<p>Topic类型交换机通过模式匹配分配消息的routing-key属性。将路由键和某个模式进行匹配，此时队列需要绑定到一个模式上。</p>
+
+<p>它将routing-key和binding-key的字符串切分成单词。这些单词之间用点隔开。它同样也会识别两个通配符：符号“#”和符号“*”。#匹配0个或多个单词，*匹配不多不少一个单词。</p>
+
+<p>例如，binding key:*.stock.#匹配routing key: usd.stock和eur.stock.db，但是不匹配stock.nana。</p>
+
+<p>例如，“audit.#”能够匹配到“audit.irs.corporate”，但是“audit.*”只会匹配到“audit.irs”。</p>
+
+<p>3、Fanout交换机：转发消息到所有绑定队列（最快，广播）</p>
+
+<p>fanout交换机不处理路由键，简单的将队列绑定到交换机上，每个发送到交换机的消息都会被转发到与该交换机绑定的所有队列上。</p>
+
+<p>很像子网广播，每台子网内的主机都获得了一份复制的消息。Fanout交换机转发消息是最快的。</p>
+
+<p><strong>Note</strong></p>
+
+<p>如果没有队列绑定在交换机上，则发送到该交换机上的消息会丢失。</p>
+
+<p>一个交换机可以绑定多个队列，一个队列可以被多个交换机绑定。</p>
+
+<p>因为交换机是命名实体，声明一个已经存在的交换机，但是试图赋予不同类型是会导致错误。客户端需要删除这个已经存在的交换机，然后重新声明并且赋予新的类型。</p>
+
+<p>交换机的属性：</p>
+
+<ul>
+<li>持久性：如果启用，交换机将会在server重启前都有效。</li>
+<li>自动删除：如果启用，那么交换机将会在其绑定的队列都被删掉之后删除自身。</li>
+<li>惰性:如果没有声明交换机，那么在执行到使用的时候会导致异常，并不会主动声明。</li>
+</ul>
+
+<blockquote>
+<p>queues（队列）</p>
+</blockquote>
+
+<p>队列的属性：</p>
+
+<ul>
+<li>持久性：如果启用，队列将在Server服务重启前都有效。</li>
+<li>自动删除：如果启用，那么队列将会在所有的消费者停止使用之后自动删除自身。</li>
+<li>惰性：如果没有声明队列，那么在执行到使用的时候会导致异常，并不会主动声明。</li>
+<li>排他性：如果启用，队列只能被声明它的消费者使用。</li>
+</ul>
+
+<h1 id="部署使用">部署使用</h1>
+
+<p>1、启动</p>
+
+<pre><code>rabbitmq-server &amp;
+</code></pre>
+
+<p>2、队列重置（清空队列、用户等）</p>
+
+<pre><code>rabbitmqctl stop_app
+rabbitmqctl reset
+rabbitmqctl stop
+</code></pre>
+
+<p>3、关闭</p>
+
+<pre><code>rabbitmqctl stop
+</code></pre>
+
+<p>4、列举出所有用户</p>
+
+<pre><code>rabbitmqctl list_users
+</code></pre>
+
+<p>5、列举出所有队列</p>
+
+<pre><code>rabbitmqctl list_queues
+</code></pre>
+
+<p>6、添加用户</p>
+
+<pre><code>rabbitmqctl add_user user_name user_passwd
+</code></pre>
+
+<p>7、设置用户角色为管理员</p>
+
+<pre><code>rabbitmqctl set_user_tags user administrator
+</code></pre>
+
+<p>8、权限设置</p>
+
+<pre><code>rabbitmqctl set_permissions -p / user &quot;.*&quot; &quot;.*&quot; &quot;.*&quot;
+</code></pre>
+
+<p>用户和权限设置</p>
+
+<ul>
+<li>添加用户：rabbitmqctl add_user username password</li>
+<li>分配角色：rabbitmqctl set_user_tags username administrator</li>
+<li>新增虚拟主机：rabbitmqctl add_vhost  vhost_name</li>
+<li>将新虚拟主机授权给新用户：rabbitmqctl set_permissions -p vhost_name username “.*” “.*” “.*”(后面三个”*”代表用户拥有配置、写、读全部权限)</li>
+</ul>
+
+<p>角色说明</p>
+
+<ul>
+<li>超级管理员(administrator)
+可登陆管理控制台，可查看所有的信息，并且可以对用户，策略(policy)进行操作。</li>
+<li>监控者(monitoring)
+可登陆管理控制台，同时可以查看rabbitmq节点的相关信息(进程数，内存使用情况，磁盘使用情况等)</li>
+<li>策略制定者(policymaker)
+可登陆管理控制台, 同时可以对policy进行管理。但无法查看节点的相关信息(上图红框标识的部分)。</li>
+<li>普通管理者(management)
+仅可登陆管理控制台，无法看到节点信息，也无法对策略进行管理。</li>
+<li>其他
+无法登陆管理控制台，通常就是普通的生产者和消费者。</li>
+</ul>
+
+<p>9、查看状态</p>
+
+<pre><code>rabbitmqctl status
+</code></pre>
+
+<p>10、安装RabbitMQWeb管理插件</p>
+
+<pre><code>rabbitmq-plugins enable rabbitmq_management 
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/middleware/mq/rabbitmq/">https://kingjcy.github.io/post/middleware/mq/rabbitmq/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/rabbitmq/">
+                            <i class="fa fa-tags"></i>
+                            Rabbitmq
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/middleware/">
+                            <i class="fa fa-tags"></i>
+                            middleware
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/mq/">
+                            <i class="fa fa-tags"></i>
+                            mq
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/middleware/mq/kafka-client/">消息队列系列---- Kafka Client</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月08日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/zookeeper/">服务发现系列---- Zookeeper</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月19日)</span></li><li id="li-rels"><a href="/post/middleware/mq/rocketmq/">消息队列系列---- Rocketmq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月28日)</span></li><li id="li-rels"><a href="/post/middleware/mq/mq-compare/">消息队列系列---- Mq Compare</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年04月21日)</span></li><li id="li-rels"><a href="/post/middleware/mq/activemq/">消息队列系列---- Activemq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月19日)</span></li><li id="li-rels"><a href="/post/middleware/mq/kafka/">消息队列系列---- Kafka</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年07月19日)</span></li><li id="li-rels"><a href="/post/middleware/mq/nsq/">消息队列系列---- Nsq</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年06月19日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/etcd/">服务发现系列---- Etcd</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年02月14日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/consul/">服务发现系列---- Consul</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年02月12日)</span></li><li id="li-rels"><a href="/post/middleware/serverdiscovery/sd/">服务发现系列---- Sd</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2017年02月12日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/middleware/mq/mq-compare/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/middleware/mq/activemq/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#基本原理">基本原理</a></li>
+<li><a href="#部署使用">部署使用</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
