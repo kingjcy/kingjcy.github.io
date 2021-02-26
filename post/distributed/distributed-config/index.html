@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="配置信息就是程序加载时候需要设置的信息，一般我们可以通过在代码中设置，在配置文件中设置，在配置中心配置来设置我们需要的信息。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="分布式系列---- Distributed config - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    分布式系列---- Distributed config
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年05月26日 
+                </div>
+                <h1 class="post-title">分布式系列---- Distributed config</h1>
+            </header>
+
+            <div class="post-content">
+                <p>配置信息就是程序加载时候需要设置的信息，一般我们可以通过在代码中设置，在配置文件中设置，在配置中心配置来设置我们需要的信息。</p>
+
+<h1 id="配置方式">配置方式</h1>
+
+<p>配置方式一般有两种：</p>
+
+<ul>
+<li>本地配置，包括代码中耦合，配置文件加载。</li>
+<li>适用于分布式系统的集中式资源配置。</li>
+</ul>
+
+<h2 id="本地配置">本地配置</h2>
+
+<h3 id="代码耦合">代码耦合</h3>
+
+<p>将配置直接写在代码中很方便，但是对于后期的维护修改十分的不友好，需要重新发布才能修改完成，基本上是不用的。</p>
+
+<h3 id="配置文件">配置文件</h3>
+
+<p>将配置信息写在配置文件中是最常见的方式，程序自动加载配置文件的信息，然后进行处理，有需要只要修改对应的配置信息就可以，实现了对业务代码的解耦。</p>
+
+<p>但是随着系统的发展，分布式系统的出现，我们很多实例都是通过集群的方式进行部署，这个时候在集群的每个节点上都会有一份配置文件，随着规模的扩大，修改每个节点上的配置文件又变的容易出错难以维护，因此我们需要一种集中式的配置方式。</p>
+
+<h2 id="集中式资源配置">集中式资源配置</h2>
+
+<p>在分布式的情况下，我们需要一个共享配置的中心，使用集中式的资源管理配置平台的好处</p>
+
+<ul>
+<li>配置信息统一管理</li>
+<li>动态获取更新配置文件</li>
+<li>降低运维成本</li>
+<li>降低配置出错率</li>
+</ul>
+
+<p>分布式配置管理服务的本质是一个发布订阅模式的实现。</p>
+
+<p>集中式的配置中心一般都是作为服务发现和动态注册的基础，也是我们常用的几个框架，比如zookeeper，consul，etcd等。我们一般的配置平台都是基于这些组件来实现的，目前这一块做的比较好的就是淘宝的diamonds和百度的disconf，还有一些比如携程的apollo等。</p>
+
+<h3 id="zookeeper">zookeeper</h3>
+
+<p>常规使用一些服务发现动态注册组件做配置中心都是一个思路，我们以zookeeper为例，看下他是如何实现分布式配置管理的</p>
+
+<p><img src="/media/distribute/config/zookeeper" alt="" /></p>
+
+<p>整体可以分为3部分</p>
+
+<ul>
+<li><p>zookeeper集群
+提供了稳定的配置管理服务，对外提供了接口，外部可以添加、修改配置信息，可以监听配置的变化</p></li>
+
+<li><p>配置管理中心
+需要自己开发，负责维护配置信息</p></li>
+
+<li><p>各个分布式应用
+每个应用只需要调用一下ZK的接口，把自己注册到ZK，就可以自动接收配置的变化信息</p></li>
+</ul>
+
+<p>工作流程原理也很简答</p>
+
+<p><img src="/media/distribute/config/zookeeper1" alt="" /></p>
+
+<h3 id="diamond">diamond</h3>
+
+<p>diamond是淘宝内部使用的一个管理持久配置的系统，它的特点是简单、可靠、易用，目前淘宝内部绝大多数系统的配置，由diamond来进行统一管理。</p>
+
+<p><img src="/media/distribute/config/diamond" alt="" /></p>
+
+<ul>
+<li>作为一个配置中心，diamond的功能分为发布和订阅两部分。因为diamond存放的是持久数据，这些数据的变化频率不会很高，甚至很低，所以发布采用手工的形式，通过diamond后台管理界面发布；订阅是diamond的核心功能，订阅通过diamond-client的API进行。</li>
+<li>diamond服务端采用mysql加本地文件的形式存放配置数据。发布数据时，数据先写到mysql，再写到本地文件；订阅数据时，直接获取本地文件，不查询数据库，这样可以最大程度减少对数据库的压力。</li>
+<li>diamond服务端是一个集群，集群中的每台机器连接同一个mysql，集群之间的数据同步通过两种方式进行，一是每台server定时去mysqldump数据到本地文件，二是某一台server接收发布数据请求，在更新完mysql和本机的本地文件后，发送一个HTTP请求（通知）到集群中的其他几台server，其他server收到通知，去mysql中将刚刚更新的数据dump到本地文件。</li>
+<li>每一台server前端都有一个nginx，用来做流量控制。</li>
+<li>图中没有将地址服务器画出，地址服务器是一台有域名的机器，上面运行有一个HTTPserver，其中有一个静态文件，存放着diamond服务器的地址列表。客户端启动时，根据自身的域名绑定，连接到地址服务器，取回diamond服务器的地址列表，从中随机选择一台diamond服务器进行连接。</li>
+<li>可以看到，整个diamond的架构非常简单，使用的都是最常用的一些技术以及产品，它之所以表现得非常稳定，跟其架构简单是分不开的，当然，稳定的另一个主要原因是它具备一套比较完善的容灾机制，容灾机制将在下一篇文章中讲述。</li>
+</ul>
+
+<h3 id="disconf">disconf</h3>
+
+<p>disconf是一套完整的基于zookeeper的分布式配置统一解决方案。</p>
+
+<p><img src="/media/distribute/config/disconf" alt="" /></p>
+
+<p>每个模块的简单介绍如下：</p>
+
+<ul>
+<li>Disconf-core
+
+<ul>
+<li>分布式通知模块：支持配置更新的实时化通知</li>
+<li>路径管理模块：统一管理内部配置路径URL</li>
+</ul></li>
+<li>Disconf-client
+
+<ul>
+<li>配置仓库容器模块：统一管理用户实例中本地配置文件和配置项的内存数据存储</li>
+<li>配置reload模块：监控本地配置文件的变动，并自动reload到指定bean</li>
+<li>扫描模块：支持扫描所有disconf注解的类和域</li>
+<li>下载模块：restful风格的下载配置文件和配置项</li>
+<li>watch模块：监控远程配置文件和配置项的变化</li>
+<li>主备分配模块：主备竞争结束后，统一管理主备分配与主备监控控制</li>
+<li>主备竞争模块：支持分布式环境下的主备竞争</li>
+</ul></li>
+<li>Disconf-web
+
+<ul>
+<li>配置存储模块：管理所有配置的存储和读取</li>
+<li>配置管理模块：支持配置的上传、下载、更新</li>
+<li>通知模块：当配置更新后，实时通知使用这些配置的所有实例</li>
+<li>配置自检监控模块：自动定时校验实例本地配置与中心配置是否一致</li>
+<li>权限控制：web的简单权限控制</li>
+</ul></li>
+<li>Disconf-tools
+
+<ul>
+<li>context共享模块：提供多实例间context的共享。</li>
+</ul></li>
+</ul>
+
+<p>原理</p>
+
+<p><img src="/media/distribute/config/disconf" alt="" /></p>
+
+<ul>
+<li>启动事件A：以下按顺序发生。
+
+<ul>
+<li>A3：扫描静态注解类数据，并注入到配置仓库里。</li>
+<li>A4+A2：根据仓库里的配置文件、配置项，去 disconf-web 平台里下载配置数据。这里会有主备竞争</li>
+<li>A5：将下载得到的配置数据值注入到仓库里。</li>
+<li>A6：根据仓库里的配置文件、配置项，去ZK上监控结点。</li>
+<li>A7+A2：根据XML配置定义，到 disconf-web 平台里下载配置文件，放在仓库里，并监控ZK结点。这里会有主备竞争。</li>
+<li>A8：A1-A6均是处理静态类数据。A7是处理动态类数据，包括：实例化配置的回调函数类；将配置的值注入到配置实体里。</li>
+</ul></li>
+<li>更新配置事件B：以下按顺序发生。
+
+<ul>
+<li>B1：管理员在 Disconf-web 平台上更新配置。</li>
+<li>B2：Disconf-web 平台发送配置更新消息给ZK指定的结点。</li>
+<li>B3：ZK通知 Disconf-cient 模块。</li>
+<li>B4：与A4一样。</li>
+<li>B5：与A5一样。</li>
+<li>B6：基本与A4一样，唯一的区别是，这里还会将配置的新值注入到配置实体里。</li>
+</ul></li>
+<li>主备机切换事件C：以下按顺序发生。
+
+<ul>
+<li>C1：发生主机挂机事件。</li>
+<li>C2：ZK通知所有被影响到的备机。</li>
+<li>C4：与A2一样。</li>
+<li>C5：与A4一样。</li>
+<li>C6：与A5一样。</li>
+<li>C7：与A6一样。</li>
+</ul></li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/distributed/distributed-config/">https://kingjcy.github.io/post/distributed/distributed-config/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/distribute/">
+                            <i class="fa fa-tags"></i>
+                            distribute
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/config/">
+                            <i class="fa fa-tags"></i>
+                            config
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/distributed/store/store/">分布式系列---- 分布式存储</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月15日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/glusterfs/">分布式系列---- 文件存储系统glusterfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月15日)</span></li><li id="li-rels"><a href="/post/distributed/store/oss/">分布式系列---- 对象存储云存储</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年06月04日)</span></li><li id="li-rels"><a href="/post/distributed/distributed/">分布式系列---- Distributed</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月26日)</span></li><li id="li-rels"><a href="/post/distributed/distributed-event/">分布式系列---- Event And Distributed Event</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月07日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/hfds/">分布式系列---- 文件存储系统hdfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月15日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/fastfs/">分布式系列---- 文件存储系统Fastdfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年01月16日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/nfs/">分布式系列---- 文件存储系统nfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年01月16日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/middleware/serverdiscovery/zookeeper/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#配置方式">配置方式</a>
+<ul>
+<li><a href="#本地配置">本地配置</a>
+<ul>
+<li><a href="#代码耦合">代码耦合</a></li>
+<li><a href="#配置文件">配置文件</a></li>
+</ul></li>
+<li><a href="#集中式资源配置">集中式资源配置</a>
+<ul>
+<li><a href="#zookeeper">zookeeper</a></li>
+<li><a href="#diamond">diamond</a></li>
+<li><a href="#disconf">disconf</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

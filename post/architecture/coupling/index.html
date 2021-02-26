@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="自身服务的变动，需要其他依赖服务跟着升级变更，这就叫服务耦合，比如数据库换了一个ip，此时往往连接此数据库的上游需要修改配置重启，明明换ip的是你，凭什么配合重启的却是我？这就是一种典型的架构设计上“反向依赖”的问题。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="架构系列---- 架构解耦 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    架构系列---- 架构解耦
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年01月05日 
+                </div>
+                <h1 class="post-title">架构系列---- 架构解耦</h1>
+            </header>
+
+            <div class="post-content">
+                <p>自身服务的变动，需要其他依赖服务跟着升级变更，这就叫服务耦合，比如数据库换了一个ip，此时往往连接此数据库的上游需要修改配置重启，明明换ip的是你，凭什么配合重启的却是我？这就是一种典型的架构设计上“反向依赖”的问题。</p>
+
+<h1 id="常规方案">常规方案</h1>
+
+<p>我们在架构设计的时候就要将服务进行解耦，解决反向依赖带来的各种问题。</p>
+
+<h2 id="公共库导致耦合">公共库导致耦合</h2>
+
+<p>三个服务s1/s2/s3，通过一个公共的库biz.jar来实现一段业务逻辑，s1/s2/s3其实间接通过biz.jar耦合在了一起，一个业务s1修改一块公共的代码，导致影响其他业务s2/s3，架构上是不合理的。</p>
+
+<blockquote>
+<p>业务垂直拆分</p>
+</blockquote>
+
+<p>如果公共的库biz.jar中实现的逻辑“业务特性”很强，可以拆分为biz1.jar/biz2.jar/biz3.jar，来对s1/s2/s3进行解耦。这样的话，任何业务的改动，影响范围只是自己，不会影响其他人。</p>
+
+<blockquote>
+<p>服务化</p>
+</blockquote>
+
+<p>如果biz.jar中实现的逻辑“业务共性”很强，可以将biz.jar优化为biz.service服务，来对s1/s2/s3进行解耦。服务化之后，兼容性能更好的通过接口自动化回归测试来保证。</p>
+
+<p>基础服务的抽象，本身是一种共性聚焦，是系统解耦常见的方案。</p>
+
+<h1 id="服务化不彻底导致耦合">服务化不彻底导致耦合</h1>
+
+<p>服务化是解决“业务共性”组件库导致系统耦合的常见方案之一，但如果服务化不彻底，service本身也容易成为业务耦合点。典型的服务化不彻底导致的业务耦合的特征是，共性服务中，包含大量“根据不同业务，执行不同个性分支”的代码。</p>
+
+<pre><code>switch (biz-type)
+case biz-1 : exec1
+case biz-2 : exec2
+case biz-3 : exec3
+…
+</code></pre>
+
+<p><img src="/media/architecture/coupling/coupling.png" alt="" /></p>
+
+<p>在这种架构下，biz-1/biz-2/biz-3有个性的业务需求，可能导致修改代码的是共性的biz-service，使其成为研发瓶颈，架构上也是不合理的。</p>
+
+<blockquote>
+<p>业务特性代码上浮，业务共性代码下沉，彻底解耦</p>
+</blockquote>
+
+<p><img src="/media/architecture/coupling/coupling2.png" alt="" /></p>
+
+<p>把swithc case中业务特性代码放到业务层实现，这样biz-1/biz-2/biz-3有个性的业务需求，升级的是自己的业务系统。</p>
+
+<h2 id="notify的不合理实现导致的耦合">notify的不合理实现导致的耦合</h2>
+
+<p><img src="/media/architecture/coupling/coupling3.png" alt="" /></p>
+
+<p>消息发送方不关注消息接收方的执行结果，如果采用调用的方式来实现通知，会导消息发送方和消息接收方耦合。比如如何新增消息接收方biz-4，会发现修改代码的是消息发送方，新增一个对biz-4的调用，极不合理。</p>
+
+<blockquote>
+<p>通过MQ实现解耦</p>
+</blockquote>
+
+<p><img src="/media/architecture/coupling/coupling4.png" alt="" /></p>
+
+<p>消息发送方upper将消息发布给MQ，消息接收方从MQ去订阅，任何新增对消息的消费，upper都不需要修改代码。</p>
+
+<h2 id="配置中的ip导致上下游耦合">配置中的ip导致上下游耦合</h2>
+
+<p>下游服务换ip，可能导致多个服务调用方修改配置重启。上下游间接的通过ip这个配置耦合在了一起，架构不合理。</p>
+
+<blockquote>
+<p>通过内网域名而不是ip来进行下游连接</p>
+</blockquote>
+
+<p>如果在配置中使用内网域名来进行下游连接，当下游服务或者数据库更换ip时，只需要运维层面将内网域名指向新的ip，然后统一切断原有旧的连接，连接就能够自动切换到新的ip上来。这个过程不需要所有上游配合，非常帅气，强烈推荐！这也是我们常用的vip的架构设计，也可以新增服务发现服务来解决这个问题，用于解决下游集群扩容等问题。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/architecture/coupling/">https://kingjcy.github.io/post/architecture/coupling/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/architecture/">
+                            <i class="fa fa-tags"></i>
+                            Architecture
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/coupling/">
+                            <i class="fa fa-tags"></i>
+                            coupling
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/architecture/architecture/">架构系列---- Architecture 总结</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月05日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/distributed/store/fs/hfds/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#常规方案">常规方案</a>
+<ul>
+<li><a href="#公共库导致耦合">公共库导致耦合</a></li>
+</ul></li>
+<li><a href="#服务化不彻底导致耦合">服务化不彻底导致耦合</a>
+<ul>
+<li><a href="#notify的不合理实现导致的耦合">notify的不合理实现导致的耦合</a></li>
+<li><a href="#配置中的ip导致上下游耦合">配置中的ip导致上下游耦合</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

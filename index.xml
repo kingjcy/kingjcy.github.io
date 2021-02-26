@@ -6,8 +6,1326 @@
     <language>en-us</language>
     <author></author>
     <rights>(C) 2020</rights>
-    <updated>2020-01-18 19:45:30 &#43;0800 CST</updated>
+    <updated>2020-12-15 20:21:18 &#43;0800 CST</updated>
 
+    
+      
+        <item>
+          <title>分布式系列---- 分布式存储</title>
+          <link>https://kingjcy.github.io/post/distributed/store/store/</link>
+          <pubDate>Tue, 15 Dec 2020 20:21:18 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/distributed/store/store/</guid>
+          <description>&lt;p&gt;分布式存储是相对于集中式存储来说的，分布式存储是一个大的概念，其包含的种类繁多，除了传统意义上的分布式文件系统、分布式块存储和分布式对象存储外，还包括分布式数据库和分布式缓存等。&lt;/p&gt;
+
+&lt;h1 id=&#34;块存储&#34;&gt;块存储&lt;/h1&gt;
+
+&lt;p&gt;我们需要先理解一下块的概念：块级是指以扇区为基础，一个或我连续的扇区组成一个块，也叫物理块。它是在文件系统与块设备（例如：磁盘驱动器）之间。&lt;/p&gt;
+
+&lt;p&gt;块存储主要是将裸磁盘空间整个映射给主机使用的。比如磁盘阵列里面有5块硬盘，每个硬盘1G，然后可以通过划逻辑盘、做Raid、或者LVM（逻辑卷）等种种方式逻辑划分出N个逻辑的硬盘。假设划分完的逻辑盘也是5个，每个也是1G，但是这5个1G的逻辑盘已经于原来的5个物理硬盘意义完全不同了。比如第一个逻辑硬盘A里面，可能第一个200M是来自物理硬盘1，第二个200M是来自物理硬盘2，所以逻辑硬盘A是由多个物理硬盘逻辑虚构出来的硬盘。&lt;/p&gt;
+
+&lt;p&gt;块存储会采用映射的方式将这几个逻辑盘映射给主机，主机上面的操作系统会识别到有5块硬盘，但是操作系统是区分不出到底是逻辑还是物理的，它一概就认为只是5块裸的物理硬盘而已，跟直接拿一块物理硬盘挂载到操作系统没有区别的，至少操作系统感知上没有区别。&lt;/p&gt;
+
+&lt;p&gt;优点&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;磁盘组合变大容量，几块磁盘可以并发读写，提供读写效率&lt;/li&gt;
+&lt;li&gt;直接雨磁盘进行交互，能满足一些需要直接裸盘映射的需求，比如数据库&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;需要网络连接，成本高&lt;/li&gt;
+&lt;li&gt;数据无法在不同主机，不同操作系统之间共享&lt;/li&gt;
+&lt;li&gt;相对来说，效率低下&lt;/li&gt;
+&lt;li&gt;不能形象展示&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;简单来说，块存储就是直接与磁盘打交道，比如数据库需要将数据直接映射到磁盘上，就需要用到块存储，一般现在就是数据库在使用块存储，其他的应用都使用更加高级的文件存储，甚至对象存储。通常使用块存储的都是系统而非用户，在市场上并没有很多的块存储的产品，大多数都是数据库直接使用，目前只知道&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/ceph/ceph/&#34;&gt;ceph&lt;/a&gt;在对象存储的基础上提供了块存储的能力RDB。&lt;/p&gt;
+
+&lt;h1 id=&#34;文件存储&#34;&gt;文件存储&lt;/h1&gt;
+
+&lt;p&gt;我们需要先理解一下文件的概念：文件级是指文件系统，单个文件可能由于一个或多个逻辑块组成，且逻辑块之间是不连续分布。逻辑块大于或等于物理块整数倍，与上面的块之间的关系是扇区→物理块→逻辑块→文件系统。&lt;/p&gt;
+
+&lt;p&gt;计算机中所有的数据都是0和1，存储在硬件介质上的一连串的01组合对我们来说完全无法去分辨以及管理。因此我们用“文件”这个概念对这些数据进行组织，所有用于同一用途的数据，按照不同应用程序要求的结构方式组成不同类型的文件（通常用不同的后缀来指代不同的类型），然后我们给每一个文件起一个方便理解记忆的名字。而当文件很多的时候，我们按照某种划分方式给这些文件分组，每一组文件放在同一个目录（或者叫文件夹）里面，当然我们也需要给这些目录起一个容易理解和记忆的名字。而且目录下面除了文件还可以有下一级目录（称之为子目录或者子文件夹），所有的文件、目录形成一个树状结构&lt;/p&gt;
+
+&lt;p&gt;把存储介质上的数据组织成目录-子目录-文件这种形式的数据结构，用于从这个结构中寻找、添加、修改、删除文件的程序，以及用于维护这个结构的程序，组成的系统有一个专用的名字：文件系统（File System）。&lt;/p&gt;
+
+&lt;p&gt;文件系统有很多，常见的有Windows的FAT/FAT32/NTFS，Linux的EXT2/EXT3/EXT4/XFS/BtrFS等。而在网络存储中，底层数据并非存储在本地的存储介质，而是另外一台服务器上，不同的客户端都可以用类似文件系统的方式访问这台服务器上的文件，这样的系统叫网络文件系统（Network File System），常见的网络文件系统有Windows网络的CIFS（也叫SMB）、类Unix系统网络的NFS等。而文件存储除了网络文件系统外，FTP、HTTP其实也算是文件存储的某种特殊实现，都是可以通过某个url来访问一个文件。&lt;/p&gt;
+
+&lt;p&gt;优点&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;形象，使用方便&lt;/li&gt;
+&lt;li&gt;网络文件系统可以实现共享&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;需要文件系统的协调&lt;/li&gt;
+&lt;li&gt;由于封装速度变慢&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;其实文件系统是我们最常使用的，分布式文件系统也是一步步演化过来的:&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;单机时代&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;初创时期由于时间紧迫，在各种资源有限的情况下，通常就直接在项目目录下建立静态文件夹，用于用户存放项目中的文件资源。如果按不同类型再细分，可以在项目目录下再建立不同的子目录来区分。例如：resources\static\file、resources\static\img等。&lt;/p&gt;
+
+&lt;p&gt;优点：这样做比较便利，项目直接引用就行，实现起来也简单，无需任何复杂技术，保存数据库记录和访问起来也很方便。&lt;/p&gt;
+
+&lt;p&gt;缺点：如果只是后台系统的使用一般也不会有什么问题，但是作为一个前端网站使用的话就会存在弊端。一方面，文件和代码耦合在一起，文件越多存放越混乱；另一方面，如果流量比较大，静态文件访问会占据一定的资源，影响正常业务进行，不利于网站快速发展。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;独立文件服务器&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;随着公司业务不断发展，将代码和文件放在同一服务器的弊端就会越来越明显。为了解决上面的问题引入独立图片服务器，工作流程如下：项目上传文件时，首先通过ftp或者ssh将文件上传到图片服务器的某个目录下，再通过ngnix或者apache来访问此目录下的文件，返回一个独立域名的图片URL地址，前端使用文件时就通过这个URL地址读取。&lt;/p&gt;
+
+&lt;p&gt;优点：图片访问是很消耗服务器资源的（因为会涉及到操作系统的上下文切换和磁盘I/O操作），分离出来后，Web/App服务器可以更专注发挥动态处理的能力；独立存储，更方便做扩容、容灾和数据迁移；方便做图片访问请求的负载均衡，方便应用各种缓存策略（HTTP Header、Proxy Cache等），也更加方便迁移到CDN。&lt;/p&gt;
+
+&lt;p&gt;缺点：单机存在性能瓶颈，容灾、垂直扩展性稍差&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;分布式文件系统&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;通过独立文件服务器可以解决一些问题，如果某天存储文件的那台服务突然down了怎么办？可能你会说，定时将文件系统备份，这台down机的时候，迅速切换到另一台就OK了，但是这样处理需要人工来干预。另外，当存储的文件超过100T的时候怎么办？单台服务器的性能问题？这个时候我们就应该考虑分布式文件系统了。&lt;/p&gt;
+
+&lt;p&gt;业务继续发展，单台服务器存储和响应也很快到达了瓶颈，新的业务需要文件访问具有高响应性、高可用性来支持系统。分布式文件系统，一般分为三块内容来配合，服务的存储、访问的仲裁系统，文件存储系统，文件的容灾系统来构成，仲裁系统相当于文件服务器的大脑，根据一定的算法来决定文件存储的位置，文件存储系统负责保存文件，容灾系统负责文件系统和自己的相互备份。&lt;/p&gt;
+
+&lt;p&gt;优点：扩展能力: 毫无疑问，扩展能力是一个分布式文件系统最重要的特点；高可用性: 在分布式文件系统中，高可用性包含两层，一是整个文件系统的可用性，二是数据的完整和一致性；弹性存储: 可以根据业务需要灵活地增加或缩减数据存储以及增删存储池中的资源，而不需要中断系统运行&lt;/p&gt;
+
+&lt;p&gt;缺点：系统复杂度稍高，需要更多服务器&lt;/p&gt;
+
+&lt;p&gt;文件存储其实就是在块存储之上包装出来的，有了文件的概念，加上文件系统的管理，更加形象的记录展示使用，是我们最长使用的方式。其实在分布式文件系统之前，我们也是经常使用文件来存储的，比如日志，比如持久化数据等。只不过随着数据量的越来越多，数据共享需求越来越多，我们需要使用分布式存储系统，我们常用的分布式文件存储系统有很多，比如&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/nfs/&#34;&gt;NFS&lt;/a&gt;(nfs主要是在共享，还不能算分布式，不过确实是存在网络节点上的。)，&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/glusterfs/&#34;&gt;glusterfs&lt;/a&gt;，&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/fastfs/&#34;&gt;fastdfs&lt;/a&gt;，&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/hfds/&#34;&gt;hdfs&lt;/a&gt;等，包括上面块存储&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/ceph/ceph/&#34;&gt;ceph&lt;/a&gt;也提供了文件存储。&lt;/p&gt;
+
+&lt;h1 id=&#34;对象存储&#34;&gt;对象存储&lt;/h1&gt;
+
+&lt;p&gt;对象存储就是面向对象的存储，英文是Object-based Storage。现在很多云厂商，也直接称之为“云存储”。以下是对象存储出现的主要原因：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;数据量爆炸式增长。Web应用的崛起、社交需求的刺激，极大地推动了多媒体内容的创作和分享。人们开始上传大量的照片、音乐、视频，加剧了数据量的爆发。&lt;/li&gt;
+&lt;li&gt;非结构化数据的占比显著增加。图像、音频、视频、word文章、演示胶片这样的数据，就是非结构化数据。2020年（也就是今年），全球数据总量的80%，将是非结构化数据。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;所以对象存储&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;能够处理大量非结构化数据的数据存储架构，我们日常生活中见到的文档、文本、图片、XML, HTML、各类报表、音视频信息等等都是非结构化数据。据统计，自社交网络发展以来，非结构化数据占总数据量的75%。。&lt;/li&gt;
+&lt;li&gt;扁平结构：对象存储中没有文件夹的概念，所有数据均存储在同一个层级中，你不需要知道他存在哪里，只需要通过“凭证”就可以快速获取数据。&lt;/li&gt;
+&lt;li&gt;弹性扩容：可以通过分布式多节点快速扩容。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;目前有&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/oss/&#34;&gt;很多公有云提供对象存储&lt;/a&gt;，比如阿里云的OSS,华为云的OBS，腾讯云的COS，七牛云Kodo，百度云BOS，网易云NOS。通过提供的SDK就可以访问。如果不想用公有云的话，也有一些开源方案可以自己搭建，比如ceph，minio。&lt;/p&gt;
+
+&lt;p&gt;在对象存储系统里，你不能直接打开/修改文件，只能先下载、修改，再上传文件。（如果大家用过百度网盘或ftp服务，一定可以秒懂。），所以只是一个存储系统，而不是我们的文件系统。所以我们也需要块存储和文件存储。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;为什么对象存储兼具块存储与文件存储的好处，还要使用块存储或文件存储呢？&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、有一类应用是需要存储直接裸盘映射的，例如数据库。因为数据库需要存储裸盘映射给自己后，再根据自己的数据库文件系统来对裸盘进行格式化的，所以是不能够采用其他已经被格式化为某种文件系统的存储的。此类应用更适合使用块存储。&lt;/p&gt;
+
+&lt;p&gt;2、对象存储的成本比起普通的文件存储还是较高，需要购买专门的对象存储软件以及大容量硬盘。如果对数据量要求不是海量，只是为了做文件共享的时候，直接用文件存储的形式好了，性价比高。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;基本原理&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;对象存储最常用的方案，就是多台服务器内置大容量硬盘，再装上对象存储软件，然后再额外搞几台服务作为管理节点，安装上对象存储管理软件。管理节点可以管理其他服务器对外提供读写访问功能。其实就是一个文件存储或者块存储的分布式管理系统方案。&lt;/p&gt;
+
+&lt;p&gt;比如AT32这种文件系统，是直接将一份文件的数据与metadata一起存储的，存储过程先将文件按照文件系统的最小块大小来打散（如4M的文件，假设文件系统要求一个块4K，那么就将文件打散成为1000个小块），再写进硬盘里面，过程中没有区分数据/metadata的。而每个块最后会告知你下一个要读取的块的地址，然后一直这样顺序地按图索骥，最后完成整份文件的所有块的读取。这种情况下读写速率很慢，因为就算你有100个机械手臂在读写，但是由于你只有读取到第一个块，才能知道下一个块在哪里，其实相当于只能有1个机械手臂在实际工作。&lt;/p&gt;
+
+&lt;p&gt;而对象存储则将元数据独立了出来，控制节点叫元数据服务器（服务器+对象存储管理软件），里面主要负责存储对象的属性（主要是对象的数据被打散存放到了那几台分布式服务器中的信息），而其他负责存储数据的分布式服务器叫做OSD，主要负责存储文件的数据部分。当用户访问对象，会先访问元数据服务器，元数据服务器只负责反馈对象存储在哪些OSD，假设反馈文件A存储在B、C、D三台OSD，那么用户就会再次直接访问3台OSD服务器去读取数据。这时候由于是3台OSD同时对外传输数据，所以传输的速度就加快了。当OSD服务器数量越多，这种读写速度的提升就越大，通过此种方式，实现了读写快的目的。&lt;/p&gt;
+
+&lt;p&gt;另一方面，对象存储软件是有专门的文件系统的，所以OSD对外又相当于文件服务器，那么就不存在文件共享方面的困难了，也解决了文件共享方面的问题。&lt;/p&gt;
+
+&lt;h1 id=&#34;总结&#34;&gt;总结&lt;/h1&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1、所有的存储底层都是硬盘。&lt;/li&gt;
+&lt;li&gt;2、块存储，操作对象是磁盘。存储协议是SCSI、iSCSI、FC，以 SCSI 为例，主要接口命令有 Read/Write/Read Capacity/Inquiry 等等。比如DAS和SAN，基于物理块的存储方式。&lt;/li&gt;
+&lt;li&gt;3、文件存储，操作对象是文件和文件夹。存储协议是NFS、SAMBA（SMB）、POSIX等。以NFS（大家应该都用过“网上邻居”共享文件吧？就是那个）为例，文件相关的接口命令包括：READ/WRITE/CREATE/REMOVE/RENAME/LOOKUP/ACCESS 等等，文件夹相关的接口命令包括：MKDIR/RMDIR/READDIR 等等。&lt;/li&gt;
+&lt;li&gt;4、对象存储，主要操作对象是对象（Object）。存储协议是S3、Swift等。以 S3 为例，主要接口命令有 PUT/GET/DELETE 等。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;架构&#34;&gt;架构&lt;/h1&gt;
+
+&lt;p&gt;分布式存储的基本架构无非就是中心控制和无中心结构，无中心架构也是中心架构的中心瓶颈发展而成的，其实不管是分布式存储还是其他分布式实现，使用中心架构都会出现性能瓶颈，都在往无中心化架构的实现方法发展，使用最多的就是哈希映射思想。&lt;/p&gt;
+
+&lt;h2 id=&#34;中间控制节点架构-hdfs&#34;&gt;中间控制节点架构（HDFS）&lt;/h2&gt;
+
+&lt;p&gt;分布式存储最早是由谷歌提出的，其目的是通过廉价的服务器来提供使用与大规模，高并发场景下的Web访问问题。如图3是谷歌分布式存储（HDFS）的简化的模型。在该系统的整个架构中将服务器分为两种类型，一种名为namenode，这种类型的节点负责管理管理数据（元数据），另外一种名为datanode，这种类型的服务器负责实际数据的管理。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/hdfs&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;上图分布式存储中，如果客户端需要从某个文件读取数据，首先从namenode获取该文件的位置（具体在哪个datanode），然后从该位置获取具体的数据。在该架构中namenode通常是主备部署，而datanode则是由大量节点构成一个集群。由于元数据的访问频度和访问量相对数据都要小很多，因此namenode通常不会成为性能瓶颈，而datanode集群可以分散客户端的请求。因此，通过这种分布式存储架构可以通过横向扩展datanode的数量来增加承载能力，也即实现了动态横向扩展的能力。&lt;/p&gt;
+
+&lt;h2 id=&#34;完全无中心架构&#34;&gt;完全无中心架构&lt;/h2&gt;
+
+&lt;h3 id=&#34;计算模式-ceph&#34;&gt;计算模式（Ceph）&lt;/h3&gt;
+
+&lt;p&gt;如图是Ceph存储系统的架构，在该架构中与HDFS不同的地方在于该架构中没有中心节点。客户端是通过一个设备映射关系计算出来其写入数据的位置，这样客户端可以直接与存储节点通信，从而避免中心节点的性能瓶颈。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/ceph&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;在Ceph存储系统架构中核心组件有Mon服务、OSD服务和MDS服务等。对于块存储类型只需要Mon服务、OSD服务和客户端的软件即可。其中Mon服务用于维护存储系统的硬件逻辑关系，主要是服务器和硬盘等在线信息。Mon服务通过集群的方式保证其服务的可用性。OSD服务用于实现对磁盘的管理，实现真正的数据读写，通常一个磁盘对应一个OSD服务。
+客户端访问存储的大致流程是，客户端在启动后会首先从Mon服务拉取存储资源布局信息，然后根据该布局信息和写入数据的名称等信息计算出期望数据的位置（包含具体的物理服务器信息和磁盘信息），然后该位置信息直接通信，读取或者写入数据。&lt;/p&gt;
+
+&lt;p&gt;底层是RADOS，这是个标准的对象存储。以RADOS为基础，Ceph 能够提供文件，块和对象三种存储服务。其中通过RBD提供出来的块存储是比较有价值的地方，毕竟因为市面上开源的分布式块存储少见嘛（以前倒是有个sheepdog，但是现在不当红了）。当然它也通过CephFS模块和相应的私有Client提供了文件服务，这也是很多人认为Ceph是个文件系统的原因。另外它自己原生的对象存储可以通过RadosGW存储网关模块向外提供对象存储服务，并且和对象存储的事实标准Amazon S3以及Swift兼容。所以能看出来这其实是个大一统解决方案，啥都齐全。&lt;/p&gt;
+
+&lt;h3 id=&#34;一致性哈希-swift&#34;&gt;一致性哈希（Swift）&lt;/h3&gt;
+
+&lt;p&gt;与Ceph的通过计算方式获得数据位置的方式不同，另外一种方式是通过一致性哈希的方式获得数据位置。一致性哈希的方式就是将设备做成一个哈希环，然后根据数据名称计算出的哈希值映射到哈希环的某个位置，从而实现数据的定位。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/swift&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;如图是一致性哈希的基本原理，为了绘制简单，本文以一个服务器上的一个磁盘为例进行介绍。为了保证数据分配的均匀性及出现设备故障时数据迁移的均匀性，一致性哈希将磁盘划分为比较多的虚拟分区，每个虚拟分区是哈希环上的一个节点。整个环是一个从0到32位最大值的一个区间，并且首尾相接。当计算出数据（或者数据名称）的哈希值后，必然落到哈希环的某个区间，然后以顺时针，必然能够找到一个节点。那么，这个节点就是存储数据的位置。
+Swift存储的整个数据定位算法就是基于上述一致性哈希实现的。在Swift对象存储中，通过账户名/容器名/对象名三个名称组成一个位置的标识，通过该唯一标识可以计算出一个整型数来。而在存储设备方面，Swift构建一个虚拟分区表，表的大小在创建集群是确定（通常为几十万），这个表其实就是一个数组。这样，根据上面计算的整数值，以及这个数组，通过一致性哈希算法就可以确定该整数在数组的位置。而数组中的每项内容是数据3个副本（也可以是其它副本数量）的设备信息（包含服务器和磁盘等信息）。也就是经过上述计算，可以确定一个数据存储的具体位置。这样，Swift就可以将请求重新定向到该设备进行处理。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/swift2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;上述计算过程是在一个名为Proxy的服务中进行的，该服务可以集群化部署。因此可以分摊请求的负载，不会成为性能瓶颈。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>分布式系列---- 文件存储系统glusterfs</title>
+          <link>https://kingjcy.github.io/post/distributed/store/fs/glusterfs/</link>
+          <pubDate>Tue, 15 Dec 2020 20:21:18 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/distributed/store/fs/glusterfs/</guid>
+          <description>&lt;p&gt;GlusterFS (Gluster File System) 是一个开源的分布式文件系统，是 Scale-Out 存储解决方案 Gluster 的核心，具有强大的横向扩展能力，通过扩展能够支持数PB存储容量和处理数千客户端。GlusterFS 借助 TCP/IP 或 InfiniBand RDMA 网络将物理分布的存储资源聚集在一起，使用单一全局命名空间来管理数据,基于可堆叠的用户空间设计，可为各种不同的数据负载提供优异的性能。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本概念&#34;&gt;基本概念&lt;/h1&gt;
+
+&lt;p&gt;1、Brick：GlusterFS中的存储单元，通过是一个受信存储池中的服务器的一个导出目录。可以通过主机名和目录名来标识，如&amp;rsquo;SERVER:EXPORT&amp;rsquo;。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Brick是一个节点和一个导出目录的集合，e.g. node1:/brick1&lt;/li&gt;
+&lt;li&gt;Brick是底层的RAID或磁盘经XFS或ext4文件系统格式化而来，所以继承了文件系统的限制&lt;/li&gt;
+&lt;li&gt;每个节点上的brick数是不限的&lt;/li&gt;
+&lt;li&gt;理想的状况是，一个集群的所有Brick大小都一样。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;2、Node：一个拥有若干brick的设备。&lt;/p&gt;
+
+&lt;p&gt;3、Trusted Storage Pool：一堆存储节点的集合&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;通过一个节点“邀请”其他节点创建，这里叫probe&lt;/li&gt;
+&lt;li&gt;成员可以动态加入，动态删除&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;4、GFID：GlusterFS卷中的每个文件或目录都有一个唯一的128位的数据相关联，其用于模拟inode&lt;/p&gt;
+
+&lt;p&gt;5、Namespace：每个Gluster卷都导出单个ns作为POSIX的挂载点。&lt;/p&gt;
+
+&lt;p&gt;6、Volume：一组bricks的逻辑集合，Volume是一个可挂载的目录。支持如下种类：&lt;/p&gt;
+
+&lt;p&gt;a) 分布式卷：默认模式，DHT&lt;/p&gt;
+
+&lt;p&gt;又称哈希卷，近似于RAID0，文件没有分片，文件根据hash算法写入各个节点的硬盘上，优点是容量大，缺点是没冗余。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# gluster volume create test-volume server1:/exp1 server2:/exp2 server3:/exp3 server4:/exp4
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs3&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;b) 条带卷&lt;/p&gt;
+
+&lt;p&gt;相当于raid0，文件是分片均匀写在各个节点的硬盘上的，优点是分布式读写，性能整体较好。缺点是没冗余，分片随机读写可能会导致硬盘IOPS饱和。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# gluster volume create test-volume stripe 2 transport tcp server1:/exp1 server2:/exp2
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs4&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;c) 复制卷（复制模式，AFR）&lt;/p&gt;
+
+&lt;p&gt;相当于raid1，复制的份数，决定集群的大小，通常与分布式卷或者条带卷组合使用，解决前两种存储卷的冗余缺陷。缺点是磁盘利用率低。复本卷在创建时可指定复本的数量，通常为2或者3，复本在存储时会在卷的不同brick上，因此有几个复本就必须提供至少多个brick，当其中一台服务器失效后，可以从另一台服务器读取数据，因此复制GlusterFS卷提高了数据可靠性的同事，还提供了数据冗余的功能。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# gluster volume create test-volume replica 2 transport tcp server1:/exp1 server2:/exp2
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs5.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;d) 分布式复制卷&lt;/p&gt;
+
+&lt;p&gt;最少需要4台服务器。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# gluster volume create test-volume replica 2 transport tcp server1:/exp1 server2:/exp2 server3:/exp3 server4:/exp4
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs6&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;e) 分布式条带复制卷&lt;/p&gt;
+
+&lt;p&gt;当单个文件的体型十分巨大，客户端数量更多时，条带卷已经无法满足需求，此时将分布式与条带化结合起来是一个比较好的选择。其性能与服务器数量有关。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# gluster volume create test-volume stripe 4 transport tcp server1:/exp1 server2:/exp2 server3:/exp3 server4:/exp4 server5:/exp5 server6:/exp6 server7:/exp7 server8:/exp8
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs7&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&#34;基本原理&#34;&gt;基本原理&lt;/h1&gt;
+
+&lt;p&gt;传统分布式文件系统大都会设置元数据服务器或者功能相近的管理服务器，主要作用就是用来管理文件与数据区块之间的存储位置关系。相较其他分布式文件系统而言，GlusterFS并没有集中或者分布式的元数据的概念，取而代之的是弹性哈希算法。集群中的任何服务器和客户端都可以利用哈希算法、路径及文件名进行计算，就可以对数据进行定位，并执行读写访问操作。&lt;/p&gt;
+
+&lt;p&gt;每个节点服务器都掌握了集群的配置信息，这样做的好处是每个节点度拥有节点的配置信息，高度自治，所有信息都可以在本地查询。每个节点的信息更新都会向其他节点通告，保证节点间信息的一致性。但如果集群规模较大，节点众多时，信息同步的效率就会下降，节点信息的非一致性概率就会大大提高。因此GlusterFS未来的版本有向集中式管理变化的趋势。&lt;/p&gt;
+
+&lt;p&gt;通过GlusterFS的数据访问流程，我们可以看出其基本的实现&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;首先是在客户端， 用户通过glusterfs的mount point 来读写数据， 对于用户来说，集群系统的存在对用户是完全透明的，用户感觉不到是操作本地系统还是远端的集群系统。&lt;/li&gt;
+&lt;li&gt;用户的这个操作被递交给 本地linux系统的VFS来处理。&lt;/li&gt;
+&lt;li&gt;VFS 将数据递交给FUSE 内核文件系统:在启动 glusterfs 客户端以前，需要想系统注册一个实际的文件系统FUSE,如上图所示，该文件系统与ext3在同一个层次上面， ext3 是对实际的磁盘进行处理， 而fuse 文件系统则是将数据通过/dev/fuse 这个设备文件递交给了glusterfs client端。所以， 我们可以将 fuse文件系统理解为一个代理。&lt;/li&gt;
+&lt;li&gt;数据被fuse 递交给Glusterfs client 后， client 对数据进行一些指定的处理（所谓的指定，是按照client 配置文件据来进行的一系列处理， 我们在启动glusterfs client 时需要指定这个文件。&lt;/li&gt;
+&lt;li&gt;在glusterfs client的处理末端，通过网络将数据递交给 Glusterfs Server，并且将数据写入到服务器所控制的存储设备上。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这样， 整个数据流的处理就完成了。&lt;/p&gt;
+
+&lt;h1 id=&#34;实践&#34;&gt;实践&lt;/h1&gt;
+
+&lt;p&gt;理论和实践上分析，GlusterFS目前主要适用大文件存储场景，对于小文件尤其是海量小文件，存储效率和访问性能都表现不佳。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;元数据性能&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;GlusterFS使用弹性哈希算法代替传统分布式文件系统中的集中或分布式元数据服务，这个是GlusterFS最核心的思想，从而获得了接近线性的高扩展性，同时也提高了系统性能和可靠性。GlusterFS使用算法进行数据定位，集群中的任何服务器和客户端只需根据路径和文件名就可以对数据进行定位和读写访问，文件定位可独立并行化进行。&lt;/p&gt;
+
+&lt;p&gt;这种算法的特点是，给定确定的文件名，查找和定位会非常快。但是，如果事先不知道文件名，要列出文件目录（ls或ls -l），性能就会大幅下降。对于Distributed哈希卷，文件通过HASH算法分散到集群节点上，每个节点上的命名空间均不重叠，所有集群共同构成完整的命名空间，访问时使用HASH算法进行查找定位。列文件目录时，需要查询所有节点，并对文件目录信息及属性进行聚合。这时，哈希算法根本发挥不上作用，相对于有中心的元数据服务，查询效率要差很多。&lt;/p&gt;
+
+&lt;p&gt;从接触的一些用户和实践来看，当集群规模变大以及文件数量达到百万级别时，ls文件目录和rm删除文件目录这两个典型元数据操作就会变得非常慢，创建和删除100万个空文件可能会花上15分钟。如何解决这个问题呢？我们建议合理组织文件目录，目录层次不要太深，单个目录下文件数量不要过多；增大服务器内存配置，并且增大GlusterFS目录缓存参数；网络配置方面，建议采用万兆或者InfiniBand。从研发角度看，可以考虑优化方法提升元数据性能。比如，可以构建全局统一的分布式元数据缓存系统；也可以将元数据与数据重新分离，每个节点上的元数据采用全内存或数据库设计，并采用SSD进行元数据持久化。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;小文件问题&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;理论和实践上分析，GlusterFS目前主要适用大文件存储场景，对于小文件尤其是海量小文件，存储效率和访问性能都表现不佳。海量小文件LOSF问题是工业界和学术界公认的难题，GlusterFS作为通用的分布式文件系统，并没有对小文件作额外的优化措施，性能不好也是可以理解的。&lt;/p&gt;
+
+&lt;p&gt;对于LOSF而言，IOPS/OPS是关键性能衡量指标，造成性能和存储效率低下的主要原因包括元数据管理、数据布局和I/O管理、Cache管理、网络开销等方面。从理论分析以及LOSF优化实践来看，优化应该从元数据管理、缓存机制、合并小文件等方面展开，而且优化是一个系统工程，结合硬件、软件，从多个层面同时着手，优化效果会更显著。GlusterFS小文件优化可以考虑这些方法，这里不再赘述，关于小文件问题请参考“海量小文件问题综述”一文。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;集群管理模式&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;GlusterFS集群采用全对等式架构，每个节点在集群中的地位是完全对等的，集群配置信息和卷配置信息在所有节点之间实时同步。这种架构的优点是，每个节点都拥有整个集群的配置信息，具有高度的独立自治性，信息可以本地查询。但同时带来的问题的，一旦配置信息发生变化，信息需要实时同步到其他所有节点，保证配置信息一致性，否则GlusterFS就无法正常工作。在集群规模较大时，不同节点并发修改配置时，这个问题表现尤为突出。因为这个配置信息同步模型是网状的，大规模集群不仅信息同步效率差，而且出现数据不一致的概率会增加。&lt;/p&gt;
+
+&lt;p&gt;实际上，大规模集群管理应该是采用集中式管理更好，不仅管理简单，效率也高。可能有人会认为集中式集群管理与GlusterFS的无中心架构不协调，其实不然。GlusterFS 2.0以前，主要通过静态配置文件来对集群进行配置管理，没有Glusterd集群管理服务，这说明glusterd并不是GlusterFS不可或缺的组成部分，它们之间是松耦合关系，可以用其他的方式来替换。从其他分布式系统管理实践来看，也都是采用集群式管理居多，这也算一个佐证，GlusterFS 4.0开发计划也表现有向集中式管理转变的趋势。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;容量负载均衡&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;GlusterFS的哈希分布是以目录为基本单位的，文件的父目录利用扩展属性记录了子卷映射信息，子文件在父目录所属存储服务器中进行分布。由于文件目录事先保存了分布信息，因此新增节点不会影响现有文件存储分布，它将从此后的新创建目录开始参与存储分布调度。这种设计，新增节点不需要移动任何文件，但是负载均衡没有平滑处理，老节点负载较重。GlusterFS实现了容量负载均衡功能，可以对已经存在的目录文件进行Rebalance，使得早先创建的老目录可以在新增存储节点上分布，并可对现有文件数据进行迁移实现容量负载均衡。&lt;/p&gt;
+
+&lt;p&gt;GlusterFS目前的容量负载均衡存在一些问题。由于采用Hash算法进行数据分布，容量负载均衡需要对所有数据重新进行计算并分配存储节点，对于那些不需要迁移的数据来说，这个计算是多余的。Hash分布具有随机性和均匀性的特点，数据重新分布之后，老节点会有大量数据迁入和迁出，这个多出了很多数据迁移量。相对于有中心的架构，可谓节点一变而动全身，增加和删除节点增加了大量数据迁移工作。GlusterFS应该优化数据分布，最小化容量负载均衡数据迁移。此外，GlusterFS容量负载均衡也没有很好考虑执行的自动化、智能化和并行化。目前，GlusterFS在增加和删除节点上，需要手工执行负载均衡，也没有考虑当前系统的负载情况，可能影响正常的业务访问。GlusterFS的容量负载均衡是通过在当前执行节点上挂载卷，然后进行文件复制、删除和改名操作实现的，没有在所有集群节点上并发进行，负载均衡性能差。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;数据分布问题&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Glusterfs主要有三种基本的集群模式，即分布式集群(Distributed cluster)、条带集群(Stripe cluster)、复制集群(Replica cluster)。这三种基本集群还可以采用类似堆积木的方式，构成更加复杂的复合集群。三种基本集群各由一个translator来实现，分别由自己独立的命名空间。对于分布式集群，文件通过HASH算法分散到集群节点上，访问时使用HASH算法进行查找定位。复制集群类似RAID1，所有节点数据完全相同，访问时可以选择任意个节点。条带集群与RAID0相似，文件被分成数据块以Round Robin方式分布到所有节点上，访问时根据位置信息确定节点。&lt;/p&gt;
+
+&lt;p&gt;哈希分布可以保证数据分布式的均衡性，但前提是文件数量要足够多，当文件数量较少时，难以保证分布的均衡性，导致节点之间负载不均衡。这个对有中心的分布式系统是很容易做到的，但GlusteFS缺乏集中式的调度，实现起来比较复杂。复制卷包含多个副本，对于读请求可以实现负载均衡，但实际上负载大多集中在第一个副本上，其他副本负载很轻，这个是实现上问题，与理论不太相符。条带卷原本是实现更高性能和超大文件，但在性能方面的表现太差强人意，远远不如哈希卷和复制卷，没有被好好实现，连官方都不推荐应用。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;数据可用性问题&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;副本（Replication）就是对原始数据的完全拷贝。通过为系统中的文件增加各种不同形式的副本，保存冗余的文件数据，可以十分有效地提高文件的可用性，避免在地理上广泛分布的系统节点由网络断开或机器故障等动态不可测因素而引起的数据丢失或不可获取。GlusterFS主要使用复制来提供数据的高可用性，通过的集群模式有复制卷和哈希复制卷两种模式。复制卷是文件级RAID1，具有容错能力，数据同步写到多个brick上，每个副本都可以响应读请求。当有副本节点发生故障，其他副本节点仍然正常提供读写服务，故障节点恢复后通过自修复服务或同步访问时自动进行数据同步。&lt;/p&gt;
+
+&lt;p&gt;一般而言，副本数量越多，文件的可靠性就越高，但是如果为所有文件都保存较多的副本数量，存储利用率低（为副本数量分之一），并增加文件管理的复杂度。目前GlusterFS社区正在研发纠删码功能，通过冗余编码提高存储可用性，并且具备较低的空间复杂度和数据冗余度，存储利用率高。&lt;/p&gt;
+
+&lt;p&gt;GlusterFS的复制卷以brick为单位进行镜像，这个模式不太灵活，文件的复制关系不能动态调整，在已经有副本发生故障的情况下会一定程度上降低系统的可用性。对于有元数据服务的分布式系统，复制关系可以是以文件为单位的，文件的不同副本动态分布在多个存储节点上；当有副本发生故障，可以重新选择一个存储节点生成一个新副本，从而保证副本数量，保证可用性。另外，还可以实现不同文件目录配置不同的副本数量，热点文件的动态迁移。对于无中心的GlusterFS系统来说，这些看起来理所当然的功能，实现起来都是要大费周折的。不过值得一提的是，4.0开发计划已经在考虑这方面的副本特性。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;数据安全问题&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;GlusterFS以原始数据格式（如EXT4、XFS、ZFS）存储数据，并实现多种数据自动修复机制。因此，系统极具弹性，即使离线情形下文件也可以通过其他标准工具进行访问。如果用户需要从GlusterFS中迁移数据，不需要作任何修改仍然可以完全使用这些数据。&lt;/p&gt;
+
+&lt;p&gt;然而，数据安全成了问题，因为数据是以平凡的方式保存的，接触数据的人可以直接复制和查看。这对很多应用显然是不能接受的，比如云存储系统，用户特别关心数据安全。私有存储格式可以保证数据的安全性，即使泄露也是不可知的。GlusterFS要实现自己的私有格式，在设计实现和数据管理上相对复杂一些，也会对性能产生一定影响。&lt;/p&gt;
+
+&lt;p&gt;GlusterFS在访问文件目录时根据扩展属性判断副本是否一致，这个进行数据自动修复的前提条件。节点发生正常的故障，以及从挂载点进行正常的操作，这些情况下发生的数据不一致，都是可以判断和自动修复的。但是，如果直接从节点系统底层对原始数据进行修改或者破坏，GlusterFS大多情况下是无法判断的，因为数据本身也没有校验，数据一致性无法保证。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Cache一致性&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;为了简化Cache一致性，GlusterFS没有引入客户端写Cache，而采用了客户端只读Cache。GlusterFS采用简单的弱一致性，数据缓存的更新规则是根据设置的失效时间进行重置的。对于缓存的数据，客户端周期性询问服务器，查询文件最后被修改的时间，如果本地缓存的数据早于该时间，则让缓存数据失效，下次读取数据时就去服务器获取最新的数据。&lt;/p&gt;
+
+&lt;p&gt;GlusterFS客户端读Cache刷新的时间缺省是1秒，可以通过重新设置卷参数Performance.cache-refresh-timeout进行调整。这意味着，如果同时有多个用户在读写一个文件，一个用户更新了数据，另一个用户在Cache刷新周期到来前可能读到非最新的数据，即无法保证数据的强一致性。因此实际应用时需要在性能和数据一致性之间进行折中，如果需要更高的数据一致性，就得调小缓存刷新周期，甚至禁用读缓存；反之，是可以把缓存周期调大一点，以提升读性能。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>架构系列---- Architecture 总结</title>
+          <link>https://kingjcy.github.io/post/architecture/architecture/</link>
+          <pubDate>Thu, 05 Nov 2020 10:04:53 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/architecture/</guid>
+          <description>&lt;p&gt;架构就是解决问题给出的整体技术方案，既要掌握整体，也要知道局部瓶颈能够解决具体业务的方案。&lt;/p&gt;
+
+&lt;p&gt;架构师，是一个既需要掌控整体又需要洞悉局部瓶颈并依据具体的业务场景给出解决方案的团队领导型人物。&lt;/p&gt;
+
+&lt;h1 id=&#34;架构&#34;&gt;架构&lt;/h1&gt;
+
+&lt;p&gt;在软件工程和企业信息系统领域，又有很多细分，如所谓的系统架构师（System Architect）、应用架构师（Application Architect）、企业架构师（Enterprise Architect）以及基础设施架构师（Infrastructure Architect）等等。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;应用架构师负责构建一个以解决特定问题为目标的软件应用的内部结合结构，一般以满足各种功能性需求以及维护性需求为设计考虑目标；&lt;/li&gt;
+&lt;li&gt;系统架构师则提供运营支撑软件应用的信息系统的结构设计，一般以满足各种非功能性需求或运营性需求为设计目标（如安全性、可伸缩性、可互操作性等等）；&lt;/li&gt;
+&lt;li&gt;企业架构师，就不光只顾IT系统的架构了，他应以企业的持续经营目标为考虑要素来构建企业所需要的内在结构设计；&lt;/li&gt;
+&lt;li&gt;基础设施架构师主要是负责基础平台的设计。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;架构设计&#34;&gt;架构设计&lt;/h1&gt;
+
+&lt;p&gt;其实就是设计模式中的七大原则&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.开闭原则
+2.依赖倒置原则
+3.单一职责原则
+4.接口隔离原则
+5.迪米特法则（最小知道原则）
+6.里氏替换原则
+7.合成/聚合复用原则
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;对我实践过程中总结来说：&lt;/p&gt;
+
+&lt;p&gt;1、抽象，封装，可扩展，使用接口实现&lt;/p&gt;
+
+&lt;p&gt;定义对外调用的接口，实现这些方法的结构体就是实现了接口，不需要关心具体的实现，只需要调用就好，其实也就是设计模式中的开闭原则和依赖倒置原则，接口隔离的原则，迪米特法则，实现依赖于接口，接口尽量细化，不互相依赖。&lt;/p&gt;
+
+&lt;p&gt;2、尽量设计原子功能&lt;/p&gt;
+
+&lt;p&gt;每个服务职责单一，可以服务化，不相互依赖，解耦，同时组合功能就是尽量模块清晰，只实现原子的功能，想实现大的功能就是将原子的功能组合起来，也就是合成复用原则&lt;/p&gt;
+
+&lt;p&gt;3、关注性能、可用性、伸缩性、扩展性、安全性这5个架构要素的实现&lt;/p&gt;
+
+&lt;h2 id=&#34;架构要素&#34;&gt;架构要素&lt;/h2&gt;
+
+&lt;p&gt;在架构设计中一些常规的思想是我们设计的核心要素，我们必须拥有解决的能力，掌握其常规方案，结合实际场景有具体设计的能力。&lt;/p&gt;
+
+&lt;h3 id=&#34;公共服务服务化&#34;&gt;公共服务服务化&lt;/h3&gt;
+
+&lt;p&gt;其实就是一种共享服务的&lt;strong&gt;抽象&lt;/strong&gt;，可以实现架构和业务上的解耦，解决各种依赖问题，可以提高共同部分的优化效率和管控等等好处，没有具体的实现方案，视具体情况进行抽象设计。&lt;a href=&#34;https://kingjcy.github.io/post/architecture/coupling/&#34;&gt;架构解耦还有很多方案&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h3 id=&#34;高可用-容错机制&#34;&gt;高可用，容错机制&lt;/h3&gt;
+
+&lt;p&gt;高可用HA（High Availability）是分布式系统架构设计中必须考虑的因素之一，它通常是指，通过设计减少系统不能提供服务的时间。&lt;/p&gt;
+
+&lt;p&gt;高可用保证是通过&lt;strong&gt;冗余+自动故障转移&lt;/strong&gt;来保证系统的高可用特性。&lt;/p&gt;
+
+&lt;p&gt;我们先来看一下正常的服务架构&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/webserver&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;常见互联网分布式架构如上，分为：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;（1）客户端层：典型调用方是浏览器browser或者手机应用APP&lt;/li&gt;
+&lt;li&gt;（2）反向代理层：系统入口，反向代理&lt;/li&gt;
+&lt;li&gt;（3）站点应用层：实现核心应用逻辑，返回html或者json&lt;/li&gt;
+&lt;li&gt;（4）服务层：如果实现了服务化，就有这一层&lt;/li&gt;
+&lt;li&gt;（5）数据-缓存层：缓存加速访问存储&lt;/li&gt;
+&lt;li&gt;（6）数据-数据库层：数据库固化数据存储&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;整个系统的高可用，又是通过每一层的冗余+自动故障转移来综合实现的。&lt;/p&gt;
+
+&lt;p&gt;1、【客户端层-&amp;gt;反向代理层】的高可用&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;【客户端层】到【反向代理层】的高可用，是通过反向&lt;strong&gt;代理层的冗余&lt;/strong&gt;来实现的。以nginx为例：有两台nginx，一台对线上提供服务，另一台冗余以保证高可用，常见的实践是keepalived存活探测，相同virtual IP提供服务。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;自动故障转移&lt;/strong&gt;：当nginx挂了的时候，keepalived能够探测到，会自动的进行故障转移，将流量自动迁移到shadow-nginx，由于使用的是相同的virtual IP，这个切换过程对调用方是透明的。&lt;/p&gt;
+
+&lt;p&gt;2、【反向代理层-&amp;gt;站点层】的高可用&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;【反向代理层】到【站点层】的高可用，是通过&lt;strong&gt;站点层的冗余&lt;/strong&gt;来实现的。假设反向代理层是nginx，nginx.conf里能够配置多个web后端，并且nginx能够探测到多个后端的存活性。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive3&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;自动故障转移&lt;/strong&gt;：当web-server挂了的时候，nginx能够探测到，会自动的进行故障转移，将流量自动迁移到其他的web-server，整个过程由nginx自动完成，对调用方是透明的。&lt;/p&gt;
+
+&lt;p&gt;3、【站点层-&amp;gt;服务层】的高可用&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive4&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;【站点层】到【服务层】的高可用，是通过&lt;strong&gt;服务层的冗余&lt;/strong&gt;来实现的。“服务连接池”会建立与下游服务多个连接，每次请求会“随机”选取连接来访问下游服务。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive5&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;自动故障转移&lt;/strong&gt;：当service挂了的时候，service-connection-pool能够探测到，会自动的进行故障转移，将流量自动迁移到其他的service，整个过程由连接池自动完成，对调用方是透明的（所以说RPC-client中的服务连接池是很重要的基础组件）。&lt;/p&gt;
+
+&lt;p&gt;4、【服务层&amp;gt;缓存层】的高可用&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive6&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;【服务层】到【缓存层】的高可用，是通过&lt;strong&gt;缓存数据的冗余&lt;/strong&gt;来实现的。&lt;/p&gt;
+
+&lt;p&gt;缓存层的数据冗余又有几种方式：第一种是利用客户端的封装，service对cache进行双读或者双写。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive7&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;缓存层也可以通过支持主从同步的缓存集群来解决缓存层的高可用问题。以redis为例，redis天然支持主从同步，redis官方也有sentinel哨兵机制，来做redis的存活性检测。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive8&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;自动故障转移&lt;/strong&gt;：当redis主挂了的时候，sentinel能够探测到，会通知调用方访问新的redis，整个过程由sentinel和redis集群配合完成，对调用方是透明的。&lt;/p&gt;
+
+&lt;p&gt;5、【服务层&amp;gt;数据库层】的高可用&lt;/p&gt;
+
+&lt;p&gt;大部分互联网技术，数据库层都用了“主从同步，读写分离”架构，所以数据库层的高可用，又分为“读库高可用”与“写库高可用”两类。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive12.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;【服务层】到【数据库读】的高可用，是通过&lt;strong&gt;读库的冗余&lt;/strong&gt;来实现的。既然冗余了读库，一般来说就至少有2个从库，“数据库连接池”会建立与读库多个连接，每次请求会路由到这些读库。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive13.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;自动故障转移&lt;/strong&gt;：当读库挂了的时候，db-connection-pool能够探测到，会自动的进行故障转移，将流量自动迁移到其他的读库，整个过程由连接池自动完成，对调用方是透明的（所以说DAO中的数据库连接池是很重要的基础组件）。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive14.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;【服务层】到【数据库写】的高可用，是通过&lt;strong&gt;写库的冗余&lt;/strong&gt;来实现的。以mysql为例，可以设置两个mysql双主同步，一台对线上提供服务，另一台冗余以保证高可用，常见的实践是keepalived存活探测，相同virtual IP提供服务。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/alive15.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;自动故障转移：当写库挂了的时候，keepalived能够探测到，会自动的进行故障转移，将流量自动迁移到shadow-db-master，由于使用的是相同的virtual IP，这个切换过程对调用方是透明的。&lt;/p&gt;
+
+&lt;p&gt;通过整体架构的分析，我们可以看到高可用的思想就是通过&lt;strong&gt;冗余（多实例，集群化）和在调度（最常见的就是负载均衡）的基础上实现故障自动转移&lt;/strong&gt;来完成的。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;负载均衡&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;提到高可用，不得不提负载均衡，其实高可用的实现还是依赖于负载均衡的，是在负载均衡的基础上实现的故障自动转移，没有冗余节点也即是多实例的负载均衡，也谈不上故障自动转移。但是负载均衡的重点还是在调度均衡，不光在
+最前端的nginx，还有后端数据库连接池都存在这个均衡的问题。&lt;/p&gt;
+
+&lt;p&gt;常见互联网分布式架构如上，分为客户端层、反向代理nginx层、站点层、服务层、数据层。可以看到，每一个下游都有多个上游调用，只需要做到，每一个上游都均匀访问每一个下游，就能实现“将请求/数据【均匀】分摊到多个操作单元上执行”。&lt;/p&gt;
+
+&lt;p&gt;1、【客户端层-&amp;gt;反向代理层】的负载均衡&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/lb.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;【客户端层】到【反向代理层】的负载均衡，是通过“DNS轮询”实现的：DNS-server对于一个域名配置了多个解析ip，每次DNS解析请求来访问DNS-server，会轮询返回这些ip，保证每个ip的解析概率是相同的。这些ip就是nginx的外网ip，以做到每台nginx的请求分配也是均衡的。&lt;/p&gt;
+
+&lt;p&gt;2、【反向代理层-&amp;gt;站点层】的负载均衡&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/lb1.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;【反向代理层】到【站点层】的负载均衡，是通过“nginx”实现的。通过修改nginx.conf，可以实现多种负载均衡策略：轮询，最少连接路由，IPhash等&lt;/p&gt;
+
+&lt;p&gt;3、【站点层-&amp;gt;服务层】的负载均衡&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/lb2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;【站点层】到【服务层】的负载均衡，是通过“服务连接池”实现的。连接池需要涉及负载均衡、故障转移、超时处理的相关机制。&lt;/p&gt;
+
+&lt;p&gt;4、【数据层】的负载均衡&lt;/p&gt;
+
+&lt;p&gt;在数据量很大的情况下，由于数据层（db，cache）涉及数据的水平切分，所以数据层的负载均衡更为复杂一些，它分为“数据的均衡”，与“请求的均衡”。业内常见的水平切分方式有这么几种：按照range水平切分，按照id哈希水平切分&lt;/p&gt;
+
+&lt;p&gt;提到负载均衡我们需要了解一些专业名称&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1）nginx：一个高性能的web-server和实施反向代理的软件&lt;/li&gt;
+&lt;li&gt;2）lvs：Linux Virtual Server，使用集群技术，实现在linux操作系统层面的一个高性能、高可用、负载均衡服务器&lt;/li&gt;
+&lt;li&gt;3）keepalived：一款用来检测服务状态存活性的软件，常用来做高可用&lt;/li&gt;
+&lt;li&gt;4）f5：一个高性能、高可用、负载均衡的硬件设备（听上去和lvs功能差不多？）&lt;/li&gt;
+&lt;li&gt;5）DNS轮询：通过在DNS-server上对一个域名设置多个ip解析，来扩充web-server性能及实施负载均衡的技术&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;我们来看一下负载均衡随着量的扩大不断演进的过程&lt;/p&gt;
+
+&lt;p&gt;1、单机架构&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/fzjh.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;浏览器通过DNS-server，域名解析到ip，直接访问webserver，这种情况下的缺点显而易见&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1）非高可用，web-server挂了整个系统就挂了&lt;/li&gt;
+&lt;li&gt;2）扩展性差，当吞吐量达到web-server上限时，无法扩容&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;2、DNS轮询&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/fzjh1.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;通过dns轮询将流量分到不同的webserver。这种情况下&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1）非高可用：DNS-server只负责域名解析ip，这个ip对应的服务是否可用，DNS-server是不保证的，假设有一个web-server挂了，部分服务会受到影响&lt;/li&gt;
+&lt;li&gt;2）扩容非实时：DNS解析有一个生效周期&lt;/li&gt;
+&lt;li&gt;3）暴露了太多的外网ip&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;3、nginx&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/fzjh2.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这个方案在站点层与浏览器层之间加入了一个反向代理层，利用高性能的nginx来做反向代理，利用nginx来实现流量分流，但是nginx也是单点。&lt;/p&gt;
+
+&lt;p&gt;4、nginx+keepalived&lt;/p&gt;
+
+&lt;p&gt;为了解决nginx高可用的问题，keepalived出场了，当nginx挂了，另一个nginx就顶上来了&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/fzjh3.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这种情况下，仍会存在问题&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1）资源利用率只有50%&lt;/li&gt;
+&lt;li&gt;2）nginx仍然是接入单点，如果接入吞吐量超过的nginx的性能上限怎么办&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;4、lvs/f5&lt;/p&gt;
+
+&lt;p&gt;nginx毕竟是软件，性能比tomcat好，但总有个上限，超出了上限，还是扛不住。lvs就不一样了，它实施在操作系统层面；f5的性能又更好了，它实施在硬件层面；它们性能比nginx好很多，例如每秒可以抗10w，这样可以利用他们来扩容，常见的架构图如下：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/fzjh4.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;基本上公司到这一步基本就能解决接入层高可用、扩展性、负载均衡的问题。当然如果业务量继续扩大，我们还可以进行扩展&lt;/p&gt;
+
+&lt;p&gt;5、DNS轮询&lt;/p&gt;
+
+&lt;p&gt;facebook，google，baidu的PV是不是超过80亿呢，它们的域名只对应一个ip么，终点又是起点，还是得通过DNS轮询来进行扩容：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/fzjh5.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;架构图可见，在lvs上再新增了水平扩展，能力更加强大了，其实在上面也可以使用这种方式，来水平扩展nginx，所以总体的思路就是&lt;strong&gt;水平扩展，垂直提升&lt;/strong&gt;。&lt;/p&gt;
+
+&lt;p&gt;前面将的都是相同服务实例的均衡，其实也存在异构服务器，也就是实例能力不相同的情况，也就是负载均衡的另一种体现，后端的service有可能部署在硬件条件不同的服务器上：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1）如果对标最低配的服务器“均匀”分摊负载，高配的服务器的利用率不足；&lt;/li&gt;
+&lt;li&gt;2）如果对标最高配的服务器“均匀”分摊负载，低配的服务器可能会扛不住；&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;需要做到根据能力来实现负载均衡，其实在nginx中就有这个概念，我们通过权重来给服务器来实现分配&lt;/p&gt;
+
+&lt;p&gt;1、静态权重&lt;/p&gt;
+
+&lt;p&gt;为每个下游service设置一个“权重”，代表service的处理能力，来调整访问到每个service的概率，使用nginx做反向代理与负载均衡，就有类似的机制。&lt;/p&gt;
+
+&lt;p&gt;这个方案的优点是：简单，能够快速的实现异构服务器的负载均衡。&lt;/p&gt;
+
+&lt;p&gt;缺点也很明显：这个权重是固定的，无法自适应动态调整，而很多时候，服务器的处理能力是很难用一个固定的数值量化。&lt;/p&gt;
+
+&lt;p&gt;2、动态权重&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1）用一个动态权重来标识每个service的处理能力，默认初始处理能力相同，即分配给每个service的概率相等；&lt;/li&gt;
+&lt;li&gt;2）每当service成功处理一个请求，认为service处理能力足够，权重动态+1；&lt;/li&gt;
+&lt;li&gt;3）每当service超时处理一个请求，认为service处理能力可能要跟不上了，权重动态-10（权重下降会更快）；&lt;/li&gt;
+&lt;li&gt;4）为了方便权重的处理，可以把权重的范围限定为[0, 100]，把权重的初始值设为60分。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这种情况下，我们需要使用过载保护，就是在服务器承受压力到瓶颈的时候，就能够维持在这个能力，而不是继续增加将其压垮，最简易的方式，服务端设定一个负载阈值，超过这个阈值的请求压过来，全部抛弃。这个方式不是特别优雅。&lt;/p&gt;
+
+&lt;p&gt;我们在动态权重中，&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1）如果某一个service的连接上，连续3个请求都超时，即连续-10分三次，客户端就可以认为，服务器慢慢的要处理不过来了，得给这个service缓一小口气，于是设定策略：接下来的若干时间内，例如1秒（或者接下来的若干个请求），请求不再分配给这个service；防止其处理能力变为0&lt;/li&gt;
+&lt;li&gt;2）如果某一个service的动态权重，降为了0（像连续10个请求超时，中间休息了3次还超时），客户端就可以认为，服务器完全处理不过来了，得给这个service喘一大口气，于是设定策略：接下来的若干时间内，例如1分钟（为什么是1分钟，根据经验，此时service一般在发生fullGC，差不多1分钟能回过神来），请求不再分配给这个service；但是要进行回复就要继续给他分配。&lt;/li&gt;
+&lt;li&gt;3）可以有更复杂的保护策略…&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;单点系统&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;单点系统并不是一种架构思想，但是提到高可用，肯定就要知道单点系统，并不是所有的系统都能实现高可用，单点系统一般来说存在两个很大的问题：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;非高可用：既然是单点，master一旦发生故障，服务就会受到影响&lt;/li&gt;
+&lt;li&gt;性能瓶颈：既然是单点，不具备良好的扩展性，服务性能总有一个上限，这个单点的性能上限往往就是整个系统的性能上限&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;比如我们常用的架构中，也有避免不了的单点，在这个互联网架构中，站点层、服务层、数据库的从库都可以通过冗余的方式来保证高可用，但至少&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;nginx层是一个潜在的单点&lt;/li&gt;
+&lt;li&gt;数据库写库master也是一个潜在的单点&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;再比如GFS&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/gfs.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;GFS的系统架构里主要有这么几种角色：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;（1）client，就是发起文件读写的调用端&lt;/li&gt;
+&lt;li&gt;（2）master，这是一个单点服务，它有全局事业，掌握文件元信息&lt;/li&gt;
+&lt;li&gt;（3）chunk-server，实际存储文件额服务器&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这个系统里，master也是一个单点的服务，Map-reduce系统里也有类似的全局协调的master单点角色。系统架构设计中，像nginx，db-master，gfs-master这样的单点服务是存在的，也是我们需要解决的&lt;/p&gt;
+
+&lt;p&gt;1、shadow-master解决单点高可用问题&lt;/p&gt;
+
+&lt;p&gt;“影子master”，顾名思义，服务正常时，它只是单点master的一个影子，在master出现故障时，shadow-master会自动变成master，继续提供服务。&lt;/p&gt;
+
+&lt;p&gt;shadow-master它能够解决高可用的问题，并且故障的转移是自动的，不需要人工介入，但不足是它使服务资源的利用率降为了50%，业内经常使用keepalived+vip的方式实现这类单点的高可用。&lt;/p&gt;
+
+&lt;p&gt;以GFS的master为例，master正常时：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;（1）client会连接正常的master，shadow-master不对外提供服务&lt;/li&gt;
+&lt;li&gt;（2）master与shadow-master之间有一种存活探测机制&lt;/li&gt;
+&lt;li&gt;（3）master与shadow-master有相同的虚IP（virtual-IP）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/gfs1.png&#34; alt=&#34;&#34; /&gt;
+&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/gfs2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;当发现master异常时：shadow-master会自动顶上成为master，虚IP机制可以保证这个过程对调用方是透明的，比如我们k8s的master的三主机制，比如数据库的双master机制都是使用了这种方案，只不过数据库还需要实现双主的数据同步，实现一致性的要求。&lt;/p&gt;
+
+&lt;p&gt;2、减少与单点的交互，是存在单点的系统优化的核心方向&lt;/p&gt;
+
+&lt;p&gt;既然知道单点存在性能上限，单点的性能（例如GFS中的master）有可能成为系统的瓶颈，那么，减少与单点的交互，便成了存在单点的系统优化的核心方向。怎么来减少与单点的交互，这里提两种常见的方法。&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;批量写&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;批量写是一种常见的提升单点性能的方式。比如利用数据库写单点生成做“ID生成器”，常规方法就是利用数据库写单点的auto increament id来生成和返回ID，这样生成ID的并发上限，取决于单点数据库的写性能上限。如果我们使用批量的方式&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/pl.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;（1）中间加一个服务，每次从数据库拿出100个id&lt;/li&gt;
+&lt;li&gt;（2）业务方需要ID&lt;/li&gt;
+&lt;li&gt;（3）服务直接返回100个id中的1个，100个分配完，再访问数据库&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这样一来，每分配100个才会写数据库一次，分配id的性能可以认为提升了100倍。&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;客户端缓存&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;客户端缓存也是一种降低与单点交互次数，提升系统整体性能的方法。比如上面的GFS的master使用了客户端缓存减少了与master的交互&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;（1）GFS的调用客户端client要访问shenjian.txt，先查询本地缓存，miss了&lt;/li&gt;
+&lt;li&gt;（2）client访问master问说文件在哪里，master告诉client在chunk3上&lt;/li&gt;
+&lt;li&gt;（3）client把shenjian.txt存放在chunk3上记录到本地的缓存，然后进行文件的读写操作&lt;/li&gt;
+&lt;li&gt;（4）未来client要访问文件，从本地缓存中查找到对应的记录，就不用再请求master了，可以直接访问chunk-server。如果文件发生了转移，chunk3返回client说“文件不在我这儿了”，client再访问master，询问文件所在的服务器。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;根据经验，这类缓存的命中非常非常高，可能在99.9%以上（因为文件的自动迁移是小概率事件），这样与master的交互次数就降低了1000倍。&lt;/p&gt;
+
+&lt;p&gt;3、“DNS轮询”技术支持DNS-server返回不同的nginx外网IP，实现nginx负载均衡层的水平扩展。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/architecture/nginx.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;DNS-server部分，一个域名可以配置多个IP，每次DNS解析请求，轮询返回不同的IP，就能实现nginx的水平扩展，扩充负载均衡层的整体性能。&lt;/p&gt;
+
+&lt;p&gt;数据库单点写库也是同样的道理，在数据量很大的情况下，可以通过水平拆分，来提升写入性能。&lt;/p&gt;
+
+&lt;p&gt;遗憾的是，并不是所有的业务场景都可以水平拆分，例如秒杀业务，商品的条数可能不多，数据库的数据量不大，就不能通过水平拆分来提升秒杀系统的整体写性能&lt;/p&gt;
+
+&lt;h3 id=&#34;高并发-高性能-扩展性&#34;&gt;高并发，高性能，扩展性&lt;/h3&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/architecture/concurrence/&#34;&gt;高并发（High Concurrency）&lt;/a&gt;是互联网分布式系统架构设计中必须考虑的因素之一，互联网分布式架构设计，提高系统并发能力的方式，方法论上主要有两种：垂直扩展（Scale Up）与水平扩展（Scale Out）。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;垂直扩展
+
+&lt;ul&gt;
+&lt;li&gt;机器配置升级，这种最原始的方式，也是提高性能最快的方式。所以是初期互联网业务发展非常迅猛的最推荐的方式，如果预算不是问题。&lt;/li&gt;
+&lt;li&gt;架构完善，组件优化，其实也是属于垂直扩展，通过优化架构，能够提高单机的支持的能力，这个就需要大量的实践经验，调优经验，如：使用Cache来减少IO次数，使用异步来增加单服务吞吐量，使用无锁数据结构来减少响应时间；&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;水平扩展，不管是提升单机硬件性能，还是提升单机架构性能，都有一个致命的不足：单机性能总是有极限的。所以互联网分布式架构设计高并发终极解决方案还是水平扩展：只要增加服务器数量，就能线性扩充系统性能。水平扩展在现在最直观的就是分布式集群的应用。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;高并发是我们架构设计中最常见的，很多细节实现可以看&lt;a href=&#34;https://kingjcy.github.io/post/architecture/concurrence/&#34;&gt;这里&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h1 id=&#34;技术思想&#34;&gt;技术思想&lt;/h1&gt;
+
+&lt;p&gt;1、技术和业务：技术和业务是相辅相成的，任何技术的初衷都是为了服务业务，发展技术的目的是为了更好的服务业务，一旦脱离业务，技术就失去了意义。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>分布式系列---- 对象存储云存储</title>
+          <link>https://kingjcy.github.io/post/distributed/store/oss/</link>
+          <pubDate>Thu, 04 Jun 2020 15:52:04 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/distributed/store/oss/</guid>
+          <description>&lt;p&gt;不同的云厂商对它有不同的英文缩写命名。例如阿里云把自家的对象存储服务叫做OSS，华为云叫OBS，腾讯云叫COS，七牛叫Kodo，百度叫BOS，网易叫NOS……五花八门，反正都是一个技术。&lt;/p&gt;
+
+&lt;h1 id=&#34;阿里云oss&#34;&gt;阿里云OSS&lt;/h1&gt;
+
+&lt;p&gt;阿里云存储服务（Open Storage Service，简称OSS），是阿里云对外提供的海量，安全，低成本，高可靠的云存储服务。用户可以通过调用API，在任何应用、任何时间、任何地点上传和下载数据，也可以通过用户Web控制台对数据进行简单的管理。OSS适合存放任意文件类型，适合各种网站、开发企业及开发者使用。&lt;/p&gt;
+
+&lt;h1 id=&#34;华为云obs&#34;&gt;华为云OBS&lt;/h1&gt;
+
+&lt;h1 id=&#34;腾讯云cos&#34;&gt;腾讯云COS&lt;/h1&gt;
+
+&lt;h1 id=&#34;七牛云kodo&#34;&gt;七牛云Kodo&lt;/h1&gt;
+
+&lt;h1 id=&#34;百度云bos&#34;&gt;百度云BOS&lt;/h1&gt;
+
+&lt;h1 id=&#34;技术方案&#34;&gt;技术方案&lt;/h1&gt;
+
+&lt;h2 id=&#34;ceph&#34;&gt;ceph&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/ceph/ceph/&#34;&gt;ceph&lt;/a&gt;我们都知道同时支持对象存储，块存储和文件系统服务。&lt;/p&gt;
+
+&lt;h2 id=&#34;minio&#34;&gt;minio&lt;/h2&gt;
+
+&lt;p&gt;minio是一个基于Apache License V2.0开源协议的对象存储服务，它兼容亚马逊S3云存储服务，非常适合于存储大容量非结构化的数据，如图片，视频，日志文件等。而一个对象文件可以任意大小，从几KB到最大的5T不等。它是一个非常轻量级的服务，可以很简单的和其它的应用结合，类似于NodeJS, Redis或者MySQL。&lt;/p&gt;
+
+&lt;p&gt;minio默认不计算MD5，除非传输给客户端的时候，所以很快，支持windows，有web页进行管理。&lt;/p&gt;
+
+&lt;p&gt;从目前来看，如果想自建对象存储服务的话，有能力，规模比较大的话，采用ceph感觉更好一点。如果只是想要一个对象存储，要求没有那么多的话，可以采用minio。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>分布式系列---- Distributed</title>
+          <link>https://kingjcy.github.io/post/distributed/distributed/</link>
+          <pubDate>Tue, 26 May 2020 20:10:41 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/distributed/distributed/</guid>
+          <description>&lt;p&gt;分布式和集群相关的东西，已经是未来系统发展的趋势。&lt;/p&gt;
+
+&lt;h1 id=&#34;分布式&#34;&gt;分布式&lt;/h1&gt;
+
+&lt;p&gt;为什么会有分布式？&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;可以很好的减少依赖（每个服务都只要开发测试自己的逻辑数据）&lt;/li&gt;
+&lt;li&gt;可以简单的进行扩展，（分布式存储这种）&lt;/li&gt;
+&lt;li&gt;能够很简单的支持高可用（负载均衡到多实例）&lt;/li&gt;
+&lt;li&gt;容错性（将数据以备份的信息存储多分）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;单系统&#34;&gt;单系统&lt;/h2&gt;
+
+&lt;p&gt;单块系统就是所有的代码都在一个工程里，最多可能就是通过maven等构件工具拆分了一下代码工程模块，不同的模块可以放在不同的工程代码里。&lt;/p&gt;
+
+&lt;p&gt;很多流量很小的企业内部系统，比如OA、CRM、财务等系统，甚至可能就直接在一台机器的tomcat下部署一下。&lt;/p&gt;
+
+&lt;p&gt;然后直接配置一下域名解析，就可以让这个系统的可能几十个，或者几百个用户通过访问域名来使用这个软件了。&lt;/p&gt;
+
+&lt;p&gt;你哪怕就部署一台机器，这个系统也可以运行，只不过为了所谓的“高可用”，可能一般会部署两台机器，前面加一层负载均衡设备，这样其中一个机器挂了，另外一个机器上还有一个系统可以用。&lt;/p&gt;
+
+&lt;h2 id=&#34;分布式系统&#34;&gt;分布式系统&lt;/h2&gt;
+
+&lt;p&gt;分布式的主要特点就是分而治之，实现解耦，高性能的解决问题。比如把一个大的系统拆分为很多小的系统，甚至很多小的服务，然后几个人组成一个小组就专门维护其中一个小系统，或者每个人维护一个小服务。这样就可以分而治之，这样每个人可以专注维护自己的代码。不同的子系统之间，就是通过接口互相来回调用，每个子系统都有自己的数据库。&lt;/p&gt;
+
+&lt;p&gt;下面是一些应用，都是采用了分布式的思想。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;比如在load balance后面的web server，就是一种基本的分布式处理请求的模式，他可以并行处理请求，提高响应效率，也就提高了性能&lt;/li&gt;
+&lt;li&gt;比如hadoop中的hdfs它就是在不同节点上存储不同的数据，这就是一种扩大容量的分布式存储。一份数据三副本也实现分布式的数据存储，实现来分布式数据的容错能力&lt;/li&gt;
+&lt;li&gt;比如redis在不同的节点上分布不同的slot来完成分布式的存储。但是每个实例的m/s的最终一致性也实现分布式的数据容错能力。&lt;/li&gt;
+&lt;li&gt;比如etcd的分布式存储，实现强一致性，在各个节点的数据时刻一致，实现高可用。&lt;/li&gt;
+&lt;li&gt;比如ceph一样实现各个节点上数据一致的分布式共享。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这些都是分布式的应用，分布式只是一种可以使不同资源共同去完成一个目标的方法。分布式让不同的节点完成着不同的或者相同的任务，来提高能力，可以是计算，可以是存储，可以是容错。其实分布式更多的是一种思想。当然这种思想可以实现不同的事情，比如上面提到的，提高性能，提高存储能力，提高可用能力，提高容错能力，实现数据共享等等。&lt;/p&gt;
+
+&lt;p&gt;通过分布式思想实现的系统，也就是我们常说的分布式系统，分布式系统相对于单系统来说，更加的复杂，很多传统的问题都需要分布式的解决方案。&lt;/p&gt;
+
+&lt;h2 id=&#34;分布式系统所带来的技术问题&#34;&gt;分布式系统所带来的技术问题&lt;/h2&gt;
+
+&lt;p&gt;那么大家这个时候可以思考一下，如果你的公司是采用这种分布式系统的方式来构建公司的一个大规模系统的，那么这个时候会涉及到哪些技术问题？&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;分布式服务框架&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;你如果要让不同的子系统或者服务之间互相通信，首先必须有一套分布式服务框架。主要是做服务发现和服务间通信，也就是各个服务可以互相感知到对方在哪里，可以发送请求过去，可以通过HTTP或者RPC的方式。最常见的技术就是dubbo以及spring cloud，当然大厂一般都是自己有服务框架。基本上在这个领域目前还是阿里的java写框架一家独大，
+我所使用的c/c++，golang都是使用标准库自己来实现这些服务发现通信的问题，所以也没有什么比较好的框架。目前在容器领域，随着k8s的模式的趋势发展，下一代的分布式框架开始衍生，出现了k8s的相关解决方案-&lt;a href=&#34;https://kingjcy.github.io/post/architecture/microservices/microservices/&#34;&gt;微服务&lt;/a&gt;。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;分布式事务&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;一旦你的系统拆分为了多个子系统之后，那么一个贯穿全局的分布式事务应该怎么来实现？&lt;/p&gt;
+
+&lt;p&gt;这个你需要了解TCC、最终一致性、2PC等&lt;a href=&#34;https://kingjcy.github.io/post/distributed/distributed-event/&#34;&gt;分布式事务的实现方案和开源技术&lt;/a&gt;。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;分布式锁&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;不同的系统之间如果需要在全局加锁获取某个资源的锁定，此时应该怎么来做？毕竟大家不是在一个JVM里了，不可能用synchronized来在多个子系统之间实现锁吧，是不是？&lt;/p&gt;
+
+&lt;p&gt;所以这个时候就需要使用&lt;a href=&#34;https://kingjcy.github.io/post/distributed/distributed-lock/&#34;&gt;分布式锁&lt;/a&gt;来解决这些问题。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;分布式存储&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;如果你原来就是个单块系统，那么你其实是可以在单个JVM里进行本地缓存就可以了，比如搞一个HashMap来缓存一些数据。但是现在你有很多个子系统，他们如果要共享一个缓存，你应该怎么办？是不是需要引入&lt;a href=&#34;https://kingjcy.github.io/post/database/redis/redis/&#34;&gt;Redis等缓存系统&lt;/a&gt;，实现数据缓存共享。&lt;/p&gt;
+
+&lt;p&gt;还有很多的数据共享存储的实例，我们都需要使用到&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/store/&#34;&gt;分布式存储&lt;/a&gt;。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;分布式消息系统&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;在单块系统内，就一个JVM进程内部，你可以用类似LinkedList之类的数据结构作为一个本地内存里的队列。&lt;/p&gt;
+
+&lt;p&gt;但是多个子系统之间要进行消息队列的传递呢？那是不是要引入类似RabbitMQ之类的分布式&lt;a href=&#34;https://kingjcy.github.io/post/middleware/mq/mq-compare/&#34;&gt;消息队列中间件&lt;/a&gt;？&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;分布式搜索系统&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;如果在单块系统内，你可以比如在本地就基于Lucene（支持全文索引的数据库系统）来开发一个全文检索模块，但是如果是分布式系统下的很多子系统，你还能直接基于Lucene吗？&lt;/p&gt;
+
+&lt;p&gt;明显不行，你需要在系统里引入一个外部的分布式搜索系统，比如&lt;a href=&#34;https://kingjcy.github.io/post/database/elasticsearch/&#34;&gt;Elasticsearch&lt;/a&gt;。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;其他很多的技术&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;比如说&lt;a href=&#34;https://kingjcy.github.io/post/distributed/distributed-config/&#34;&gt;分布式配置中心&lt;/a&gt;、分布式日志中心、分布式监控告警中心、分布式会话，等等，都是分布式系统场景下你需要使用和了解的一些技术。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;一致性问题&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;一致性问题其实也是分布式事务中的，但是这个问题比较突出，单独说一下，一致性又可以分为强一致性与弱一致性。&lt;/p&gt;
+
+&lt;p&gt;强一致性可以理解为在任意时刻，所有节点中的数据是一样的。同一时间点，你在节点A中获取到key1的值与在节点B中获取到key1的值应该都是一样的。&lt;/p&gt;
+
+&lt;p&gt;弱一致性包含很多种不同的实现，目前分布式系统中广泛实现的是最终一致性。所谓最终一致性，就是不保证在任意时刻任意节点上的同一份数据都是相同的，但是随着时间的迁移，不同节点上的同一份数据总是在向趋同的方向变化。也可以简单的理解为在一段时间后，节点间的数据会最终达到一致状态。&lt;/p&gt;
+
+&lt;p&gt;所以对于一致性，一致的程度不同大体可以分为强、弱、最终一致性三类。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;强一致性
+对于关系型数据库，要求更新过的数据能被后续的访问都能看到，这是强一致性。比如小明更新V0到V1，那么小华读取的时候也应该是V1。&lt;/li&gt;
+&lt;li&gt;弱一致性
+如果能容忍后续的部分或者全部访问不到，则是弱一致性。比如小明更新VO到V1，可以容忍那么小华读取的时候是V0。&lt;/li&gt;
+&lt;li&gt;最终一致性
+如果经过一段时间后要求能访问到更新后的数据，则是最终一致性。比如小明更新VO到V1，可以使得小华在一段时间之后读取的时候是V0。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;分布式的难点是一致性，基本解决方案&lt;/p&gt;
+
+&lt;p&gt;CAP理论&lt;/p&gt;
+
+&lt;p&gt;CAP理论指的是一个分布式系统最多只能同时满足一致性（Consistency）、可用性（Availability）和分区容错性（Partition tolerance）这三项中的两项。其中分区容错性（Partition tolerance）是分布式的根本，是必须要实现的，所以一般都是实现AP和CP。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Consistency (一致性)：
+“all nodes see the same data at the same time”,即更新操作成功并返回客户端后，所有节点在同一时间的数据完全一致，这就是分布式的一致性。一致性的问题在并发系统中不可避免，对于客户端来说，一致性指的是并发访问时更新过的数据如何获取的问题。从服务端来看，则是更新如何复制分布到整个系统，以保证数据最终一致。&lt;/li&gt;
+&lt;li&gt;Availability (可用性):
+可用性指“Reads and writes always succeed”，即服务一直可用，而且是正常响应时间。好的可用性主要是指系统能够很好的为用户服务，不出现用户操作失败或者访问超时等用户体验不好的情况。&lt;/li&gt;
+&lt;li&gt;Partition Tolerance (分区容错性):
+即分布式系统在遇到某节点或网络分区故障的时候，仍然能够对外提供满足一致性或可用性的服务。这个是必须要保障的，不然都没有分布式的意义了。
+分区容错性要求能够使应用虽然是一个分布式系统，而看上去却好像是在一个可以运转正常的整体。比如现在的分布式系统中有某一个或者几个机器宕掉了，其他剩下的机器还能够正常运转满足系统需求，对于用户而言并没有什么体验上的影响。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;假设N1和N2之间通信的时候网络突然出现故障，有用户向N1发送数据更新请求，那N1中的数据DB0将被更新为DB1，由于网络是断开的，N2中的数据库仍旧是DB0；
+
+如果这个时候，有用户向N2发送数据读取请求，由于数据还没有进行同步，应用程序没办法立即给用户返回最新的数据DB1，怎么办呢？有二种选择，第一，牺牲数据一致性，响应旧的数据DB0给用户；第二，牺牲可用性，阻塞等待，直到网络连接恢复，数据更新操作完成之后，再给用户响应最新的数据DB1。
+
+上面的过程比较简单，但也说明了要满足分区容错性的分布式系统，只能在一致性和可用性两者中，选择其中一个。也就是说分布式系统不可能同时满足三个特性。这就需要我们在搭建系统时进行取舍了
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们分析一下既然可以满足两个，那么舍弃哪一个比较好呢？&lt;/p&gt;
+
+&lt;p&gt;（1）满足CA舍弃P，也就是满足一致性和可用性，舍弃容错性。但是这也就意味着你的系统不是分布式的了，因为涉及分布式的想法就是把功能分开，部署到不同的机器上。但放弃P的同时也就意味着放弃了系统的扩展性，也就是分布式节点受限，没办法部署子节点，这是违背分布式系统设计的初衷的。&lt;/p&gt;
+
+&lt;p&gt;（2）满足CP舍弃A，也就是满足一致性和容错性，舍弃可用性。如果你的系统允许有段时间的访问失效等问题，这个是可以满足的。就好比多个人并发买票，后台网络出现故障，你买的时候系统就崩溃了。设计成CP的系统其实不少，最典型的就是分布式数据库，如Redis、HBase等。对于这些分布式数据库来说，数据的一致性是最基本的要求，因为如果连这个标准都达不到，那么直接采用关系型数据库就好，没必要再浪费资源来部署分布式数据库。&lt;/p&gt;
+
+&lt;p&gt;（3）满足AP舍弃C，也就是满足可用性和容错性，舍弃一致性。这也就是意味着你的系统在并发访问的时候可能会出现数据不一致的情况。典型的应用就如某米的抢购手机场景，可能前几秒你浏览商品的时候页面提示是有库存的，当你选择完商品准备下单的时候，系统提示你下单失败，商品已售完。这其实就是先在 A（可用性）方面保证系统可以正常的服务，然后在数据的一致性方面做了些牺牲，虽然多少会影响一些用户体验，但也不至于造成用户购物流程的严重阻塞。&lt;/p&gt;
+
+&lt;p&gt;实时证明，大多数都是牺牲了一致性。像12306还有淘宝网，就好比是你买火车票，本来你看到的是还有一张票，其实在这个时刻已经被买走了，你填好了信息准备买的时候发现系统提示你没票了。这就是牺牲了一致性。&lt;/p&gt;
+
+&lt;p&gt;所以在牺牲强一致性，使用最终一致性的情况下，eBay 架构师 Dan Pritchett 提出了 BASE 理论，用于解决大规模分布式系统下的数据一致性问题。&lt;/p&gt;
+
+&lt;p&gt;BASE 理论告诉我们：可以通过放弃系统在每个时刻的强一致性来换取系统的可扩展性。&lt;/p&gt;
+
+&lt;p&gt;BASE 是 Basically Available(基本可用)、Soft state(软状态)和 Eventually consistent (最终一致性)三个短语的缩写。是对CAP中AP的一个扩展&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;基本可用:分布式系统在出现故障时，允许损失部分可用功能，保证核心功能可用。&lt;/li&gt;
+&lt;li&gt;软状态:允许系统中存在中间状态，这个状态不影响系统可用性，这里指的是CAP中的不一致。&lt;/li&gt;
+&lt;li&gt;最终一致:最终一致是指经过一段时间后，所有节点数据都将会达到一致。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;但是不是说牺牲一致性一定是最好的。就好比mysql中的事务机制，张三给李四转了100块钱，这时候必须保证张三的账户上少了100，李四的账户多了100。因此需要数据的一致性，而且什么时候转钱都可以，也需要可用性。但是可以转钱失败是可以允许的。&lt;/p&gt;
+
+&lt;h2 id=&#34;分布式的发展&#34;&gt;分布式的发展&lt;/h2&gt;
+
+&lt;p&gt;分布式是单机系统发展到一定时候的产物，其实和微服务的发展是一样的，微服务是分布式发展到一定阶段的概念，两者其实是差不多的，所以&lt;a href=&#34;https://kingjcy.github.io/post/architecture/microservices/microservices/&#34;&gt;微服务的演进&lt;/a&gt;也是分布式的发展。&lt;/p&gt;
+
+&lt;h1 id=&#34;集群&#34;&gt;集群&lt;/h1&gt;
+
+&lt;p&gt;集群就是集中一堆机器来一起做事。&lt;/p&gt;
+
+&lt;p&gt;比如上面的webserver可以是一个集群，他们互不干扰，共同的处理着同一种任务。前面的load balance也可以分布式部署，也可以是一个集群，后段的数据库也可以分布式部署，也可以是一个集群，这个几个集群组合在一起可以是一个大的集群。&lt;/p&gt;
+
+&lt;p&gt;比如hadoop中的hdfs也是一个集群，但是它们互相通信，能够知道各个节点的情况，同时由中心统一管理调度&lt;/p&gt;
+
+&lt;p&gt;比如上面的redis也是一个集群，他们也互相通信，却是存在着无中心化的管理&lt;/p&gt;
+
+&lt;p&gt;比如上面的etcd，ceph几个节点也是一个集群，要求节点上数据完全保持一致&lt;/p&gt;
+
+&lt;p&gt;这些都是集群，所以集群通俗点说就是一堆节点，当然都是相关的，不相关的不会组合在一起&lt;/p&gt;
+
+&lt;p&gt;所以说集群和分布式是不同的概念，好比“分头做事”和“一堆相关的人”。他们也是紧密相连的，由分布式一般都是集群，有集群一般都是分布式的。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>分布式系列---- Event And Distributed Event</title>
+          <link>https://kingjcy.github.io/post/distributed/distributed-event/</link>
+          <pubDate>Tue, 07 Apr 2020 14:53:56 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/distributed/distributed-event/</guid>
+          <description>&lt;p&gt;事务提供一种机制将一个活动涉及的所有操作纳入到一个不可分割的执行单元，组成事务的所有操作只有在所有操作均能正常执行的情况下方能提交，只要其中任一操作执行失败，都将导致整个事务的回滚。简单地说，事务提供一种“要么什么都不做，要么做全套（All or Nothing）”机制。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/event&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&#34;数据库事务&#34;&gt;数据库事务&lt;/h1&gt;
+
+&lt;p&gt;数据库事务中的四大特性，ACID:&lt;/p&gt;
+
+&lt;p&gt;A:原子性(Atomicity)&lt;/p&gt;
+
+&lt;p&gt;一个事务(transaction)中的所有操作，要么全部完成，要么全部不完成，不会结束在中间某个环节。事务在执行过程中发生错误，会被回滚（Rollback）到事务开始前的状态，就像这个事务从来没有执行过一样。
+就像你买东西要么交钱收货一起都执行，要么要是发不出货，就退钱。&lt;/p&gt;
+
+&lt;p&gt;C:一致性(Consistency)&lt;/p&gt;
+
+&lt;p&gt;事务的一致性指的是在一个事务执行之前和执行之后数据库都必须处于一致性状态。如果事务成功地完成，那么系统中所有变化将正确地应用，系统处于有效状态。如果在事务中出现错误，那么系统中的所有变化将自动地回滚，系统返回到原始状态。&lt;/p&gt;
+
+&lt;p&gt;I:隔离性(Isolation)&lt;/p&gt;
+
+&lt;p&gt;指的是在并发环境中，当不同的事务同时操纵相同的数据时，每个事务都有各自的完整数据空间。由并发事务所做的修改必须与任何其他并发事务所做的修改隔离。事务查看数据更新时，数据所处的状态要么是另一事务修改它之前的状态，要么是另一事务修改它之后的状态，事务不会查看到中间状态的数据。
+打个比方，你买东西这个事情，是不影响其他人的。&lt;/p&gt;
+
+&lt;p&gt;D:持久性(Durability)&lt;/p&gt;
+
+&lt;p&gt;指的是只要事务成功结束，它对数据库所做的更新就必须永久保存下来。即使发生系统崩溃，重新启动数据库系统后，数据库还能恢复到事务成功结束时的状态。
+打个比方，你买东西的时候需要记录在账本上，即使老板忘记了那也有据可查。&lt;/p&gt;
+
+&lt;p&gt;正常数据库操作：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1. 开始会话
+2. 开始事务
+3. 操作1，2，3，4。。。。
+4. 提交／回滚事务
+5. 完成会话
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;很清晰的看出什么是事务。&lt;/p&gt;
+
+&lt;h1 id=&#34;分布式事务&#34;&gt;分布式事务&lt;/h1&gt;
+
+&lt;p&gt;分布式事务就是指事务的参与者、支持事务的服务器、资源服务器以及事务管理器分别位于不同的分布式系统的不同节点之上。简单的说，就是一次大的操作由不同的小操作组成，这些小的操作分布在不同的服务器上，且属于不同的应用，分布式事务需要保证这些小操作要么全部成功，要么全部失败。本质上来说，分布式事务就是为了保证不同数据库的数据一致性。&lt;/p&gt;
+
+&lt;h2 id=&#34;分布式事务产生的原因&#34;&gt;分布式事务产生的原因&lt;/h2&gt;
+
+&lt;p&gt;从上面本地事务来看，我们可以看为两块，一个是service产生多个节点（微服务，将服务拆分成多个，然后按一定步骤调用，但是属于一个事务），另一个是resource（多个数据中心，分库分表）产生多个节点。&lt;/p&gt;
+
+&lt;p&gt;举个互联网常用的交易业务为例&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/event1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;上图中包含了库存和订单两个独立的微服务，每个微服务维护了自己的数据库。&lt;/p&gt;
+
+&lt;p&gt;在交易系统的业务逻辑中，一个商品在下单之前需要先调用库存服务，进行扣除库存，再调用订单服务，创建订单记录。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/event2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;可以看到，如果多个数据库之间的数据更新没有保证事务，将会导致出现子系统数据不一致，业务出现问题。&lt;/p&gt;
+
+&lt;h2 id=&#34;分布式事务的难点&#34;&gt;分布式事务的难点&lt;/h2&gt;
+
+&lt;p&gt;事务的原子性&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;事务操作跨不同节点，当多个节点某一节点操作失败时，需要保证多节点操作的要么什么都不做，要么做全套（All or Nothing）的原子性。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;事务的一致性&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;当发生网络传输故障或者节点故障，节点间数据复制通道中断，在进行事务操作时需要保证数据一致性，保证事务的任何操作都不会使得数据违反数据库定义的约束、触发器等规则。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;事务的隔离性&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;事务隔离性的本质就是如何正确处理多个并发事务的读写冲突和写写冲突，因为在分布式事务控制中，可能会出现提交不同步的现象，这个时候就有可能出现“部分已经提交”的事务。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;此时并发应用访问数据如果没有加以控制，有可能出现“脏读”问题。&lt;/p&gt;
+
+&lt;p&gt;这些的最终影响是导致数据出现不一致，可见现在基本的ACID四大特性，已经无法满足我们分布式事务，所以引入了CAP定理，又被叫作布鲁尔定理。&lt;/p&gt;
+
+&lt;h2 id=&#34;cap-base&#34;&gt;CAP&amp;amp;BASE&lt;/h2&gt;
+
+&lt;p&gt;在分布式系统中，一致性(Consistency)、可用性(Availability)和分区容忍性(Partition Tolerance)3 个要素最多只能同时满足两个，不可兼得。其中，分区容忍性又是不可或缺的。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;C (一致性):分布式环境下，多个节点的数据是否强一致。&lt;/li&gt;
+&lt;li&gt;A (可用性)：非故障的节点在合理的时间内返回合理的响应(不是错误和超时的响应)。可用性的两个关键一个是合理的时间，一个是合理的响应。合理的时间指的是请求不能无限被阻塞，应该在合理的时间给出返回。合理的响应指的是系统应该明确返回结果并且结果是正确的，这里的正确指的是比如应该返回50，而不是返回40。&lt;/li&gt;
+&lt;li&gt;P (分区容错性):当出现网络分区后，系统能够继续工作。打个比方，这里个集群有多台机器，有台机器网络出现了问题，但是这个集群仍然可以正常工作。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;根据时间证明cap不能共存。比舍弃其中一个，看使用场景取舍。比如Cassandra、Dynamo 等，默认优先选择 AP，弱化 C;HBase、MongoDB 等，默认优先选择 CP，弱化 A。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/cap&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;两阶段提交协议(简称2PC)是实现分布式事务较为经典的方案，但 2PC 的可扩展性很差，在分布式架构下应用代价较大,mysql的分布式集群就是使用这个分布式事务的解决方法。&lt;/p&gt;
+
+&lt;p&gt;eBay 架构师 Dan Pritchett 提出了 BASE 理论，用于解决大规模分布式系统下的数据一致性问题。&lt;/p&gt;
+
+&lt;p&gt;BASE 理论告诉我们：可以通过放弃系统在每个时刻的强一致性来换取系统的可扩展性。&lt;/p&gt;
+
+&lt;p&gt;BASE 是 Basically Available(基本可用)、Soft state(软状态)和 Eventually consistent (最终一致性)三个短语的缩写。是对CAP中AP的一个扩展&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;基本可用:分布式系统在出现故障时，允许损失部分可用功能，保证核心功能可用。&lt;/li&gt;
+&lt;li&gt;软状态:允许系统中存在中间状态，这个状态不影响系统可用性，这里指的是CAP中的不一致。&lt;/li&gt;
+&lt;li&gt;最终一致:最终一致是指经过一段时间后，所有节点数据都将会达到一致。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;它的核心思想是即使无法做到强一致性（CAP 的一致性就是强一致性），但应用可以采用适合的方式达到最终一致性。&lt;/p&gt;
+
+&lt;p&gt;这里的关键词是“一定时间” 和 “最终”，“一定时间”和数据的特性是强关联的，不同业务不同数据能够容忍的不一致时间是不同的。&lt;/p&gt;
+
+&lt;p&gt;例如支付类业务是要求秒级别内达到一致，因为用户时时关注；用户发的最新微博，可以容忍 30 分钟内达到一致的状态，因为用户短时间看不到明星发的微博是无感知的。&lt;/p&gt;
+
+&lt;p&gt;而“最终”的含义就是不管多长时间，最终还是要达到一致性的状态。&lt;/p&gt;
+
+&lt;p&gt;BASE 理论本质上是对 CAP 的延伸和补充，更具体地说，是对 CAP 中 AP 方案的一个补充：CAP 理论是忽略延时的，而实际应用中延时是无法避免的。&lt;/p&gt;
+
+&lt;p&gt;这一点就意味着完美的 CP 场景是不存在的，即使是几毫秒的数据复制延迟，在这几毫秒时间间隔内，系统是不符合 CP 要求的。&lt;/p&gt;
+
+&lt;p&gt;因此 CAP 中的 CP 方案，实际上也是实现了最终一致性，只是“一定时间”是指几毫秒而已。&lt;/p&gt;
+
+&lt;p&gt;AP 方案中牺牲一致性只是指发生分区故障期间，而不是永远放弃一致性。&lt;/p&gt;
+
+&lt;p&gt;这一点其实就是 BASE 理论延伸的地方，分区期间牺牲一致性，但分区故障恢复后，系统应该达到最终一致性。&lt;/p&gt;
+
+&lt;h2 id=&#34;数据一致性模型&#34;&gt;数据一致性模型&lt;/h2&gt;
+
+&lt;p&gt;前面介绍的 BASE 模型提过“强一致性”和“最终一致性”，下面对这些一致性模型展开介绍。&lt;/p&gt;
+
+&lt;p&gt;分布式系统通过复制数据来提高系统的可靠性和容错性，并且将数据的不同的副本存放在不同的机器上，由于维护数据副本的一致性代价很高，因此许多系统采用弱一致性来提高性能。&lt;/p&gt;
+
+&lt;p&gt;下面介绍常见的一致性模型：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;强一致性：要求无论更新操作是在哪个数据副本上执行，之后所有的读操作都要能获得最新的数据。 对于单副本数据来说，读写操作是在同一数据上执行的，容易保证强一致性。对多副本数据来说，则需要使用分布式事务协议。&lt;/li&gt;
+&lt;li&gt;弱一致性：在这种一致性下，用户读到某一操作对系统特定数据的更新需要一段时间，我们将这段时间称为&amp;rdquo;不一致性窗口&amp;rdquo;。&lt;/li&gt;
+&lt;li&gt;最终一致性：是弱一致性的一种特例，在这种一致性下系统保证用户最终能够读取到某操作对系统特定数据的更新（读取操作之前没有该数据的其他更新操作）。 &amp;ldquo;不一致性窗口&amp;rdquo;的大小依赖于交互延迟、系统的负载，以及数据的副本数等。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;系统选择哪种一致性模型取决于应用对一致性的需求，所选取的一致性模型还会影响到系统如何处理用户的请求以及对副本维护技术的选择等。&lt;/p&gt;
+
+&lt;p&gt;后面将基于上面介绍的一致性模型分别介绍分布式事务的解决方案。&lt;/p&gt;
+
+&lt;h1 id=&#34;分布式事务解决方案&#34;&gt;分布式事务解决方案&lt;/h1&gt;
+
+&lt;p&gt;有了上面的理论基础后，这里介绍开始介绍几种常见的分布式事务的解决方案。&lt;/p&gt;
+
+&lt;h2 id=&#34;两阶段提交-2pc-two-phase-commit-方案-强一致性-还有3pc&#34;&gt;两阶段提交（2PC, Two Phase Commit）方案（强一致性），还有3PC&lt;/h2&gt;
+
+&lt;p&gt;mysql使用的这种模式。核心就是通过事务协调器将多个事务合并为一个大的事务。&lt;/p&gt;
+
+&lt;p&gt;基于XA协议的两阶段提交:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;第一阶段是表决阶段，所有参与者都将本事务能否成功的信息反馈发给协调者；&lt;/li&gt;
+&lt;li&gt;第二阶段是执行阶段，协调者根据所有参与者的反馈，通知所有参与者，步调一致地在所有分支上提交或者回滚;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/2pc&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod11&#34; alt=&#34;&#34; /&gt;
+&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod12&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;单点问题：事务管理器在整个流程中扮演的角色很关键，如果其宕机，比如在第一阶段已经完成，在第二阶段正准备提交的时候事务管理器宕机，资源管理器就会一直阻塞，导致数据库无法使用。&lt;/li&gt;
+&lt;li&gt;同步阻塞：在准备就绪之后，资源管理器中的资源一直处于阻塞，直到提交完成，释放资源。&lt;/li&gt;
+&lt;li&gt;数据不一致：两阶段提交协议虽然为分布式数据强一致性所设计，但仍然存在数据不一致性的可能。比如：在第二阶段中，假设协调者发出了事务 Commit 的通知，但是因为网络问题该通知仅被一部分参与者所收到并执行了 Commit 操作，其余的参与者则因为没有收到通知一直处于阻塞状态，这时候就产生了数据的不一致性。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;总的来说，XA 协议比较简单，成本较低，但是其单点问题，以及不能支持高并发(由于同步阻塞)依然是其最大的弱点。&lt;/p&gt;
+
+&lt;h2 id=&#34;基于可靠消息的最终一致性方案&#34;&gt;基于可靠消息的最终一致性方案&lt;/h2&gt;
+
+&lt;p&gt;本地消息表的方案最初是由 eBay 提出，核心思路是将分布式事务拆分成本地事务进行处理。通过可靠消息系统进行同步，可以是各种消息中间件，也可以是MQ等。&lt;/p&gt;
+
+&lt;p&gt;业务处理服务在业务事务提交之前，向实时消息服务请求发送消息，实时消息服务只记录消息数据，而不是真正的发送。业务处理服务在业务事务提交之后，向实时消息服务确认发送。只有在得到确认发送指令后，实时消息服务才会真正发送。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;方案通过在事务主动发起方额外新建事务消息表，事务发起方处理业务和记录事务消息在本地事务中完成，轮询事务消息表的数据发送事务消息，事务被动方基于消息中间件消费事务消息表中的事务。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;实例&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;下面把分布式事务最先开始处理的事务方称为事务主动方，在事务主动方之后处理的业务内的其他事务称为事务被动方。&lt;/p&gt;
+
+&lt;p&gt;为了方便理解，下面继续以电商下单为例进行方案解析，这里把整个过程简单分为扣减库存，订单创建 2 个步骤。&lt;/p&gt;
+
+&lt;p&gt;库存服务和订单服务分别在不同的服务器节点上，其中库存服务是事务主动方，订单服务是事务被动方。&lt;/p&gt;
+
+&lt;p&gt;事务的主动方需要额外新建事务消息表，用于记录分布式事务的消息的发生、处理状态。&lt;/p&gt;
+
+&lt;p&gt;整个业务处理流程如下：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod10&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;步骤1：事务主动方处理本地事务。&lt;/p&gt;
+
+&lt;p&gt;事务主动方在本地事务中处理业务更新操作和写消息表操作。上面例子中库存服务阶段在本地事务中完成扣减库存和写消息表(图中 1、2)。&lt;/p&gt;
+
+&lt;p&gt;步骤 2：事务主动方通过消息中间件，通知事务被动方处理事务通知事务待消息。
+消息中间件可以基于 Kafka、RocketMQ 消息队列，事务主动方主动写消息到消息队列，事务消费方消费并处理消息队列中的消息。&lt;/p&gt;
+
+&lt;p&gt;上面例子中，库存服务把事务待处理消息写到消息中间件，订单服务消费消息中间件的消息，完成新增订单（图中 3 - 5）。&lt;/p&gt;
+
+&lt;p&gt;步骤 3：事务被动方通过消息中间件，通知事务主动方事务已处理的消息。
+上面例子中，订单服务把事务已处理消息写到消息中间件，库存服务消费中间件的消息，并将事务消息的状态更新为已完成(图中 6 - 8)。&lt;/p&gt;
+
+&lt;p&gt;为了数据的一致性，当处理错误需要重试，事务发送方和事务接收方相关业务处理需要支持幂等。&lt;/p&gt;
+
+&lt;p&gt;具体保存一致性的容错处理如下：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;当步骤 1 处理出错，事务回滚，相当于什么都没发生。&lt;/li&gt;
+&lt;li&gt;当步骤 2、步骤 3 处理出错，由于未处理的事务消息还是保存在事务发送方，事务发送方可以定时轮询为超时消息数据，再次发送到消息中间件进行处理。事务被动方消费事务消息重试处理。&lt;/li&gt;
+&lt;li&gt;如果是业务上的失败，事务被动方可以发消息给事务主动方进行回滚。&lt;/li&gt;
+&lt;li&gt;如果多个事务被动方已经消费消息，事务主动方需要回滚事务时需要通知事务被动方回滚。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;tcc事务补偿型方案-原子性-最终一致性&#34;&gt;TCC事务补偿型方案（原子性，最终一致性）&lt;/h2&gt;
+
+&lt;p&gt;某业务模型如图，由服务 A、服务B、服务C、服务D 共同组成的一个微服务架构系统。服务A 需要依次调用服务B、服务C 和服务D 共同完成一个操作。当服务A 调用服务D 失败时，若要保证整个系统数据的一致性，就要对服务B 和服务C 的invoke 操作进行回滚，执行反向的revert 操作。回滚成功后，整个微服务系统是数据一致的。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod22&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;实现：一个完整的业务活动由一个主业务服务于若干的从业务服务组成。主业务服务负责发起并完成整个业务活动。从业务服务提供TCC型业务操作。业务活动管理器控制业务活动的一致性，它登记业务活动的操作，并在业务活动提交时确认所有的TCC型操作的Confirm操作，在业务活动取消时调用所有TCC型操作的Cancel操作。&lt;/li&gt;
+&lt;li&gt;成本：实现TCC操作的成本较高，业务活动结束的时候Confirm和Cancel操作的执行成本。业务活动的日志成本。TCC 的 Try、Confirm 和 Cancel 操作功能要按具体业务来实现，业务耦合度较高，提高了开发成本。&lt;/li&gt;
+&lt;li&gt;使用范围：强隔离性，严格一致性要求的业务活动。适用于执行时间较短的业务，比如处理账户或者收费等等。&lt;/li&gt;
+&lt;li&gt;特点：不与具体的服务框架耦合，位于业务服务层，而不是资源层，可以灵活的选择业务资源的锁定粒度。TCC里对每个服务资源操作的是本地事务，数据被锁住的时间短，可扩展性好，可以说是为独立部署的SOA服务而设计的。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;TCC方案很少用人使用，因为事务回滚操作实际上是严重依赖于手动编写代码来进行回滚和补偿操作，这样的话就会造成补偿代码过多，使得项目非常难以维护。比较适合的场景就是除非真的一致性要求非常高，是系统中的核心业务场景，例如常见的就是资金类的场景，那可以用TCC方案。&lt;/p&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;p&gt;为了方便理解，下面以电商下单为例进行方案解析，这里把整个过程简单分为扣减库存，订单创建 2 个步骤，库存服务和订单服务分别在不同的服务器节点上。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Try 阶段&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;从执行阶段来看，与传统事务机制中业务逻辑相同。但从业务角度来看，却不一样。&lt;/p&gt;
+
+&lt;p&gt;TCC 机制中的 Try 仅是一个初步操作，它和后续的确认一起才能真正构成一个完整的业务逻辑，这个阶段主要完成：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;完成所有业务检查( 一致性 ) 。&lt;/li&gt;
+&lt;li&gt;预留必须业务资源( 准隔离性 ) 。&lt;/li&gt;
+&lt;li&gt;Try 尝试执行业务。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;TCC 事务机制以初步操作（Try）为中心的，确认操作（Confirm）和取消操作（Cancel）都是围绕初步操作（Try）而展开。&lt;/p&gt;
+
+&lt;p&gt;因此，Try 阶段中的操作，其保障性是最好的，即使失败，仍然有取消操作（Cancel）可以将其执行结果撤销。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod23&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;假设商品库存为 100，购买数量为 2，这里检查和更新库存的同时，冻结用户购买数量的库存，同时创建订单，订单状态为待确认。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Confirm / Cancel 阶段&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;根据 Try 阶段服务是否全部正常执行，继续执行确认操作（Confirm）或取消操作（Cancel）。&lt;/p&gt;
+
+&lt;p&gt;Confirm 和 Cancel 操作满足幂等性，如果 Confirm 或 Cancel 操作执行失败，将会不断重试直到执行完成。&lt;/p&gt;
+
+&lt;p&gt;Confirm：当 Try 阶段服务全部正常执行， 执行确认业务逻辑操作&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod24&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这里使用的资源一定是 Try 阶段预留的业务资源。在 TCC 事务机制中认为，如果在 Try 阶段能正常的预留资源，那 Confirm 一定能完整正确的提交。&lt;/p&gt;
+
+&lt;p&gt;Confirm 阶段也可以看成是对 Try 阶段的一个补充，Try+Confirm 一起组成了一个完整的业务逻辑。&lt;/p&gt;
+
+&lt;p&gt;Cancel：当 Try 阶段存在服务执行失败， 进入 Cancel 阶段&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod25&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Cancel 取消执行，释放 Try 阶段预留的业务资源，上面的例子中，Cancel 操作会把冻结的库存释放，并更新订单状态为取消。&lt;/p&gt;
+
+&lt;h2 id=&#34;最大努力通知型-弱一致性&#34;&gt;最大努力通知型（弱一致性）&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;实现：业务活动的主动方在完成处理之后向业务活动的被动方发送消息，允许消息丢失。业务活动的被动方根据定时策略，向业务活动的主动方查询，恢复丢失的业务消息。
+约束：被动方的处理结果不影响主动方的处理结果。
+成本：业务查询与校对系统的建设成本。
+使用范围：对业务最终一致性的时间敏感度低。跨企业的业务活动。
+特点：业务活动的主动方在完成业务处理之后，向业务活动的被动方发送通知消息。主动方可以设置时间阶梯通知规则，在通知失败后按规则重复通知，知道通知N次后不再通知。主动方提供校对查询接口给被动方按需校对查询，用户恢复丢失的业务消息。
+适用范围：银行通知，商户通知。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod3.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;最大努力通知方案的主要思路如下：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;系统A本地事务执行完毕之后，发送个消息到消息服务MQ&lt;/li&gt;
+&lt;li&gt;这里会有个专门消费消息服务MQ的最大努力通知服务，该服务会消费消息服务MQ，然后写入数据库中记录下来或者是放入个内存队列，接下来调用系统B的接口&lt;/li&gt;
+&lt;li&gt;要是系统B执行成功就ok了；要是系统B执行失败了，那么最大努力通知服务就定时尝试重新调用系统B，反复N次，最后还是失败就放弃。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;目前国内互联网公司大都是这么玩儿的，要不你使用RocketMQ支持的，要不你就基于其他MQ中间件自己封装一套类似的逻辑，总之思路就是这样的。其实就是MQ是上面可靠消息的一种，这边只是强调不一定可靠，还有通知。&lt;/p&gt;
+
+&lt;h1 id=&#34;总结&#34;&gt;总结&lt;/h1&gt;
+
+&lt;p&gt;从应用角度看，分布式事务的现实场景常常无法规避，在有能力给出其他解决方案前，2PC也是一个不错的选择。&lt;/p&gt;
+
+&lt;p&gt;对购物转账等电商和金融业务，中间件层的2PC最大问题在于业务不可见，一旦出现不可抗力或意想不到的一致性破坏，如数据节点永久性宕机，业务难以根据2PC的日志进行补偿。金融场景下，数据一致性是命根，业务需要对数据有百分之百的掌控力，建议使用TCC这类分布式事务模型，或基于消息队列的柔性事务框架，这两种方案都在业务层实现，业务开发者具有足够掌控力，可以结合SOA框架来架构，包括Dubbo、Spring Cloud等&lt;/p&gt;</description>
+        </item>
+      
     
       
         <item>
@@ -1777,6 +3095,247 @@ Usage:
     
       
         <item>
+          <title>架构系列---- 架构解耦</title>
+          <link>https://kingjcy.github.io/post/architecture/coupling/</link>
+          <pubDate>Sun, 05 Jan 2020 10:04:53 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/coupling/</guid>
+          <description>&lt;p&gt;自身服务的变动，需要其他依赖服务跟着升级变更，这就叫服务耦合，比如数据库换了一个ip，此时往往连接此数据库的上游需要修改配置重启，明明换ip的是你，凭什么配合重启的却是我？这就是一种典型的架构设计上“反向依赖”的问题。&lt;/p&gt;
+
+&lt;h1 id=&#34;常规方案&#34;&gt;常规方案&lt;/h1&gt;
+
+&lt;p&gt;我们在架构设计的时候就要将服务进行解耦，解决反向依赖带来的各种问题。&lt;/p&gt;
+
+&lt;h2 id=&#34;公共库导致耦合&#34;&gt;公共库导致耦合&lt;/h2&gt;
+
+&lt;p&gt;三个服务s1/s2/s3，通过一个公共的库biz.jar来实现一段业务逻辑，s1/s2/s3其实间接通过biz.jar耦合在了一起，一个业务s1修改一块公共的代码，导致影响其他业务s2/s3，架构上是不合理的。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;业务垂直拆分&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;如果公共的库biz.jar中实现的逻辑“业务特性”很强，可以拆分为biz1.jar/biz2.jar/biz3.jar，来对s1/s2/s3进行解耦。这样的话，任何业务的改动，影响范围只是自己，不会影响其他人。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;服务化&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;如果biz.jar中实现的逻辑“业务共性”很强，可以将biz.jar优化为biz.service服务，来对s1/s2/s3进行解耦。服务化之后，兼容性能更好的通过接口自动化回归测试来保证。&lt;/p&gt;
+
+&lt;p&gt;基础服务的抽象，本身是一种共性聚焦，是系统解耦常见的方案。&lt;/p&gt;
+
+&lt;h1 id=&#34;服务化不彻底导致耦合&#34;&gt;服务化不彻底导致耦合&lt;/h1&gt;
+
+&lt;p&gt;服务化是解决“业务共性”组件库导致系统耦合的常见方案之一，但如果服务化不彻底，service本身也容易成为业务耦合点。典型的服务化不彻底导致的业务耦合的特征是，共性服务中，包含大量“根据不同业务，执行不同个性分支”的代码。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;switch (biz-type)
+case biz-1 : exec1
+case biz-2 : exec2
+case biz-3 : exec3
+…
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/coupling/coupling.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;在这种架构下，biz-1/biz-2/biz-3有个性的业务需求，可能导致修改代码的是共性的biz-service，使其成为研发瓶颈，架构上也是不合理的。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;业务特性代码上浮，业务共性代码下沉，彻底解耦&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/coupling/coupling2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;把swithc case中业务特性代码放到业务层实现，这样biz-1/biz-2/biz-3有个性的业务需求，升级的是自己的业务系统。&lt;/p&gt;
+
+&lt;h2 id=&#34;notify的不合理实现导致的耦合&#34;&gt;notify的不合理实现导致的耦合&lt;/h2&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/coupling/coupling3.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;消息发送方不关注消息接收方的执行结果，如果采用调用的方式来实现通知，会导消息发送方和消息接收方耦合。比如如何新增消息接收方biz-4，会发现修改代码的是消息发送方，新增一个对biz-4的调用，极不合理。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;通过MQ实现解耦&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/coupling/coupling4.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;消息发送方upper将消息发布给MQ，消息接收方从MQ去订阅，任何新增对消息的消费，upper都不需要修改代码。&lt;/p&gt;
+
+&lt;h2 id=&#34;配置中的ip导致上下游耦合&#34;&gt;配置中的ip导致上下游耦合&lt;/h2&gt;
+
+&lt;p&gt;下游服务换ip，可能导致多个服务调用方修改配置重启。上下游间接的通过ip这个配置耦合在了一起，架构不合理。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;通过内网域名而不是ip来进行下游连接&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;如果在配置中使用内网域名来进行下游连接，当下游服务或者数据库更换ip时，只需要运维层面将内网域名指向新的ip，然后统一切断原有旧的连接，连接就能够自动切换到新的ip上来。这个过程不需要所有上游配合，非常帅气，强烈推荐！这也是我们常用的vip的架构设计，也可以新增服务发现服务来解决这个问题，用于解决下游集群扩容等问题。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>分布式系列---- 文件存储系统hdfs</title>
+          <link>https://kingjcy.github.io/post/distributed/store/fs/hfds/</link>
+          <pubDate>Sun, 15 Dec 2019 20:21:18 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/distributed/store/fs/hfds/</guid>
+          <description>&lt;p&gt;Hadoop：一个分布式系统基础架构，由Apache基金会开发。用户可以在不了解分布式底层细节的情况下，开发分布式程序。充分利用集群的威力高速运算和存储。&lt;/p&gt;
+
+&lt;p&gt;Hadoop实现了一个分布式文件系统（Hadoop Distributed File System），简称HDFS。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本概念&#34;&gt;基本概念&lt;/h1&gt;
+
+&lt;h2 id=&#34;特点&#34;&gt;特点&lt;/h2&gt;
+
+&lt;p&gt;优势&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;专为存储超大文件而设计：hdfs应该能够支持GB级别大小的文件；它应该能够提供很大的数据带宽并且能够在集群中拓展到成百上千个节点；它的一个实例应该能够支持千万数量级别的文件。&lt;/li&gt;
+&lt;li&gt;适用于流式的数据访问：hdfs适用于批处理的情况而不是交互式处理；它的重点是保证高吞吐量而不是低延迟的用户响应&lt;/li&gt;
+&lt;li&gt;容错性：完善的冗余备份机制&lt;/li&gt;
+&lt;li&gt;支持简单的一致性模型：HDFS需要支持一次写入多次读取的模型，而且写入过程文件不会经常变化&lt;/li&gt;
+&lt;li&gt;移动计算优于移动数据：HDFS提供了使应用计算移动到离它最近数据位置的接口&lt;/li&gt;
+&lt;li&gt;兼容各种硬件和软件平台&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;大量小文件：文件的元数据都存储在NameNode内存中，大量小文件会占用大量内存。&lt;/li&gt;
+&lt;li&gt;低延迟数据访问：hdfs是专门针对高数据吞吐量而设计的&lt;/li&gt;
+&lt;li&gt;多用户写入，任意修改文件&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;基本架构&#34;&gt;基本架构&lt;/h1&gt;
+
+&lt;p&gt;HDFS主要由3个组件构成，分别是NameNode、SecondaryNameNode和DataNode，HDFS是以master/slave模式运行的，其中NameNode、SecondaryNameNode 运行在master节点，DataNode运行slave节点。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/hdfs2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;NameNode&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;当一个客户端请求一个文件或者存储一个文件时，它需要先知道具体到哪个DataNode上存取，获得这些信息后，客户端再直接和这个DataNode进行交互，而这些信息的维护者就是NameNode。&lt;/p&gt;
+
+&lt;p&gt;NameNode管理着文件系统命名空间，它维护这文件系统树及树中的所有文件和目录。NameNode也负责维护所有这些文件或目录的打开、关闭、移动、重命名等操作。对于实际文件数据的保存与操作，都是由DataNode负责。当一个客户端请求数据时，它仅仅是从NameNode中获取文件的元信息，而具体的数据传输不需要经过NameNode，是由客户端直接与相应的DataNode进行交互。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;SecondaryNameNode&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;SecondaryNameNode并不是NameNode的备份。我们从前面的介绍已经知道，所有HDFS文件的元信息都保存在NameNode的内存中。在NameNode启动时，它首先会加载fsimage到内存中，在系统运行期间，所有对NameNode的操作也都保存在了内存中，同时为了防止数据丢失，这些操作又会不断被持久化到本地edits文件中。&lt;/p&gt;
+
+&lt;p&gt;Edits文件存在的目的是为了提高系统的操作效率，NameNode在更新内存中的元信息之前都会先将操作写入edits文件。在NameNode重启的过程中，edits会和fsimage合并到一起，但是合并的过程会影响到Hadoop重启的速度，SecondaryNameNode就是为了解决这个问题而诞生的。&lt;/p&gt;
+
+&lt;p&gt;SecondaryNameNode的角色就是定期的合并edits和fsimage文件。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;DataNode&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;DataNode是hdfs中的worker节点，它负责存储数据块，也负责为系统客户端提供数据块的读写服务，同时还会根据NameNode的指示来进行创建、删除、和复制等操作。此外，它还会通过心跳定期向NameNode发送所存储文件块列表信息。当对hdfs文件系统进行读写时，NameNode告知客户端每个数据驻留在哪个DataNode，客户端直接与DataNode进行通信，DataNode还会与其它DataNode通信，复制这些块以实现冗余。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本原理&#34;&gt;基本原理&lt;/h1&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;数据备份&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;HDFS通过备份数据块的形式来实现容错，除了文件的最后一个数据块外，其它所有数据块大小都是一样的。数据块的大小和备份因子都是可以配置的。NameNode负责各个数据块的备份，DataNode会通过心跳的方式定期的向NameNode发送自己节点上的Block 报告，这个报告中包含了DataNode节点上的所有数据块的列表。&lt;/p&gt;
+
+&lt;p&gt;文件副本的分布位置直接影响着HDFS的可靠性和性能。一个大型的HDFS文件系统一般都是需要跨很多机架的，不同机架之间的数据传输需要经过网关，并且，同一个机架中机器之间的带宽要大于不同机架机器之间的带宽。如果把所有的副本都放在不同的机架中，这样既可以防止机架失败导致数据块不可用，又可以在读数据时利用到多个机架的带宽，并且也可以很容易的实现负载均衡。但是，如果是写数据，各个数据块需要同步到不同的机架，会影响到写数据的效率。&lt;/p&gt;
+
+&lt;p&gt;而在Hadoop中，如果副本数量是3的情况下，Hadoop默认是这么存放的，把第一个副本放到机架的一个节点上，另一个副本放到同一个机架的另一个节点上，把最后一个节点放到不同的机架上。这种策略减少了跨机架副本的个数提高了写的性能，也能够允许一个机架失败的情况，算是一个很好的权衡。&lt;/p&gt;
+
+&lt;p&gt;关于副本的选择，在读的过程中，HDFS会选择最近的一个副本给请求者。&lt;/p&gt;
+
+&lt;p&gt;关于安全模式，当 Hadoop的NameNode节点启动时，会进入安全模式阶段。在此阶段，DataNode会向NameNode上传它们数据块的列表，让 NameNode得到块的位置信息，并对每个文件对应的数据块副本进行统计。当最小副本条件满足时，即一定比例的数据块都达到最小副本数，系统就会退出安全模式，而这需要一定的延迟时间。当最小副本条件未达到要求时，就会对副本数不足的数据块安排DataNode进行复制，直至达到最小副本数。而在安全模式下，系统会处于只读状态，NameNode不会处理任何块的复制和删除命令。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;HDFS中的沟通协议&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;所有的HDFS中的沟通协议都是基于tcp/ip协议，一个客户端通过指定的tcp端口与NameNode机器建立连接，并通过ClientProtocol协议与NameNode交互。而DataNode则通过DataNode Protocol协议与NameNode进行沟通。HDFS的RCP(远程过程调用)对ClientProtocol和DataNode Protocol做了封装。按照HDFS的设计，NameNode不会主动发起任何请求，只会被动接受来自客户端或DataNode的请求。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;可靠性保证&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;可以允许DataNode失败。DataNode会定期（默认3秒）的向NameNode发送心跳，若NameNode在指定时间间隔内没有收到心跳，它就认为此节点已经失败。此时，NameNode把失败节点的数据（从另外的副本节点获取）备份到另外一个健康的节点。这保证了集群始终维持指定的副本数。&lt;/p&gt;
+
+&lt;p&gt;可以检测到数据块损坏。在读取数据块时，HDFS会对数据块和保存的校验和文件匹配，如果发现不匹配，NameNode同样会重新备份损坏的数据块。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;hdfs文件读取过程&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;hdfs有一个FileSystem实例，客户端通过调用这个实例的open()方法就可以打开系统中希望读取的文件。hdfs通过rpc调用NameNode获取文件块的位置信息，对于文件的每一个块，NameNode会返回含有该块副本的DataNode的节点地址，另外，客户端还会根据网络拓扑来确定它与每一个DataNode的位置信息，从离它最近的那个DataNode获取数据块的副本，最理想的情况是数据块就存储在客户端所在的节点上。&lt;/p&gt;
+
+&lt;p&gt;hdfs会返回一个FSDataInputStream对象，FSDataInputStream类转而封装成DFSDataInputStream对象,这个对象管理着与DataNode和NameNode的I/O，具体过程是：&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;客户端发起读请求&lt;/li&gt;
+&lt;li&gt;客户端与NameNode得到文件的块及位置信息列表&lt;/li&gt;
+&lt;li&gt;客户端直接和DataNode交互读取数据&lt;/li&gt;
+&lt;li&gt;读取完成关闭连接&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/hdfs4&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;当FSDataInputStream与DataNode通信时遇到错误，它会选取另一个较近的DataNode，并为出故障的DataNode做标记以免重复向其读取数据。FSDataInputStream还会对读取的数据块进行校验和确认，发现块损坏时也会重新读取并通知NameNode。&lt;/p&gt;
+
+&lt;p&gt;这样设计的巧妙之处：&lt;/p&gt;
+
+&lt;p&gt;1、让客户端直接联系DataNode检索数据，可以使hdfs扩展到大量的并发客户端，因为数据流就是分散在集群的每个节点上的，在运行MapReduce任务时，每个客户端就是一个DataNode节点。&lt;/p&gt;
+
+&lt;p&gt;2、NameNode仅需相应块的位置信息请求（位置信息在内存中，速度极快），否则随着客户端的增加，NameNode会很快成为瓶颈。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;hdfs文件写入过程&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;hdfs有一个DistributedFileSystem实例，客户端通过调用这个实例的create()方法就可以创建文件。DistributedFileSystem会发送给NameNode一个RPC调用，在文件系统的命名空间创建一个新文件，在创建文件前NameNode会做一些检查，如文件是否存在，客户端是否有创建权限等，若检查通过，NameNode会为创建文件写一条记录到本地磁盘的EditLog，若不通过会向客户端抛出IOException。创建成功之后DistributedFileSystem会返回一个FSDataOutputStream对象，客户端由此开始写入数据。&lt;/p&gt;
+
+&lt;p&gt;同读文件过程一样，FSDataOutputStream类转而封装成DFSDataOutputStream对象,这个对象管理着与DataNode和NameNode的I/O，具体过程是：&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;客户端在向NameNode请求之前先写入文件数据到本地文件系统的一个临时文件&lt;/li&gt;
+&lt;li&gt;待临时文件达到块大小时开始向NameNode请求DataNode信息&lt;/li&gt;
+&lt;li&gt;NameNode在文件系统中创建文件并返回给客户端一个数据块及其对应DataNode的地址列表（列表中包含副本存放的地址）&lt;/li&gt;
+&lt;li&gt;客户端通过上一步得到的信息把创建临时文件块flush到列表中的第一个DataNode&lt;/li&gt;
+&lt;li&gt;当文件关闭，NameNode会提交这次文件创建，此时，文件在文件系统中可见&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;上面第四步描述的flush过程实际处理过程比较负杂，现在单独描述一下：&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;首先，第一个DataNode是以数据包(数据包一般4KB)的形式从客户端接收数据的，DataNode在把数据包写入到本地磁盘的同时会向第二个DataNode（作为副本节点）传送数据。&lt;/li&gt;
+&lt;li&gt;在第二个DataNode把接收到的数据包写入本地磁盘时会向第三个DataNode发送数据包&lt;/li&gt;
+&lt;li&gt;第三个DataNode开始向本地磁盘写入数据包。此时，数据包以流水线的形式被写入和备份到所有DataNode节点&lt;/li&gt;
+&lt;li&gt;传送管道中的每个DataNode节点在收到数据后都会向前面那个DataNode发送一个ACK,最终，第一个DataNode会向客户端发回一个ACK&lt;/li&gt;
+&lt;li&gt;当客户端收到数据块的确认之后，数据块被认为已经持久化到所有节点。然后，客户端会向NameNode发送一个确认&lt;/li&gt;
+&lt;li&gt;如果管道中的任何一个DataNode失败，管道会被关闭。数据将会继续写到剩余的DataNode中。同时NameNode会被告知待备份状态，NameNode会继续备份数据到新的可用的节点&lt;/li&gt;
+&lt;li&gt;数据块都会通过计算校验和来检测数据的完整性，校验和以隐藏文件的形式被单独存放在hdfs中，供读取时进行完整性校验&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;hdfs文件删除过程&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;hdfs文件删除过程一般需要如下几步：&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;一开始删除文件，NameNode只是重命名被删除的文件到/trash目录，因为重命名操作只是元信息的变动，所以整个过程非常快。在/trash中文件会被保留一定间隔的时间（可配置，默认是6小时），在这期间，文件可以很容易的恢复，恢复只需要将文件从/trash移出即可。&lt;/li&gt;
+&lt;li&gt;当指定的时间到达，NameNode将会把文件从命名空间中删除&lt;/li&gt;
+&lt;li&gt;标记删除的文件块释放空间，HDFS文件系统显示空间增加&lt;/li&gt;
+&lt;/ol&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控trace系列---- jaeger</title>
           <link>https://kingjcy.github.io/post/monitor/trace/jaeger/</link>
           <pubDate>Tue, 13 Aug 2019 11:16:45 CST</pubDate>
@@ -3163,6 +4722,711 @@ func clusterConsumer(wg *sync.WaitGroup,brokers, topics []string, groupId string
     
       
         <item>
+          <title>消息队列系列---- Kafka</title>
+          <link>https://kingjcy.github.io/post/middleware/mq/kafka/</link>
+          <pubDate>Fri, 19 Jul 2019 20:21:50 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/middleware/mq/kafka/</guid>
+          <description>&lt;p&gt;Apache Kafka由著名职业社交公司LinkedIn开发，最初是被设计用来解决LinkedIn公司内部海量日志传输等问题。Kafka使用Scala语言编写，于2011年开源并进入Apache孵化器，2012年10月正式毕业，现在为Apache顶级项目。Kafka是一个分布式数据流平台，具有高吞吐、低延迟、高容错等特点。&lt;/p&gt;
+
+&lt;h1 id=&#34;kafka简介&#34;&gt;Kafka简介&lt;/h1&gt;
+
+&lt;h2 id=&#34;基本术语&#34;&gt;基本术语&lt;/h2&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;消息message&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;先不管其他的，我们使用Kafka这个消息系统肯定是先关注消息这个概念，在Kafka中，每一个消息由键、值和一个时间戳组成（key、value和timestamp）&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;主题topic&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Kafka集群存储同一类别的消息流称为主题&lt;/p&gt;
+
+&lt;p&gt;主题会有多个订阅者（0个1个或多个），当主题发布消息时，会向订阅者推送记录&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;日志 offset&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;针对每一个主题，Kafka集群维护了一个像下面这样的分区日志offset：&lt;/p&gt;
+
+&lt;p&gt;这些分区位offset于不同的服务器上，每一个分区可以看做是一个结构化的提交日志offset，每写入一条记录都会记录到其中一个分区并且分配一个唯一地标识其位置的数字称为偏移量offset&lt;/p&gt;
+
+&lt;p&gt;Kafka集群会将发布的消息保存一段时间，不管是否被消费。例如，如果设置保存天数为2天，那么从消息发布起的两天之内，该消息一直可以被消费，但是超过两天后就会被丢弃以节省空间。其次，Kafka的数据持久化性能很好，所以长时间存储数据不是问题&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;分区 Partition&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;每个topic可以有一个或多个partition（分区）。分区是在物理层面上的，不同的分区对应着不同的数据文件。Kafka使用分区支持物理上的并发写入和读取，从而大大提高了吞吐量&lt;/p&gt;
+
+&lt;p&gt;Kafka中采用分区的设计有几个目的。一是可以处理更多的消息，不受单台服务器的限制。Topic拥有多个分区意味着它可以不受限的处理更多的数据。第二，分区可以作为并行处理的单元，稍后会谈到这一点&lt;/p&gt;
+
+&lt;p&gt;Log的分区被分布到集群中的多个服务器上。每个服务器处理它分到的分区。根据配置每个分区还可以复制到其它服务器作为备份容错。 每个分区有一个leader，零或多个follower。Leader处理此分区的所有的读写请求，而follower被动的复制数据。如果leader宕机，其它的一个follower会被推举为新的leader。 一台服务器可能同时是一个分区的leader，另一个分区的follower。 这样可以平衡负载，避免所有的请求都只让一台或者某几台服务器处理。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;生产者 producer&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;生产者往某个Topic上发布消息。生产者还可以选择将消息分配到Topic的哪个节点上。最简单的方式是轮询分配到各个分区以平衡负载，也可以根据某种算法依照权重选择分区&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;消费者 consumer&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Kafka有一个消费者组的概念，生产者把消息发到的是消费者组，在消费者组里面可以有很多个消费者实例。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;消费者组 Consumer Group&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;一个消费者组可以包含一个或多个消费者。使用多分区+多消费者方式可以极大提高数据下游的处理速度。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;节点 Broker&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;消息队列中常用的概念，在Kafka中指部署了Kafka实例的服务器节点。&lt;/p&gt;
+
+&lt;h1 id=&#34;安装部署&#34;&gt;安装部署&lt;/h1&gt;
+
+&lt;h2 id=&#34;单机&#34;&gt;单机&lt;/h2&gt;
+
+&lt;p&gt;1、安装jdk&lt;/p&gt;
+
+&lt;p&gt;以oracle jdk为例，下载地址&lt;a href=&#34;http://java.sun.com/javase/downloads/index.jsp&#34;&gt;http://java.sun.com/javase/downloads/index.jsp&lt;/a&gt;&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;yum -y install jdk-8u141-linux-x64.rpm
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2、下载解压&lt;/p&gt;
+
+&lt;p&gt;下载地址：&lt;a href=&#34;http://kafka.apache.org/downloads，如0.10.1.0版本的Kafka下载&#34;&gt;http://kafka.apache.org/downloads，如0.10.1.0版本的Kafka下载&lt;/a&gt;&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;wget http://apache.fayea.com/kafka/0.10.1.0/kafka_2.11-0.10.1.0.tgz
+tar -xvf kafka_2.11-0.10.1.0.tgz
+cd kafka_2.11-0.10.1.0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;修改配置&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@localhost ~]# grep -Ev &amp;quot;^#|^$&amp;quot; /data/kafka/config/server.properties
+broker.id=0
+delete.topic.enable=true
+listeners=PLAINTEXT://192.168.15.131:9092
+num.network.threads=3
+num.io.threads=8
+socket.send.buffer.bytes=102400
+socket.receive.buffer.bytes=102400
+socket.request.max.bytes=104857600
+log.dirs=/data/kafka/data
+num.partitions=1
+num.recovery.threads.per.data.dir=1
+offsets.topic.replication.factor=1
+transaction.state.log.replication.factor=1
+transaction.state.log.min.isr=1
+log.flush.interval.messages=10000
+log.flush.interval.ms=1000
+log.retention.hours=168
+log.retention.bytes=1073741824
+log.segment.bytes=1073741824
+log.retention.check.interval.ms=300000
+zookeeper.connect=192.168.15.131:2181,192.168.15.132:2181,192.168.15.133:2181
+zookeeper.connection.timeout.ms=6000
+group.initial.rebalance.delay.ms=0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;提示：其他主机将该机器的kafka目录拷贝即可，然后需要修改broker.id、listeners地址。有关kafka配置文件参数，参考：&lt;a href=&#34;http://orchome.com/12；&#34;&gt;http://orchome.com/12；&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;3、安装Zookeeper&lt;/p&gt;
+
+&lt;p&gt;Kafka需要Zookeeper的监控，所以先要安装Zookeeper。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;wget http://apache.forsale.plus/zookeeper/zookeeper-3.4.9/zookeeper-3.4.9.tar.gz
+tar zxf zookeeper-3.4.9.tar.gz
+mv zookeeper-3.4.9 /data/zk
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;修改配置文件内容如下所示:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@localhost ~]# cat /data/zk/conf/zoo.cfg
+tickTime=2000
+initLimit=10
+syncLimit=5
+dataDir=/data/zk/data/zookeeper
+dataLogDir=/data/zk/data/logs
+clientPort=2181
+maxClientCnxns=60
+autopurge.snapRetainCount=3
+autopurge.purgeInterval=1
+
+server.1=zk01:2888:3888
+server.2=zk02:2888:3888
+server.3=zk03:2888:3888
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;参数说明：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;server.id=host:port:port:表示了不同的zookeeper服务器的自身标识，作为集群的一部分，每一台服务器应该知道其他服务器的信息。用户可以从“server.id=host:port:port” 中读取到相关信息。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;在服务器的data(dataDir参数所指定的目录)下创建一个文件名为myid的文件，这个文件的内容只有一行，指定的是自身的id值。比如，服务器“1”应该在myid文件中写入“1”。这个id必须在集群环境中服务器标识中是唯一的，且大小在1～255之间。这一样配置中，zoo1代表第一台服务器的IP地址。第一个端口号（port）是从follower连接到leader机器的
+端口，第二个端口是用来进行leader选举时所用的端口。所以，在集群配置过程中有三个非常重要的端口：clientPort：2181、port:2888、port:3888。&lt;/p&gt;
+
+&lt;p&gt;如果想更换日志输出位置，除了在zoo.cfg加入&amp;rdquo;dataLogDir=/data/zk/data/logs&amp;rdquo;外，还需要修改zkServer.sh文件，大概修改方式地方在125行左右，内容如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;125 ZOO_LOG_DIR=&amp;quot;$($GREP &amp;quot;^[[:space:]]*dataLogDir&amp;quot; &amp;quot;$ZOOCFG&amp;quot; | sed -e &#39;s/.*=//&#39;)&amp;quot;
+126 if [ ! -w &amp;quot;$ZOO_LOG_DIR&amp;quot; ] ; then
+127 mkdir -p &amp;quot;$ZOO_LOG_DIR&amp;quot;
+128 fi
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在启动服务之前，还需要分别在zookeeper创建myid，方式如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;echo 1 &amp;gt;  /data/zk/data/zookeeper/myid
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;启动服务&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;/data/zk/bin/zkServer.sh start
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;验证服务&lt;/p&gt;
+
+&lt;p&gt;查看相关端口号&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@localhost ~]# ss -lnpt|grep java
+LISTEN     0      50          :::34442                   :::*                   users:((&amp;quot;java&amp;quot;,pid=2984,fd=18))
+LISTEN     0      50       ::ffff:192.168.15.133:3888                    :::*                   users:((&amp;quot;java&amp;quot;,pid=2984,fd=26))
+LISTEN     0      50          :::2181                    :::*                   users:((&amp;quot;java&amp;quot;,pid=2984,fd=25))
+
+
+###查看zookeeper服务状态
+[root@localhost ~]# /data/zk/bin/zkServer.sh status
+
+ZooKeeper JMX enabled by default
+
+Using config: /data/zk/bin/../conf/zoo.cfgMode: follower
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;4、Kafka目录介绍&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;/bin 操作kafka的可执行脚本，还包含windows下脚本&lt;/li&gt;
+&lt;li&gt;/config 配置文件所在目录&lt;/li&gt;
+&lt;li&gt;/libs 依赖库目录&lt;/li&gt;
+&lt;li&gt;/logs 日志数据目录，目录kafka把server端日志分为5种类型，分为:server,request,state，log-cleaner，controller&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;5、启动Kafka&lt;/p&gt;
+
+&lt;p&gt;在每台服务器上进入Kafka目录，分别执行以下命令：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-server-start.sh config/server.properties &amp;amp;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;检测2181与9092端口&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;netstat -tunlp|egrep &amp;quot;(2181|9092)&amp;quot;
+tcp        0      0 :::2181                     :::*                        LISTEN      19787/java          
+tcp        0      0 :::9092                     :::*                        LISTEN      28094/java 
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;说明：&lt;/p&gt;
+
+&lt;p&gt;Kafka的进程ID为28094，占用端口为9092&lt;/p&gt;
+
+&lt;p&gt;QuorumPeerMain为对应的zookeeper实例，进程ID为19787，在2181端口监听&lt;/p&gt;
+
+&lt;p&gt;6、单机连通性测试&lt;/p&gt;
+
+&lt;p&gt;启动2个XSHELL客户端，一个用于生产者发送消息，一个用于消费者接受消息。&lt;/p&gt;
+
+&lt;p&gt;运行producer，随机敲入几个字符，相当于把这个敲入的字符消息发送给队列。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-console-producer.sh --broker-list 192.168.153.118:9092 --topic test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;说明：早版本的Kafka，–broker-list 192.168.1.181:9092需改为–zookeeper 192.168.1.181:2181&lt;/p&gt;
+
+&lt;p&gt;运行consumer，可以看到刚才发送的消息列表。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-console-consumer.sh --zookeeper 192.168.153.118:2181 --topic test --from-beginning  
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;注意：&lt;/p&gt;
+
+&lt;p&gt;producer，指定的Socket(192.168.1.181+9092),说明生产者的消息要发往kafka，也即是broker&lt;/p&gt;
+
+&lt;p&gt;consumer, 指定的Socket(192.168.1.181+2181),说明消费者的消息来自zookeeper（协调转发）&lt;/p&gt;
+
+&lt;p&gt;上面的只是一个单个的broker，下面我们来实验一个多broker的集群。&lt;/p&gt;
+
+&lt;h2 id=&#34;集群&#34;&gt;集群&lt;/h2&gt;
+
+&lt;p&gt;搭建一个多个broker的伪集群，刚才只是启动了单个broker，现在启动有3个broker组成的集群，这些broker节点也都是在本机上。&lt;/p&gt;
+
+&lt;p&gt;1、为每一个broker提供配置文件&lt;/p&gt;
+
+&lt;p&gt;然后修改各个服务器的配置文件：进入Kafka的config目录，修改server.properties&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# brokerid就是指各台服务器对应的id，所以各台服务器值不同
+broker.id=0
+# 端口号，无需改变
+port=9092
+# 当前服务器的IP，各台服务器值不同
+host.name=192.168.0.10
+# Zookeeper集群的ip和端口号
+zookeeper.connect=192.168.0.10:2181,192.168.0.11:2181,192.168.0.12:2181
+# 日志目录
+log.dirs=/home/www/kafka-logs
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们先看看config/server0.properties配置信息：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;broker.id=0
+listeners=PLAINTEXT://:9092
+port=9092
+host.name=192.168.1.181
+num.network.threads=4
+num.io.threads=8
+socket.send.buffer.bytes=102400
+socket.receive.buffer.bytes=102400
+socket.request.max.bytes=104857600
+log.dirs=/tmp/kafka-logs
+num.partitions=5
+num.recovery.threads.per.data.dir=1
+log.retention.hours=168
+log.segment.bytes=1073741824
+log.retention.check.interval.ms=300000
+log.cleaner.enable=false
+zookeeper.connect=192.168.1.181:2181
+zookeeper.connection.timeout.ms=6000
+queued.max.requests =500
+log.cleanup.policy = delete
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;说明：&lt;/p&gt;
+
+&lt;p&gt;broker.id为集群中唯一的标注一个节点，因为在同一个机器上，所以必须指定不同的端口和日志文件，避免数据被覆盖。&lt;/p&gt;
+
+&lt;p&gt;在上面单个broker的实验中，为什么kafka的端口为9092，这里可以看得很清楚。&lt;/p&gt;
+
+&lt;p&gt;kafka cluster怎么同zookeeper交互的，配置信息中也有体现。&lt;/p&gt;
+
+&lt;p&gt;那么下面，我们仿照上面的配置文件，提供2个broker的配置文件：&lt;/p&gt;
+
+&lt;p&gt;server2.properties:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;broker.id=2
+listeners=PLAINTEXT://:9094
+port=9094
+host.name=192.168.1.181
+num.network.threads=4
+num.io.threads=8
+socket.send.buffer.bytes=102400
+socket.receive.buffer.bytes=102400
+socket.request.max.bytes=104857600
+log.dirs=/tmp/kafka-logs2
+num.partitions=5
+num.recovery.threads.per.data.dir=1
+log.retention.hours=168
+log.segment.bytes=1073741824
+log.retention.check.interval.ms=300000
+log.cleaner.enable=false
+zookeeper.connect=192.168.1.181:2181
+zookeeper.connection.timeout.ms=6000
+queued.max.requests =500
+log.cleanup.policy = delete
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2、启动所有的broker&lt;/p&gt;
+
+&lt;p&gt;命令如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-server-start.sh config/server0.properties &amp;amp;   #启动broker0
+bin/kafka-server-start.sh config/server1.properties &amp;amp; #启动broker1
+bin/kafka-server-start.sh config/server2.properties &amp;amp; #启动broker2
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看2181、9092、9093、9094端口&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;netstat -tunlp|egrep &amp;quot;(2181|9092|9093|9094)&amp;quot;
+tcp        0      0 :::9093                     :::*                        LISTEN      29725/java          
+tcp        0      0 :::2181                     :::*                        LISTEN      19787/java          
+tcp        0      0 :::9094                     :::*                        LISTEN      29800/java          
+tcp        0      0 :::9092                     :::*                        LISTEN      29572/java  
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;一个zookeeper在2181端口上监听，3个kafka cluster(broker)分别在端口9092,9093,9094监听。&lt;/p&gt;
+
+&lt;p&gt;3、创建topic&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --create --topic topic_1 --partitions 1 --replication-factor 3  \--zookeeper localhost:2181
+bin/kafka-topics.sh --create --topic topic_2 --partitions 1 --replication-factor 3  \--zookeeper localhost:2181
+bin/kafka-topics.sh --create --topic topic_3 --partitions 1 --replication-factor 3  \--zookeeper localhost:2181
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;查看topic创建情况：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --list --zookeeper localhost:2181
+test
+topic_1
+topic_2
+topic_3
+[root@atman081 kafka_2.10-0.9.0.0]# bin/kafka-topics.sh --describe --zookeeper localhost:2181
+Topic:test  PartitionCount:1  ReplicationFactor:1 Configs:
+  Topic: test Partition: 0  Leader: 0 Replicas: 0 Isr: 0
+Topic:topic_1 PartitionCount:1  ReplicationFactor:3 Configs:
+  Topic: topic_1  Partition: 0  Leader: 2 Replicas: 2,1,0 Isr: 2,1,0
+Topic:topic_2 PartitionCount:1  ReplicationFactor:3 Configs:
+  Topic: topic_2  Partition: 0  Leader: 1 Replicas: 1,2,0 Isr: 1,2,0
+Topic:topic_3 PartitionCount:1  ReplicationFactor:3 Configs:
+  Topic: topic_3  Partition: 0  Leader: 0 Replicas: 0,2,1 Isr: 0,2,1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;第一个行显示所有partitions的一个总结，以下每一行给出一个partition中的信息，如果我们只有一个partition，则只显示一行。&lt;/p&gt;
+
+&lt;p&gt;leader 是在给出的所有partitons中负责读写的节点，每个节点都有可能成为leader&lt;/p&gt;
+
+&lt;p&gt;replicas 显示给定partiton所有副本所存储节点的节点列表，不管该节点是否是leader或者是否存活。&lt;/p&gt;
+
+&lt;p&gt;isr 副本都已同步的的节点集合，这个集合中的所有节点都是存活状态，并且跟leader同步&lt;/p&gt;
+
+&lt;p&gt;4、模拟客户端发送，接受消息&lt;/p&gt;
+
+&lt;p&gt;发送消息&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-console-producer.sh --topic topic_1 --broker-list 192.168.1.181:9092,192.168.1.181:9093,192.168.1.181:9094
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;接收消息&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-console-consumer.sh --topic topic_1 --zookeeper 192.168.1.181:2181 --from-beginning
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;需要注意，此时producer将topic发布到了3个broker中，现在就有点分布式的概念了。&lt;/p&gt;
+
+&lt;p&gt;5、kill some broker&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kill broker(id=0)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;首先，我们根据前面的配置，得到broker(id=0)应该在9092监听,这样就能确定它的PID了。&lt;/p&gt;
+
+&lt;p&gt;broker0没kill之前topic在kafka cluster中的情况&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --describe --zookeeper localhost:2181
+Topic:test  PartitionCount:1  ReplicationFactor:1 Configs:
+  Topic: test Partition: 0  Leader: 0 Replicas: 0 Isr: 0
+Topic:topic_1 PartitionCount:1  ReplicationFactor:3 Configs:
+  Topic: topic_1  Partition: 0  Leader: 2 Replicas: 2,1,0 Isr: 2,1,0
+Topic:topic_2 PartitionCount:1  ReplicationFactor:3 Configs:
+  Topic: topic_2  Partition: 0  Leader: 1 Replicas: 1,2,0 Isr: 1,2,0
+Topic:topic_3 PartitionCount:1  ReplicationFactor:3 Configs:
+  Topic: topic_3  Partition: 0  Leader: 2 Replicas: 0,2,1 Isr: 2,1,0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;kill之后，再观察，做下对比。很明显，主要变化在于Isr，以后再分析&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --describe --zookeeper localhost:2181
+Topic:test  PartitionCount:1  ReplicationFactor:1 Configs:
+  Topic: test Partition: 0  Leader: -1  Replicas: 0 Isr: 
+Topic:topic_1 PartitionCount:1  ReplicationFactor:3 Configs:
+  Topic: topic_1  Partition: 0  Leader: 2 Replicas: 2,1,0 Isr: 2,1
+Topic:topic_2 PartitionCount:1  ReplicationFactor:3 Configs:
+  Topic: topic_2  Partition: 0  Leader: 1 Replicas: 1,2,0 Isr: 1,2
+Topic:topic_3 PartitionCount:1  ReplicationFactor:3 Configs:
+  Topic: topic_3  Partition: 0  Leader: 2 Replicas: 0,2,1 Isr: 2,1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;测试下，发送消息，接受消息，是否收到影响。&lt;/p&gt;
+
+&lt;p&gt;发送消息&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-console-producer.sh --topic topic_1 --broker-list 192.168.1.181:9092,192.168.1.181:9093,192.168.1.181:9094
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;接收消息&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-console-consumer.sh --topic topic_1 --zookeeper 192.168.1.181:2181 --from-beginning
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可见，kafka的分布式机制，容错能力还是挺好的~&lt;/p&gt;
+
+&lt;h1 id=&#34;kafka常用命令&#34;&gt;Kafka常用命令&lt;/h1&gt;
+
+&lt;p&gt;1、新建一个主题&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --create --zookeeper hxf:2181,cfg:2181,jqs:2181,jxf:2181,sxtb:2181 --replication-factor 2 --partitions 2 --topic test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;test有两个复制因子和两个分区&lt;/p&gt;
+
+&lt;p&gt;2、查看新建的主题&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --describe --zookeeper hxf:2181,cfg:2181,jqs:2181,jxf:2181,sxtb:2181 --topic test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2.8.8版本&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./kafka-create-topic.sh --partition 1 --replica 1 --zookeeper localhost:2181 --topic test
+
+./kafka-list-topic.sh --zookeeper localhost:2181
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们来看一下查询的结果&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[root@dx3 bin]# ./kafka-topics.sh --describe --zookeeper localhost:2183 --topic test
+Topic:test    PartitionCount:3    ReplicationFactor:3    Configs:
+    Topic: test    Partition: 0    Leader: 0    Replicas: 0,1,2    Isr: 0,2,1
+    Topic: test    Partition: 1    Leader: 1    Replicas: 1,2,0    Isr: 1,2,0
+    Topic: test    Partition: 2    Leader: 2    Replicas: 2,0,1    Isr: 2,0,1
+
+其中第一行是所有分区的信息，下面的每一行对应一个分区
+Leader：负责某个分区所有读写操作的节点
+Replicas：复制因子节点
+Isr：存活节点
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;所以这个Kafka集群一共三个节点，test这个Topic, 编号为0的Partition,Leader在broker.id=0这个节点上，副本在broker.id为0 1 2这个三个几点，并且所有副本都存活，并跟broker.id=0这个节点同步&lt;/p&gt;
+
+&lt;p&gt;3、查看Kafka所有的主题&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --list --zookeeper hxf:2181,cfg:2181,jqs:2181,jxf:2181,sxtb:2181
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;4、在终端发送消息&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-console-producer.sh --broker-list localhost:9092 --topic test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;5、在终端接收（消费）消息&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;bin/kafka-console-consumer.sh --zookeeper hxf:2181,cfg:2181,jqs:2181,jxf:2181,sxtb:2181 --bootstrap-server localhost:9092 --topic test --from-beginning
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;我们正常情况下不会使用自带的命令行进行数据的发送和消费，我们都是使用第三方库进行&lt;a href=&#34;https://kingjcy.github.io/post/middleware/mq/kafka-client/&#34;&gt;客户端包括生产者和消费者&lt;/a&gt;的编码，实现业务的正常使用。&lt;/p&gt;
+
+&lt;h1 id=&#34;原理&#34;&gt;原理&lt;/h1&gt;
+
+&lt;p&gt;先举一个例子&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/middleware/mq/kafka/20170719.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Kafka集群有两台服务器，四个分区，此外有两个消费者组A和B，消费者组A具有2个消费者实例C1-2，消费者B具有4个消费者实例C3-6&lt;/p&gt;
+
+&lt;p&gt;例如此时我们创建了一个主题test，有两个分区，分别是Server1的P0和Server2的P1，假设此时我们通过test发布了一条消息，那么这条消息只会发到P0或P1其中之一，也就是消息只会发给其中的一个分区&lt;/p&gt;
+
+&lt;p&gt;分区接收到消息后会记录在分区日志中，记录的方式我们讲过了，就是通过offset，分区中的消息都是以k-v形式存在。k表示offset，称之为偏移量，一个64位整型的唯一标识，offset代表了Topic分区中所有消息流中该消息的起始字节位置。 v就是实际的消息内容,正因为有这个偏移量的存在，所以一个分区内的消息是有先后顺序的，即offset大的消息比offset小的消息后到。但是注意，由于消息随机发往主题的任意一个分区，因此虽然同一个分区的消息有先后顺序，但是不同分区之间的消息就没有先后顺序了，那么如果我们要求消费者顺序消费主题发的消息那该怎么办呢，此时只要在创建主题的时候只提供一个分区即可&lt;/p&gt;
+
+&lt;p&gt;讲完了主题发消息，接下来就该消费者消费消息了，假设上面test的消息发给了分区P0，此时从图中可以看到，有两个消费者组，那么P0将会把消息发到哪个消费者组呢？从图中可以看到，P0把消息既发给了消费者组A也发给了B，但是A中消息仅被C1消费，B中消息仅被C3消费。这就是我们要讲的，主题发出的消息会发往所有的消费者组，而每一个消费者组下面可以有很多消费者实例，这条消息只会被他们中的一个消费掉。&lt;/p&gt;
+
+&lt;p&gt;在多分区的情况下如何保证有序性呢？&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1、kafka分布式的单位是partition，同一个partition用一个write ahead log组织，记录的offset，所以可以保证FIFO的顺序。&lt;/li&gt;
+&lt;li&gt;2、不同partition之间不能保证顺序。但是绝大多数用户都可以通过message key来定义，因为同一个key的message可以保证只发送到同一个partition，比如说key是user id，table row id等等，所以同一个user或者同一个record的消息永远只会发送到同一个partition上，保证了同一个user或record的顺序。&lt;/li&gt;
+&lt;li&gt;3、消费出来自己根据一些数据进行排序，比如时间。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;核心API&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Kafka具有4个核心API：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Producer API：用于向Kafka主题发送消息。&lt;/li&gt;
+&lt;li&gt;Consumer API：用于从订阅主题接收消息并且处理这些消息。&lt;/li&gt;
+&lt;li&gt;Streams API：作为一个流处理器，用于从一个或者多个主题中消费消息流然后为其他主题生产消息流，高效地将输入流转换为输出流。&lt;/li&gt;
+&lt;li&gt;Connector API：用于构建和运行将Kafka主题和已有应用或者数据系统连接起来的可复用的生产者或消费者。例如一个主题到一个关系型数据库的连接能够捕获表的任意变化。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;KAFKA吞吐量大的原因&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、消息顺序写入磁盘，并且批量处理。&lt;/p&gt;
+
+&lt;p&gt;KAFKA维护一个Topic中的分区log，以顺序追加的方式向各个分区中写入消息，每个分区都是不可变的消息队列。分区中的消息都是以k-v形式存在。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;k表示offset，称之为偏移量，一个64位整型的唯一标识，offset代表了Topic分区中所有消息流中该消息的起始字节位置。&lt;/li&gt;
+&lt;li&gt;v就是实际的消息内容，每个分区中的每个offset都是唯一存在的，所有分区的消息都是一次写入，在消息未过期之前都可以调整offset来实现多次读取。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;我们知道现在的磁盘大多数都还是机械结构（SSD不在讨论的范围内），如果将消息以随机写的方式存入磁盘，就会按柱面、磁头、扇区的方式进行（寻址过程），缓慢的机械运动（相对内存）会消耗大量时间，导致磁盘的写入速度只能达到内存写入速度的几百万分之一，为了规避随机写带来的时间消耗，KAFKA采取顺序写的方式存储数据。&lt;/p&gt;
+
+&lt;p&gt;新来的消息只能追加到已有消息的末尾，并且已经生产的消息不支持随机删除以及随机访问，但是消费者可以通过重置offset的方式来访问已经消费过的数据。&lt;/p&gt;
+
+&lt;p&gt;即使顺序读写，过于频繁的大量小I/O操作一样会造成磁盘的瓶颈，所以KAFKA在此处的处理是把这些消息集合在一起批量发送，这样减少对磁盘IO的过度读写，而不是一次发送单个消息。&lt;/p&gt;
+
+&lt;p&gt;2、标准化二进制消息格式&lt;/p&gt;
+
+&lt;p&gt;尤其是在负载比较高的情况下无效率的字节复制影响是显着的。为了避免这种情况，KAFKA采用由Producer，broker和consumer共享的标准化二进制消息格式，这样数据块就可以在它们之间自由传输，无需转换，降低了字节复制的成本开销。&lt;/p&gt;
+
+&lt;p&gt;同时，KAFKA采用了MMAP(Memory Mapped Files，内存映射文件)技术。很多现代操作系统都大量使用主存做磁盘缓存，一个现代操作系统可以将内存中的所有剩余空间用作磁盘缓存，而当内存回收的时候几乎没有性能损失。&lt;/p&gt;
+
+&lt;p&gt;由于KAFKA是基于JVM的，并且任何与Java内存使用打过交道的人都知道两件事：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;对象的内存开销非常高，通常是实际要存储数据大小的两倍；&lt;/li&gt;
+&lt;li&gt;随着数据的增加，java的垃圾收集也会越来越频繁并且缓慢。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;基于此，使用文件系统，同时依赖页面缓存就比使用其他数据结构和维护内存缓存更有吸引力：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;不使用进程内缓存，就腾出了内存空间，可以用来存放页面缓存的空间几乎可以翻倍。&lt;/li&gt;
+&lt;li&gt;如果KAFKA重启，进行内缓存就会丢失，但是使用操作系统的页面缓存依然可以继续使用。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;可能有人会问KAFKA如此频繁利用页面缓存，如果内存大小不够了怎么办？&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;KAFKA会将数据写入到持久化日志中而不是刷新到磁盘。实际上它只是转移到了内核的页面缓存。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;利用文件系统并且依靠页缓存比维护一个内存缓存或者其他结构要好，它可以直接利用操作系统的页缓存来实现文件到物理内存的直接映射。完成映射之后对物理内存的操作在适当时候会被同步到硬盘上。&lt;/p&gt;
+
+&lt;p&gt;3、页缓存技术&lt;/p&gt;
+
+&lt;p&gt;为了优化读写性能，Kafka利用了操作系统本身的Page Cache，就是利用操作系统自身的内存而不是JVM空间内存。这样做的好处有：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;避免Object消耗：如果是使用 Java 堆，Java对象的内存消耗比较大，通常是所存储数据的两倍甚至更多。&lt;/li&gt;
+&lt;li&gt;避免GC问题：随着JVM中数据不断增多，垃圾回收将会变得复杂与缓慢，使用系统缓存就不会存在GC问题&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;相比于使用JVM或in-memory cache等数据结构，利用操作系统的Page Cache更加简单可靠。首先，操作系统层面的缓存利用率会更高，因为存储的都是紧凑的字节结构而不是独立的对象。其次，操作系统本身也对于Page Cache做了大量优化，提供了 write-behind、read-ahead以及flush等多种机制。再者，即使服务进程重启，系统缓存依然不会消失，避免了in-process cache重建缓存的过程。&lt;/p&gt;
+
+&lt;p&gt;通过操作系统的Page Cache，Kafka的读写操作基本上是基于内存的，读写速度得到了极大的提升。&lt;/p&gt;
+
+&lt;p&gt;4、零拷贝&lt;/p&gt;
+
+&lt;p&gt;如下所示，数据从磁盘传输到socket要经过以下几个步骤：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;操作系统将数据从磁盘读入到内核空间的页缓存&lt;/li&gt;
+&lt;li&gt;应用程序将数据从内核空间读入到用户空间缓存中&lt;/li&gt;
+&lt;li&gt;应用程序将数据写回到内核空间到socket缓存中&lt;/li&gt;
+&lt;li&gt;操作系统将数据从socket缓冲区复制到网卡缓冲区，以便将数据经网络发出&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这里有四次拷贝，两次系统调用，这是非常低效的做法。如果使用sendfile，只需要一次拷贝就行&lt;/p&gt;
+
+&lt;p&gt;linux操作系统 “零拷贝” 机制使用了sendfile方法， 允许操作系统将数据从Page Cache 直接发送到网络，只需要最后一步的copy操作将数据复制到 NIC 缓冲区， 这样避免重新复制数据 。&lt;/p&gt;
+
+&lt;p&gt;通过这种 “零拷贝” 的机制，Page Cache 结合 sendfile 方法，Kafka消费端的性能也大幅提升。这也是为什么有时候消费端在不断消费数据时，我们并没有看到磁盘io比较高，此刻正是操作系统缓存在提供数据。&lt;/p&gt;
+
+&lt;p&gt;5、批量压缩&lt;/p&gt;
+
+&lt;p&gt;在很多情况下，系统的瓶颈不是CPU或磁盘，而是网络带宽，对于需要在广域网上的数据中心之间发送消息的数据流水线尤其如此。所以数据压缩就很重要。可以每个消息都压缩，但是压缩率相对很低。所以KAFKA使用了批量压缩，即将多个消息一起压缩而不是单个消息压缩。&lt;/p&gt;
+
+&lt;p&gt;KAFKA允许使用递归的消息集合，批量的消息可以通过压缩的形式传输并且在日志中也可以保持压缩格式，直到被消费者解压缩。&lt;/p&gt;
+
+&lt;p&gt;KAFKA支持Gzip和Snappy压缩协议。&lt;/p&gt;
+
+&lt;p&gt;6、批量读写&lt;/p&gt;
+
+&lt;p&gt;Kafka数据读写也是批量的而不是单条的。&lt;/p&gt;
+
+&lt;p&gt;除了利用底层的技术外，Kafka还在应用程序层面提供了一些手段来提升性能。最明显的就是使用批次。在向Kafka写入数据时，可以启用批次写入，这样可以避免在网络上频繁传输单个消息带来的延迟和带宽开销。假设网络带宽为10MB/S，一次性传输10MB的消息比传输1KB的消息10000万次显然要快得多。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;KAFKA数据可靠性深度解读&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;KAFKA的消息保存在Topic中，Topic可分为多个分区，为保证数据的安全性，每个分区又有多个Replia。&lt;/p&gt;
+
+&lt;p&gt;多分区的设计的特点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;为了并发读写，加快读写速度；&lt;/li&gt;
+&lt;li&gt;是利用多分区的存储，利于数据的均衡；&lt;/li&gt;
+&lt;li&gt;是为了加快数据的恢复速率，一但某台机器挂了，整个集群只需要恢复一部分数据，可加快故障恢复的时间。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;每个Partition分为多个Segment，每个Segment有.log和.index 两个文件，每个log文件承载具体的数据，每条消息都有一个递增的offset，Index文件是对log文件的索引，Consumer查找offset时使用的是二分法根据文件名去定位到哪个Segment，然后解析msg，匹配到对应的offset的msg。&lt;/p&gt;
+
+&lt;p&gt;Partition recovery过程&lt;/p&gt;
+
+&lt;p&gt;每个Partition会在磁盘记录一个RecoveryPoint,，记录已经flush到磁盘的最大offset。当broker 失败重启时，会进行loadLogs。首先会读取该Partition的RecoveryPoint，找到包含RecoveryPoint的segment及以后的segment， 这些segment就是可能没有完全flush到磁盘segments。然后调用segment的recover，重新读取各个segment的msg，并重建索引。每次重启KAFKA的broker时，都可以在输出的日志看到重建各个索引的过程。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;数据同步&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Producer和Consumer都只与Leader交互，每个Follower从Leader拉取数据进行同步。&lt;/p&gt;
+
+&lt;p&gt;如上图所示，ISR是所有不落后的replica集合，不落后有两层含义：距离上次FetchRequest的时间不大于某一个值或落后的消息数不大于某一个值，Leader失败后会从ISR中随机选取一个Follower做Leader，该过程对用户是透明的。&lt;/p&gt;
+
+&lt;p&gt;当Producer向Broker发送数据时,可以通过request.required.acks参数设置数据可靠性的级别。&lt;/p&gt;
+
+&lt;p&gt;此配置是表明当一次Producer请求被认为完成时的确认值。特别是，多少个其他brokers必须已经提交了数据到它们的log并且向它们的Leader确认了这些信息。&lt;/p&gt;
+
+&lt;p&gt;典型的值：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;0： 表示Producer从来不等待来自broker的确认信息。这个选择提供了最小的时延但同时风险最大（因为当server宕机时，数据将会丢失）。&lt;/li&gt;
+&lt;li&gt;1：表示获得Leader replica已经接收了数据的确认信息。这个选择时延较小同时确保了server确认接收成功。&lt;/li&gt;
+&lt;li&gt;-1：Producer会获得所有同步replicas都收到数据的确认。同时时延最大，然而，这种方式并没有完全消除丢失消息的风险，因为同步replicas的数量可能是1。如果你想确保某些replicas接收到数据，那么你应该在Topic-level设置中选项min.insync.replicas设置一下。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;仅设置 acks= -1 也不能保证数据不丢失,当ISR列表中只有Leader时,同样有可能造成数据丢失。要保证数据不丢除了设置acks=-1，还要保证ISR的大小大于等于2。&lt;/p&gt;
+
+&lt;p&gt;具体参数设置：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;request.required.acks:设置为-1 等待所有ISR列表中的Replica接收到消息后采算写成功。&lt;/li&gt;
+&lt;li&gt;min.insync.replicas: 设置为&amp;gt;=2,保证ISR中至少两个Replica。&lt;/li&gt;
+&lt;li&gt;Producer：要在吞吐率和数据可靠性之间做一个权衡。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;KAFKA作为现代消息中间件中的佼佼者，以其速度和高可靠性赢得了广大市场和用户青睐，其中的很多设计理念都是非常值得我们学习的，本文所介绍的也只是冰山一角，希望能够对大家了解KAFKA有一定的作用。&lt;/p&gt;
+
+&lt;h1 id=&#34;kafka的应用场景&#34;&gt;Kafka的应用场景&lt;/h1&gt;
+
+&lt;h2 id=&#34;kafka用作消息系统&#34;&gt;&lt;strong&gt;Kafka用作消息系统&lt;/strong&gt;&lt;/h2&gt;
+
+&lt;p&gt;Kafka流的概念与传统企业消息系统有什么异同？&lt;/p&gt;
+
+&lt;p&gt;传统消息系统有两个模型：队列和发布-订阅系统。在队列模式中，每条服务器的消息会被消费者池中的一个所读取；而发布-订阅系统中消息会广播给所有的消费者。这两种模式各有优劣。队列模式的优势是可以将消息数据让多个消费者处理以实现程序的可扩展，然而这就导致其没有多个订阅者，只能用于一个进程。发布-订阅模式的好处在于数据可以被多个进程消费使用，但是却无法使单一程序扩展性能&lt;/p&gt;
+
+&lt;p&gt;Kafka中消费者组的概念同时涵盖了这两方面。对应于队列的概念，Kafka中每个消费者组中有多个消费者实例可以接收消息；对应于发布-订阅模式，Kafka中可以指定多个消费者组来订阅消息&lt;/p&gt;
+
+&lt;p&gt;相对传统消息系统，Kafka可以提供更强的顺序保证&lt;/p&gt;
+
+&lt;h2 id=&#34;kafka用作存储系统&#34;&gt;&lt;strong&gt;Kafka用作存储系统&lt;/strong&gt;&lt;/h2&gt;
+
+&lt;p&gt;任何发布消息与消费消息解耦的消息队列其实都可以看做是用来存放发布的消息的存储系统，而Kafka是一个非常高效的存储系统&lt;/p&gt;
+
+&lt;p&gt;写入Kafka的数据会被存入磁盘并且复制到集群中以容错。Kafka允许生产者等待数据完全复制并且确保持久化到磁盘的确认应答&lt;/p&gt;
+
+&lt;p&gt;Kafka使用的磁盘结构扩容性能很好——不管服务器上有50KB还是50TB，Kafka的表现都是一样的&lt;/p&gt;
+
+&lt;p&gt;由于能够精致的存储并且供客户端程序进行读操作，你可以把Kafka看做是一个用于高性能、低延迟的存储提交日志、复制及传播的分布式文件系统&lt;/p&gt;
+
+&lt;h2 id=&#34;kafka的流处理&#34;&gt;&lt;strong&gt;Kafka的流处理&lt;/strong&gt;&lt;/h2&gt;
+
+&lt;p&gt;仅仅读、写、存储流数据是不够的，Kafka的目的是实现实时流处理。&lt;/p&gt;
+
+&lt;p&gt;在Kafka中一个流处理器的处理流程是首先持续性的从输入主题中获取数据流，然后对其进行一些处理，再持续性地向输出主题中生产数据流。例如一个销售商应用，接收销售和发货量的输入流，输出新订单和调整后价格的输出流&lt;/p&gt;
+
+&lt;p&gt;可以直接使用producer和consumer API进行简单的处理。对于复杂的转换，Kafka提供了更强大的Streams API。可构建聚合计算或连接流到一起的复杂应用程序&lt;/p&gt;
+
+&lt;p&gt;流处理有助于解决这类应用面临的硬性问题：处理无序数据、代码更改的再处理、执行状态计算等&lt;/p&gt;
+
+&lt;p&gt;Streams API所依托的都是Kafka的核心内容：使用producer和consumer API作为输入，使用Kafka作为状态存储，在流处理实例上使用相同的组机制来实现容错&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控metrics系列---- Prometheus blackbox_exporter</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/blackbox_exporter/</link>
           <pubDate>Wed, 03 Jul 2019 10:10:09 CST</pubDate>
@@ -3683,6 +5947,170 @@ $ ./cortex -config.file=./docs/single-process-config.yaml
 &lt;/ul&gt;
 
 &lt;p&gt;目前没有看到cortex的可扩展的优秀的方面，可能是社区开发还没有完成，等release。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>分布式系列---- Distributed config</title>
+          <link>https://kingjcy.github.io/post/distributed/distributed-config/</link>
+          <pubDate>Sun, 26 May 2019 20:10:41 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/distributed/distributed-config/</guid>
+          <description>&lt;p&gt;配置信息就是程序加载时候需要设置的信息，一般我们可以通过在代码中设置，在配置文件中设置，在配置中心配置来设置我们需要的信息。&lt;/p&gt;
+
+&lt;h1 id=&#34;配置方式&#34;&gt;配置方式&lt;/h1&gt;
+
+&lt;p&gt;配置方式一般有两种：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;本地配置，包括代码中耦合，配置文件加载。&lt;/li&gt;
+&lt;li&gt;适用于分布式系统的集中式资源配置。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;本地配置&#34;&gt;本地配置&lt;/h2&gt;
+
+&lt;h3 id=&#34;代码耦合&#34;&gt;代码耦合&lt;/h3&gt;
+
+&lt;p&gt;将配置直接写在代码中很方便，但是对于后期的维护修改十分的不友好，需要重新发布才能修改完成，基本上是不用的。&lt;/p&gt;
+
+&lt;h3 id=&#34;配置文件&#34;&gt;配置文件&lt;/h3&gt;
+
+&lt;p&gt;将配置信息写在配置文件中是最常见的方式，程序自动加载配置文件的信息，然后进行处理，有需要只要修改对应的配置信息就可以，实现了对业务代码的解耦。&lt;/p&gt;
+
+&lt;p&gt;但是随着系统的发展，分布式系统的出现，我们很多实例都是通过集群的方式进行部署，这个时候在集群的每个节点上都会有一份配置文件，随着规模的扩大，修改每个节点上的配置文件又变的容易出错难以维护，因此我们需要一种集中式的配置方式。&lt;/p&gt;
+
+&lt;h2 id=&#34;集中式资源配置&#34;&gt;集中式资源配置&lt;/h2&gt;
+
+&lt;p&gt;在分布式的情况下，我们需要一个共享配置的中心，使用集中式的资源管理配置平台的好处&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;配置信息统一管理&lt;/li&gt;
+&lt;li&gt;动态获取更新配置文件&lt;/li&gt;
+&lt;li&gt;降低运维成本&lt;/li&gt;
+&lt;li&gt;降低配置出错率&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;分布式配置管理服务的本质是一个发布订阅模式的实现。&lt;/p&gt;
+
+&lt;p&gt;集中式的配置中心一般都是作为服务发现和动态注册的基础，也是我们常用的几个框架，比如zookeeper，consul，etcd等。我们一般的配置平台都是基于这些组件来实现的，目前这一块做的比较好的就是淘宝的diamonds和百度的disconf，还有一些比如携程的apollo等。&lt;/p&gt;
+
+&lt;h3 id=&#34;zookeeper&#34;&gt;zookeeper&lt;/h3&gt;
+
+&lt;p&gt;常规使用一些服务发现动态注册组件做配置中心都是一个思路，我们以zookeeper为例，看下他是如何实现分布式配置管理的&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/config/zookeeper&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;整体可以分为3部分&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;zookeeper集群
+提供了稳定的配置管理服务，对外提供了接口，外部可以添加、修改配置信息，可以监听配置的变化&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;配置管理中心
+需要自己开发，负责维护配置信息&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;各个分布式应用
+每个应用只需要调用一下ZK的接口，把自己注册到ZK，就可以自动接收配置的变化信息&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;工作流程原理也很简答&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/config/zookeeper1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&#34;diamond&#34;&gt;diamond&lt;/h3&gt;
+
+&lt;p&gt;diamond是淘宝内部使用的一个管理持久配置的系统，它的特点是简单、可靠、易用，目前淘宝内部绝大多数系统的配置，由diamond来进行统一管理。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/config/diamond&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;作为一个配置中心，diamond的功能分为发布和订阅两部分。因为diamond存放的是持久数据，这些数据的变化频率不会很高，甚至很低，所以发布采用手工的形式，通过diamond后台管理界面发布；订阅是diamond的核心功能，订阅通过diamond-client的API进行。&lt;/li&gt;
+&lt;li&gt;diamond服务端采用mysql加本地文件的形式存放配置数据。发布数据时，数据先写到mysql，再写到本地文件；订阅数据时，直接获取本地文件，不查询数据库，这样可以最大程度减少对数据库的压力。&lt;/li&gt;
+&lt;li&gt;diamond服务端是一个集群，集群中的每台机器连接同一个mysql，集群之间的数据同步通过两种方式进行，一是每台server定时去mysqldump数据到本地文件，二是某一台server接收发布数据请求，在更新完mysql和本机的本地文件后，发送一个HTTP请求（通知）到集群中的其他几台server，其他server收到通知，去mysql中将刚刚更新的数据dump到本地文件。&lt;/li&gt;
+&lt;li&gt;每一台server前端都有一个nginx，用来做流量控制。&lt;/li&gt;
+&lt;li&gt;图中没有将地址服务器画出，地址服务器是一台有域名的机器，上面运行有一个HTTPserver，其中有一个静态文件，存放着diamond服务器的地址列表。客户端启动时，根据自身的域名绑定，连接到地址服务器，取回diamond服务器的地址列表，从中随机选择一台diamond服务器进行连接。&lt;/li&gt;
+&lt;li&gt;可以看到，整个diamond的架构非常简单，使用的都是最常用的一些技术以及产品，它之所以表现得非常稳定，跟其架构简单是分不开的，当然，稳定的另一个主要原因是它具备一套比较完善的容灾机制，容灾机制将在下一篇文章中讲述。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;disconf&#34;&gt;disconf&lt;/h3&gt;
+
+&lt;p&gt;disconf是一套完整的基于zookeeper的分布式配置统一解决方案。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/config/disconf&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;每个模块的简单介绍如下：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Disconf-core
+
+&lt;ul&gt;
+&lt;li&gt;分布式通知模块：支持配置更新的实时化通知&lt;/li&gt;
+&lt;li&gt;路径管理模块：统一管理内部配置路径URL&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Disconf-client
+
+&lt;ul&gt;
+&lt;li&gt;配置仓库容器模块：统一管理用户实例中本地配置文件和配置项的内存数据存储&lt;/li&gt;
+&lt;li&gt;配置reload模块：监控本地配置文件的变动，并自动reload到指定bean&lt;/li&gt;
+&lt;li&gt;扫描模块：支持扫描所有disconf注解的类和域&lt;/li&gt;
+&lt;li&gt;下载模块：restful风格的下载配置文件和配置项&lt;/li&gt;
+&lt;li&gt;watch模块：监控远程配置文件和配置项的变化&lt;/li&gt;
+&lt;li&gt;主备分配模块：主备竞争结束后，统一管理主备分配与主备监控控制&lt;/li&gt;
+&lt;li&gt;主备竞争模块：支持分布式环境下的主备竞争&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Disconf-web
+
+&lt;ul&gt;
+&lt;li&gt;配置存储模块：管理所有配置的存储和读取&lt;/li&gt;
+&lt;li&gt;配置管理模块：支持配置的上传、下载、更新&lt;/li&gt;
+&lt;li&gt;通知模块：当配置更新后，实时通知使用这些配置的所有实例&lt;/li&gt;
+&lt;li&gt;配置自检监控模块：自动定时校验实例本地配置与中心配置是否一致&lt;/li&gt;
+&lt;li&gt;权限控制：web的简单权限控制&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;Disconf-tools
+
+&lt;ul&gt;
+&lt;li&gt;context共享模块：提供多实例间context的共享。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;原理&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/config/disconf&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;启动事件A：以下按顺序发生。
+
+&lt;ul&gt;
+&lt;li&gt;A3：扫描静态注解类数据，并注入到配置仓库里。&lt;/li&gt;
+&lt;li&gt;A4+A2：根据仓库里的配置文件、配置项，去 disconf-web 平台里下载配置数据。这里会有主备竞争&lt;/li&gt;
+&lt;li&gt;A5：将下载得到的配置数据值注入到仓库里。&lt;/li&gt;
+&lt;li&gt;A6：根据仓库里的配置文件、配置项，去ZK上监控结点。&lt;/li&gt;
+&lt;li&gt;A7+A2：根据XML配置定义，到 disconf-web 平台里下载配置文件，放在仓库里，并监控ZK结点。这里会有主备竞争。&lt;/li&gt;
+&lt;li&gt;A8：A1-A6均是处理静态类数据。A7是处理动态类数据，包括：实例化配置的回调函数类；将配置的值注入到配置实体里。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;更新配置事件B：以下按顺序发生。
+
+&lt;ul&gt;
+&lt;li&gt;B1：管理员在 Disconf-web 平台上更新配置。&lt;/li&gt;
+&lt;li&gt;B2：Disconf-web 平台发送配置更新消息给ZK指定的结点。&lt;/li&gt;
+&lt;li&gt;B3：ZK通知 Disconf-cient 模块。&lt;/li&gt;
+&lt;li&gt;B4：与A4一样。&lt;/li&gt;
+&lt;li&gt;B5：与A5一样。&lt;/li&gt;
+&lt;li&gt;B6：基本与A4一样，唯一的区别是，这里还会将配置的新值注入到配置实体里。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;主备机切换事件C：以下按顺序发生。
+
+&lt;ul&gt;
+&lt;li&gt;C1：发生主机挂机事件。&lt;/li&gt;
+&lt;li&gt;C2：ZK通知所有被影响到的备机。&lt;/li&gt;
+&lt;li&gt;C4：与A2一样。&lt;/li&gt;
+&lt;li&gt;C5：与A4一样。&lt;/li&gt;
+&lt;li&gt;C6：与A5一样。&lt;/li&gt;
+&lt;li&gt;C7：与A6一样。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;</description>
         </item>
       
     
@@ -9339,6 +11767,244 @@ func main() {
 &lt;h1 id=&#34;bits&#34;&gt;bits&lt;/h1&gt;
 
 &lt;p&gt;bits主要打包字节为预先声明的无符号整数类型实现位计数和操作函数。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>分布式系列---- 文件存储系统Fastdfs</title>
+          <link>https://kingjcy.github.io/post/distributed/store/fs/fastfs/</link>
+          <pubDate>Wed, 16 Jan 2019 20:32:58 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/distributed/store/fs/fastfs/</guid>
+          <description>&lt;p&gt;fastdfs是一个开源的轻量级分布式文件系统，是纯C语言开发的。它对文件进行管理，功能包括：文件存储、文件同步、文件访问（文件上传、文件下载）等，解决了大容量存储和负载均衡的问题。特别适合以文件为载体的在线服务，如相册网站、视频网站等等，FastDFS 针对大量小文件存储有优势。&lt;/p&gt;
+
+&lt;h1 id=&#34;安装-v5-08&#34;&gt;安装（v5.08）&lt;/h1&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;环境准备&lt;/strong&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;172.32.148.127 client&lt;/p&gt;
+
+&lt;p&gt;172.32.148.128 storage&lt;/p&gt;
+
+&lt;p&gt;172.32.148.129 tracker storage&lt;/p&gt;
+
+&lt;p&gt;172.32.148.130 storage&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;依赖libfastcommon安装&lt;/strong&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;v5版本已经不需要单独安装libevent，但是需要安装项目中的libfastcommon，所有机器都要安装，下载地址&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone https://github.com/happyfish100/libfastcommon.git
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后用自带的脚本make.sh编译安装&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./make.sh
+./make.sh install
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;fastdfs安装&lt;/strong&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;依赖安装好就开始安装fastdfs，下载压缩包fastdfs-5.08.tar.gz，所有机器进行安装&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./make.sh
+./make.sh install
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;配置文件与进程&lt;/strong&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;fastdfs安装好后在/etc/fdfs/下面会有对应的配置文件，这个项目的配置文件注释还是比较全面的，对它进行修改&lt;/p&gt;
+
+&lt;p&gt;1、tracker.conf&lt;/p&gt;
+
+&lt;p&gt;监控进程使用的配置文件，主要是配置端口，日志数据存储路径，端口一般使用配置文件默认的22122，在172.32.148.129上操作&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# the tracker server port
+port=22122
+
+# the base path to store data and log files
+base_path=/home/jcy/fastdfs/fastdfs_tracker
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后启动监控进程，到对应的路径下看日志&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fdfs_trackerd /etc/fdfs/tracker.conf start
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以ps看一下进程启动状况，也可以到日志看启动状况，也可以通过netstat来看&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;netstat -tupln|grep tracker
+#可以看到如下：
+tcp  0   0   0.0.0.0:22122   0.0.0.0:*   LISTEN   18559/fdfs_trackerd
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2、storage.conf&lt;/p&gt;
+
+&lt;p&gt;存储进程使用的配置文件，主要是指定tracker服务的地址和端口，因为存储进程要定时给监控进程发送数据信息，同group内的storage进程会相互connect，来同步文件。这些进程在172.32.148.128，172.32.148.129，172.32.148.130上进行操作。同时它也有自己的group_name和开发的端口，还有对应的日志数据路径。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;# the name of the group this storage server belongs to
+#
+# comment or remove this item for fetching from tracker server,
+# in this case, use_storage_id must set to true in tracker.conf,
+# and storage_ids.conf must be configed correctly.
+group_name=group1
+
+# the storage server port
+port=23000
+
+# the base path to store data and log files
+base_path=/home/jcy/fastdfs/fastdfs_storage
+
+# store_path#, based 0, if store_path0 not exists, it&#39;s value is base_path
+# the paths must be exist
+store_path0=/home/jcy/fastdfs/fastdfs_storage
+
+# tracker_server can ocur more than once, and tracker_server format is
+#  &amp;quot;host:port&amp;quot;, host can be hostname or ip address
+tracker_server=172.32.148.129:22122
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;启动存储进程，查看对应的情况&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;fdfs_storaged /etc/fdfs/storage.conf start
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;3、client.conf&lt;/p&gt;
+
+&lt;p&gt;客户端进行文件上传的测试,首先是对配置文件的tracker服务器地址进行配置，然后就是一些基本配置看注释就可以&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;测试文件上传&lt;/strong&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;在客户端机器172.32.148.127上进行操作：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;[jcy@pdapp17 fastdfs]$ fdfs_upload_file /etc/fdfs/client.conf a.txt
+group1/M00/00/00/rCCUgVh8lF-ATRZpAAAADw_r4o4559.txt
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;上传成功，到对应的storage进程指定的path下的data目录就可以找到对应的文件，文件会同时同步的同一个group下的所有storage上，完成备份。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本概念&#34;&gt;基本概念&lt;/h1&gt;
+
+&lt;p&gt;FastDFS服务端有三个角色：跟踪服务器（tracker server）、存储服务器（storage server）和客户端（client）。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;tracker server：跟踪服务器&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;主要做调度工作，起负载均衡的作用。在内存中记录集群中所有存储组和存储服务器的状态信息，是客户端和数据服务器交互的枢纽。相比GFS中的master更为精简，不记录文件索引信息，占用的内存量很少。&lt;/p&gt;
+
+&lt;p&gt;Tracker是FastDFS的协调者，负责管理所有的storage server和group，每个storage在启动后会连接Tracker，告知自己所属的group等信息，并保持周期性的心跳，tracker根据storage的心跳信息，建立group==&amp;gt;[storage server list]的映射表。&lt;/p&gt;
+
+&lt;p&gt;Tracker需要管理的元信息很少，会全部存储在内存中；另外tracker上的元信息都是由storage汇报的信息生成的，本身不需要持久化任何数据，这样使得tracker非常容易扩展，直接增加tracker机器即可扩展为tracker cluster来服务，cluster里每个tracker之间是完全对等的，所有的tracker都接受stroage的心跳信息，生成元数据信息来提供读写服务。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;storage server：存储服务器（又称：存储节点或数据服务器）&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;文件和文件属性（meta data）都保存到存储服务器上。Storage server直接利用OS的文件系统调用管理文件。&lt;/p&gt;
+
+&lt;p&gt;Storage server（后简称storage）以组（卷，group或volume）为单位组织，一个group内包含多台storage机器，数据互为备份，存储空间以group内容量最小的storage为准，所以建议group内的多个storage尽量配置相同，以免造成存储空间的浪费。&lt;/p&gt;
+
+&lt;p&gt;以group为单位组织存储能方便的进行应用隔离、负载均衡、副本数定制（group内storage server数量即为该group的副本数），比如将不同应用数据存到不同的group就能隔离应用数据，同时还可根据应用的访问特性来将应用分配到不同的group来做负载均衡；缺点是group的容量受单机存储容量的限制，同时当group内有机器坏掉时，数据恢复只能依赖group内地其他机器，使得恢复时间会很长。&lt;/p&gt;
+
+&lt;p&gt;group内每个storage的存储依赖于本地文件系统，storage可配置多个数据存储目录，比如有10块磁盘，分别挂载在/data/disk1-/data/disk10，则可将这10个目录都配置为storage的数据存储目录。&lt;/p&gt;
+
+&lt;p&gt;storage接受到写文件请求时，会根据配置好的规则（后面会介绍），选择其中一个存储目录来存储文件。为了避免单个目录下的文件数太多，在storage第一次启动时，会在每个数据存储目录里创建2级子目录，每级256个，总共65536个文件，新写的文件会以hash的方式被路由到其中某个子目录下，然后将文件数据直接作为一个本地文件存储到该目录中。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;client：客户端&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;作为业务请求的发起方，通过专有接口，使用TCP/IP协议与跟踪器服务器或存储节点进行数据交互。FastDFS向使用者提供基本文件访问接口，比如upload、download、append、delete等，以客户端库的方式提供给用户使用。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;group&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;组， 也可称为卷。 同组内服务器上的文件是完全相同的 ，同一组内的storage server之间是对等的， 文件上传、 删除等操作可以在任意一台storage server上进行 。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;meta data&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;文件相关属性，键值对（ Key Value Pair） 方式，如：width=1024,heigth=768 。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/fastdfs&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&#34;基本原理&#34;&gt;基本原理&lt;/h1&gt;
+
+&lt;p&gt;Tracker相当于FastDFS的大脑，不论是上传还是下载都是通过tracker来分配资源；客户端一般可以使用ngnix等静态服务器来调用或者做一部分的缓存；存储服务器内部分为卷（或者叫做组），卷于卷之间是平行的关系，可以根据资源的使用情况随时增加，卷内服务器文件相互同步备份，以达到容灾的目的。&lt;/p&gt;
+
+&lt;h2 id=&#34;上传机制&#34;&gt;上传机制&lt;/h2&gt;
+
+&lt;p&gt;首先客户端请求Tracker服务获取到存储服务器的ip地址和端口，然后客户端根据返回的IP地址和端口号请求上传文件，存储服务器接收到请求后生产文件，并且将文件内容写入磁盘并返回给客户端file_id、路径信息、文件名等信息，客户端保存相关信息上传完毕。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/upload&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;内部机制如下：&lt;/p&gt;
+
+&lt;p&gt;1、选择tracker server&lt;/p&gt;
+
+&lt;p&gt;当集群中不止一个tracker server时，由于tracker之间是完全对等的关系，客户端在upload文件时可以任意选择一个trakcer。 选择存储的group 当tracker接收到upload file的请求时，会为该文件分配一个可以存储该文件的group，支持如下选择group的规则：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1、Round robin，所有的group间轮询&lt;/li&gt;
+&lt;li&gt;2、Specified group，指定某一个确定的group&lt;/li&gt;
+&lt;li&gt;3、Load balance，剩余存储空间多多group优先&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;2、选择storage server&lt;/p&gt;
+
+&lt;p&gt;当选定group后，tracker会在group内选择一个storage server给客户端，支持如下选择storage的规则：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1、Round robin，在group内的所有storage间轮询&lt;/li&gt;
+&lt;li&gt;2、First server ordered by ip，按ip排序&lt;/li&gt;
+&lt;li&gt;3、First server ordered by priority，按优先级排序（优先级在storage上配置）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;3、选择storage path&lt;/p&gt;
+
+&lt;p&gt;当分配好storage server后，客户端将向storage发送写文件请求，storage将会为文件分配一个数据存储目录，支持如下规则：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1、Round robin，多个存储目录间轮询&lt;/li&gt;
+&lt;li&gt;2、剩余存储空间最多的优先&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;4、生成Fileid&lt;/p&gt;
+
+&lt;p&gt;选定存储目录之后，storage会为文件生一个Fileid，由storage server ip、文件创建时间、文件大小、文件crc32和一个随机数拼接而成，然后将这个二进制串进行base64编码，转换为可打印的字符串。 选择两级目录 当选定存储目录之后，storage会为文件分配一个fileid，每个存储目录下有两级256*256的子目录，storage会按文件fileid进行两次hash（猜测），路由到其中一个子目录，然后将文件以fileid为文件名存储到该子目录下。&lt;/p&gt;
+
+&lt;p&gt;5、生成文件名&lt;/p&gt;
+
+&lt;p&gt;当文件存储到某个子目录后，即认为该文件存储成功，接下来会为该文件生成一个文件名，文件名由group、存储目录、两级子目录、fileid、文件后缀名（由客户端指定，主要用于区分文件类型）拼接而成。&lt;/p&gt;
+
+&lt;h2 id=&#34;下载机制&#34;&gt;下载机制&lt;/h2&gt;
+
+&lt;p&gt;客户端带上文件名信息请求Tracker服务获取到存储服务器的ip地址和端口，然后客户端根据返回的IP地址和端口号请求下载文件，存储服务器接收到请求后返回文件给客户端。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/download&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;跟upload file一样，在download file时客户端可以选择任意tracker server。tracker发送download请求给某个tracker，必须带上文件名信息，tracke从文件名中解析出文件的group、大小、创建时间等信息，然后为该请求选择一个storage用来服务读请求。由于group内的文件同步时在后台异步进行的，所以有可能出现在读到时候，文件还没有同步到某些storage server上，为了尽量避免访问到这样的storage，tracker按照如下规则选择group内可读的storage。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1、该文件上传到的源头storage - 源头storage只要存活着，肯定包含这个文件，源头的地址被编码在文件名中。&lt;/li&gt;
+&lt;li&gt;2、文件创建时间戳==storage被同步到的时间戳 且(当前时间-文件创建时间戳) &amp;gt; 文件同步最大时间（如5分钟) - 文件创建后，认为经过最大同步时间后，肯定已经同步到其他storage了。&lt;/li&gt;
+&lt;li&gt;3、文件创建时间戳 &amp;lt; storage被同步到的时间戳。 - 同步时间戳之前的文件确定已经同步了&lt;/li&gt;
+&lt;li&gt;4、(当前时间-文件创建时间戳) &amp;gt; 同步延迟阀值（如一天）。 - 经过同步延迟阈值时间，认为文件肯定已经同步了。&lt;/li&gt;
+&lt;/ul&gt;</description>
         </item>
       
     
@@ -25593,711 +28259,6 @@ func (srv *Server) ListenAndServeTLS(certFile, keyFile string) error
     
       
         <item>
-          <title>消息队列系列---- Kafka</title>
-          <link>https://kingjcy.github.io/post/middleware/mq/kafka/</link>
-          <pubDate>Wed, 19 Jul 2017 20:21:50 CST</pubDate>
-          <author></author>
-          <guid>https://kingjcy.github.io/post/middleware/mq/kafka/</guid>
-          <description>&lt;p&gt;Apache Kafka由著名职业社交公司LinkedIn开发，最初是被设计用来解决LinkedIn公司内部海量日志传输等问题。Kafka使用Scala语言编写，于2011年开源并进入Apache孵化器，2012年10月正式毕业，现在为Apache顶级项目。Kafka是一个分布式数据流平台，具有高吞吐、低延迟、高容错等特点。&lt;/p&gt;
-
-&lt;h1 id=&#34;kafka简介&#34;&gt;Kafka简介&lt;/h1&gt;
-
-&lt;h2 id=&#34;基本术语&#34;&gt;基本术语&lt;/h2&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;消息message&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;先不管其他的，我们使用Kafka这个消息系统肯定是先关注消息这个概念，在Kafka中，每一个消息由键、值和一个时间戳组成（key、value和timestamp）&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;主题topic&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;Kafka集群存储同一类别的消息流称为主题&lt;/p&gt;
-
-&lt;p&gt;主题会有多个订阅者（0个1个或多个），当主题发布消息时，会向订阅者推送记录&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;日志 offset&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;针对每一个主题，Kafka集群维护了一个像下面这样的分区日志offset：&lt;/p&gt;
-
-&lt;p&gt;这些分区位offset于不同的服务器上，每一个分区可以看做是一个结构化的提交日志offset，每写入一条记录都会记录到其中一个分区并且分配一个唯一地标识其位置的数字称为偏移量offset&lt;/p&gt;
-
-&lt;p&gt;Kafka集群会将发布的消息保存一段时间，不管是否被消费。例如，如果设置保存天数为2天，那么从消息发布起的两天之内，该消息一直可以被消费，但是超过两天后就会被丢弃以节省空间。其次，Kafka的数据持久化性能很好，所以长时间存储数据不是问题&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;分区 Partition&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;每个topic可以有一个或多个partition（分区）。分区是在物理层面上的，不同的分区对应着不同的数据文件。Kafka使用分区支持物理上的并发写入和读取，从而大大提高了吞吐量&lt;/p&gt;
-
-&lt;p&gt;Kafka中采用分区的设计有几个目的。一是可以处理更多的消息，不受单台服务器的限制。Topic拥有多个分区意味着它可以不受限的处理更多的数据。第二，分区可以作为并行处理的单元，稍后会谈到这一点&lt;/p&gt;
-
-&lt;p&gt;Log的分区被分布到集群中的多个服务器上。每个服务器处理它分到的分区。根据配置每个分区还可以复制到其它服务器作为备份容错。 每个分区有一个leader，零或多个follower。Leader处理此分区的所有的读写请求，而follower被动的复制数据。如果leader宕机，其它的一个follower会被推举为新的leader。 一台服务器可能同时是一个分区的leader，另一个分区的follower。 这样可以平衡负载，避免所有的请求都只让一台或者某几台服务器处理。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;生产者 producer&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;生产者往某个Topic上发布消息。生产者还可以选择将消息分配到Topic的哪个节点上。最简单的方式是轮询分配到各个分区以平衡负载，也可以根据某种算法依照权重选择分区&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;消费者 consumer&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;Kafka有一个消费者组的概念，生产者把消息发到的是消费者组，在消费者组里面可以有很多个消费者实例。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;消费者组 Consumer Group&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;一个消费者组可以包含一个或多个消费者。使用多分区+多消费者方式可以极大提高数据下游的处理速度。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;节点 Broker&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;消息队列中常用的概念，在Kafka中指部署了Kafka实例的服务器节点。&lt;/p&gt;
-
-&lt;h1 id=&#34;安装部署&#34;&gt;安装部署&lt;/h1&gt;
-
-&lt;h2 id=&#34;单机&#34;&gt;单机&lt;/h2&gt;
-
-&lt;p&gt;1、安装jdk&lt;/p&gt;
-
-&lt;p&gt;以oracle jdk为例，下载地址&lt;a href=&#34;http://java.sun.com/javase/downloads/index.jsp&#34;&gt;http://java.sun.com/javase/downloads/index.jsp&lt;/a&gt;&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;yum -y install jdk-8u141-linux-x64.rpm
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;2、下载解压&lt;/p&gt;
-
-&lt;p&gt;下载地址：&lt;a href=&#34;http://kafka.apache.org/downloads，如0.10.1.0版本的Kafka下载&#34;&gt;http://kafka.apache.org/downloads，如0.10.1.0版本的Kafka下载&lt;/a&gt;&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;wget http://apache.fayea.com/kafka/0.10.1.0/kafka_2.11-0.10.1.0.tgz
-tar -xvf kafka_2.11-0.10.1.0.tgz
-cd kafka_2.11-0.10.1.0
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;修改配置&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;[root@localhost ~]# grep -Ev &amp;quot;^#|^$&amp;quot; /data/kafka/config/server.properties
-broker.id=0
-delete.topic.enable=true
-listeners=PLAINTEXT://192.168.15.131:9092
-num.network.threads=3
-num.io.threads=8
-socket.send.buffer.bytes=102400
-socket.receive.buffer.bytes=102400
-socket.request.max.bytes=104857600
-log.dirs=/data/kafka/data
-num.partitions=1
-num.recovery.threads.per.data.dir=1
-offsets.topic.replication.factor=1
-transaction.state.log.replication.factor=1
-transaction.state.log.min.isr=1
-log.flush.interval.messages=10000
-log.flush.interval.ms=1000
-log.retention.hours=168
-log.retention.bytes=1073741824
-log.segment.bytes=1073741824
-log.retention.check.interval.ms=300000
-zookeeper.connect=192.168.15.131:2181,192.168.15.132:2181,192.168.15.133:2181
-zookeeper.connection.timeout.ms=6000
-group.initial.rebalance.delay.ms=0
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;提示：其他主机将该机器的kafka目录拷贝即可，然后需要修改broker.id、listeners地址。有关kafka配置文件参数，参考：&lt;a href=&#34;http://orchome.com/12；&#34;&gt;http://orchome.com/12；&lt;/a&gt;&lt;/p&gt;
-
-&lt;p&gt;3、安装Zookeeper&lt;/p&gt;
-
-&lt;p&gt;Kafka需要Zookeeper的监控，所以先要安装Zookeeper。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;wget http://apache.forsale.plus/zookeeper/zookeeper-3.4.9/zookeeper-3.4.9.tar.gz
-tar zxf zookeeper-3.4.9.tar.gz
-mv zookeeper-3.4.9 /data/zk
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;修改配置文件内容如下所示:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;[root@localhost ~]# cat /data/zk/conf/zoo.cfg
-tickTime=2000
-initLimit=10
-syncLimit=5
-dataDir=/data/zk/data/zookeeper
-dataLogDir=/data/zk/data/logs
-clientPort=2181
-maxClientCnxns=60
-autopurge.snapRetainCount=3
-autopurge.purgeInterval=1
-
-server.1=zk01:2888:3888
-server.2=zk02:2888:3888
-server.3=zk03:2888:3888
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;参数说明：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;server.id=host:port:port:表示了不同的zookeeper服务器的自身标识，作为集群的一部分，每一台服务器应该知道其他服务器的信息。用户可以从“server.id=host:port:port” 中读取到相关信息。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;在服务器的data(dataDir参数所指定的目录)下创建一个文件名为myid的文件，这个文件的内容只有一行，指定的是自身的id值。比如，服务器“1”应该在myid文件中写入“1”。这个id必须在集群环境中服务器标识中是唯一的，且大小在1～255之间。这一样配置中，zoo1代表第一台服务器的IP地址。第一个端口号（port）是从follower连接到leader机器的
-端口，第二个端口是用来进行leader选举时所用的端口。所以，在集群配置过程中有三个非常重要的端口：clientPort：2181、port:2888、port:3888。&lt;/p&gt;
-
-&lt;p&gt;如果想更换日志输出位置，除了在zoo.cfg加入&amp;rdquo;dataLogDir=/data/zk/data/logs&amp;rdquo;外，还需要修改zkServer.sh文件，大概修改方式地方在125行左右，内容如下：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;125 ZOO_LOG_DIR=&amp;quot;$($GREP &amp;quot;^[[:space:]]*dataLogDir&amp;quot; &amp;quot;$ZOOCFG&amp;quot; | sed -e &#39;s/.*=//&#39;)&amp;quot;
-126 if [ ! -w &amp;quot;$ZOO_LOG_DIR&amp;quot; ] ; then
-127 mkdir -p &amp;quot;$ZOO_LOG_DIR&amp;quot;
-128 fi
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;在启动服务之前，还需要分别在zookeeper创建myid，方式如下：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;echo 1 &amp;gt;  /data/zk/data/zookeeper/myid
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;启动服务&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;/data/zk/bin/zkServer.sh start
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;验证服务&lt;/p&gt;
-
-&lt;p&gt;查看相关端口号&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;[root@localhost ~]# ss -lnpt|grep java
-LISTEN     0      50          :::34442                   :::*                   users:((&amp;quot;java&amp;quot;,pid=2984,fd=18))
-LISTEN     0      50       ::ffff:192.168.15.133:3888                    :::*                   users:((&amp;quot;java&amp;quot;,pid=2984,fd=26))
-LISTEN     0      50          :::2181                    :::*                   users:((&amp;quot;java&amp;quot;,pid=2984,fd=25))
-
-
-###查看zookeeper服务状态
-[root@localhost ~]# /data/zk/bin/zkServer.sh status
-
-ZooKeeper JMX enabled by default
-
-Using config: /data/zk/bin/../conf/zoo.cfgMode: follower
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;4、Kafka目录介绍&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;/bin 操作kafka的可执行脚本，还包含windows下脚本&lt;/li&gt;
-&lt;li&gt;/config 配置文件所在目录&lt;/li&gt;
-&lt;li&gt;/libs 依赖库目录&lt;/li&gt;
-&lt;li&gt;/logs 日志数据目录，目录kafka把server端日志分为5种类型，分为:server,request,state，log-cleaner，controller&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;5、启动Kafka&lt;/p&gt;
-
-&lt;p&gt;在每台服务器上进入Kafka目录，分别执行以下命令：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-server-start.sh config/server.properties &amp;amp;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;检测2181与9092端口&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;netstat -tunlp|egrep &amp;quot;(2181|9092)&amp;quot;
-tcp        0      0 :::2181                     :::*                        LISTEN      19787/java          
-tcp        0      0 :::9092                     :::*                        LISTEN      28094/java 
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;说明：&lt;/p&gt;
-
-&lt;p&gt;Kafka的进程ID为28094，占用端口为9092&lt;/p&gt;
-
-&lt;p&gt;QuorumPeerMain为对应的zookeeper实例，进程ID为19787，在2181端口监听&lt;/p&gt;
-
-&lt;p&gt;6、单机连通性测试&lt;/p&gt;
-
-&lt;p&gt;启动2个XSHELL客户端，一个用于生产者发送消息，一个用于消费者接受消息。&lt;/p&gt;
-
-&lt;p&gt;运行producer，随机敲入几个字符，相当于把这个敲入的字符消息发送给队列。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-console-producer.sh --broker-list 192.168.153.118:9092 --topic test
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;说明：早版本的Kafka，–broker-list 192.168.1.181:9092需改为–zookeeper 192.168.1.181:2181&lt;/p&gt;
-
-&lt;p&gt;运行consumer，可以看到刚才发送的消息列表。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-console-consumer.sh --zookeeper 192.168.153.118:2181 --topic test --from-beginning  
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;注意：&lt;/p&gt;
-
-&lt;p&gt;producer，指定的Socket(192.168.1.181+9092),说明生产者的消息要发往kafka，也即是broker&lt;/p&gt;
-
-&lt;p&gt;consumer, 指定的Socket(192.168.1.181+2181),说明消费者的消息来自zookeeper（协调转发）&lt;/p&gt;
-
-&lt;p&gt;上面的只是一个单个的broker，下面我们来实验一个多broker的集群。&lt;/p&gt;
-
-&lt;h2 id=&#34;集群&#34;&gt;集群&lt;/h2&gt;
-
-&lt;p&gt;搭建一个多个broker的伪集群，刚才只是启动了单个broker，现在启动有3个broker组成的集群，这些broker节点也都是在本机上。&lt;/p&gt;
-
-&lt;p&gt;1、为每一个broker提供配置文件&lt;/p&gt;
-
-&lt;p&gt;然后修改各个服务器的配置文件：进入Kafka的config目录，修改server.properties&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;# brokerid就是指各台服务器对应的id，所以各台服务器值不同
-broker.id=0
-# 端口号，无需改变
-port=9092
-# 当前服务器的IP，各台服务器值不同
-host.name=192.168.0.10
-# Zookeeper集群的ip和端口号
-zookeeper.connect=192.168.0.10:2181,192.168.0.11:2181,192.168.0.12:2181
-# 日志目录
-log.dirs=/home/www/kafka-logs
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;我们先看看config/server0.properties配置信息：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;broker.id=0
-listeners=PLAINTEXT://:9092
-port=9092
-host.name=192.168.1.181
-num.network.threads=4
-num.io.threads=8
-socket.send.buffer.bytes=102400
-socket.receive.buffer.bytes=102400
-socket.request.max.bytes=104857600
-log.dirs=/tmp/kafka-logs
-num.partitions=5
-num.recovery.threads.per.data.dir=1
-log.retention.hours=168
-log.segment.bytes=1073741824
-log.retention.check.interval.ms=300000
-log.cleaner.enable=false
-zookeeper.connect=192.168.1.181:2181
-zookeeper.connection.timeout.ms=6000
-queued.max.requests =500
-log.cleanup.policy = delete
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;说明：&lt;/p&gt;
-
-&lt;p&gt;broker.id为集群中唯一的标注一个节点，因为在同一个机器上，所以必须指定不同的端口和日志文件，避免数据被覆盖。&lt;/p&gt;
-
-&lt;p&gt;在上面单个broker的实验中，为什么kafka的端口为9092，这里可以看得很清楚。&lt;/p&gt;
-
-&lt;p&gt;kafka cluster怎么同zookeeper交互的，配置信息中也有体现。&lt;/p&gt;
-
-&lt;p&gt;那么下面，我们仿照上面的配置文件，提供2个broker的配置文件：&lt;/p&gt;
-
-&lt;p&gt;server2.properties:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;broker.id=2
-listeners=PLAINTEXT://:9094
-port=9094
-host.name=192.168.1.181
-num.network.threads=4
-num.io.threads=8
-socket.send.buffer.bytes=102400
-socket.receive.buffer.bytes=102400
-socket.request.max.bytes=104857600
-log.dirs=/tmp/kafka-logs2
-num.partitions=5
-num.recovery.threads.per.data.dir=1
-log.retention.hours=168
-log.segment.bytes=1073741824
-log.retention.check.interval.ms=300000
-log.cleaner.enable=false
-zookeeper.connect=192.168.1.181:2181
-zookeeper.connection.timeout.ms=6000
-queued.max.requests =500
-log.cleanup.policy = delete
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;2、启动所有的broker&lt;/p&gt;
-
-&lt;p&gt;命令如下：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-server-start.sh config/server0.properties &amp;amp;   #启动broker0
-bin/kafka-server-start.sh config/server1.properties &amp;amp; #启动broker1
-bin/kafka-server-start.sh config/server2.properties &amp;amp; #启动broker2
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;查看2181、9092、9093、9094端口&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;netstat -tunlp|egrep &amp;quot;(2181|9092|9093|9094)&amp;quot;
-tcp        0      0 :::9093                     :::*                        LISTEN      29725/java          
-tcp        0      0 :::2181                     :::*                        LISTEN      19787/java          
-tcp        0      0 :::9094                     :::*                        LISTEN      29800/java          
-tcp        0      0 :::9092                     :::*                        LISTEN      29572/java  
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;一个zookeeper在2181端口上监听，3个kafka cluster(broker)分别在端口9092,9093,9094监听。&lt;/p&gt;
-
-&lt;p&gt;3、创建topic&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --create --topic topic_1 --partitions 1 --replication-factor 3  \--zookeeper localhost:2181
-bin/kafka-topics.sh --create --topic topic_2 --partitions 1 --replication-factor 3  \--zookeeper localhost:2181
-bin/kafka-topics.sh --create --topic topic_3 --partitions 1 --replication-factor 3  \--zookeeper localhost:2181
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;查看topic创建情况：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --list --zookeeper localhost:2181
-test
-topic_1
-topic_2
-topic_3
-[root@atman081 kafka_2.10-0.9.0.0]# bin/kafka-topics.sh --describe --zookeeper localhost:2181
-Topic:test  PartitionCount:1  ReplicationFactor:1 Configs:
-  Topic: test Partition: 0  Leader: 0 Replicas: 0 Isr: 0
-Topic:topic_1 PartitionCount:1  ReplicationFactor:3 Configs:
-  Topic: topic_1  Partition: 0  Leader: 2 Replicas: 2,1,0 Isr: 2,1,0
-Topic:topic_2 PartitionCount:1  ReplicationFactor:3 Configs:
-  Topic: topic_2  Partition: 0  Leader: 1 Replicas: 1,2,0 Isr: 1,2,0
-Topic:topic_3 PartitionCount:1  ReplicationFactor:3 Configs:
-  Topic: topic_3  Partition: 0  Leader: 0 Replicas: 0,2,1 Isr: 0,2,1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;第一个行显示所有partitions的一个总结，以下每一行给出一个partition中的信息，如果我们只有一个partition，则只显示一行。&lt;/p&gt;
-
-&lt;p&gt;leader 是在给出的所有partitons中负责读写的节点，每个节点都有可能成为leader&lt;/p&gt;
-
-&lt;p&gt;replicas 显示给定partiton所有副本所存储节点的节点列表，不管该节点是否是leader或者是否存活。&lt;/p&gt;
-
-&lt;p&gt;isr 副本都已同步的的节点集合，这个集合中的所有节点都是存活状态，并且跟leader同步&lt;/p&gt;
-
-&lt;p&gt;4、模拟客户端发送，接受消息&lt;/p&gt;
-
-&lt;p&gt;发送消息&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-console-producer.sh --topic topic_1 --broker-list 192.168.1.181:9092,192.168.1.181:9093,192.168.1.181:9094
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;接收消息&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-console-consumer.sh --topic topic_1 --zookeeper 192.168.1.181:2181 --from-beginning
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;需要注意，此时producer将topic发布到了3个broker中，现在就有点分布式的概念了。&lt;/p&gt;
-
-&lt;p&gt;5、kill some broker&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;kill broker(id=0)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;首先，我们根据前面的配置，得到broker(id=0)应该在9092监听,这样就能确定它的PID了。&lt;/p&gt;
-
-&lt;p&gt;broker0没kill之前topic在kafka cluster中的情况&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --describe --zookeeper localhost:2181
-Topic:test  PartitionCount:1  ReplicationFactor:1 Configs:
-  Topic: test Partition: 0  Leader: 0 Replicas: 0 Isr: 0
-Topic:topic_1 PartitionCount:1  ReplicationFactor:3 Configs:
-  Topic: topic_1  Partition: 0  Leader: 2 Replicas: 2,1,0 Isr: 2,1,0
-Topic:topic_2 PartitionCount:1  ReplicationFactor:3 Configs:
-  Topic: topic_2  Partition: 0  Leader: 1 Replicas: 1,2,0 Isr: 1,2,0
-Topic:topic_3 PartitionCount:1  ReplicationFactor:3 Configs:
-  Topic: topic_3  Partition: 0  Leader: 2 Replicas: 0,2,1 Isr: 2,1,0
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;kill之后，再观察，做下对比。很明显，主要变化在于Isr，以后再分析&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --describe --zookeeper localhost:2181
-Topic:test  PartitionCount:1  ReplicationFactor:1 Configs:
-  Topic: test Partition: 0  Leader: -1  Replicas: 0 Isr: 
-Topic:topic_1 PartitionCount:1  ReplicationFactor:3 Configs:
-  Topic: topic_1  Partition: 0  Leader: 2 Replicas: 2,1,0 Isr: 2,1
-Topic:topic_2 PartitionCount:1  ReplicationFactor:3 Configs:
-  Topic: topic_2  Partition: 0  Leader: 1 Replicas: 1,2,0 Isr: 1,2
-Topic:topic_3 PartitionCount:1  ReplicationFactor:3 Configs:
-  Topic: topic_3  Partition: 0  Leader: 2 Replicas: 0,2,1 Isr: 2,1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;测试下，发送消息，接受消息，是否收到影响。&lt;/p&gt;
-
-&lt;p&gt;发送消息&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-console-producer.sh --topic topic_1 --broker-list 192.168.1.181:9092,192.168.1.181:9093,192.168.1.181:9094
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;接收消息&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-console-consumer.sh --topic topic_1 --zookeeper 192.168.1.181:2181 --from-beginning
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;可见，kafka的分布式机制，容错能力还是挺好的~&lt;/p&gt;
-
-&lt;h1 id=&#34;kafka常用命令&#34;&gt;Kafka常用命令&lt;/h1&gt;
-
-&lt;p&gt;1、新建一个主题&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --create --zookeeper hxf:2181,cfg:2181,jqs:2181,jxf:2181,sxtb:2181 --replication-factor 2 --partitions 2 --topic test
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;test有两个复制因子和两个分区&lt;/p&gt;
-
-&lt;p&gt;2、查看新建的主题&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --describe --zookeeper hxf:2181,cfg:2181,jqs:2181,jxf:2181,sxtb:2181 --topic test
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;2.8.8版本&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;./kafka-create-topic.sh --partition 1 --replica 1 --zookeeper localhost:2181 --topic test
-
-./kafka-list-topic.sh --zookeeper localhost:2181
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;我们来看一下查询的结果&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;[root@dx3 bin]# ./kafka-topics.sh --describe --zookeeper localhost:2183 --topic test
-Topic:test    PartitionCount:3    ReplicationFactor:3    Configs:
-    Topic: test    Partition: 0    Leader: 0    Replicas: 0,1,2    Isr: 0,2,1
-    Topic: test    Partition: 1    Leader: 1    Replicas: 1,2,0    Isr: 1,2,0
-    Topic: test    Partition: 2    Leader: 2    Replicas: 2,0,1    Isr: 2,0,1
-
-其中第一行是所有分区的信息，下面的每一行对应一个分区
-Leader：负责某个分区所有读写操作的节点
-Replicas：复制因子节点
-Isr：存活节点
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;所以这个Kafka集群一共三个节点，test这个Topic, 编号为0的Partition,Leader在broker.id=0这个节点上，副本在broker.id为0 1 2这个三个几点，并且所有副本都存活，并跟broker.id=0这个节点同步&lt;/p&gt;
-
-&lt;p&gt;3、查看Kafka所有的主题&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-topics.sh --list --zookeeper hxf:2181,cfg:2181,jqs:2181,jxf:2181,sxtb:2181
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;4、在终端发送消息&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-console-producer.sh --broker-list localhost:9092 --topic test
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;5、在终端接收（消费）消息&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;bin/kafka-console-consumer.sh --zookeeper hxf:2181,cfg:2181,jqs:2181,jxf:2181,sxtb:2181 --bootstrap-server localhost:9092 --topic test --from-beginning
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;我们正常情况下不会使用自带的命令行进行数据的发送和消费，我们都是使用第三方库进行&lt;a href=&#34;https://kingjcy.github.io/post/middleware/mq/kafka-client/&#34;&gt;客户端包括生产者和消费者&lt;/a&gt;的编码，实现业务的正常使用。&lt;/p&gt;
-
-&lt;h1 id=&#34;原理&#34;&gt;原理&lt;/h1&gt;
-
-&lt;p&gt;先举一个例子&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/middleware/mq/kafka/20170719.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Kafka集群有两台服务器，四个分区，此外有两个消费者组A和B，消费者组A具有2个消费者实例C1-2，消费者B具有4个消费者实例C3-6&lt;/p&gt;
-
-&lt;p&gt;例如此时我们创建了一个主题test，有两个分区，分别是Server1的P0和Server2的P1，假设此时我们通过test发布了一条消息，那么这条消息只会发到P0或P1其中之一，也就是消息只会发给其中的一个分区&lt;/p&gt;
-
-&lt;p&gt;分区接收到消息后会记录在分区日志中，记录的方式我们讲过了，就是通过offset，分区中的消息都是以k-v形式存在。k表示offset，称之为偏移量，一个64位整型的唯一标识，offset代表了Topic分区中所有消息流中该消息的起始字节位置。 v就是实际的消息内容,正因为有这个偏移量的存在，所以一个分区内的消息是有先后顺序的，即offset大的消息比offset小的消息后到。但是注意，由于消息随机发往主题的任意一个分区，因此虽然同一个分区的消息有先后顺序，但是不同分区之间的消息就没有先后顺序了，那么如果我们要求消费者顺序消费主题发的消息那该怎么办呢，此时只要在创建主题的时候只提供一个分区即可&lt;/p&gt;
-
-&lt;p&gt;讲完了主题发消息，接下来就该消费者消费消息了，假设上面test的消息发给了分区P0，此时从图中可以看到，有两个消费者组，那么P0将会把消息发到哪个消费者组呢？从图中可以看到，P0把消息既发给了消费者组A也发给了B，但是A中消息仅被C1消费，B中消息仅被C3消费。这就是我们要讲的，主题发出的消息会发往所有的消费者组，而每一个消费者组下面可以有很多消费者实例，这条消息只会被他们中的一个消费掉。&lt;/p&gt;
-
-&lt;p&gt;在多分区的情况下如何保证有序性呢？&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;1、kafka分布式的单位是partition，同一个partition用一个write ahead log组织，记录的offset，所以可以保证FIFO的顺序。&lt;/li&gt;
-&lt;li&gt;2、不同partition之间不能保证顺序。但是绝大多数用户都可以通过message key来定义，因为同一个key的message可以保证只发送到同一个partition，比如说key是user id，table row id等等，所以同一个user或者同一个record的消息永远只会发送到同一个partition上，保证了同一个user或record的顺序。&lt;/li&gt;
-&lt;li&gt;3、消费出来自己根据一些数据进行排序，比如时间。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;核心API&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;Kafka具有4个核心API：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;Producer API：用于向Kafka主题发送消息。&lt;/li&gt;
-&lt;li&gt;Consumer API：用于从订阅主题接收消息并且处理这些消息。&lt;/li&gt;
-&lt;li&gt;Streams API：作为一个流处理器，用于从一个或者多个主题中消费消息流然后为其他主题生产消息流，高效地将输入流转换为输出流。&lt;/li&gt;
-&lt;li&gt;Connector API：用于构建和运行将Kafka主题和已有应用或者数据系统连接起来的可复用的生产者或消费者。例如一个主题到一个关系型数据库的连接能够捕获表的任意变化。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;KAFKA吞吐量大的原因&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;1、消息顺序写入磁盘，并且批量处理。&lt;/p&gt;
-
-&lt;p&gt;KAFKA维护一个Topic中的分区log，以顺序追加的方式向各个分区中写入消息，每个分区都是不可变的消息队列。分区中的消息都是以k-v形式存在。&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;k表示offset，称之为偏移量，一个64位整型的唯一标识，offset代表了Topic分区中所有消息流中该消息的起始字节位置。&lt;/li&gt;
-&lt;li&gt;v就是实际的消息内容，每个分区中的每个offset都是唯一存在的，所有分区的消息都是一次写入，在消息未过期之前都可以调整offset来实现多次读取。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;我们知道现在的磁盘大多数都还是机械结构（SSD不在讨论的范围内），如果将消息以随机写的方式存入磁盘，就会按柱面、磁头、扇区的方式进行（寻址过程），缓慢的机械运动（相对内存）会消耗大量时间，导致磁盘的写入速度只能达到内存写入速度的几百万分之一，为了规避随机写带来的时间消耗，KAFKA采取顺序写的方式存储数据。&lt;/p&gt;
-
-&lt;p&gt;新来的消息只能追加到已有消息的末尾，并且已经生产的消息不支持随机删除以及随机访问，但是消费者可以通过重置offset的方式来访问已经消费过的数据。&lt;/p&gt;
-
-&lt;p&gt;即使顺序读写，过于频繁的大量小I/O操作一样会造成磁盘的瓶颈，所以KAFKA在此处的处理是把这些消息集合在一起批量发送，这样减少对磁盘IO的过度读写，而不是一次发送单个消息。&lt;/p&gt;
-
-&lt;p&gt;2、标准化二进制消息格式&lt;/p&gt;
-
-&lt;p&gt;尤其是在负载比较高的情况下无效率的字节复制影响是显着的。为了避免这种情况，KAFKA采用由Producer，broker和consumer共享的标准化二进制消息格式，这样数据块就可以在它们之间自由传输，无需转换，降低了字节复制的成本开销。&lt;/p&gt;
-
-&lt;p&gt;同时，KAFKA采用了MMAP(Memory Mapped Files，内存映射文件)技术。很多现代操作系统都大量使用主存做磁盘缓存，一个现代操作系统可以将内存中的所有剩余空间用作磁盘缓存，而当内存回收的时候几乎没有性能损失。&lt;/p&gt;
-
-&lt;p&gt;由于KAFKA是基于JVM的，并且任何与Java内存使用打过交道的人都知道两件事：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;对象的内存开销非常高，通常是实际要存储数据大小的两倍；&lt;/li&gt;
-&lt;li&gt;随着数据的增加，java的垃圾收集也会越来越频繁并且缓慢。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;基于此，使用文件系统，同时依赖页面缓存就比使用其他数据结构和维护内存缓存更有吸引力：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;不使用进程内缓存，就腾出了内存空间，可以用来存放页面缓存的空间几乎可以翻倍。&lt;/li&gt;
-&lt;li&gt;如果KAFKA重启，进行内缓存就会丢失，但是使用操作系统的页面缓存依然可以继续使用。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;可能有人会问KAFKA如此频繁利用页面缓存，如果内存大小不够了怎么办？&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;KAFKA会将数据写入到持久化日志中而不是刷新到磁盘。实际上它只是转移到了内核的页面缓存。
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;利用文件系统并且依靠页缓存比维护一个内存缓存或者其他结构要好，它可以直接利用操作系统的页缓存来实现文件到物理内存的直接映射。完成映射之后对物理内存的操作在适当时候会被同步到硬盘上。&lt;/p&gt;
-
-&lt;p&gt;3、页缓存技术&lt;/p&gt;
-
-&lt;p&gt;为了优化读写性能，Kafka利用了操作系统本身的Page Cache，就是利用操作系统自身的内存而不是JVM空间内存。这样做的好处有：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;避免Object消耗：如果是使用 Java 堆，Java对象的内存消耗比较大，通常是所存储数据的两倍甚至更多。&lt;/li&gt;
-&lt;li&gt;避免GC问题：随着JVM中数据不断增多，垃圾回收将会变得复杂与缓慢，使用系统缓存就不会存在GC问题&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;相比于使用JVM或in-memory cache等数据结构，利用操作系统的Page Cache更加简单可靠。首先，操作系统层面的缓存利用率会更高，因为存储的都是紧凑的字节结构而不是独立的对象。其次，操作系统本身也对于Page Cache做了大量优化，提供了 write-behind、read-ahead以及flush等多种机制。再者，即使服务进程重启，系统缓存依然不会消失，避免了in-process cache重建缓存的过程。&lt;/p&gt;
-
-&lt;p&gt;通过操作系统的Page Cache，Kafka的读写操作基本上是基于内存的，读写速度得到了极大的提升。&lt;/p&gt;
-
-&lt;p&gt;4、零拷贝&lt;/p&gt;
-
-&lt;p&gt;如下所示，数据从磁盘传输到socket要经过以下几个步骤：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;操作系统将数据从磁盘读入到内核空间的页缓存&lt;/li&gt;
-&lt;li&gt;应用程序将数据从内核空间读入到用户空间缓存中&lt;/li&gt;
-&lt;li&gt;应用程序将数据写回到内核空间到socket缓存中&lt;/li&gt;
-&lt;li&gt;操作系统将数据从socket缓冲区复制到网卡缓冲区，以便将数据经网络发出&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;这里有四次拷贝，两次系统调用，这是非常低效的做法。如果使用sendfile，只需要一次拷贝就行&lt;/p&gt;
-
-&lt;p&gt;linux操作系统 “零拷贝” 机制使用了sendfile方法， 允许操作系统将数据从Page Cache 直接发送到网络，只需要最后一步的copy操作将数据复制到 NIC 缓冲区， 这样避免重新复制数据 。&lt;/p&gt;
-
-&lt;p&gt;通过这种 “零拷贝” 的机制，Page Cache 结合 sendfile 方法，Kafka消费端的性能也大幅提升。这也是为什么有时候消费端在不断消费数据时，我们并没有看到磁盘io比较高，此刻正是操作系统缓存在提供数据。&lt;/p&gt;
-
-&lt;p&gt;5、批量压缩&lt;/p&gt;
-
-&lt;p&gt;在很多情况下，系统的瓶颈不是CPU或磁盘，而是网络带宽，对于需要在广域网上的数据中心之间发送消息的数据流水线尤其如此。所以数据压缩就很重要。可以每个消息都压缩，但是压缩率相对很低。所以KAFKA使用了批量压缩，即将多个消息一起压缩而不是单个消息压缩。&lt;/p&gt;
-
-&lt;p&gt;KAFKA允许使用递归的消息集合，批量的消息可以通过压缩的形式传输并且在日志中也可以保持压缩格式，直到被消费者解压缩。&lt;/p&gt;
-
-&lt;p&gt;KAFKA支持Gzip和Snappy压缩协议。&lt;/p&gt;
-
-&lt;p&gt;6、批量读写&lt;/p&gt;
-
-&lt;p&gt;Kafka数据读写也是批量的而不是单条的。&lt;/p&gt;
-
-&lt;p&gt;除了利用底层的技术外，Kafka还在应用程序层面提供了一些手段来提升性能。最明显的就是使用批次。在向Kafka写入数据时，可以启用批次写入，这样可以避免在网络上频繁传输单个消息带来的延迟和带宽开销。假设网络带宽为10MB/S，一次性传输10MB的消息比传输1KB的消息10000万次显然要快得多。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;KAFKA数据可靠性深度解读&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;KAFKA的消息保存在Topic中，Topic可分为多个分区，为保证数据的安全性，每个分区又有多个Replia。&lt;/p&gt;
-
-&lt;p&gt;多分区的设计的特点：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;为了并发读写，加快读写速度；&lt;/li&gt;
-&lt;li&gt;是利用多分区的存储，利于数据的均衡；&lt;/li&gt;
-&lt;li&gt;是为了加快数据的恢复速率，一但某台机器挂了，整个集群只需要恢复一部分数据，可加快故障恢复的时间。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;每个Partition分为多个Segment，每个Segment有.log和.index 两个文件，每个log文件承载具体的数据，每条消息都有一个递增的offset，Index文件是对log文件的索引，Consumer查找offset时使用的是二分法根据文件名去定位到哪个Segment，然后解析msg，匹配到对应的offset的msg。&lt;/p&gt;
-
-&lt;p&gt;Partition recovery过程&lt;/p&gt;
-
-&lt;p&gt;每个Partition会在磁盘记录一个RecoveryPoint,，记录已经flush到磁盘的最大offset。当broker 失败重启时，会进行loadLogs。首先会读取该Partition的RecoveryPoint，找到包含RecoveryPoint的segment及以后的segment， 这些segment就是可能没有完全flush到磁盘segments。然后调用segment的recover，重新读取各个segment的msg，并重建索引。每次重启KAFKA的broker时，都可以在输出的日志看到重建各个索引的过程。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;数据同步&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;Producer和Consumer都只与Leader交互，每个Follower从Leader拉取数据进行同步。&lt;/p&gt;
-
-&lt;p&gt;如上图所示，ISR是所有不落后的replica集合，不落后有两层含义：距离上次FetchRequest的时间不大于某一个值或落后的消息数不大于某一个值，Leader失败后会从ISR中随机选取一个Follower做Leader，该过程对用户是透明的。&lt;/p&gt;
-
-&lt;p&gt;当Producer向Broker发送数据时,可以通过request.required.acks参数设置数据可靠性的级别。&lt;/p&gt;
-
-&lt;p&gt;此配置是表明当一次Producer请求被认为完成时的确认值。特别是，多少个其他brokers必须已经提交了数据到它们的log并且向它们的Leader确认了这些信息。&lt;/p&gt;
-
-&lt;p&gt;典型的值：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;0： 表示Producer从来不等待来自broker的确认信息。这个选择提供了最小的时延但同时风险最大（因为当server宕机时，数据将会丢失）。&lt;/li&gt;
-&lt;li&gt;1：表示获得Leader replica已经接收了数据的确认信息。这个选择时延较小同时确保了server确认接收成功。&lt;/li&gt;
-&lt;li&gt;-1：Producer会获得所有同步replicas都收到数据的确认。同时时延最大，然而，这种方式并没有完全消除丢失消息的风险，因为同步replicas的数量可能是1。如果你想确保某些replicas接收到数据，那么你应该在Topic-level设置中选项min.insync.replicas设置一下。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;仅设置 acks= -1 也不能保证数据不丢失,当ISR列表中只有Leader时,同样有可能造成数据丢失。要保证数据不丢除了设置acks=-1，还要保证ISR的大小大于等于2。&lt;/p&gt;
-
-&lt;p&gt;具体参数设置：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;request.required.acks:设置为-1 等待所有ISR列表中的Replica接收到消息后采算写成功。&lt;/li&gt;
-&lt;li&gt;min.insync.replicas: 设置为&amp;gt;=2,保证ISR中至少两个Replica。&lt;/li&gt;
-&lt;li&gt;Producer：要在吞吐率和数据可靠性之间做一个权衡。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;KAFKA作为现代消息中间件中的佼佼者，以其速度和高可靠性赢得了广大市场和用户青睐，其中的很多设计理念都是非常值得我们学习的，本文所介绍的也只是冰山一角，希望能够对大家了解KAFKA有一定的作用。&lt;/p&gt;
-
-&lt;h1 id=&#34;kafka的应用场景&#34;&gt;Kafka的应用场景&lt;/h1&gt;
-
-&lt;h2 id=&#34;kafka用作消息系统&#34;&gt;&lt;strong&gt;Kafka用作消息系统&lt;/strong&gt;&lt;/h2&gt;
-
-&lt;p&gt;Kafka流的概念与传统企业消息系统有什么异同？&lt;/p&gt;
-
-&lt;p&gt;传统消息系统有两个模型：队列和发布-订阅系统。在队列模式中，每条服务器的消息会被消费者池中的一个所读取；而发布-订阅系统中消息会广播给所有的消费者。这两种模式各有优劣。队列模式的优势是可以将消息数据让多个消费者处理以实现程序的可扩展，然而这就导致其没有多个订阅者，只能用于一个进程。发布-订阅模式的好处在于数据可以被多个进程消费使用，但是却无法使单一程序扩展性能&lt;/p&gt;
-
-&lt;p&gt;Kafka中消费者组的概念同时涵盖了这两方面。对应于队列的概念，Kafka中每个消费者组中有多个消费者实例可以接收消息；对应于发布-订阅模式，Kafka中可以指定多个消费者组来订阅消息&lt;/p&gt;
-
-&lt;p&gt;相对传统消息系统，Kafka可以提供更强的顺序保证&lt;/p&gt;
-
-&lt;h2 id=&#34;kafka用作存储系统&#34;&gt;&lt;strong&gt;Kafka用作存储系统&lt;/strong&gt;&lt;/h2&gt;
-
-&lt;p&gt;任何发布消息与消费消息解耦的消息队列其实都可以看做是用来存放发布的消息的存储系统，而Kafka是一个非常高效的存储系统&lt;/p&gt;
-
-&lt;p&gt;写入Kafka的数据会被存入磁盘并且复制到集群中以容错。Kafka允许生产者等待数据完全复制并且确保持久化到磁盘的确认应答&lt;/p&gt;
-
-&lt;p&gt;Kafka使用的磁盘结构扩容性能很好——不管服务器上有50KB还是50TB，Kafka的表现都是一样的&lt;/p&gt;
-
-&lt;p&gt;由于能够精致的存储并且供客户端程序进行读操作，你可以把Kafka看做是一个用于高性能、低延迟的存储提交日志、复制及传播的分布式文件系统&lt;/p&gt;
-
-&lt;h2 id=&#34;kafka的流处理&#34;&gt;&lt;strong&gt;Kafka的流处理&lt;/strong&gt;&lt;/h2&gt;
-
-&lt;p&gt;仅仅读、写、存储流数据是不够的，Kafka的目的是实现实时流处理。&lt;/p&gt;
-
-&lt;p&gt;在Kafka中一个流处理器的处理流程是首先持续性的从输入主题中获取数据流，然后对其进行一些处理，再持续性地向输出主题中生产数据流。例如一个销售商应用，接收销售和发货量的输入流，输出新订单和调整后价格的输出流&lt;/p&gt;
-
-&lt;p&gt;可以直接使用producer和consumer API进行简单的处理。对于复杂的转换，Kafka提供了更强大的Streams API。可构建聚合计算或连接流到一起的复杂应用程序&lt;/p&gt;
-
-&lt;p&gt;流处理有助于解决这类应用面临的硬性问题：处理无序数据、代码更改的再处理、执行状态计算等&lt;/p&gt;
-
-&lt;p&gt;Streams API所依托的都是Kafka的核心内容：使用producer和consumer API作为输入，使用Kafka作为状态存储，在流处理实例上使用相同的组机制来实现容错&lt;/p&gt;</description>
-        </item>
-      
-    
-      
-        <item>
           <title>监控metrics系列---- Prometheus入门</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/prometheus/</link>
           <pubDate>Thu, 29 Jun 2017 16:31:54 CST</pubDate>
@@ -28211,330 +30172,6 @@ else
 CAS的好处是不需要程序去创建临界区，而是让CPU去把两个指令变成原子性操作，性能更好，但是如果变量会被频繁更改的话，重试的次数变多反而会使得效率不如加锁高。&lt;/p&gt;
 
 &lt;p&gt;在golang中也提供了CAS机制，也就是Goroutine 通过 atomic进行安全读写共享变量。&lt;/p&gt;</description>
-        </item>
-      
-    
-      
-        <item>
-          <title>分布式系列---- Event And Distributed Event</title>
-          <link>https://kingjcy.github.io/post/distributed/distributed-event/</link>
-          <pubDate>Fri, 07 Apr 2017 14:53:56 CST</pubDate>
-          <author></author>
-          <guid>https://kingjcy.github.io/post/distributed/distributed-event/</guid>
-          <description>&lt;p&gt;事务提供一种机制将一个活动涉及的所有操作纳入到一个不可分割的执行单元，组成事务的所有操作只有在所有操作均能正常执行的情况下方能提交，只要其中任一操作执行失败，都将导致整个事务的回滚。简单地说，事务提供一种“要么什么都不做，要么做全套（All or Nothing）”机制。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/event&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;h1 id=&#34;数据库事务&#34;&gt;数据库事务&lt;/h1&gt;
-
-&lt;p&gt;数据库事务中的四大特性，ACID:&lt;/p&gt;
-
-&lt;p&gt;A:原子性(Atomicity)&lt;/p&gt;
-
-&lt;p&gt;一个事务(transaction)中的所有操作，要么全部完成，要么全部不完成，不会结束在中间某个环节。事务在执行过程中发生错误，会被回滚（Rollback）到事务开始前的状态，就像这个事务从来没有执行过一样。
-就像你买东西要么交钱收货一起都执行，要么要是发不出货，就退钱。&lt;/p&gt;
-
-&lt;p&gt;C:一致性(Consistency)&lt;/p&gt;
-
-&lt;p&gt;事务的一致性指的是在一个事务执行之前和执行之后数据库都必须处于一致性状态。如果事务成功地完成，那么系统中所有变化将正确地应用，系统处于有效状态。如果在事务中出现错误，那么系统中的所有变化将自动地回滚，系统返回到原始状态。&lt;/p&gt;
-
-&lt;p&gt;I:隔离性(Isolation)&lt;/p&gt;
-
-&lt;p&gt;指的是在并发环境中，当不同的事务同时操纵相同的数据时，每个事务都有各自的完整数据空间。由并发事务所做的修改必须与任何其他并发事务所做的修改隔离。事务查看数据更新时，数据所处的状态要么是另一事务修改它之前的状态，要么是另一事务修改它之后的状态，事务不会查看到中间状态的数据。
-打个比方，你买东西这个事情，是不影响其他人的。&lt;/p&gt;
-
-&lt;p&gt;D:持久性(Durability)&lt;/p&gt;
-
-&lt;p&gt;指的是只要事务成功结束，它对数据库所做的更新就必须永久保存下来。即使发生系统崩溃，重新启动数据库系统后，数据库还能恢复到事务成功结束时的状态。
-打个比方，你买东西的时候需要记录在账本上，即使老板忘记了那也有据可查。&lt;/p&gt;
-
-&lt;p&gt;正常数据库操作：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;1. 开始会话
-2. 开始事务
-3. 操作1，2，3，4。。。。
-4. 提交／回滚事务
-5. 完成会话
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;很清晰的看出什么是事务。&lt;/p&gt;
-
-&lt;h1 id=&#34;分布式事务&#34;&gt;分布式事务&lt;/h1&gt;
-
-&lt;p&gt;分布式事务就是指事务的参与者、支持事务的服务器、资源服务器以及事务管理器分别位于不同的分布式系统的不同节点之上。简单的说，就是一次大的操作由不同的小操作组成，这些小的操作分布在不同的服务器上，且属于不同的应用，分布式事务需要保证这些小操作要么全部成功，要么全部失败。本质上来说，分布式事务就是为了保证不同数据库的数据一致性。&lt;/p&gt;
-
-&lt;h2 id=&#34;分布式事务产生的原因&#34;&gt;分布式事务产生的原因&lt;/h2&gt;
-
-&lt;p&gt;从上面本地事务来看，我们可以看为两块，一个是service产生多个节点（微服务，将服务拆分成多个，然后按一定步骤调用，但是属于一个事务），另一个是resource（多个数据中心，分库分表）产生多个节点。&lt;/p&gt;
-
-&lt;p&gt;举个互联网常用的交易业务为例&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/event1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;上图中包含了库存和订单两个独立的微服务，每个微服务维护了自己的数据库。&lt;/p&gt;
-
-&lt;p&gt;在交易系统的业务逻辑中，一个商品在下单之前需要先调用库存服务，进行扣除库存，再调用订单服务，创建订单记录。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/event2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;可以看到，如果多个数据库之间的数据更新没有保证事务，将会导致出现子系统数据不一致，业务出现问题。&lt;/p&gt;
-
-&lt;h2 id=&#34;分布式事务的难点&#34;&gt;分布式事务的难点&lt;/h2&gt;
-
-&lt;p&gt;事务的原子性&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;事务操作跨不同节点，当多个节点某一节点操作失败时，需要保证多节点操作的要么什么都不做，要么做全套（All or Nothing）的原子性。
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;事务的一致性&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;当发生网络传输故障或者节点故障，节点间数据复制通道中断，在进行事务操作时需要保证数据一致性，保证事务的任何操作都不会使得数据违反数据库定义的约束、触发器等规则。
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;事务的隔离性&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;事务隔离性的本质就是如何正确处理多个并发事务的读写冲突和写写冲突，因为在分布式事务控制中，可能会出现提交不同步的现象，这个时候就有可能出现“部分已经提交”的事务。
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;此时并发应用访问数据如果没有加以控制，有可能出现“脏读”问题。&lt;/p&gt;
-
-&lt;p&gt;这些的最终影响是导致数据出现不一致，可见现在基本的ACID四大特性，已经无法满足我们分布式事务，所以引入了CAP定理，又被叫作布鲁尔定理。&lt;/p&gt;
-
-&lt;h2 id=&#34;cap-base&#34;&gt;CAP&amp;amp;BASE&lt;/h2&gt;
-
-&lt;p&gt;在分布式系统中，一致性(Consistency)、可用性(Availability)和分区容忍性(Partition Tolerance)3 个要素最多只能同时满足两个，不可兼得。其中，分区容忍性又是不可或缺的。&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;C (一致性):分布式环境下，多个节点的数据是否强一致。&lt;/li&gt;
-&lt;li&gt;A (可用性)：非故障的节点在合理的时间内返回合理的响应(不是错误和超时的响应)。可用性的两个关键一个是合理的时间，一个是合理的响应。合理的时间指的是请求不能无限被阻塞，应该在合理的时间给出返回。合理的响应指的是系统应该明确返回结果并且结果是正确的，这里的正确指的是比如应该返回50，而不是返回40。&lt;/li&gt;
-&lt;li&gt;P (分区容错性):当出现网络分区后，系统能够继续工作。打个比方，这里个集群有多台机器，有台机器网络出现了问题，但是这个集群仍然可以正常工作。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;根据时间证明cap不能共存。比舍弃其中一个，看使用场景取舍。比如Cassandra、Dynamo 等，默认优先选择 AP，弱化 C;HBase、MongoDB 等，默认优先选择 CP，弱化 A。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/cap&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;两阶段提交协议(简称2PC)是实现分布式事务较为经典的方案，但 2PC 的可扩展性很差，在分布式架构下应用代价较大,mysql的分布式集群就是使用这个分布式事务的解决方法。&lt;/p&gt;
-
-&lt;p&gt;eBay 架构师 Dan Pritchett 提出了 BASE 理论，用于解决大规模分布式系统下的数据一致性问题。&lt;/p&gt;
-
-&lt;p&gt;BASE 理论告诉我们：可以通过放弃系统在每个时刻的强一致性来换取系统的可扩展性。&lt;/p&gt;
-
-&lt;p&gt;BASE 是 Basically Available(基本可用)、Soft state(软状态)和 Eventually consistent (最终一致性)三个短语的缩写。是对CAP中AP的一个扩展&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;基本可用:分布式系统在出现故障时，允许损失部分可用功能，保证核心功能可用。&lt;/li&gt;
-&lt;li&gt;软状态:允许系统中存在中间状态，这个状态不影响系统可用性，这里指的是CAP中的不一致。&lt;/li&gt;
-&lt;li&gt;最终一致:最终一致是指经过一段时间后，所有节点数据都将会达到一致。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;它的核心思想是即使无法做到强一致性（CAP 的一致性就是强一致性），但应用可以采用适合的方式达到最终一致性。&lt;/p&gt;
-
-&lt;p&gt;这里的关键词是“一定时间” 和 “最终”，“一定时间”和数据的特性是强关联的，不同业务不同数据能够容忍的不一致时间是不同的。&lt;/p&gt;
-
-&lt;p&gt;例如支付类业务是要求秒级别内达到一致，因为用户时时关注；用户发的最新微博，可以容忍 30 分钟内达到一致的状态，因为用户短时间看不到明星发的微博是无感知的。&lt;/p&gt;
-
-&lt;p&gt;而“最终”的含义就是不管多长时间，最终还是要达到一致性的状态。&lt;/p&gt;
-
-&lt;p&gt;BASE 理论本质上是对 CAP 的延伸和补充，更具体地说，是对 CAP 中 AP 方案的一个补充：CAP 理论是忽略延时的，而实际应用中延时是无法避免的。&lt;/p&gt;
-
-&lt;p&gt;这一点就意味着完美的 CP 场景是不存在的，即使是几毫秒的数据复制延迟，在这几毫秒时间间隔内，系统是不符合 CP 要求的。&lt;/p&gt;
-
-&lt;p&gt;因此 CAP 中的 CP 方案，实际上也是实现了最终一致性，只是“一定时间”是指几毫秒而已。&lt;/p&gt;
-
-&lt;p&gt;AP 方案中牺牲一致性只是指发生分区故障期间，而不是永远放弃一致性。&lt;/p&gt;
-
-&lt;p&gt;这一点其实就是 BASE 理论延伸的地方，分区期间牺牲一致性，但分区故障恢复后，系统应该达到最终一致性。&lt;/p&gt;
-
-&lt;h2 id=&#34;数据一致性模型&#34;&gt;数据一致性模型&lt;/h2&gt;
-
-&lt;p&gt;前面介绍的 BASE 模型提过“强一致性”和“最终一致性”，下面对这些一致性模型展开介绍。&lt;/p&gt;
-
-&lt;p&gt;分布式系统通过复制数据来提高系统的可靠性和容错性，并且将数据的不同的副本存放在不同的机器上，由于维护数据副本的一致性代价很高，因此许多系统采用弱一致性来提高性能。&lt;/p&gt;
-
-&lt;p&gt;下面介绍常见的一致性模型：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;强一致性：要求无论更新操作是在哪个数据副本上执行，之后所有的读操作都要能获得最新的数据。 对于单副本数据来说，读写操作是在同一数据上执行的，容易保证强一致性。对多副本数据来说，则需要使用分布式事务协议。&lt;/li&gt;
-&lt;li&gt;弱一致性：在这种一致性下，用户读到某一操作对系统特定数据的更新需要一段时间，我们将这段时间称为&amp;rdquo;不一致性窗口&amp;rdquo;。&lt;/li&gt;
-&lt;li&gt;最终一致性：是弱一致性的一种特例，在这种一致性下系统保证用户最终能够读取到某操作对系统特定数据的更新（读取操作之前没有该数据的其他更新操作）。 &amp;ldquo;不一致性窗口&amp;rdquo;的大小依赖于交互延迟、系统的负载，以及数据的副本数等。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;系统选择哪种一致性模型取决于应用对一致性的需求，所选取的一致性模型还会影响到系统如何处理用户的请求以及对副本维护技术的选择等。&lt;/p&gt;
-
-&lt;p&gt;后面将基于上面介绍的一致性模型分别介绍分布式事务的解决方案。&lt;/p&gt;
-
-&lt;h1 id=&#34;分布式事务解决方案&#34;&gt;分布式事务解决方案&lt;/h1&gt;
-
-&lt;p&gt;有了上面的理论基础后，这里介绍开始介绍几种常见的分布式事务的解决方案。&lt;/p&gt;
-
-&lt;h2 id=&#34;两阶段提交-2pc-two-phase-commit-方案-强一致性-还有3pc&#34;&gt;两阶段提交（2PC, Two Phase Commit）方案（强一致性），还有3PC&lt;/h2&gt;
-
-&lt;p&gt;mysql使用的这种模式。核心就是通过事务协调器将多个事务合并为一个大的事务。&lt;/p&gt;
-
-&lt;p&gt;基于XA协议的两阶段提交:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;第一阶段是表决阶段，所有参与者都将本事务能否成功的信息反馈发给协调者；&lt;/li&gt;
-&lt;li&gt;第二阶段是执行阶段，协调者根据所有参与者的反馈，通知所有参与者，步调一致地在所有分支上提交或者回滚;&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/2pc&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod11&#34; alt=&#34;&#34; /&gt;
-&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod12&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;缺点：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;单点问题：事务管理器在整个流程中扮演的角色很关键，如果其宕机，比如在第一阶段已经完成，在第二阶段正准备提交的时候事务管理器宕机，资源管理器就会一直阻塞，导致数据库无法使用。&lt;/li&gt;
-&lt;li&gt;同步阻塞：在准备就绪之后，资源管理器中的资源一直处于阻塞，直到提交完成，释放资源。&lt;/li&gt;
-&lt;li&gt;数据不一致：两阶段提交协议虽然为分布式数据强一致性所设计，但仍然存在数据不一致性的可能。比如：在第二阶段中，假设协调者发出了事务 Commit 的通知，但是因为网络问题该通知仅被一部分参与者所收到并执行了 Commit 操作，其余的参与者则因为没有收到通知一直处于阻塞状态，这时候就产生了数据的不一致性。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;总的来说，XA 协议比较简单，成本较低，但是其单点问题，以及不能支持高并发(由于同步阻塞)依然是其最大的弱点。&lt;/p&gt;
-
-&lt;h2 id=&#34;基于可靠消息的最终一致性方案&#34;&gt;基于可靠消息的最终一致性方案&lt;/h2&gt;
-
-&lt;p&gt;本地消息表的方案最初是由 eBay 提出，核心思路是将分布式事务拆分成本地事务进行处理。通过可靠消息系统进行同步，可以是各种消息中间件，也可以是MQ等。&lt;/p&gt;
-
-&lt;p&gt;业务处理服务在业务事务提交之前，向实时消息服务请求发送消息，实时消息服务只记录消息数据，而不是真正的发送。业务处理服务在业务事务提交之后，向实时消息服务确认发送。只有在得到确认发送指令后，实时消息服务才会真正发送。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;方案通过在事务主动发起方额外新建事务消息表，事务发起方处理业务和记录事务消息在本地事务中完成，轮询事务消息表的数据发送事务消息，事务被动方基于消息中间件消费事务消息表中的事务。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;实例&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;下面把分布式事务最先开始处理的事务方称为事务主动方，在事务主动方之后处理的业务内的其他事务称为事务被动方。&lt;/p&gt;
-
-&lt;p&gt;为了方便理解，下面继续以电商下单为例进行方案解析，这里把整个过程简单分为扣减库存，订单创建 2 个步骤。&lt;/p&gt;
-
-&lt;p&gt;库存服务和订单服务分别在不同的服务器节点上，其中库存服务是事务主动方，订单服务是事务被动方。&lt;/p&gt;
-
-&lt;p&gt;事务的主动方需要额外新建事务消息表，用于记录分布式事务的消息的发生、处理状态。&lt;/p&gt;
-
-&lt;p&gt;整个业务处理流程如下：&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod10&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;步骤1：事务主动方处理本地事务。&lt;/p&gt;
-
-&lt;p&gt;事务主动方在本地事务中处理业务更新操作和写消息表操作。上面例子中库存服务阶段在本地事务中完成扣减库存和写消息表(图中 1、2)。&lt;/p&gt;
-
-&lt;p&gt;步骤 2：事务主动方通过消息中间件，通知事务被动方处理事务通知事务待消息。
-消息中间件可以基于 Kafka、RocketMQ 消息队列，事务主动方主动写消息到消息队列，事务消费方消费并处理消息队列中的消息。&lt;/p&gt;
-
-&lt;p&gt;上面例子中，库存服务把事务待处理消息写到消息中间件，订单服务消费消息中间件的消息，完成新增订单（图中 3 - 5）。&lt;/p&gt;
-
-&lt;p&gt;步骤 3：事务被动方通过消息中间件，通知事务主动方事务已处理的消息。
-上面例子中，订单服务把事务已处理消息写到消息中间件，库存服务消费中间件的消息，并将事务消息的状态更新为已完成(图中 6 - 8)。&lt;/p&gt;
-
-&lt;p&gt;为了数据的一致性，当处理错误需要重试，事务发送方和事务接收方相关业务处理需要支持幂等。&lt;/p&gt;
-
-&lt;p&gt;具体保存一致性的容错处理如下：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;当步骤 1 处理出错，事务回滚，相当于什么都没发生。&lt;/li&gt;
-&lt;li&gt;当步骤 2、步骤 3 处理出错，由于未处理的事务消息还是保存在事务发送方，事务发送方可以定时轮询为超时消息数据，再次发送到消息中间件进行处理。事务被动方消费事务消息重试处理。&lt;/li&gt;
-&lt;li&gt;如果是业务上的失败，事务被动方可以发消息给事务主动方进行回滚。&lt;/li&gt;
-&lt;li&gt;如果多个事务被动方已经消费消息，事务主动方需要回滚事务时需要通知事务被动方回滚。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;h2 id=&#34;tcc事务补偿型方案-原子性-最终一致性&#34;&gt;TCC事务补偿型方案（原子性，最终一致性）&lt;/h2&gt;
-
-&lt;p&gt;某业务模型如图，由服务 A、服务B、服务C、服务D 共同组成的一个微服务架构系统。服务A 需要依次调用服务B、服务C 和服务D 共同完成一个操作。当服务A 调用服务D 失败时，若要保证整个系统数据的一致性，就要对服务B 和服务C 的invoke 操作进行回滚，执行反向的revert 操作。回滚成功后，整个微服务系统是数据一致的。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod22&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;实现：一个完整的业务活动由一个主业务服务于若干的从业务服务组成。主业务服务负责发起并完成整个业务活动。从业务服务提供TCC型业务操作。业务活动管理器控制业务活动的一致性，它登记业务活动的操作，并在业务活动提交时确认所有的TCC型操作的Confirm操作，在业务活动取消时调用所有TCC型操作的Cancel操作。&lt;/li&gt;
-&lt;li&gt;成本：实现TCC操作的成本较高，业务活动结束的时候Confirm和Cancel操作的执行成本。业务活动的日志成本。TCC 的 Try、Confirm 和 Cancel 操作功能要按具体业务来实现，业务耦合度较高，提高了开发成本。&lt;/li&gt;
-&lt;li&gt;使用范围：强隔离性，严格一致性要求的业务活动。适用于执行时间较短的业务，比如处理账户或者收费等等。&lt;/li&gt;
-&lt;li&gt;特点：不与具体的服务框架耦合，位于业务服务层，而不是资源层，可以灵活的选择业务资源的锁定粒度。TCC里对每个服务资源操作的是本地事务，数据被锁住的时间短，可扩展性好，可以说是为独立部署的SOA服务而设计的。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;TCC方案很少用人使用，因为事务回滚操作实际上是严重依赖于手动编写代码来进行回滚和补偿操作，这样的话就会造成补偿代码过多，使得项目非常难以维护。比较适合的场景就是除非真的一致性要求非常高，是系统中的核心业务场景，例如常见的就是资金类的场景，那可以用TCC方案。&lt;/p&gt;
-
-&lt;p&gt;实例&lt;/p&gt;
-
-&lt;p&gt;为了方便理解，下面以电商下单为例进行方案解析，这里把整个过程简单分为扣减库存，订单创建 2 个步骤，库存服务和订单服务分别在不同的服务器节点上。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;Try 阶段&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;从执行阶段来看，与传统事务机制中业务逻辑相同。但从业务角度来看，却不一样。&lt;/p&gt;
-
-&lt;p&gt;TCC 机制中的 Try 仅是一个初步操作，它和后续的确认一起才能真正构成一个完整的业务逻辑，这个阶段主要完成：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;完成所有业务检查( 一致性 ) 。&lt;/li&gt;
-&lt;li&gt;预留必须业务资源( 准隔离性 ) 。&lt;/li&gt;
-&lt;li&gt;Try 尝试执行业务。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;TCC 事务机制以初步操作（Try）为中心的，确认操作（Confirm）和取消操作（Cancel）都是围绕初步操作（Try）而展开。&lt;/p&gt;
-
-&lt;p&gt;因此，Try 阶段中的操作，其保障性是最好的，即使失败，仍然有取消操作（Cancel）可以将其执行结果撤销。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod23&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;假设商品库存为 100，购买数量为 2，这里检查和更新库存的同时，冻结用户购买数量的库存，同时创建订单，订单状态为待确认。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;Confirm / Cancel 阶段&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;根据 Try 阶段服务是否全部正常执行，继续执行确认操作（Confirm）或取消操作（Cancel）。&lt;/p&gt;
-
-&lt;p&gt;Confirm 和 Cancel 操作满足幂等性，如果 Confirm 或 Cancel 操作执行失败，将会不断重试直到执行完成。&lt;/p&gt;
-
-&lt;p&gt;Confirm：当 Try 阶段服务全部正常执行， 执行确认业务逻辑操作&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod24&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;这里使用的资源一定是 Try 阶段预留的业务资源。在 TCC 事务机制中认为，如果在 Try 阶段能正常的预留资源，那 Confirm 一定能完整正确的提交。&lt;/p&gt;
-
-&lt;p&gt;Confirm 阶段也可以看成是对 Try 阶段的一个补充，Try+Confirm 一起组成了一个完整的业务逻辑。&lt;/p&gt;
-
-&lt;p&gt;Cancel：当 Try 阶段存在服务执行失败， 进入 Cancel 阶段&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod25&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Cancel 取消执行，释放 Try 阶段预留的业务资源，上面的例子中，Cancel 操作会把冻结的库存释放，并更新订单状态为取消。&lt;/p&gt;
-
-&lt;h2 id=&#34;最大努力通知型-弱一致性&#34;&gt;最大努力通知型（弱一致性）&lt;/h2&gt;
-
-&lt;pre&gt;&lt;code&gt;实现：业务活动的主动方在完成处理之后向业务活动的被动方发送消息，允许消息丢失。业务活动的被动方根据定时策略，向业务活动的主动方查询，恢复丢失的业务消息。
-约束：被动方的处理结果不影响主动方的处理结果。
-成本：业务查询与校对系统的建设成本。
-使用范围：对业务最终一致性的时间敏感度低。跨企业的业务活动。
-特点：业务活动的主动方在完成业务处理之后，向业务活动的被动方发送通知消息。主动方可以设置时间阶梯通知规则，在通知失败后按规则重复通知，知道通知N次后不再通知。主动方提供校对查询接口给被动方按需校对查询，用户恢复丢失的业务消息。
-适用范围：银行通知，商户通知。
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/event/mothod3.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;最大努力通知方案的主要思路如下：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;系统A本地事务执行完毕之后，发送个消息到消息服务MQ&lt;/li&gt;
-&lt;li&gt;这里会有个专门消费消息服务MQ的最大努力通知服务，该服务会消费消息服务MQ，然后写入数据库中记录下来或者是放入个内存队列，接下来调用系统B的接口&lt;/li&gt;
-&lt;li&gt;要是系统B执行成功就ok了；要是系统B执行失败了，那么最大努力通知服务就定时尝试重新调用系统B，反复N次，最后还是失败就放弃。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;目前国内互联网公司大都是这么玩儿的，要不你使用RocketMQ支持的，要不你就基于其他MQ中间件自己封装一套类似的逻辑，总之思路就是这样的。其实就是MQ是上面可靠消息的一种，这边只是强调不一定可靠，还有通知。&lt;/p&gt;
-
-&lt;h1 id=&#34;总结&#34;&gt;总结&lt;/h1&gt;
-
-&lt;p&gt;从应用角度看，分布式事务的现实场景常常无法规避，在有能力给出其他解决方案前，2PC也是一个不错的选择。&lt;/p&gt;
-
-&lt;p&gt;对购物转账等电商和金融业务，中间件层的2PC最大问题在于业务不可见，一旦出现不可抗力或意想不到的一致性破坏，如数据节点永久性宕机，业务难以根据2PC的日志进行补偿。金融场景下，数据一致性是命根，业务需要对数据有百分之百的掌控力，建议使用TCC这类分布式事务模型，或基于消息队列的柔性事务框架，这两种方案都在业务层实现，业务开发者具有足够掌控力，可以结合SOA框架来架构，包括Dubbo、Spring Cloud等&lt;/p&gt;</description>
         </item>
       
     
@@ -33646,530 +35283,6 @@ func (o *ObjectStructure) Accept(v IVisitor) {
 &lt;li&gt;特殊场景，观察者模式，这类就是用于注册观察通知的使用方式.
         单例,全局一份。
         适配器，将两个不一样的结构进行适配。。。还有好几个，可以具体去看，这边就不一一列举了。&lt;/li&gt;
-&lt;/ol&gt;</description>
-        </item>
-      
-    
-      
-        <item>
-          <title>分布式系列---- 分布式存储</title>
-          <link>https://kingjcy.github.io/post/distributed/store/store/</link>
-          <pubDate>Thu, 15 Dec 2016 20:21:18 CST</pubDate>
-          <author></author>
-          <guid>https://kingjcy.github.io/post/distributed/store/store/</guid>
-          <description>&lt;p&gt;分布式存储是相对于集中式存储来说的，分布式存储是一个大的概念，其包含的种类繁多，除了传统意义上的分布式文件系统、分布式块存储和分布式对象存储外，还包括分布式数据库和分布式缓存等。&lt;/p&gt;
-
-&lt;h1 id=&#34;块存储&#34;&gt;块存储&lt;/h1&gt;
-
-&lt;p&gt;我们需要先理解一下块的概念：块级是指以扇区为基础，一个或我连续的扇区组成一个块，也叫物理块。它是在文件系统与块设备（例如：磁盘驱动器）之间。&lt;/p&gt;
-
-&lt;p&gt;块存储主要是将裸磁盘空间整个映射给主机使用的。比如磁盘阵列里面有5块硬盘，每个硬盘1G，然后可以通过划逻辑盘、做Raid、或者LVM（逻辑卷）等种种方式逻辑划分出N个逻辑的硬盘。假设划分完的逻辑盘也是5个，每个也是1G，但是这5个1G的逻辑盘已经于原来的5个物理硬盘意义完全不同了。比如第一个逻辑硬盘A里面，可能第一个200M是来自物理硬盘1，第二个200M是来自物理硬盘2，所以逻辑硬盘A是由多个物理硬盘逻辑虚构出来的硬盘。&lt;/p&gt;
-
-&lt;p&gt;块存储会采用映射的方式将这几个逻辑盘映射给主机，主机上面的操作系统会识别到有5块硬盘，但是操作系统是区分不出到底是逻辑还是物理的，它一概就认为只是5块裸的物理硬盘而已，跟直接拿一块物理硬盘挂载到操作系统没有区别的，至少操作系统感知上没有区别。&lt;/p&gt;
-
-&lt;p&gt;优点&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;磁盘组合变大容量，几块磁盘可以并发读写，提供读写效率&lt;/li&gt;
-&lt;li&gt;直接雨磁盘进行交互，能满足一些需要直接裸盘映射的需求，比如数据库&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;缺点&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;需要网络连接，成本高&lt;/li&gt;
-&lt;li&gt;数据无法在不同主机，不同操作系统之间共享&lt;/li&gt;
-&lt;li&gt;相对来说，效率低下&lt;/li&gt;
-&lt;li&gt;不能形象展示&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;简单来说，块存储就是直接与磁盘打交道，比如数据库需要将数据直接映射到磁盘上，就需要用到块存储，一般现在就是数据库在使用块存储，其他的应用都使用更加高级的文件存储，甚至对象存储。通常使用块存储的都是系统而非用户，在市场上并没有很多的块存储的产品，大多数都是数据库直接使用，目前只知道&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/ceph/ceph/&#34;&gt;ceph&lt;/a&gt;在对象存储的基础上提供了块存储的能力RDB。&lt;/p&gt;
-
-&lt;h1 id=&#34;文件存储&#34;&gt;文件存储&lt;/h1&gt;
-
-&lt;p&gt;我们需要先理解一下文件的概念：文件级是指文件系统，单个文件可能由于一个或多个逻辑块组成，且逻辑块之间是不连续分布。逻辑块大于或等于物理块整数倍，与上面的块之间的关系是扇区→物理块→逻辑块→文件系统。&lt;/p&gt;
-
-&lt;p&gt;计算机中所有的数据都是0和1，存储在硬件介质上的一连串的01组合对我们来说完全无法去分辨以及管理。因此我们用“文件”这个概念对这些数据进行组织，所有用于同一用途的数据，按照不同应用程序要求的结构方式组成不同类型的文件（通常用不同的后缀来指代不同的类型），然后我们给每一个文件起一个方便理解记忆的名字。而当文件很多的时候，我们按照某种划分方式给这些文件分组，每一组文件放在同一个目录（或者叫文件夹）里面，当然我们也需要给这些目录起一个容易理解和记忆的名字。而且目录下面除了文件还可以有下一级目录（称之为子目录或者子文件夹），所有的文件、目录形成一个树状结构&lt;/p&gt;
-
-&lt;p&gt;把存储介质上的数据组织成目录-子目录-文件这种形式的数据结构，用于从这个结构中寻找、添加、修改、删除文件的程序，以及用于维护这个结构的程序，组成的系统有一个专用的名字：文件系统（File System）。&lt;/p&gt;
-
-&lt;p&gt;文件系统有很多，常见的有Windows的FAT/FAT32/NTFS，Linux的EXT2/EXT3/EXT4/XFS/BtrFS等。而在网络存储中，底层数据并非存储在本地的存储介质，而是另外一台服务器上，不同的客户端都可以用类似文件系统的方式访问这台服务器上的文件，这样的系统叫网络文件系统（Network File System），常见的网络文件系统有Windows网络的CIFS（也叫SMB）、类Unix系统网络的NFS等。而文件存储除了网络文件系统外，FTP、HTTP其实也算是文件存储的某种特殊实现，都是可以通过某个url来访问一个文件。&lt;/p&gt;
-
-&lt;p&gt;优点&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;形象，使用方便&lt;/li&gt;
-&lt;li&gt;网络文件系统可以实现共享&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;缺点&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;需要文件系统的协调&lt;/li&gt;
-&lt;li&gt;由于封装速度变慢&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;其实文件系统是我们最常使用的，分布式文件系统也是一步步演化过来的:&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;单机时代&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;初创时期由于时间紧迫，在各种资源有限的情况下，通常就直接在项目目录下建立静态文件夹，用于用户存放项目中的文件资源。如果按不同类型再细分，可以在项目目录下再建立不同的子目录来区分。例如：resources\static\file、resources\static\img等。&lt;/p&gt;
-
-&lt;p&gt;优点：这样做比较便利，项目直接引用就行，实现起来也简单，无需任何复杂技术，保存数据库记录和访问起来也很方便。&lt;/p&gt;
-
-&lt;p&gt;缺点：如果只是后台系统的使用一般也不会有什么问题，但是作为一个前端网站使用的话就会存在弊端。一方面，文件和代码耦合在一起，文件越多存放越混乱；另一方面，如果流量比较大，静态文件访问会占据一定的资源，影响正常业务进行，不利于网站快速发展。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;独立文件服务器&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;随着公司业务不断发展，将代码和文件放在同一服务器的弊端就会越来越明显。为了解决上面的问题引入独立图片服务器，工作流程如下：项目上传文件时，首先通过ftp或者ssh将文件上传到图片服务器的某个目录下，再通过ngnix或者apache来访问此目录下的文件，返回一个独立域名的图片URL地址，前端使用文件时就通过这个URL地址读取。&lt;/p&gt;
-
-&lt;p&gt;优点：图片访问是很消耗服务器资源的（因为会涉及到操作系统的上下文切换和磁盘I/O操作），分离出来后，Web/App服务器可以更专注发挥动态处理的能力；独立存储，更方便做扩容、容灾和数据迁移；方便做图片访问请求的负载均衡，方便应用各种缓存策略（HTTP Header、Proxy Cache等），也更加方便迁移到CDN。&lt;/p&gt;
-
-&lt;p&gt;缺点：单机存在性能瓶颈，容灾、垂直扩展性稍差&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;分布式文件系统&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;通过独立文件服务器可以解决一些问题，如果某天存储文件的那台服务突然down了怎么办？可能你会说，定时将文件系统备份，这台down机的时候，迅速切换到另一台就OK了，但是这样处理需要人工来干预。另外，当存储的文件超过100T的时候怎么办？单台服务器的性能问题？这个时候我们就应该考虑分布式文件系统了。&lt;/p&gt;
-
-&lt;p&gt;业务继续发展，单台服务器存储和响应也很快到达了瓶颈，新的业务需要文件访问具有高响应性、高可用性来支持系统。分布式文件系统，一般分为三块内容来配合，服务的存储、访问的仲裁系统，文件存储系统，文件的容灾系统来构成，仲裁系统相当于文件服务器的大脑，根据一定的算法来决定文件存储的位置，文件存储系统负责保存文件，容灾系统负责文件系统和自己的相互备份。&lt;/p&gt;
-
-&lt;p&gt;优点：扩展能力: 毫无疑问，扩展能力是一个分布式文件系统最重要的特点；高可用性: 在分布式文件系统中，高可用性包含两层，一是整个文件系统的可用性，二是数据的完整和一致性；弹性存储: 可以根据业务需要灵活地增加或缩减数据存储以及增删存储池中的资源，而不需要中断系统运行&lt;/p&gt;
-
-&lt;p&gt;缺点：系统复杂度稍高，需要更多服务器&lt;/p&gt;
-
-&lt;p&gt;文件存储其实就是在块存储之上包装出来的，有了文件的概念，加上文件系统的管理，更加形象的记录展示使用，是我们最长使用的方式。其实在分布式文件系统之前，我们也是经常使用文件来存储的，比如日志，比如持久化数据等。只不过随着数据量的越来越多，数据共享需求越来越多，我们需要使用分布式存储系统，我们常用的分布式文件存储系统有很多，比如&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/nfs/&#34;&gt;NFS&lt;/a&gt;(nfs主要是在共享，还不能算分布式，不过确实是存在网络节点上的。)，&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/glusterfs/&#34;&gt;glusterfs&lt;/a&gt;，&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/fastfs/&#34;&gt;fastdfs&lt;/a&gt;，&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/hfds/&#34;&gt;hdfs&lt;/a&gt;等，包括上面块存储&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/fs/ceph/ceph/&#34;&gt;ceph&lt;/a&gt;也提供了文件存储。&lt;/p&gt;
-
-&lt;h1 id=&#34;对象存储&#34;&gt;对象存储&lt;/h1&gt;
-
-&lt;p&gt;对象存储就是面向对象的存储，英文是Object-based Storage。现在很多云厂商，也直接称之为“云存储”。以下是对象存储出现的主要原因：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;数据量爆炸式增长。Web应用的崛起、社交需求的刺激，极大地推动了多媒体内容的创作和分享。人们开始上传大量的照片、音乐、视频，加剧了数据量的爆发。&lt;/li&gt;
-&lt;li&gt;非结构化数据的占比显著增加。图像、音频、视频、word文章、演示胶片这样的数据，就是非结构化数据。2020年（也就是今年），全球数据总量的80%，将是非结构化数据。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;所以对象存储&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;能够处理大量非结构化数据的数据存储架构，我们日常生活中见到的文档、文本、图片、XML, HTML、各类报表、音视频信息等等都是非结构化数据。据统计，自社交网络发展以来，非结构化数据占总数据量的75%。。&lt;/li&gt;
-&lt;li&gt;扁平结构：对象存储中没有文件夹的概念，所有数据均存储在同一个层级中，你不需要知道他存在哪里，只需要通过“凭证”就可以快速获取数据。&lt;/li&gt;
-&lt;li&gt;弹性扩容：可以通过分布式多节点快速扩容。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;目前有&lt;a href=&#34;https://kingjcy.github.io/post/distributed/store/oss/&#34;&gt;很多公有云提供对象存储&lt;/a&gt;，比如阿里云的OSS,华为云的OBS，腾讯云的COS，七牛云Kodo，百度云BOS，网易云NOS。通过提供的SDK就可以访问。如果不想用公有云的话，也有一些开源方案可以自己搭建，比如ceph，minio。&lt;/p&gt;
-
-&lt;p&gt;在对象存储系统里，你不能直接打开/修改文件，只能先下载、修改，再上传文件。（如果大家用过百度网盘或ftp服务，一定可以秒懂。），所以只是一个存储系统，而不是我们的文件系统。所以我们也需要块存储和文件存储。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;为什么对象存储兼具块存储与文件存储的好处，还要使用块存储或文件存储呢？&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;1、有一类应用是需要存储直接裸盘映射的，例如数据库。因为数据库需要存储裸盘映射给自己后，再根据自己的数据库文件系统来对裸盘进行格式化的，所以是不能够采用其他已经被格式化为某种文件系统的存储的。此类应用更适合使用块存储。&lt;/p&gt;
-
-&lt;p&gt;2、对象存储的成本比起普通的文件存储还是较高，需要购买专门的对象存储软件以及大容量硬盘。如果对数据量要求不是海量，只是为了做文件共享的时候，直接用文件存储的形式好了，性价比高。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;基本原理&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;对象存储最常用的方案，就是多台服务器内置大容量硬盘，再装上对象存储软件，然后再额外搞几台服务作为管理节点，安装上对象存储管理软件。管理节点可以管理其他服务器对外提供读写访问功能。其实就是一个文件存储或者块存储的分布式管理系统方案。&lt;/p&gt;
-
-&lt;p&gt;比如AT32这种文件系统，是直接将一份文件的数据与metadata一起存储的，存储过程先将文件按照文件系统的最小块大小来打散（如4M的文件，假设文件系统要求一个块4K，那么就将文件打散成为1000个小块），再写进硬盘里面，过程中没有区分数据/metadata的。而每个块最后会告知你下一个要读取的块的地址，然后一直这样顺序地按图索骥，最后完成整份文件的所有块的读取。这种情况下读写速率很慢，因为就算你有100个机械手臂在读写，但是由于你只有读取到第一个块，才能知道下一个块在哪里，其实相当于只能有1个机械手臂在实际工作。&lt;/p&gt;
-
-&lt;p&gt;而对象存储则将元数据独立了出来，控制节点叫元数据服务器（服务器+对象存储管理软件），里面主要负责存储对象的属性（主要是对象的数据被打散存放到了那几台分布式服务器中的信息），而其他负责存储数据的分布式服务器叫做OSD，主要负责存储文件的数据部分。当用户访问对象，会先访问元数据服务器，元数据服务器只负责反馈对象存储在哪些OSD，假设反馈文件A存储在B、C、D三台OSD，那么用户就会再次直接访问3台OSD服务器去读取数据。这时候由于是3台OSD同时对外传输数据，所以传输的速度就加快了。当OSD服务器数量越多，这种读写速度的提升就越大，通过此种方式，实现了读写快的目的。&lt;/p&gt;
-
-&lt;p&gt;另一方面，对象存储软件是有专门的文件系统的，所以OSD对外又相当于文件服务器，那么就不存在文件共享方面的困难了，也解决了文件共享方面的问题。&lt;/p&gt;
-
-&lt;h1 id=&#34;总结&#34;&gt;总结&lt;/h1&gt;
-
-&lt;ul&gt;
-&lt;li&gt;1、所有的存储底层都是硬盘。&lt;/li&gt;
-&lt;li&gt;2、块存储，操作对象是磁盘。存储协议是SCSI、iSCSI、FC，以 SCSI 为例，主要接口命令有 Read/Write/Read Capacity/Inquiry 等等。比如DAS和SAN，基于物理块的存储方式。&lt;/li&gt;
-&lt;li&gt;3、文件存储，操作对象是文件和文件夹。存储协议是NFS、SAMBA（SMB）、POSIX等。以NFS（大家应该都用过“网上邻居”共享文件吧？就是那个）为例，文件相关的接口命令包括：READ/WRITE/CREATE/REMOVE/RENAME/LOOKUP/ACCESS 等等，文件夹相关的接口命令包括：MKDIR/RMDIR/READDIR 等等。&lt;/li&gt;
-&lt;li&gt;4、对象存储，主要操作对象是对象（Object）。存储协议是S3、Swift等。以 S3 为例，主要接口命令有 PUT/GET/DELETE 等。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;h1 id=&#34;架构&#34;&gt;架构&lt;/h1&gt;
-
-&lt;p&gt;分布式存储的基本架构无非就是中心控制和无中心结构，无中心架构也是中心架构的中心瓶颈发展而成的，其实不管是分布式存储还是其他分布式实现，使用中心架构都会出现性能瓶颈，都在往无中心化架构的实现方法发展，使用最多的就是哈希映射思想。&lt;/p&gt;
-
-&lt;h2 id=&#34;中间控制节点架构-hdfs&#34;&gt;中间控制节点架构（HDFS）&lt;/h2&gt;
-
-&lt;p&gt;分布式存储最早是由谷歌提出的，其目的是通过廉价的服务器来提供使用与大规模，高并发场景下的Web访问问题。如图3是谷歌分布式存储（HDFS）的简化的模型。在该系统的整个架构中将服务器分为两种类型，一种名为namenode，这种类型的节点负责管理管理数据（元数据），另外一种名为datanode，这种类型的服务器负责实际数据的管理。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/hdfs&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;上图分布式存储中，如果客户端需要从某个文件读取数据，首先从namenode获取该文件的位置（具体在哪个datanode），然后从该位置获取具体的数据。在该架构中namenode通常是主备部署，而datanode则是由大量节点构成一个集群。由于元数据的访问频度和访问量相对数据都要小很多，因此namenode通常不会成为性能瓶颈，而datanode集群可以分散客户端的请求。因此，通过这种分布式存储架构可以通过横向扩展datanode的数量来增加承载能力，也即实现了动态横向扩展的能力。&lt;/p&gt;
-
-&lt;h2 id=&#34;完全无中心架构&#34;&gt;完全无中心架构&lt;/h2&gt;
-
-&lt;h3 id=&#34;计算模式-ceph&#34;&gt;计算模式（Ceph）&lt;/h3&gt;
-
-&lt;p&gt;如图是Ceph存储系统的架构，在该架构中与HDFS不同的地方在于该架构中没有中心节点。客户端是通过一个设备映射关系计算出来其写入数据的位置，这样客户端可以直接与存储节点通信，从而避免中心节点的性能瓶颈。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/ceph&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;在Ceph存储系统架构中核心组件有Mon服务、OSD服务和MDS服务等。对于块存储类型只需要Mon服务、OSD服务和客户端的软件即可。其中Mon服务用于维护存储系统的硬件逻辑关系，主要是服务器和硬盘等在线信息。Mon服务通过集群的方式保证其服务的可用性。OSD服务用于实现对磁盘的管理，实现真正的数据读写，通常一个磁盘对应一个OSD服务。
-客户端访问存储的大致流程是，客户端在启动后会首先从Mon服务拉取存储资源布局信息，然后根据该布局信息和写入数据的名称等信息计算出期望数据的位置（包含具体的物理服务器信息和磁盘信息），然后该位置信息直接通信，读取或者写入数据。&lt;/p&gt;
-
-&lt;p&gt;底层是RADOS，这是个标准的对象存储。以RADOS为基础，Ceph 能够提供文件，块和对象三种存储服务。其中通过RBD提供出来的块存储是比较有价值的地方，毕竟因为市面上开源的分布式块存储少见嘛（以前倒是有个sheepdog，但是现在不当红了）。当然它也通过CephFS模块和相应的私有Client提供了文件服务，这也是很多人认为Ceph是个文件系统的原因。另外它自己原生的对象存储可以通过RadosGW存储网关模块向外提供对象存储服务，并且和对象存储的事实标准Amazon S3以及Swift兼容。所以能看出来这其实是个大一统解决方案，啥都齐全。&lt;/p&gt;
-
-&lt;h3 id=&#34;一致性哈希-swift&#34;&gt;一致性哈希（Swift）&lt;/h3&gt;
-
-&lt;p&gt;与Ceph的通过计算方式获得数据位置的方式不同，另外一种方式是通过一致性哈希的方式获得数据位置。一致性哈希的方式就是将设备做成一个哈希环，然后根据数据名称计算出的哈希值映射到哈希环的某个位置，从而实现数据的定位。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/swift&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;如图是一致性哈希的基本原理，为了绘制简单，本文以一个服务器上的一个磁盘为例进行介绍。为了保证数据分配的均匀性及出现设备故障时数据迁移的均匀性，一致性哈希将磁盘划分为比较多的虚拟分区，每个虚拟分区是哈希环上的一个节点。整个环是一个从0到32位最大值的一个区间，并且首尾相接。当计算出数据（或者数据名称）的哈希值后，必然落到哈希环的某个区间，然后以顺时针，必然能够找到一个节点。那么，这个节点就是存储数据的位置。
-Swift存储的整个数据定位算法就是基于上述一致性哈希实现的。在Swift对象存储中，通过账户名/容器名/对象名三个名称组成一个位置的标识，通过该唯一标识可以计算出一个整型数来。而在存储设备方面，Swift构建一个虚拟分区表，表的大小在创建集群是确定（通常为几十万），这个表其实就是一个数组。这样，根据上面计算的整数值，以及这个数组，通过一致性哈希算法就可以确定该整数在数组的位置。而数组中的每项内容是数据3个副本（也可以是其它副本数量）的设备信息（包含服务器和磁盘等信息）。也就是经过上述计算，可以确定一个数据存储的具体位置。这样，Swift就可以将请求重新定向到该设备进行处理。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/swift2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;上述计算过程是在一个名为Proxy的服务中进行的，该服务可以集群化部署。因此可以分摊请求的负载，不会成为性能瓶颈。&lt;/p&gt;</description>
-        </item>
-      
-    
-      
-        <item>
-          <title>分布式系列---- 文件存储系统glusterfs</title>
-          <link>https://kingjcy.github.io/post/distributed/store/fs/glusterfs/</link>
-          <pubDate>Thu, 15 Dec 2016 20:21:18 CST</pubDate>
-          <author></author>
-          <guid>https://kingjcy.github.io/post/distributed/store/fs/glusterfs/</guid>
-          <description>&lt;p&gt;GlusterFS (Gluster File System) 是一个开源的分布式文件系统，是 Scale-Out 存储解决方案 Gluster 的核心，具有强大的横向扩展能力，通过扩展能够支持数PB存储容量和处理数千客户端。GlusterFS 借助 TCP/IP 或 InfiniBand RDMA 网络将物理分布的存储资源聚集在一起，使用单一全局命名空间来管理数据,基于可堆叠的用户空间设计，可为各种不同的数据负载提供优异的性能。&lt;/p&gt;
-
-&lt;h1 id=&#34;基本概念&#34;&gt;基本概念&lt;/h1&gt;
-
-&lt;p&gt;1、Brick：GlusterFS中的存储单元，通过是一个受信存储池中的服务器的一个导出目录。可以通过主机名和目录名来标识，如&amp;rsquo;SERVER:EXPORT&amp;rsquo;。&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;Brick是一个节点和一个导出目录的集合，e.g. node1:/brick1&lt;/li&gt;
-&lt;li&gt;Brick是底层的RAID或磁盘经XFS或ext4文件系统格式化而来，所以继承了文件系统的限制&lt;/li&gt;
-&lt;li&gt;每个节点上的brick数是不限的&lt;/li&gt;
-&lt;li&gt;理想的状况是，一个集群的所有Brick大小都一样。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;2、Node：一个拥有若干brick的设备。&lt;/p&gt;
-
-&lt;p&gt;3、Trusted Storage Pool：一堆存储节点的集合&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;通过一个节点“邀请”其他节点创建，这里叫probe&lt;/li&gt;
-&lt;li&gt;成员可以动态加入，动态删除&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;4、GFID：GlusterFS卷中的每个文件或目录都有一个唯一的128位的数据相关联，其用于模拟inode&lt;/p&gt;
-
-&lt;p&gt;5、Namespace：每个Gluster卷都导出单个ns作为POSIX的挂载点。&lt;/p&gt;
-
-&lt;p&gt;6、Volume：一组bricks的逻辑集合，Volume是一个可挂载的目录。支持如下种类：&lt;/p&gt;
-
-&lt;p&gt;a) 分布式卷：默认模式，DHT&lt;/p&gt;
-
-&lt;p&gt;又称哈希卷，近似于RAID0，文件没有分片，文件根据hash算法写入各个节点的硬盘上，优点是容量大，缺点是没冗余。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;# gluster volume create test-volume server1:/exp1 server2:/exp2 server3:/exp3 server4:/exp4
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs3&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;b) 条带卷&lt;/p&gt;
-
-&lt;p&gt;相当于raid0，文件是分片均匀写在各个节点的硬盘上的，优点是分布式读写，性能整体较好。缺点是没冗余，分片随机读写可能会导致硬盘IOPS饱和。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;# gluster volume create test-volume stripe 2 transport tcp server1:/exp1 server2:/exp2
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs4&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;c) 复制卷（复制模式，AFR）&lt;/p&gt;
-
-&lt;p&gt;相当于raid1，复制的份数，决定集群的大小，通常与分布式卷或者条带卷组合使用，解决前两种存储卷的冗余缺陷。缺点是磁盘利用率低。复本卷在创建时可指定复本的数量，通常为2或者3，复本在存储时会在卷的不同brick上，因此有几个复本就必须提供至少多个brick，当其中一台服务器失效后，可以从另一台服务器读取数据，因此复制GlusterFS卷提高了数据可靠性的同事，还提供了数据冗余的功能。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;# gluster volume create test-volume replica 2 transport tcp server1:/exp1 server2:/exp2
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs5.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;d) 分布式复制卷&lt;/p&gt;
-
-&lt;p&gt;最少需要4台服务器。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;# gluster volume create test-volume replica 2 transport tcp server1:/exp1 server2:/exp2 server3:/exp3 server4:/exp4
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs6&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;e) 分布式条带复制卷&lt;/p&gt;
-
-&lt;p&gt;当单个文件的体型十分巨大，客户端数量更多时，条带卷已经无法满足需求，此时将分布式与条带化结合起来是一个比较好的选择。其性能与服务器数量有关。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;# gluster volume create test-volume stripe 4 transport tcp server1:/exp1 server2:/exp2 server3:/exp3 server4:/exp4 server5:/exp5 server6:/exp6 server7:/exp7 server8:/exp8
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs7&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;h1 id=&#34;基本原理&#34;&gt;基本原理&lt;/h1&gt;
-
-&lt;p&gt;传统分布式文件系统大都会设置元数据服务器或者功能相近的管理服务器，主要作用就是用来管理文件与数据区块之间的存储位置关系。相较其他分布式文件系统而言，GlusterFS并没有集中或者分布式的元数据的概念，取而代之的是弹性哈希算法。集群中的任何服务器和客户端都可以利用哈希算法、路径及文件名进行计算，就可以对数据进行定位，并执行读写访问操作。&lt;/p&gt;
-
-&lt;p&gt;每个节点服务器都掌握了集群的配置信息，这样做的好处是每个节点度拥有节点的配置信息，高度自治，所有信息都可以在本地查询。每个节点的信息更新都会向其他节点通告，保证节点间信息的一致性。但如果集群规模较大，节点众多时，信息同步的效率就会下降，节点信息的非一致性概率就会大大提高。因此GlusterFS未来的版本有向集中式管理变化的趋势。&lt;/p&gt;
-
-&lt;p&gt;通过GlusterFS的数据访问流程，我们可以看出其基本的实现&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/glusterfs2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;首先是在客户端， 用户通过glusterfs的mount point 来读写数据， 对于用户来说，集群系统的存在对用户是完全透明的，用户感觉不到是操作本地系统还是远端的集群系统。&lt;/li&gt;
-&lt;li&gt;用户的这个操作被递交给 本地linux系统的VFS来处理。&lt;/li&gt;
-&lt;li&gt;VFS 将数据递交给FUSE 内核文件系统:在启动 glusterfs 客户端以前，需要想系统注册一个实际的文件系统FUSE,如上图所示，该文件系统与ext3在同一个层次上面， ext3 是对实际的磁盘进行处理， 而fuse 文件系统则是将数据通过/dev/fuse 这个设备文件递交给了glusterfs client端。所以， 我们可以将 fuse文件系统理解为一个代理。&lt;/li&gt;
-&lt;li&gt;数据被fuse 递交给Glusterfs client 后， client 对数据进行一些指定的处理（所谓的指定，是按照client 配置文件据来进行的一系列处理， 我们在启动glusterfs client 时需要指定这个文件。&lt;/li&gt;
-&lt;li&gt;在glusterfs client的处理末端，通过网络将数据递交给 Glusterfs Server，并且将数据写入到服务器所控制的存储设备上。&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;这样， 整个数据流的处理就完成了。&lt;/p&gt;
-
-&lt;h1 id=&#34;实践&#34;&gt;实践&lt;/h1&gt;
-
-&lt;p&gt;理论和实践上分析，GlusterFS目前主要适用大文件存储场景，对于小文件尤其是海量小文件，存储效率和访问性能都表现不佳。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;元数据性能&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;GlusterFS使用弹性哈希算法代替传统分布式文件系统中的集中或分布式元数据服务，这个是GlusterFS最核心的思想，从而获得了接近线性的高扩展性，同时也提高了系统性能和可靠性。GlusterFS使用算法进行数据定位，集群中的任何服务器和客户端只需根据路径和文件名就可以对数据进行定位和读写访问，文件定位可独立并行化进行。&lt;/p&gt;
-
-&lt;p&gt;这种算法的特点是，给定确定的文件名，查找和定位会非常快。但是，如果事先不知道文件名，要列出文件目录（ls或ls -l），性能就会大幅下降。对于Distributed哈希卷，文件通过HASH算法分散到集群节点上，每个节点上的命名空间均不重叠，所有集群共同构成完整的命名空间，访问时使用HASH算法进行查找定位。列文件目录时，需要查询所有节点，并对文件目录信息及属性进行聚合。这时，哈希算法根本发挥不上作用，相对于有中心的元数据服务，查询效率要差很多。&lt;/p&gt;
-
-&lt;p&gt;从接触的一些用户和实践来看，当集群规模变大以及文件数量达到百万级别时，ls文件目录和rm删除文件目录这两个典型元数据操作就会变得非常慢，创建和删除100万个空文件可能会花上15分钟。如何解决这个问题呢？我们建议合理组织文件目录，目录层次不要太深，单个目录下文件数量不要过多；增大服务器内存配置，并且增大GlusterFS目录缓存参数；网络配置方面，建议采用万兆或者InfiniBand。从研发角度看，可以考虑优化方法提升元数据性能。比如，可以构建全局统一的分布式元数据缓存系统；也可以将元数据与数据重新分离，每个节点上的元数据采用全内存或数据库设计，并采用SSD进行元数据持久化。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;小文件问题&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;理论和实践上分析，GlusterFS目前主要适用大文件存储场景，对于小文件尤其是海量小文件，存储效率和访问性能都表现不佳。海量小文件LOSF问题是工业界和学术界公认的难题，GlusterFS作为通用的分布式文件系统，并没有对小文件作额外的优化措施，性能不好也是可以理解的。&lt;/p&gt;
-
-&lt;p&gt;对于LOSF而言，IOPS/OPS是关键性能衡量指标，造成性能和存储效率低下的主要原因包括元数据管理、数据布局和I/O管理、Cache管理、网络开销等方面。从理论分析以及LOSF优化实践来看，优化应该从元数据管理、缓存机制、合并小文件等方面展开，而且优化是一个系统工程，结合硬件、软件，从多个层面同时着手，优化效果会更显著。GlusterFS小文件优化可以考虑这些方法，这里不再赘述，关于小文件问题请参考“海量小文件问题综述”一文。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;集群管理模式&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;GlusterFS集群采用全对等式架构，每个节点在集群中的地位是完全对等的，集群配置信息和卷配置信息在所有节点之间实时同步。这种架构的优点是，每个节点都拥有整个集群的配置信息，具有高度的独立自治性，信息可以本地查询。但同时带来的问题的，一旦配置信息发生变化，信息需要实时同步到其他所有节点，保证配置信息一致性，否则GlusterFS就无法正常工作。在集群规模较大时，不同节点并发修改配置时，这个问题表现尤为突出。因为这个配置信息同步模型是网状的，大规模集群不仅信息同步效率差，而且出现数据不一致的概率会增加。&lt;/p&gt;
-
-&lt;p&gt;实际上，大规模集群管理应该是采用集中式管理更好，不仅管理简单，效率也高。可能有人会认为集中式集群管理与GlusterFS的无中心架构不协调，其实不然。GlusterFS 2.0以前，主要通过静态配置文件来对集群进行配置管理，没有Glusterd集群管理服务，这说明glusterd并不是GlusterFS不可或缺的组成部分，它们之间是松耦合关系，可以用其他的方式来替换。从其他分布式系统管理实践来看，也都是采用集群式管理居多，这也算一个佐证，GlusterFS 4.0开发计划也表现有向集中式管理转变的趋势。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;容量负载均衡&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;GlusterFS的哈希分布是以目录为基本单位的，文件的父目录利用扩展属性记录了子卷映射信息，子文件在父目录所属存储服务器中进行分布。由于文件目录事先保存了分布信息，因此新增节点不会影响现有文件存储分布，它将从此后的新创建目录开始参与存储分布调度。这种设计，新增节点不需要移动任何文件，但是负载均衡没有平滑处理，老节点负载较重。GlusterFS实现了容量负载均衡功能，可以对已经存在的目录文件进行Rebalance，使得早先创建的老目录可以在新增存储节点上分布，并可对现有文件数据进行迁移实现容量负载均衡。&lt;/p&gt;
-
-&lt;p&gt;GlusterFS目前的容量负载均衡存在一些问题。由于采用Hash算法进行数据分布，容量负载均衡需要对所有数据重新进行计算并分配存储节点，对于那些不需要迁移的数据来说，这个计算是多余的。Hash分布具有随机性和均匀性的特点，数据重新分布之后，老节点会有大量数据迁入和迁出，这个多出了很多数据迁移量。相对于有中心的架构，可谓节点一变而动全身，增加和删除节点增加了大量数据迁移工作。GlusterFS应该优化数据分布，最小化容量负载均衡数据迁移。此外，GlusterFS容量负载均衡也没有很好考虑执行的自动化、智能化和并行化。目前，GlusterFS在增加和删除节点上，需要手工执行负载均衡，也没有考虑当前系统的负载情况，可能影响正常的业务访问。GlusterFS的容量负载均衡是通过在当前执行节点上挂载卷，然后进行文件复制、删除和改名操作实现的，没有在所有集群节点上并发进行，负载均衡性能差。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;数据分布问题&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;Glusterfs主要有三种基本的集群模式，即分布式集群(Distributed cluster)、条带集群(Stripe cluster)、复制集群(Replica cluster)。这三种基本集群还可以采用类似堆积木的方式，构成更加复杂的复合集群。三种基本集群各由一个translator来实现，分别由自己独立的命名空间。对于分布式集群，文件通过HASH算法分散到集群节点上，访问时使用HASH算法进行查找定位。复制集群类似RAID1，所有节点数据完全相同，访问时可以选择任意个节点。条带集群与RAID0相似，文件被分成数据块以Round Robin方式分布到所有节点上，访问时根据位置信息确定节点。&lt;/p&gt;
-
-&lt;p&gt;哈希分布可以保证数据分布式的均衡性，但前提是文件数量要足够多，当文件数量较少时，难以保证分布的均衡性，导致节点之间负载不均衡。这个对有中心的分布式系统是很容易做到的，但GlusteFS缺乏集中式的调度，实现起来比较复杂。复制卷包含多个副本，对于读请求可以实现负载均衡，但实际上负载大多集中在第一个副本上，其他副本负载很轻，这个是实现上问题，与理论不太相符。条带卷原本是实现更高性能和超大文件，但在性能方面的表现太差强人意，远远不如哈希卷和复制卷，没有被好好实现，连官方都不推荐应用。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;数据可用性问题&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;副本（Replication）就是对原始数据的完全拷贝。通过为系统中的文件增加各种不同形式的副本，保存冗余的文件数据，可以十分有效地提高文件的可用性，避免在地理上广泛分布的系统节点由网络断开或机器故障等动态不可测因素而引起的数据丢失或不可获取。GlusterFS主要使用复制来提供数据的高可用性，通过的集群模式有复制卷和哈希复制卷两种模式。复制卷是文件级RAID1，具有容错能力，数据同步写到多个brick上，每个副本都可以响应读请求。当有副本节点发生故障，其他副本节点仍然正常提供读写服务，故障节点恢复后通过自修复服务或同步访问时自动进行数据同步。&lt;/p&gt;
-
-&lt;p&gt;一般而言，副本数量越多，文件的可靠性就越高，但是如果为所有文件都保存较多的副本数量，存储利用率低（为副本数量分之一），并增加文件管理的复杂度。目前GlusterFS社区正在研发纠删码功能，通过冗余编码提高存储可用性，并且具备较低的空间复杂度和数据冗余度，存储利用率高。&lt;/p&gt;
-
-&lt;p&gt;GlusterFS的复制卷以brick为单位进行镜像，这个模式不太灵活，文件的复制关系不能动态调整，在已经有副本发生故障的情况下会一定程度上降低系统的可用性。对于有元数据服务的分布式系统，复制关系可以是以文件为单位的，文件的不同副本动态分布在多个存储节点上；当有副本发生故障，可以重新选择一个存储节点生成一个新副本，从而保证副本数量，保证可用性。另外，还可以实现不同文件目录配置不同的副本数量，热点文件的动态迁移。对于无中心的GlusterFS系统来说，这些看起来理所当然的功能，实现起来都是要大费周折的。不过值得一提的是，4.0开发计划已经在考虑这方面的副本特性。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;数据安全问题&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;GlusterFS以原始数据格式（如EXT4、XFS、ZFS）存储数据，并实现多种数据自动修复机制。因此，系统极具弹性，即使离线情形下文件也可以通过其他标准工具进行访问。如果用户需要从GlusterFS中迁移数据，不需要作任何修改仍然可以完全使用这些数据。&lt;/p&gt;
-
-&lt;p&gt;然而，数据安全成了问题，因为数据是以平凡的方式保存的，接触数据的人可以直接复制和查看。这对很多应用显然是不能接受的，比如云存储系统，用户特别关心数据安全。私有存储格式可以保证数据的安全性，即使泄露也是不可知的。GlusterFS要实现自己的私有格式，在设计实现和数据管理上相对复杂一些，也会对性能产生一定影响。&lt;/p&gt;
-
-&lt;p&gt;GlusterFS在访问文件目录时根据扩展属性判断副本是否一致，这个进行数据自动修复的前提条件。节点发生正常的故障，以及从挂载点进行正常的操作，这些情况下发生的数据不一致，都是可以判断和自动修复的。但是，如果直接从节点系统底层对原始数据进行修改或者破坏，GlusterFS大多情况下是无法判断的，因为数据本身也没有校验，数据一致性无法保证。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;Cache一致性&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;为了简化Cache一致性，GlusterFS没有引入客户端写Cache，而采用了客户端只读Cache。GlusterFS采用简单的弱一致性，数据缓存的更新规则是根据设置的失效时间进行重置的。对于缓存的数据，客户端周期性询问服务器，查询文件最后被修改的时间，如果本地缓存的数据早于该时间，则让缓存数据失效，下次读取数据时就去服务器获取最新的数据。&lt;/p&gt;
-
-&lt;p&gt;GlusterFS客户端读Cache刷新的时间缺省是1秒，可以通过重新设置卷参数Performance.cache-refresh-timeout进行调整。这意味着，如果同时有多个用户在读写一个文件，一个用户更新了数据，另一个用户在Cache刷新周期到来前可能读到非最新的数据，即无法保证数据的强一致性。因此实际应用时需要在性能和数据一致性之间进行折中，如果需要更高的数据一致性，就得调小缓存刷新周期，甚至禁用读缓存；反之，是可以把缓存周期调大一点，以提升读性能。&lt;/p&gt;</description>
-        </item>
-      
-    
-      
-        <item>
-          <title>分布式系列---- 文件存储系统hdfs</title>
-          <link>https://kingjcy.github.io/post/distributed/store/fs/hfds/</link>
-          <pubDate>Thu, 15 Dec 2016 20:21:18 CST</pubDate>
-          <author></author>
-          <guid>https://kingjcy.github.io/post/distributed/store/fs/hfds/</guid>
-          <description>&lt;p&gt;Hadoop：一个分布式系统基础架构，由Apache基金会开发。用户可以在不了解分布式底层细节的情况下，开发分布式程序。充分利用集群的威力高速运算和存储。&lt;/p&gt;
-
-&lt;p&gt;Hadoop实现了一个分布式文件系统（Hadoop Distributed File System），简称HDFS。&lt;/p&gt;
-
-&lt;h1 id=&#34;基本概念&#34;&gt;基本概念&lt;/h1&gt;
-
-&lt;h2 id=&#34;特点&#34;&gt;特点&lt;/h2&gt;
-
-&lt;p&gt;优势&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;专为存储超大文件而设计：hdfs应该能够支持GB级别大小的文件；它应该能够提供很大的数据带宽并且能够在集群中拓展到成百上千个节点；它的一个实例应该能够支持千万数量级别的文件。&lt;/li&gt;
-&lt;li&gt;适用于流式的数据访问：hdfs适用于批处理的情况而不是交互式处理；它的重点是保证高吞吐量而不是低延迟的用户响应&lt;/li&gt;
-&lt;li&gt;容错性：完善的冗余备份机制&lt;/li&gt;
-&lt;li&gt;支持简单的一致性模型：HDFS需要支持一次写入多次读取的模型，而且写入过程文件不会经常变化&lt;/li&gt;
-&lt;li&gt;移动计算优于移动数据：HDFS提供了使应用计算移动到离它最近数据位置的接口&lt;/li&gt;
-&lt;li&gt;兼容各种硬件和软件平台&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;缺点&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;大量小文件：文件的元数据都存储在NameNode内存中，大量小文件会占用大量内存。&lt;/li&gt;
-&lt;li&gt;低延迟数据访问：hdfs是专门针对高数据吞吐量而设计的&lt;/li&gt;
-&lt;li&gt;多用户写入，任意修改文件&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;h1 id=&#34;基本架构&#34;&gt;基本架构&lt;/h1&gt;
-
-&lt;p&gt;HDFS主要由3个组件构成，分别是NameNode、SecondaryNameNode和DataNode，HDFS是以master/slave模式运行的，其中NameNode、SecondaryNameNode 运行在master节点，DataNode运行slave节点。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/hdfs2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;NameNode&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;当一个客户端请求一个文件或者存储一个文件时，它需要先知道具体到哪个DataNode上存取，获得这些信息后，客户端再直接和这个DataNode进行交互，而这些信息的维护者就是NameNode。&lt;/p&gt;
-
-&lt;p&gt;NameNode管理着文件系统命名空间，它维护这文件系统树及树中的所有文件和目录。NameNode也负责维护所有这些文件或目录的打开、关闭、移动、重命名等操作。对于实际文件数据的保存与操作，都是由DataNode负责。当一个客户端请求数据时，它仅仅是从NameNode中获取文件的元信息，而具体的数据传输不需要经过NameNode，是由客户端直接与相应的DataNode进行交互。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;SecondaryNameNode&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;SecondaryNameNode并不是NameNode的备份。我们从前面的介绍已经知道，所有HDFS文件的元信息都保存在NameNode的内存中。在NameNode启动时，它首先会加载fsimage到内存中，在系统运行期间，所有对NameNode的操作也都保存在了内存中，同时为了防止数据丢失，这些操作又会不断被持久化到本地edits文件中。&lt;/p&gt;
-
-&lt;p&gt;Edits文件存在的目的是为了提高系统的操作效率，NameNode在更新内存中的元信息之前都会先将操作写入edits文件。在NameNode重启的过程中，edits会和fsimage合并到一起，但是合并的过程会影响到Hadoop重启的速度，SecondaryNameNode就是为了解决这个问题而诞生的。&lt;/p&gt;
-
-&lt;p&gt;SecondaryNameNode的角色就是定期的合并edits和fsimage文件。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;DataNode&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;DataNode是hdfs中的worker节点，它负责存储数据块，也负责为系统客户端提供数据块的读写服务，同时还会根据NameNode的指示来进行创建、删除、和复制等操作。此外，它还会通过心跳定期向NameNode发送所存储文件块列表信息。当对hdfs文件系统进行读写时，NameNode告知客户端每个数据驻留在哪个DataNode，客户端直接与DataNode进行通信，DataNode还会与其它DataNode通信，复制这些块以实现冗余。&lt;/p&gt;
-
-&lt;h1 id=&#34;基本原理&#34;&gt;基本原理&lt;/h1&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;数据备份&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;HDFS通过备份数据块的形式来实现容错，除了文件的最后一个数据块外，其它所有数据块大小都是一样的。数据块的大小和备份因子都是可以配置的。NameNode负责各个数据块的备份，DataNode会通过心跳的方式定期的向NameNode发送自己节点上的Block 报告，这个报告中包含了DataNode节点上的所有数据块的列表。&lt;/p&gt;
-
-&lt;p&gt;文件副本的分布位置直接影响着HDFS的可靠性和性能。一个大型的HDFS文件系统一般都是需要跨很多机架的，不同机架之间的数据传输需要经过网关，并且，同一个机架中机器之间的带宽要大于不同机架机器之间的带宽。如果把所有的副本都放在不同的机架中，这样既可以防止机架失败导致数据块不可用，又可以在读数据时利用到多个机架的带宽，并且也可以很容易的实现负载均衡。但是，如果是写数据，各个数据块需要同步到不同的机架，会影响到写数据的效率。&lt;/p&gt;
-
-&lt;p&gt;而在Hadoop中，如果副本数量是3的情况下，Hadoop默认是这么存放的，把第一个副本放到机架的一个节点上，另一个副本放到同一个机架的另一个节点上，把最后一个节点放到不同的机架上。这种策略减少了跨机架副本的个数提高了写的性能，也能够允许一个机架失败的情况，算是一个很好的权衡。&lt;/p&gt;
-
-&lt;p&gt;关于副本的选择，在读的过程中，HDFS会选择最近的一个副本给请求者。&lt;/p&gt;
-
-&lt;p&gt;关于安全模式，当 Hadoop的NameNode节点启动时，会进入安全模式阶段。在此阶段，DataNode会向NameNode上传它们数据块的列表，让 NameNode得到块的位置信息，并对每个文件对应的数据块副本进行统计。当最小副本条件满足时，即一定比例的数据块都达到最小副本数，系统就会退出安全模式，而这需要一定的延迟时间。当最小副本条件未达到要求时，就会对副本数不足的数据块安排DataNode进行复制，直至达到最小副本数。而在安全模式下，系统会处于只读状态，NameNode不会处理任何块的复制和删除命令。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;HDFS中的沟通协议&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;所有的HDFS中的沟通协议都是基于tcp/ip协议，一个客户端通过指定的tcp端口与NameNode机器建立连接，并通过ClientProtocol协议与NameNode交互。而DataNode则通过DataNode Protocol协议与NameNode进行沟通。HDFS的RCP(远程过程调用)对ClientProtocol和DataNode Protocol做了封装。按照HDFS的设计，NameNode不会主动发起任何请求，只会被动接受来自客户端或DataNode的请求。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;可靠性保证&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;可以允许DataNode失败。DataNode会定期（默认3秒）的向NameNode发送心跳，若NameNode在指定时间间隔内没有收到心跳，它就认为此节点已经失败。此时，NameNode把失败节点的数据（从另外的副本节点获取）备份到另外一个健康的节点。这保证了集群始终维持指定的副本数。&lt;/p&gt;
-
-&lt;p&gt;可以检测到数据块损坏。在读取数据块时，HDFS会对数据块和保存的校验和文件匹配，如果发现不匹配，NameNode同样会重新备份损坏的数据块。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;hdfs文件读取过程&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;hdfs有一个FileSystem实例，客户端通过调用这个实例的open()方法就可以打开系统中希望读取的文件。hdfs通过rpc调用NameNode获取文件块的位置信息，对于文件的每一个块，NameNode会返回含有该块副本的DataNode的节点地址，另外，客户端还会根据网络拓扑来确定它与每一个DataNode的位置信息，从离它最近的那个DataNode获取数据块的副本，最理想的情况是数据块就存储在客户端所在的节点上。&lt;/p&gt;
-
-&lt;p&gt;hdfs会返回一个FSDataInputStream对象，FSDataInputStream类转而封装成DFSDataInputStream对象,这个对象管理着与DataNode和NameNode的I/O，具体过程是：&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;客户端发起读请求&lt;/li&gt;
-&lt;li&gt;客户端与NameNode得到文件的块及位置信息列表&lt;/li&gt;
-&lt;li&gt;客户端直接和DataNode交互读取数据&lt;/li&gt;
-&lt;li&gt;读取完成关闭连接&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/hdfs4&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;当FSDataInputStream与DataNode通信时遇到错误，它会选取另一个较近的DataNode，并为出故障的DataNode做标记以免重复向其读取数据。FSDataInputStream还会对读取的数据块进行校验和确认，发现块损坏时也会重新读取并通知NameNode。&lt;/p&gt;
-
-&lt;p&gt;这样设计的巧妙之处：&lt;/p&gt;
-
-&lt;p&gt;1、让客户端直接联系DataNode检索数据，可以使hdfs扩展到大量的并发客户端，因为数据流就是分散在集群的每个节点上的，在运行MapReduce任务时，每个客户端就是一个DataNode节点。&lt;/p&gt;
-
-&lt;p&gt;2、NameNode仅需相应块的位置信息请求（位置信息在内存中，速度极快），否则随着客户端的增加，NameNode会很快成为瓶颈。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;hdfs文件写入过程&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;hdfs有一个DistributedFileSystem实例，客户端通过调用这个实例的create()方法就可以创建文件。DistributedFileSystem会发送给NameNode一个RPC调用，在文件系统的命名空间创建一个新文件，在创建文件前NameNode会做一些检查，如文件是否存在，客户端是否有创建权限等，若检查通过，NameNode会为创建文件写一条记录到本地磁盘的EditLog，若不通过会向客户端抛出IOException。创建成功之后DistributedFileSystem会返回一个FSDataOutputStream对象，客户端由此开始写入数据。&lt;/p&gt;
-
-&lt;p&gt;同读文件过程一样，FSDataOutputStream类转而封装成DFSDataOutputStream对象,这个对象管理着与DataNode和NameNode的I/O，具体过程是：&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;客户端在向NameNode请求之前先写入文件数据到本地文件系统的一个临时文件&lt;/li&gt;
-&lt;li&gt;待临时文件达到块大小时开始向NameNode请求DataNode信息&lt;/li&gt;
-&lt;li&gt;NameNode在文件系统中创建文件并返回给客户端一个数据块及其对应DataNode的地址列表（列表中包含副本存放的地址）&lt;/li&gt;
-&lt;li&gt;客户端通过上一步得到的信息把创建临时文件块flush到列表中的第一个DataNode&lt;/li&gt;
-&lt;li&gt;当文件关闭，NameNode会提交这次文件创建，此时，文件在文件系统中可见&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;上面第四步描述的flush过程实际处理过程比较负杂，现在单独描述一下：&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;首先，第一个DataNode是以数据包(数据包一般4KB)的形式从客户端接收数据的，DataNode在把数据包写入到本地磁盘的同时会向第二个DataNode（作为副本节点）传送数据。&lt;/li&gt;
-&lt;li&gt;在第二个DataNode把接收到的数据包写入本地磁盘时会向第三个DataNode发送数据包&lt;/li&gt;
-&lt;li&gt;第三个DataNode开始向本地磁盘写入数据包。此时，数据包以流水线的形式被写入和备份到所有DataNode节点&lt;/li&gt;
-&lt;li&gt;传送管道中的每个DataNode节点在收到数据后都会向前面那个DataNode发送一个ACK,最终，第一个DataNode会向客户端发回一个ACK&lt;/li&gt;
-&lt;li&gt;当客户端收到数据块的确认之后，数据块被认为已经持久化到所有节点。然后，客户端会向NameNode发送一个确认&lt;/li&gt;
-&lt;li&gt;如果管道中的任何一个DataNode失败，管道会被关闭。数据将会继续写到剩余的DataNode中。同时NameNode会被告知待备份状态，NameNode会继续备份数据到新的可用的节点&lt;/li&gt;
-&lt;li&gt;数据块都会通过计算校验和来检测数据的完整性，校验和以隐藏文件的形式被单独存放在hdfs中，供读取时进行完整性校验&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;hdfs文件删除过程&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;hdfs文件删除过程一般需要如下几步：&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;一开始删除文件，NameNode只是重命名被删除的文件到/trash目录，因为重命名操作只是元信息的变动，所以整个过程非常快。在/trash中文件会被保留一定间隔的时间（可配置，默认是6小时），在这期间，文件可以很容易的恢复，恢复只需要将文件从/trash移出即可。&lt;/li&gt;
-&lt;li&gt;当指定的时间到达，NameNode将会把文件从命名空间中删除&lt;/li&gt;
-&lt;li&gt;标记删除的文件块释放空间，HDFS文件系统显示空间增加&lt;/li&gt;
 &lt;/ol&gt;</description>
         </item>
       
@@ -39324,244 +40437,6 @@ GUI前端           ×       √
 &lt;h1 id=&#34;扩展&#34;&gt;扩展&lt;/h1&gt;
 
 &lt;p&gt;随着系统监控规模的越来越大，zabbix出现越来越多的瓶颈，随着时序数据库的广泛使用，监控已经渐渐切换到了时序数据库，对于原始的zabbix监控项，监控数据如何处理？我们可以将zabbix数据存到时序数据库中，统一使用，相关&lt;a href=&#34;https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbix2tsdb/&#34;&gt;实现方案&lt;/a&gt;就需要自己实现了。&lt;/p&gt;</description>
-        </item>
-      
-    
-      
-        <item>
-          <title>分布式系列---- 文件存储系统Fastdfs</title>
-          <link>https://kingjcy.github.io/post/distributed/store/fs/fastfs/</link>
-          <pubDate>Sat, 16 Jan 2016 20:32:58 CST</pubDate>
-          <author></author>
-          <guid>https://kingjcy.github.io/post/distributed/store/fs/fastfs/</guid>
-          <description>&lt;p&gt;fastdfs是一个开源的轻量级分布式文件系统，是纯C语言开发的。它对文件进行管理，功能包括：文件存储、文件同步、文件访问（文件上传、文件下载）等，解决了大容量存储和负载均衡的问题。特别适合以文件为载体的在线服务，如相册网站、视频网站等等，FastDFS 针对大量小文件存储有优势。&lt;/p&gt;
-
-&lt;h1 id=&#34;安装-v5-08&#34;&gt;安装（v5.08）&lt;/h1&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;环境准备&lt;/strong&gt;&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;172.32.148.127 client&lt;/p&gt;
-
-&lt;p&gt;172.32.148.128 storage&lt;/p&gt;
-
-&lt;p&gt;172.32.148.129 tracker storage&lt;/p&gt;
-
-&lt;p&gt;172.32.148.130 storage&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;依赖libfastcommon安装&lt;/strong&gt;&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;v5版本已经不需要单独安装libevent，但是需要安装项目中的libfastcommon，所有机器都要安装，下载地址&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;git clone https://github.com/happyfish100/libfastcommon.git
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;然后用自带的脚本make.sh编译安装&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;./make.sh
-./make.sh install
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;fastdfs安装&lt;/strong&gt;&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;依赖安装好就开始安装fastdfs，下载压缩包fastdfs-5.08.tar.gz，所有机器进行安装&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;./make.sh
-./make.sh install
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;配置文件与进程&lt;/strong&gt;&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;fastdfs安装好后在/etc/fdfs/下面会有对应的配置文件，这个项目的配置文件注释还是比较全面的，对它进行修改&lt;/p&gt;
-
-&lt;p&gt;1、tracker.conf&lt;/p&gt;
-
-&lt;p&gt;监控进程使用的配置文件，主要是配置端口，日志数据存储路径，端口一般使用配置文件默认的22122，在172.32.148.129上操作&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;# the tracker server port
-port=22122
-
-# the base path to store data and log files
-base_path=/home/jcy/fastdfs/fastdfs_tracker
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;然后启动监控进程，到对应的路径下看日志&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;fdfs_trackerd /etc/fdfs/tracker.conf start
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;可以ps看一下进程启动状况，也可以到日志看启动状况，也可以通过netstat来看&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;netstat -tupln|grep tracker
-#可以看到如下：
-tcp  0   0   0.0.0.0:22122   0.0.0.0:*   LISTEN   18559/fdfs_trackerd
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;2、storage.conf&lt;/p&gt;
-
-&lt;p&gt;存储进程使用的配置文件，主要是指定tracker服务的地址和端口，因为存储进程要定时给监控进程发送数据信息，同group内的storage进程会相互connect，来同步文件。这些进程在172.32.148.128，172.32.148.129，172.32.148.130上进行操作。同时它也有自己的group_name和开发的端口，还有对应的日志数据路径。&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;# the name of the group this storage server belongs to
-#
-# comment or remove this item for fetching from tracker server,
-# in this case, use_storage_id must set to true in tracker.conf,
-# and storage_ids.conf must be configed correctly.
-group_name=group1
-
-# the storage server port
-port=23000
-
-# the base path to store data and log files
-base_path=/home/jcy/fastdfs/fastdfs_storage
-
-# store_path#, based 0, if store_path0 not exists, it&#39;s value is base_path
-# the paths must be exist
-store_path0=/home/jcy/fastdfs/fastdfs_storage
-
-# tracker_server can ocur more than once, and tracker_server format is
-#  &amp;quot;host:port&amp;quot;, host can be hostname or ip address
-tracker_server=172.32.148.129:22122
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;启动存储进程，查看对应的情况&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;fdfs_storaged /etc/fdfs/storage.conf start
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;3、client.conf&lt;/p&gt;
-
-&lt;p&gt;客户端进行文件上传的测试,首先是对配置文件的tracker服务器地址进行配置，然后就是一些基本配置看注释就可以&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;测试文件上传&lt;/strong&gt;&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;在客户端机器172.32.148.127上进行操作：&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;[jcy@pdapp17 fastdfs]$ fdfs_upload_file /etc/fdfs/client.conf a.txt
-group1/M00/00/00/rCCUgVh8lF-ATRZpAAAADw_r4o4559.txt
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;上传成功，到对应的storage进程指定的path下的data目录就可以找到对应的文件，文件会同时同步的同一个group下的所有storage上，完成备份。&lt;/p&gt;
-
-&lt;h1 id=&#34;基本概念&#34;&gt;基本概念&lt;/h1&gt;
-
-&lt;p&gt;FastDFS服务端有三个角色：跟踪服务器（tracker server）、存储服务器（storage server）和客户端（client）。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;tracker server：跟踪服务器&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;主要做调度工作，起负载均衡的作用。在内存中记录集群中所有存储组和存储服务器的状态信息，是客户端和数据服务器交互的枢纽。相比GFS中的master更为精简，不记录文件索引信息，占用的内存量很少。&lt;/p&gt;
-
-&lt;p&gt;Tracker是FastDFS的协调者，负责管理所有的storage server和group，每个storage在启动后会连接Tracker，告知自己所属的group等信息，并保持周期性的心跳，tracker根据storage的心跳信息，建立group==&amp;gt;[storage server list]的映射表。&lt;/p&gt;
-
-&lt;p&gt;Tracker需要管理的元信息很少，会全部存储在内存中；另外tracker上的元信息都是由storage汇报的信息生成的，本身不需要持久化任何数据，这样使得tracker非常容易扩展，直接增加tracker机器即可扩展为tracker cluster来服务，cluster里每个tracker之间是完全对等的，所有的tracker都接受stroage的心跳信息，生成元数据信息来提供读写服务。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;storage server：存储服务器（又称：存储节点或数据服务器）&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;文件和文件属性（meta data）都保存到存储服务器上。Storage server直接利用OS的文件系统调用管理文件。&lt;/p&gt;
-
-&lt;p&gt;Storage server（后简称storage）以组（卷，group或volume）为单位组织，一个group内包含多台storage机器，数据互为备份，存储空间以group内容量最小的storage为准，所以建议group内的多个storage尽量配置相同，以免造成存储空间的浪费。&lt;/p&gt;
-
-&lt;p&gt;以group为单位组织存储能方便的进行应用隔离、负载均衡、副本数定制（group内storage server数量即为该group的副本数），比如将不同应用数据存到不同的group就能隔离应用数据，同时还可根据应用的访问特性来将应用分配到不同的group来做负载均衡；缺点是group的容量受单机存储容量的限制，同时当group内有机器坏掉时，数据恢复只能依赖group内地其他机器，使得恢复时间会很长。&lt;/p&gt;
-
-&lt;p&gt;group内每个storage的存储依赖于本地文件系统，storage可配置多个数据存储目录，比如有10块磁盘，分别挂载在/data/disk1-/data/disk10，则可将这10个目录都配置为storage的数据存储目录。&lt;/p&gt;
-
-&lt;p&gt;storage接受到写文件请求时，会根据配置好的规则（后面会介绍），选择其中一个存储目录来存储文件。为了避免单个目录下的文件数太多，在storage第一次启动时，会在每个数据存储目录里创建2级子目录，每级256个，总共65536个文件，新写的文件会以hash的方式被路由到其中某个子目录下，然后将文件数据直接作为一个本地文件存储到该目录中。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;client：客户端&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;作为业务请求的发起方，通过专有接口，使用TCP/IP协议与跟踪器服务器或存储节点进行数据交互。FastDFS向使用者提供基本文件访问接口，比如upload、download、append、delete等，以客户端库的方式提供给用户使用。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;group&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;组， 也可称为卷。 同组内服务器上的文件是完全相同的 ，同一组内的storage server之间是对等的， 文件上传、 删除等操作可以在任意一台storage server上进行 。&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;meta data&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;文件相关属性，键值对（ Key Value Pair） 方式，如：width=1024,heigth=768 。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/fastdfs&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;h1 id=&#34;基本原理&#34;&gt;基本原理&lt;/h1&gt;
-
-&lt;p&gt;Tracker相当于FastDFS的大脑，不论是上传还是下载都是通过tracker来分配资源；客户端一般可以使用ngnix等静态服务器来调用或者做一部分的缓存；存储服务器内部分为卷（或者叫做组），卷于卷之间是平行的关系，可以根据资源的使用情况随时增加，卷内服务器文件相互同步备份，以达到容灾的目的。&lt;/p&gt;
-
-&lt;h2 id=&#34;上传机制&#34;&gt;上传机制&lt;/h2&gt;
-
-&lt;p&gt;首先客户端请求Tracker服务获取到存储服务器的ip地址和端口，然后客户端根据返回的IP地址和端口号请求上传文件，存储服务器接收到请求后生产文件，并且将文件内容写入磁盘并返回给客户端file_id、路径信息、文件名等信息，客户端保存相关信息上传完毕。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/upload&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;内部机制如下：&lt;/p&gt;
-
-&lt;p&gt;1、选择tracker server&lt;/p&gt;
-
-&lt;p&gt;当集群中不止一个tracker server时，由于tracker之间是完全对等的关系，客户端在upload文件时可以任意选择一个trakcer。 选择存储的group 当tracker接收到upload file的请求时，会为该文件分配一个可以存储该文件的group，支持如下选择group的规则：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;1、Round robin，所有的group间轮询&lt;/li&gt;
-&lt;li&gt;2、Specified group，指定某一个确定的group&lt;/li&gt;
-&lt;li&gt;3、Load balance，剩余存储空间多多group优先&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;2、选择storage server&lt;/p&gt;
-
-&lt;p&gt;当选定group后，tracker会在group内选择一个storage server给客户端，支持如下选择storage的规则：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;1、Round robin，在group内的所有storage间轮询&lt;/li&gt;
-&lt;li&gt;2、First server ordered by ip，按ip排序&lt;/li&gt;
-&lt;li&gt;3、First server ordered by priority，按优先级排序（优先级在storage上配置）&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;3、选择storage path&lt;/p&gt;
-
-&lt;p&gt;当分配好storage server后，客户端将向storage发送写文件请求，storage将会为文件分配一个数据存储目录，支持如下规则：&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;1、Round robin，多个存储目录间轮询&lt;/li&gt;
-&lt;li&gt;2、剩余存储空间最多的优先&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;4、生成Fileid&lt;/p&gt;
-
-&lt;p&gt;选定存储目录之后，storage会为文件生一个Fileid，由storage server ip、文件创建时间、文件大小、文件crc32和一个随机数拼接而成，然后将这个二进制串进行base64编码，转换为可打印的字符串。 选择两级目录 当选定存储目录之后，storage会为文件分配一个fileid，每个存储目录下有两级256*256的子目录，storage会按文件fileid进行两次hash（猜测），路由到其中一个子目录，然后将文件以fileid为文件名存储到该子目录下。&lt;/p&gt;
-
-&lt;p&gt;5、生成文件名&lt;/p&gt;
-
-&lt;p&gt;当文件存储到某个子目录后，即认为该文件存储成功，接下来会为该文件生成一个文件名，文件名由group、存储目录、两级子目录、fileid、文件后缀名（由客户端指定，主要用于区分文件类型）拼接而成。&lt;/p&gt;
-
-&lt;h2 id=&#34;下载机制&#34;&gt;下载机制&lt;/h2&gt;
-
-&lt;p&gt;客户端带上文件名信息请求Tracker服务获取到存储服务器的ip地址和端口，然后客户端根据返回的IP地址和端口号请求下载文件，存储服务器接收到请求后返回文件给客户端。&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/distribute/store/download&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;跟upload file一样，在download file时客户端可以选择任意tracker server。tracker发送download请求给某个tracker，必须带上文件名信息，tracke从文件名中解析出文件的group、大小、创建时间等信息，然后为该请求选择一个storage用来服务读请求。由于group内的文件同步时在后台异步进行的，所以有可能出现在读到时候，文件还没有同步到某些storage server上，为了尽量避免访问到这样的storage，tracker按照如下规则选择group内可读的storage。&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;1、该文件上传到的源头storage - 源头storage只要存活着，肯定包含这个文件，源头的地址被编码在文件名中。&lt;/li&gt;
-&lt;li&gt;2、文件创建时间戳==storage被同步到的时间戳 且(当前时间-文件创建时间戳) &amp;gt; 文件同步最大时间（如5分钟) - 文件创建后，认为经过最大同步时间后，肯定已经同步到其他storage了。&lt;/li&gt;
-&lt;li&gt;3、文件创建时间戳 &amp;lt; storage被同步到的时间戳。 - 同步时间戳之前的文件确定已经同步了&lt;/li&gt;
-&lt;li&gt;4、(当前时间-文件创建时间戳) &amp;gt; 同步延迟阀值（如一天）。 - 经过同步延迟阈值时间，认为文件肯定已经同步了。&lt;/li&gt;
-&lt;/ul&gt;</description>
         </item>
       
     
