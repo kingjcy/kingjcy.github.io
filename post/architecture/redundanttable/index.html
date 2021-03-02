@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="冗余表的架构设计就是牺牲空间一份数据存多张表，可以通过不同索引查询提高效率的一种架构思想。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="架构系列---- 冗余表 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    架构系列---- 冗余表
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年06月14日 
+                </div>
+                <h1 class="post-title">架构系列---- 冗余表</h1>
+            </header>
+
+            <div class="post-content">
+                <p>冗余表的架构设计就是牺牲空间一份数据存多张表，可以通过不同索引查询提高效率的一种架构思想。</p>
+
+<h1 id="背景">背景</h1>
+
+<p>互联网很多业务场景的数据量很大，此时数据库架构要进行水平切分，水平切分会有一个patition key，通过patition key的查询能够直接定位到库，但是非patition key上的查询可能就需要扫描多个库了。</p>
+
+<p>例如订单表，业务上对用户和商家都有订单查询需求，如果用buyer_id来分库，seller_id的查询就需要扫描多库。如果用seller_id来分库，buyer_id的查询就需要扫描多库。这类需求，为了做到高吞吐量低延时的查询，往往使用“数据冗余”的方式来实现，同一个数据，冗余两份，一份以buyer_id来分库，满足买家的查询需求；一份以seller_id来分库，满足卖家的查询需求。</p>
+
+<h1 id="实现">实现</h1>
+
+<h2 id="服务同步写">服务同步写</h2>
+
+<p>顾名思义，由服务层同步写冗余数据，先后向两个表中同时插入数据。</p>
+
+<p>优点：</p>
+
+<ul>
+<li>不复杂，服务层由单次写，变两次写</li>
+<li>数据一致性相对较高（因为双写成功才返回）</li>
+</ul>
+
+<p>缺点：</p>
+
+<ul>
+<li>请求的处理时间增加（要插入次，时间加倍）</li>
+<li>数据仍可能不一致，例如第二步写入T1完成后服务重启，则数据不会写入T2</li>
+</ul>
+
+<h2 id="服务异步写">服务异步写</h2>
+
+<p><img src="/media/architecture/redundant/redundant.png" alt="" /></p>
+
+<p>数据的双写并不再由服务来完成，服务层异步发出一个消息，通过消息总线发送给一个专门的数据复制服务来写入冗余数据。</p>
+
+<p>优点：</p>
+
+<ul>
+<li>请求处理时间短（只插入1次）</li>
+</ul>
+
+<p>缺点：</p>
+
+<ul>
+<li>系统的复杂性增加了，多引入了一个组件（消息总线）和一个服务（专用的数据复制服务）</li>
+<li>因为返回业务线数据插入成功时，数据还不一定插入到T2中，因此数据有一个不一致时间窗口（这个窗口很短，最终是一致的）</li>
+<li>在消息总线丢失消息时，冗余表数据会不一致</li>
+</ul>
+
+<h2 id="线下异步写">线下异步写</h2>
+
+<p><img src="/media/architecture/redundant/redundant1.png" alt="" /></p>
+
+<p>数据的双写不再由服务层来完成，而是由线下的一个服务或者任务来读取数据的log来完成。</p>
+
+<p>优点：</p>
+
+<ul>
+<li>数据双写与业务完全解耦</li>
+<li>请求处理时间短（只插入1次）</li>
+</ul>
+
+<p>缺点：</p>
+
+<ul>
+<li>返回业务线数据插入成功时，数据还不一定插入到T2中，因此数据有一个不一致时间窗口（这个窗口很短，最终是一致的）</li>
+<li>数据的一致性依赖于线下服务或者任务的可靠性</li>
+</ul>
+
+<h1 id="先写正表还是反表">先写正表还是反表</h1>
+
+<p>上述三种方案各有优缺点，但不管哪种方案，都会面临“究竟先写T1还是先写T2”的问题，对于一个不能保证事务性的操作，一定涉及“哪个任务先做，哪个任务后做”的问题，解决这个问题的方向是：</p>
+
+<pre><code>【如果出现不一致】，谁先做对业务的影响较小，就谁先执行，需要根据业务逻辑来做处理。
+</code></pre>
+
+<p>比如还是对订单的业务，用户下单时，如果“先插入buyer表T1，再插入seller冗余表T2”，当第一步成功、第二步失败时，出现的业务影响是“买家能看到自己的订单，卖家看不到推送的订单”，相反，如果“先插入seller表T2，再插入buyer冗余表T1”，当第一步成功、第二步失败时，出现的业务影响是“卖家能看到推送的订单，卖家看不到自己的订单”，由于这个生成订单的动作是买家发起的，买家如果看不到订单，会觉得非常奇怪，并且无法支付以推动订单状态的流转，此时即使卖家看到有人下单也是没有意义的，因此，在此例中，应该先插入buyer表T1，再插入seller表T2。</p>
+
+<h1 id="保证数据的一致性">保证数据的一致性</h1>
+
+<p>不管哪种方案，因为两步操作不能保证原子性，总有出现数据不一致的可能，基本解决方案。</p>
+
+<h2 id="线下扫面正反冗余表全部数据">线下扫面正反冗余表全部数据</h2>
+
+<p><img src="/media/architecture/redundant/redundant2.png" alt="" /></p>
+
+<p>线下启动一个离线的扫描工具，不停的比对正表T1和反表T2，如果发现数据不一致，就进行补偿修复。这个是我们最容易想到的方法，也是最消耗资源的方法。</p>
+
+<p>优点：</p>
+
+<ul>
+<li>比较简单，开发代价小</li>
+<li>线上服务无需修改，修复工具与线上服务解耦</li>
+</ul>
+
+<p>缺点：</p>
+
+<ul>
+<li>扫描效率低，会扫描大量的“已经能够保证一致”的数据</li>
+<li>由于扫描的数据量大，扫描一轮的时间比较长，即数据如果不一致，不一致的时间窗口比较长</li>
+</ul>
+
+<h2 id="线下扫描增量数据">线下扫描增量数据</h2>
+
+<p>有没有只扫描“可能存在不一致可能性”的数据，而不是每次扫描全部数据，每次只扫描增量的日志数据，就能够极大提高效率，缩短数据不一致的时间窗口。</p>
+
+<p><img src="/media/architecture/redundant/redundant3.png" alt="" /></p>
+
+<p>当然，我们还是需要一个离线的日志扫描工具，不停的比对日志log1和日志log2，如果发现数据不一致，就进行补偿修复</p>
+
+<p>优点：</p>
+
+<ul>
+<li>虽比方法一复杂，但仍然是比较简单的</li>
+<li>数据扫描效率高，只扫描增量数据</li>
+</ul>
+
+<p>缺点：</p>
+
+<ul>
+<li>线上服务略有修改（代价不高，多写了2条日志）</li>
+<li>虽然比方法一更实时，但时效性还是不高，不一致窗口取决于扫描的周期</li>
+</ul>
+
+<h2 id="实时线上-消息对-检测">实时线上“消息对”检测</h2>
+
+<p><img src="/media/architecture/redundant/redundant4.png" alt="" /></p>
+
+<p>有些系统要求比较高，需要实现实时的检测，所以就不能使用日志了，需要使用消息系统。假设正常情况下，msg1和msg2的接收时间应该在3s以内，如果检测服务在收到msg1后没有收到msg2，就尝试检测数据的一致性，不一致时进行补偿修复</p>
+
+<p>优点：</p>
+
+<ul>
+<li>效率高</li>
+<li>实时性高</li>
+</ul>
+
+<p>缺点：</p>
+
+<ul>
+<li>方案比较复杂，上线引入了消息总线这个组件</li>
+<li>线下多了一个订阅总线的检测服务</li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/architecture/redundanttable/">https://kingjcy.github.io/post/architecture/redundanttable/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/redundanttable/">
+                            <i class="fa fa-tags"></i>
+                            Redundanttable
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/architecture/">
+                            <i class="fa fa-tags"></i>
+                            architecture
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/architecture/enterprise-architecture/">架构系列---- 企业架构</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月04日)</span></li><li id="li-rels"><a href="/post/architecture/count/">架构系列---- 计数系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月04日)</span></li><li id="li-rels"><a href="/post/architecture/architecture-evolution/">架构系列---- 架构的演进</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年03月05日)</span></li><li id="li-rels"><a href="/post/architecture/shopping/">架构系列---- 电商购物系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年02月04日)</span></li><li id="li-rels"><a href="/post/architecture/search/">架构系列---- 搜索系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月04日)</span></li><li id="li-rels"><a href="/post/architecture/recommend/">架构系列---- 推荐系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月04日)</span></li><li id="li-rels"><a href="/post/architecture/cache/">架构系列---- Cache</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月15日)</span></li><li id="li-rels"><a href="/post/architecture/electronic-commerce/">架构系列---- 中台建设</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/advertising/">架构系列---- 广告投放系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/microservices/microservices/">架构系列---- 微服务</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月05日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/architecture/cache/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-runtime/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#背景">背景</a></li>
+<li><a href="#实现">实现</a>
+<ul>
+<li><a href="#服务同步写">服务同步写</a></li>
+<li><a href="#服务异步写">服务异步写</a></li>
+<li><a href="#线下异步写">线下异步写</a></li>
+</ul></li>
+<li><a href="#先写正表还是反表">先写正表还是反表</a></li>
+<li><a href="#保证数据的一致性">保证数据的一致性</a>
+<ul>
+<li><a href="#线下扫面正反冗余表全部数据">线下扫面正反冗余表全部数据</a></li>
+<li><a href="#线下扫描增量数据">线下扫描增量数据</a></li>
+<li><a href="#实时线上-消息对-检测">实时线上“消息对”检测</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

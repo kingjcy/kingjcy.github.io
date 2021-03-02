@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="推荐系统主要依赖于算法，是将大数据进行分析后得到一个想要结果，进行评分推荐，其实和搜索系统有异曲同工之妙。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="架构系列---- 推荐系统 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    架构系列---- 推荐系统
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年07月04日 
+                </div>
+                <h1 class="post-title">架构系列---- 推荐系统</h1>
+            </header>
+
+            <div class="post-content">
+                <p>推荐系统主要依赖于算法，是将大数据进行分析后得到一个想要结果，进行评分推荐，其实和搜索系统有异曲同工之妙。</p>
+
+<h1 id="offline">offline</h1>
+
+<p>线下推荐子系统又主要分为线下挖掘模块、数据管理工具两大部分。</p>
+
+<blockquote>
+<p>挖掘模块</p>
+</blockquote>
+
+<p><img src="/media/architecture/recommend/reconmend.jpg" alt="" /></p>
+
+<p>线下挖掘模块，是各类线下挖掘算法实施的核心，它读取各种数据源，运用各种算法实施线下数据挖掘，产出初步的挖掘结果，并将挖掘结果以一定格式保存下来。典型的，实施这些挖掘策略的是一些跑在hadoop平台上的job，并行实施策略，并将挖掘结果保存到hadoop上。</p>
+
+<blockquote>
+<p>数据管理</p>
+</blockquote>
+
+<p>数据管理工具，即DataMgrTools，它是一个工具（或者服务），它能够接受一些管理命令，读取某些特定格式的线下数据，将这些数据实时或者周期性的打到线上的redis或者内存中，供线上服务读取。</p>
+
+<p><img src="/media/architecture/recommend/recommend1.jpg" alt="" /></p>
+
+<p>定义好线下数据格式，线上数据格式，通过上下游API做数据的迁移和转换。</p>
+
+<p>数据管理工具是一个与业务无关的通用工具，它需要支持多种特定格式数据的上传，因为线下挖掘模块产出的数据可能存储在文件里，HDFS上，数据库里，甚至是特定二进制数据。</p>
+
+<h1 id="online">online</h1>
+
+<p>线上推荐子系统主要分为展示服务、分流服务、推荐内核、策略module服务等几个部分。</p>
+
+<ul>
+<li>展示服务，或者说是接入服务，它是整个推荐系统线上部分的入口，即整个推荐系统的接入层，它向上游提供接口，供上游业务方调用。</li>
+<li>分流服务，它是推荐系统中一个非常有特色也非常重要的一个服务，它的作用是将上游过来的请求，按照不同的策略，以不同的比例，分流到不同的推荐算法实验平台（也就是下游的推荐内核）中去。</li>
+
+<li><p>推荐内核，是各类线上推荐算法实施的核心，它其实只是一个通用的实验平台容器，每个推荐服务内部可能跑的是不同类型的推荐算法。</p>
+
+<pre><code>虽然推荐服务中跑着不同的推荐算法，但每个算法的实施步骤都是相同的，都需要经过：
+
+（1）预处理；
+（2）预分析；
+（3）去重过滤；
+（4）排序；
+（5）推荐解释；
+
+等五个步骤，每个步骤都可能存在多种不同的算法，不同的模型，各个步骤中的一种算法组合起来，完成一个完整的流程，构成一个“推荐算法实验平台”。
+</code></pre></li>
+
+<li><p>策略服务，又叫策略module服务，它实现了一个个推荐内核下游的推荐module。在推荐内核执行各个推荐步骤时，每个步骤中都可能存在不同的算法/策略，这些算法/和策略可能需要调用一些和策略绑定比较紧密的module服务，它们并不是通用服务，而是相对专有的服务。</p></li>
+</ul>
+
+<h1 id="总结">总结</h1>
+
+<p><img src="/media/architecture/recommend/recommend2.jpg" alt="" /></p>
+
+<p>其实就是收集数据，数据处理，过滤，打分，推荐。</p>
+
+<h1 id="推荐系统">推荐系统</h1>
+
+<ul>
+<li>首页推荐：提取用户画像，根据线下提取出的用户年龄、性别、品类偏好等在首页综合推荐宝贝</li>
+<li>宝贝详情页推荐：买了还买，看了还看类的关联宝贝推荐</li>
+<li>附近推荐：和首页推荐的差异在于，提高了地理位置的权重，地理位置不仅要包含当前地理位置，还需要包含常见活跃区域，例如家里、公司等</li>
+<li>搜索推荐：除了关键词全匹配，要考虑同义词、近义词、易错词、拼音等推荐，产品层面，提示“你是不是想找xxoo宝贝”</li>
+<li>召回推荐：在用户退出系统后，通过RFM模型做优惠券推送或者消息推送做客户挽留与召回</li>
+<li>列表页推荐：用户既然进入到了美甲，成交意愿是非常强烈的，首页的推荐至关重要</li>
+<li>宝贝详情页推荐：买了还买，看了还看类的关联宝贝推荐</li>
+<li>下单成功页推荐：既然下单了某个甲样，可能会喜欢相近的甲样哟</li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/architecture/recommend/">https://kingjcy.github.io/post/architecture/recommend/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/recommend/">
+                            <i class="fa fa-tags"></i>
+                            recommend
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/architecture/">
+                            <i class="fa fa-tags"></i>
+                            architecture
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/architecture/enterprise-architecture/">架构系列---- 企业架构</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月04日)</span></li><li id="li-rels"><a href="/post/architecture/count/">架构系列---- 计数系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月04日)</span></li><li id="li-rels"><a href="/post/architecture/architecture-evolution/">架构系列---- 架构的演进</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年03月05日)</span></li><li id="li-rels"><a href="/post/architecture/shopping/">架构系列---- 电商购物系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年02月04日)</span></li><li id="li-rels"><a href="/post/architecture/search/">架构系列---- 搜索系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月04日)</span></li><li id="li-rels"><a href="/post/architecture/cache/">架构系列---- Cache</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月15日)</span></li><li id="li-rels"><a href="/post/architecture/redundanttable/">架构系列---- 冗余表</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月14日)</span></li><li id="li-rels"><a href="/post/architecture/electronic-commerce/">架构系列---- 中台建设</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/advertising/">架构系列---- 广告投放系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/microservices/microservices/">架构系列---- 微服务</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月05日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/middleware/mq/kafka/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#offline">offline</a></li>
+<li><a href="#online">online</a></li>
+<li><a href="#总结">总结</a></li>
+<li><a href="#推荐系统">推荐系统</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="几乎所有的业务系统，都有生成一个记录标识的需求，全局唯一，趋势有序是记录标识生成的两大核心需求。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="架构系列---- 常用ID生成的方法 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    架构系列---- 常用ID生成的方法
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年10月16日 
+                </div>
+                <h1 class="post-title">架构系列---- 常用ID生成的方法</h1>
+            </header>
+
+            <div class="post-content">
+                <p>几乎所有的业务系统，都有生成一个记录标识的需求，全局唯一，趋势有序是记录标识生成的两大核心需求。</p>
+
+<p>如何高效生成趋势有序的全局唯一ID？</p>
+
+<h1 id="auto-increment">auto_increment</h1>
+
+<p>使用数据库的 auto_increment 来生成全局唯一递增ID</p>
+
+<p>优点</p>
+
+<ul>
+<li>简单，使用数据库已有的功能</li>
+<li>能够保证唯一性</li>
+<li>能够保证递增性</li>
+<li>步长固定</li>
+</ul>
+
+<p>缺点：</p>
+
+<ul>
+<li>可用性难以保证：数据库常见架构是一主多从+读写分离，生成自增ID是写请求，主库挂了就玩不转了</li>
+<li>扩展性差，性能有上限：因为写入是单点，数据库主库的写性能决定ID的生成性能上限，并且难以扩展</li>
+</ul>
+
+<p>改进方法：</p>
+
+<ul>
+<li>增加主库，避免写入单点</li>
+<li>数据水平切分，保证各主库生成的ID不重复</li>
+</ul>
+
+<p><img src="/media/architecture/id/id.png" alt="" /></p>
+
+<p>如上图所述，由1个写库变成3个写库，每个写库设置不同的auto_increment初始值，以及相同的增长步长，以保证每个数据库生成的ID是不同的（上图中库0生成0,3,6,9…，库1生成1,4,7,10，库2生成2,5,8,11…）</p>
+
+<p>改进后的架构保证了可用性，但缺点是：</p>
+
+<ul>
+<li>丧失了ID生成的“绝对递增性”：先访问库0生成0,3，再访问库1生成1，可能导致在非常短的时间内，ID生成不是绝对递增的（这个问题不大，我们的目标是趋势递增，不是绝对递增）</li>
+<li>数据库的写压力依然很大，每次生成ID都要访问数据库</li>
+</ul>
+
+<p>为了解决上述两个问题，引出了第二个常见的方案</p>
+
+<h1 id="单点批量id生成服务">单点批量ID生成服务</h1>
+
+<p>分布式系统之所以难，很重要的原因之一是“没有一个全局时钟，难以保证绝对的时序”，要想保证绝对的时序，还是只能使用单点服务，用本地时钟保证“绝对时序”。数据库写压力大，是因为每次生成ID都访问了数据库，可以使用批量的方式降低数据库写压力。</p>
+
+<p>数据库使用双master保证可用性，数据库中只存储当前ID的最大值，例如0。ID生成服务假设每次批量拉取6个ID，服务访问数据库，将当前ID的最大值修改为5，这样应用访问ID生成服务索要ID，ID生成服务不需要每次访问数据库，就能依次派发0,1,2,3,4,5这些ID了，当ID发完后，再将ID的最大值修改为11，就能再次派发6,7,8,9,10,11这些ID了，于是数据库的压力就降低到原来的1/6了。</p>
+
+<p>优点：</p>
+
+<ul>
+<li>保证了ID生成的绝对递增有序</li>
+<li>大大的降低了数据库的压力，ID生成可以做到每秒生成几万几十万个</li>
+</ul>
+
+<p>缺点：</p>
+
+<ul>
+<li>服务仍然是单点</li>
+<li>如果服务挂了，服务重启起来之后，继续生成ID可能会不连续，中间出现空洞（服务内存是保存着0,1,2,3,4,5，数据库中max-id是5，分配到3时，服务重启了，下次会从6开始分配，4和5就成了空洞，不过这个问题也不大）</li>
+<li>虽然每秒可以生成几万几十万个ID，但毕竟还是有性能上限，无法进行水平扩展</li>
+</ul>
+
+<p>改进方法：</p>
+
+<p>单点服务的常用高可用优化方案是“备用服务”，也叫“影子服务”，有一个影子服务时刻处于备用状态，当主服务挂了的时候影子服务顶上。这个切换的过程对调用方是透明的，可以自动完成，常用的技术是vip+keepalived，具体就不在这里展开。</p>
+
+<h1 id="uuid">uuid</h1>
+
+<p>上述方案来生成ID，虽然性能大增，但由于是单点系统，总还是存在性能上限的。同时，上述两种方案，不管是数据库还是服务来生成ID，业务方Application都需要进行一次远程调用，比较耗时。有没有一种本地生成ID的方法，即高性能，又时延低呢？</p>
+
+<p>uuid是一种常见的方案：string ID =GenUUID();</p>
+
+<p>优点：</p>
+
+<ul>
+<li>本地生成ID，不需要进行远程调用，时延低</li>
+<li>扩展性好，基本可以认为没有性能上限</li>
+</ul>
+
+<p>缺点：</p>
+
+<ul>
+<li>无法保证趋势递增</li>
+<li>uuid过长，往往用字符串表示，作为主键建立索引查询效率低，常见优化方案为“转化为两个uint64整数存储”或者“折半存储”（折半后不能保证唯一性）</li>
+</ul>
+
+<h1 id="取当前毫秒数">取当前毫秒数</h1>
+
+<p>uuid是一个本地算法，生成性能高，但无法保证趋势递增，且作为字符串ID检索效率低，有没有一种能保证递增的本地算法呢？</p>
+
+<p>取当前毫秒数是一种常见方案：uint64 ID = GenTimeMS();</p>
+
+<p>优点：</p>
+
+<ul>
+<li>本地生成ID，不需要进行远程调用，时延低</li>
+<li>生成的ID趋势递增</li>
+<li>生成的ID是整数，建立索引后查询效率高</li>
+</ul>
+
+<p>缺点：</p>
+
+<ul>
+<li>如果并发量超过1000，会生成重复的ID</li>
+</ul>
+
+<p>我去，这个缺点要了命了，不能保证ID的唯一性。当然，使用微秒可以降低冲突概率，但每秒最多只能生成1000000个ID，再多的话就一定会冲突了，所以使用微秒并不从根本上解决问题。</p>
+
+<h1 id="类snowflake算法">类snowflake算法</h1>
+
+<p>snowflake是twitter开源的分布式ID生成算法，其核心思想是：一个long型的ID，使用其中41bit作为毫秒数，10bit作为机器编号，12bit作为毫秒内序列号。这个算法单机每秒内理论上最多可以生成1000*(2^12)，也就是400W的ID，完全能满足业务的需求。</p>
+
+<p>借鉴snowflake的思想，结合各公司的业务逻辑和并发量，可以实现自己的分布式ID生成算法。</p>
+
+<p>举例，假设某公司ID生成器服务的需求如下：</p>
+
+<pre><code>（1）单机高峰并发量小于1W，预计未来5年单机高峰并发量小于10W
+（2）有2个机房，预计未来5年机房数量小于4个
+（3）每个机房机器数小于100台
+（4）目前有5个业务线有ID生成需求，预计未来业务线数量小于10个
+（5）…
+</code></pre>
+
+<p>分析过程如下：</p>
+
+<ul>
+<li>高位取从2016年1月1日到现在的毫秒数（假设系统ID生成器服务在这个时间之后上线），假设系统至少运行10年，那至少需要10年*365天*24小时*3600秒*1000毫秒=320*10^9，差不多预留39bit给毫秒数</li>
+<li>每秒的单机高峰并发量小于10W，即平均每毫秒的单机高峰并发量小于100，差不多预留7bit给每毫秒内序列号</li>
+<li>5年内机房数小于4个，预留2bit给机房标识</li>
+<li>每个机房小于100台机器，预留7bit给每个机房内的服务器标识
+0 业务线小于10个，预留4bit给业务线标识</li>
+</ul>
+
+<p>这样设计的64bit标识，可以保证：</p>
+
+<ul>
+<li>每个业务线、每个机房、每个机器生成的ID都是不同的</li>
+<li>同一个机器，每个毫秒内生成的ID都是不同的</li>
+<li>同一个机器，同一个毫秒内，以序列号区区分保证生成的ID是不同的</li>
+<li>将毫秒数放在最高位，保证生成的ID是趋势递增的</li>
+</ul>
+
+<p>缺点：</p>
+
+<ul>
+<li>由于“没有一个全局时钟”，每台服务器分配的ID是绝对递增的，但从全局看，生成的ID只是趋势递增的（有些服务器的时间早，有些服务器的时间晚）</li>
+</ul>
+
+<p>最后一个容易忽略的问题：</p>
+
+<p>生成的ID，例如message-id/ order-id/ tiezi-id，在数据量大时往往需要分库分表，这些ID经常作为取模分库分表的依据，为了分库分表后数据均匀，ID生成往往有“取模随机性”的需求，所以我们通常把每秒内的序列号放在ID的最末位，保证生成的ID是随机的。</p>
+
+<p>又如果，我们在跨毫秒时，序列号总是归0，会使得序列号为0的ID比较多，导致生成的ID取模后不均匀。解决方法是，序列号不是每次都归0，而是归一个0到9的随机数，这个地方。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/architecture/id/">https://kingjcy.github.io/post/architecture/id/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/architecture/">
+                            <i class="fa fa-tags"></i>
+                            Architecture
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/id/">
+                            <i class="fa fa-tags"></i>
+                            ID
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/architecture/concurrence/">架构系列---- 并发</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月09日)</span></li><li id="li-rels"><a href="/post/architecture/architecture/">架构系列---- Architecture 总结</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月05日)</span></li><li id="li-rels"><a href="/post/architecture/coupling/">架构系列---- 架构解耦</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月05日)</span></li><li id="li-rels"><a href="/post/architecture/call/">架构系列---- 调用优化</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月05日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/distributed/store/fs/hfds/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/call/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#auto-increment">auto_increment</a></li>
+<li><a href="#单点批量id生成服务">单点批量ID生成服务</a></li>
+<li><a href="#uuid">uuid</a></li>
+<li><a href="#取当前毫秒数">取当前毫秒数</a></li>
+<li><a href="#类snowflake算法">类snowflake算法</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

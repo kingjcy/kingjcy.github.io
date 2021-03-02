@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="mysql前置缓存redis是我们经常使用的提供性能的方案。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="数据库系列---- mysql前置缓存redis - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    数据库系列---- mysql前置缓存redis
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年01月22日 
+                </div>
+                <h1 class="post-title">数据库系列---- mysql前置缓存redis</h1>
+            </header>
+
+            <div class="post-content">
+                <p>mysql前置缓存redis是我们经常使用的提供性能的方案。</p>
+
+<h1 id="常规使用">常规使用</h1>
+
+<p>1、基于binlog使用mysql_udf_redis，将数据库中的数据同步到Redis。</p>
+
+<p>      无论MySQL还是Redis，自身都带有数据同步的机制，像比较常用的MySQL的Master/Slave模式，就是由Slave端分析Master的binlog来实现的，这样的数据其实还是一个异步过程，只不过当服务器都在同一内网时，异步的延迟几乎可以忽略。</p>
+
+<p>      那么理论上我们也可以用同样方式，分析MySQL的binlog文件并将数据插入Redis。但是这需要对binlog文件以及MySQL有非常深入的理解，同时由于binlog存在Statement/Row/Mixedlevel多种形式，分析binlog实现同步的工作量是非常大的。</p>
+
+<p>2、通过MySQL自动同步刷新Redis</p>
+
+<p>     当我们在业务层有数据查询需求时，先到Redis缓存中查询，如果查不到，再到MySQL数据库中查询，同时将查到的数据更新到Redis里；当我们在业务层有修改插入数据需求时，直接向MySQL发起请求，同时更新Redis缓存。 就是MySQL的CRUD发生后自动地更新到Redis里，这需要通过MySQL UDF来实现。具体来说，我们把更新Redis的逻辑放到MySQL中去做，即定义一个触发器Trigger，监听CRUD这些操作，当操作发生后，调用对应的UDF函数，远程写回Redis，所以业务逻辑只需要负责更新MySQL就行了，剩下的交给MySQL UDF去完成。</p>
+
+<blockquote>
+<p>总结</p>
+</blockquote>
+
+<p>在我们的实际开发当中往往采用如下方式实现实现Mysql和Redis数据同步：当我们在MySQL数据库中进行增删改的时候，我们在增删改的service层将缓存中的数据清除，这个时候用户在此请求的时候我们缓存中没有数据了，直接去数据库中查询，查询回来之后将缓存中的数据放缓存当中，这个时候缓存中的数据就是最新的数据。</p>
+
+<h1 id="实战">实战</h1>
+
+<p>后台服务器信息查询</p>
+
+<p>1、后台重kafka订阅信息，如果有服务器信息，后台系统进行消费，放入到mysql数据库中</p>
+
+<p>2、很多场景都需要查询服务器的信息，比如我们接受到的zbabix的数据，需要根据ip的去查询服务器的信息</p>
+
+<p>3、这边在查询之间就加了一层redis缓存，先去redis缓存查数据，如果查到数据，就返回，如果没有查到数据就到mysql数据库进行查询，将查到的数据返回的同时更新到redis中，key是IP，json信息是value，同时设置过期事件，用来保存经常查询的数据。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/database/mysql/redis-mysql/">https://kingjcy.github.io/post/database/mysql/redis-mysql/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/redis/">
+                            <i class="fa fa-tags"></i>
+                            redis
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/mysql/">
+                            <i class="fa fa-tags"></i>
+                            mysql
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/database/">
+                            <i class="fa fa-tags"></i>
+                            database
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter/">监控metrics系列---- Prometheus redis Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/mysqld-exporter/">监控metrics系列---- Prometheus mysqld_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月09日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/designpatterns/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-strings/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#常规使用">常规使用</a></li>
+<li><a href="#实战">实战</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

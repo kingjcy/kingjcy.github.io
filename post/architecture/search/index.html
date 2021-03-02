@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="搜索系统在我们日常生活中经常使用，比如baidu，google等，我们来看看其架构和原理。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="架构系列---- 搜索系统 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    架构系列---- 搜索系统
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年01月04日 
+                </div>
+                <h1 class="post-title">架构系列---- 搜索系统</h1>
+            </header>
+
+            <div class="post-content">
+                <p>搜索系统在我们日常生活中经常使用，比如baidu，google等，我们来看看其架构和原理。</p>
+
+<h1 id="全网搜索引擎架构">全网搜索引擎架构</h1>
+
+<p><img src="/media/architecture/search/search.jpg" alt="" /></p>
+
+<p>核心系统主要分为三部分：</p>
+
+<ul>
+<li>spider爬虫系统</li>
+<li>search&amp;index建立索引与查询索引系统
+
+<ul>
+<li>一部分用于生成索引数据build_index</li>
+<li>一部分用于查询索引数据search_index</li>
+</ul></li>
+<li>rank打分排序系统</li>
+</ul>
+
+<p>核心数据主要分为两部分：</p>
+
+<ul>
+<li>web网页库</li>
+<li>index索引数据</li>
+</ul>
+
+<p>核心流程：</p>
+
+<p>写入</p>
+
+<ul>
+<li>spider把互联网网页抓过来</li>
+<li>spider把互联网网页存储到网页库中（这个对存储的要求很高，要存储几乎整个“万维网”的镜像）</li>
+<li>build_index从网页库中读取数据，完成分词</li>
+<li>build_index生成倒排索引</li>
+</ul>
+
+<p>检索</p>
+
+<ul>
+<li>search_index获得用户的搜索词，完成分词</li>
+<li>search_index查询倒排索引，获得“字符匹配”网页，这是初筛的结果</li>
+<li>rank对初筛的结果进行打分排序</li>
+<li>rank对排序后的第一页结果返回</li>
+</ul>
+
+<p>比如baidu，google就是全网搜索引擎架构，我们来看一下百度如何实现实时搜索十五分钟内的新闻的？</p>
+
+<p>首先任何对数据的更新，并不会实时修改索引，一旦产生碎片，会大大降低检索效率。既然索引数据不能实时修改，如何保证最新的网页能够被索引到呢？</p>
+
+<p>就是采用了将索引分为全量库、日增量库、小时增量库。比如</p>
+
+<ul>
+<li>300亿数据在全量索引库中</li>
+<li>1000万1天内修改过的数据在天库中</li>
+<li>50万1小时内修改过的数据在小时库中</li>
+</ul>
+
+<p>当有查询请求发生时，会同时查询各个级别的索引，将结果合并，得到最新的数据：</p>
+
+<ul>
+<li>全量库是紧密存储的索引，无碎片，速度快</li>
+<li>天库是紧密存储，速度快</li>
+<li>小时库数据量小，速度也快</li>
+</ul>
+
+<p><img src="/media/architecture/search/search2.png" alt="" /></p>
+
+<p>当有修改请求发生时，只会操作最低级别的索引，例如小时库。</p>
+
+<p><img src="/media/architecture/search/search3.png" alt="" /></p>
+
+<p>数据库的同步</p>
+
+<p><img src="/media/architecture/search/search4.png" alt="" /></p>
+
+<ul>
+<li>dumper：将在线的数据导出</li>
+<li>merger：将离线的数据合并到高一级别的索引中去</li>
+<li>小时库，一小时一次，合并到天库中去；</li>
+<li>天库，一天一次，合并到全量库中去；</li>
+<li>这样就保证了小时库和天库的数据量都不会特别大；</li>
+<li>如果数据量和并发量更大，还能增加星期库，月库来缓冲。</li>
+</ul>
+
+<p>数据的写入和读取都是实时的，所以58同城能够检索到1秒钟之前发布的帖子，即使全量库有300亿的数据。百度也能搜索到十五分钟内的数据。</p>
+
+<h1 id="站内搜索引擎架构">站内搜索引擎架构</h1>
+
+<p>全网搜索需要spider要被动去抓取数据，站内搜索是内部系统生成的数据，例如“发布系统”会将生成的帖子主动推给build_data系统，看似“很小”的差异，架构实现上难度却差很多：全网搜索如何“实时”发现“全量”的网页是非常困难的，而站内搜索容易实时得到全部数据。</p>
+
+<p><img src="/media/architecture/search/search1.jpg" alt="" /></p>
+
+<p>spider和search&amp;index是相对工程的系统，rank是和业务、策略紧密、算法相关的系统，搜索体验的差异主要在此，而业务、策略的优化是需要时间积累的。</p>
+
+<ul>
+<li>Google的体验比Baidu好，根本在于前者rank牛逼</li>
+<li>国内互联网公司短时间要搞一个体验超越Baidu的搜索引擎，是很难的，真心需要时间的积累</li>
+</ul>
+
+<h1 id="搜索原理">搜索原理</h1>
+
+<h2 id="核心数据结构">核心数据结构</h2>
+
+<h3 id="正排索引-forward-index">正排索引（forward index）</h3>
+
+<p>由key查询实体的过程，是正排索引。比如</p>
+
+<ul>
+<li>用户表：t_user(uid, name, passwd, age, sex)，由uid查询整行的过程，就是正排索引查询。</li>
+<li>网页库：t_web_page(url, page_content)，由url查询整个网页的过程，也是正排索引查询。</li>
+</ul>
+
+<p>举个例子，假设有3个网页：</p>
+
+<pre><code>url1 -&gt; “我爱北京”
+url2 -&gt; “我爱到家”
+url3 -&gt; “到家美好”
+</code></pre>
+
+<p>这是一个正排索引Map<url, page_content>。</p>
+
+<h3 id="分词">分词</h3>
+
+<p>分词就是将基本的词进行拆分，比如将上面的内容进行分词：</p>
+
+<pre><code>url1 -&gt; {我，爱，北京}
+url2 -&gt; {我，爱，到家}
+url3 -&gt; {到家，美好}
+</code></pre>
+
+<p>这是一个分词后的正排索引Map<url, list<item>&gt;。</p>
+
+<h3 id="倒排索引-inverted-index">倒排索引（inverted index）</h3>
+
+<p>由item查询key的过程，是倒排索引。比如上面的网页进行倒排</p>
+
+<p>分词后倒排索引：</p>
+
+<pre><code>我 -&gt; {url1, url2}
+爱 -&gt; {url1, url2}
+北京 -&gt; {url1}
+到家 -&gt; {url2, url3}
+美好 -&gt; {url3}
+</code></pre>
+
+<p>由检索词item快速找到包含这个查询词的网页Map<item, list<url>&gt;就是倒排索引。</p>
+
+<p>正排索引和倒排索引是spider和build_index系统提前建立好的数据结构，为什么要使用这两种数据结构，是因为它能够快速的实现“用户网页检索”需求（业务需求决定架构实现）</p>
+
+<h2 id="基本搜索原理">基本搜索原理</h2>
+
+<p>假设搜索词是“我爱”，原理如下</p>
+
+<ul>
+<li>分词，“我爱”会分词为{我，爱}，时间复杂度为O(1)</li>
+
+<li><p>每个分词后的item，从倒排索引查询包含这个item的网页list<url>，时间复杂度也是O(1)：</p>
+
+<pre><code>我 -&gt; {url1, url2}
+爱 -&gt; {url1, url2}
+</code></pre></li>
+
+<li><p>求list<url>的交集，就是符合所有查询词的结果网页，对于这个例子，{url1, url2}就是最终的查询结果</p></li>
+</ul>
+
+<p>核心就在于如何求两个子集的交集</p>
+
+<ul>
+<li>循环遍历，土办法，时间复杂度O(n*n)</li>
+<li>有序list求交集，拉链法，时间复杂度O(n)</li>
+<li>分桶并行优化，多线程并行</li>
+<li>bitmap再次优化，大大提高运算并行度，时间复杂度O(n)</li>
+<li>跳表skiplist，时间复杂度为O(log(n))</li>
+</ul>
+
+<p>这些都是搜索引擎中常用的求交集的方法，可见搜索引擎中算法使用还是比较多的，其实引擎基本都是算法的天下。</p>
+
+<h1 id="搜索架构演进">搜索架构演进</h1>
+
+<h2 id="原始阶段-like">原始阶段-LIKE</h2>
+
+<p>直接通过数据看的like关键词进行模糊匹配，能够快速满足业务需求，显然效率低，每次需要全表扫描，计算量大，并发高时cpu容易100%，而且不支持分词，很多查询不了。</p>
+
+<h2 id="初级阶段-全文索引">初级阶段-全文索引</h2>
+
+<p>正常数据库查询的时候，我们一般都会想到给数据库建索引，然后用于查询，但是这情况情况也存在一些问题。</p>
+
+<ul>
+<li>只适用于MyISAM</li>
+<li>由于全文索引利用的是数据库特性，搜索需求和普通CURD需求耦合在数据库中：检索需求并发大时，可能影响CURD的请求；CURD并发大时，检索会非常的慢；</li>
+<li>数据量达到百万级别，性能还是会显著降低，查询返回时间很长，业务难以接受</li>
+<li>比较难水平扩展</li>
+</ul>
+
+<h2 id="中级阶段-开源外置索引">中级阶段-开源外置索引</h2>
+
+<p>外置索引的核心思路是：索引数据与原始数据分离，前者满足搜索需求，后者满足CURD需求，通过一定的机制（双写，通知，定期重建）来保证数据的一致性。</p>
+
+<p>Solr，Lucene，ES都是常见的开源方案。比如ES“封装一个接口友好的服务，屏蔽底层复杂性”</p>
+
+<ul>
+<li>ES是一个以Lucene为内核来实现搜索功能，提供REStful接口的服务</li>
+<li>ES能够支持很大数据量的信息存储，支持很高并发的搜索请求</li>
+<li>ES支持集群，向使用者屏蔽高可用/可扩展/负载均衡等复杂特性</li>
+</ul>
+
+<p>ES完全能满足10亿数据量，5k吞吐量的常见搜索业务需求，强烈推荐。</p>
+
+<h2 id="高级阶段-自研搜索引擎">高级阶段-自研搜索引擎</h2>
+
+<p>当数据量进一步增加，达到10亿、100亿数据量；并发量也进一步增加，达到每秒10万吞吐；业务个性也逐步增加的时候，就需要自研搜索引擎了，定制化实现搜索内核了。比如58同城的E-search，等等。</p>
+
+<p>到了定制化自研搜索引擎的阶段，超大数据量、超高并发量为设计重点，为了达到“无限容量、无限并发”的需求，架构设计需要重点考虑“扩展性”，力争做到：增加机器就能扩容（数据量+并发量）。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/architecture/search/">https://kingjcy.github.io/post/architecture/search/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/search/">
+                            <i class="fa fa-tags"></i>
+                            search
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/architecture/">
+                            <i class="fa fa-tags"></i>
+                            architecture
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/architecture/enterprise-architecture/">架构系列---- 企业架构</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月04日)</span></li><li id="li-rels"><a href="/post/architecture/count/">架构系列---- 计数系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月04日)</span></li><li id="li-rels"><a href="/post/architecture/architecture-evolution/">架构系列---- 架构的演进</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年03月05日)</span></li><li id="li-rels"><a href="/post/architecture/shopping/">架构系列---- 电商购物系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年02月04日)</span></li><li id="li-rels"><a href="/post/architecture/recommend/">架构系列---- 推荐系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月04日)</span></li><li id="li-rels"><a href="/post/architecture/cache/">架构系列---- Cache</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月15日)</span></li><li id="li-rels"><a href="/post/architecture/redundanttable/">架构系列---- 冗余表</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月14日)</span></li><li id="li-rels"><a href="/post/architecture/electronic-commerce/">架构系列---- 中台建设</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/advertising/">架构系列---- 广告投放系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/microservices/microservices/">架构系列---- 微服务</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月05日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/architecture/coupling/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/distributed/store/fs/hfds/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#全网搜索引擎架构">全网搜索引擎架构</a></li>
+<li><a href="#站内搜索引擎架构">站内搜索引擎架构</a></li>
+<li><a href="#搜索原理">搜索原理</a>
+<ul>
+<li><a href="#核心数据结构">核心数据结构</a>
+<ul>
+<li><a href="#正排索引-forward-index">正排索引（forward index）</a></li>
+<li><a href="#分词">分词</a></li>
+<li><a href="#倒排索引-inverted-index">倒排索引（inverted index）</a></li>
+</ul></li>
+<li><a href="#基本搜索原理">基本搜索原理</a></li>
+</ul></li>
+<li><a href="#搜索架构演进">搜索架构演进</a>
+<ul>
+<li><a href="#原始阶段-like">原始阶段-LIKE</a></li>
+<li><a href="#初级阶段-全文索引">初级阶段-全文索引</a></li>
+<li><a href="#中级阶段-开源外置索引">中级阶段-开源外置索引</a></li>
+<li><a href="#高级阶段-自研搜索引擎">高级阶段-自研搜索引擎</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

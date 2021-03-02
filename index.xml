@@ -374,6 +374,229 @@ Swift存储的整个数据定位算法就是基于上述一致性哈希实现的
     
       
         <item>
+          <title>架构系列---- 并发</title>
+          <link>https://kingjcy.github.io/post/architecture/concurrence/</link>
+          <pubDate>Mon, 09 Nov 2020 19:25:10 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/concurrence/</guid>
+          <description>&lt;p&gt;高并发（High Concurrency）是互联网分布式系统架构设计中必须考虑的因素之一，它通常是指，通过设计保证系统能够同时并行处理很多请求。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本概念&#34;&gt;基本概念&lt;/h1&gt;
+
+&lt;p&gt;首先并发中的一些重要概念&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;并发度：指在同一个时间点发起的请求数量，比如 12306 统一在下午两点钟放票，100 个人在下午两点钟同时向 12306 发起请求，此时可以认为并发度为 100。&lt;/li&gt;
+&lt;li&gt;响应时间：系统对请求做出响应的时间。例如系统处理一个HTTP请求需要200ms，这个200ms就是系统的响应时间。&lt;/li&gt;
+&lt;li&gt;吞吐量：单位时间内处理的请求数量。&lt;/li&gt;
+&lt;li&gt;TPS：Transactions Per Second（每秒传输的事物处理个数），即服务器每秒处理的事务数。TPS包括一条消息入和一条消息出，加上一次用户数据库访问。（业务TPS = CAPS × 每个呼叫平均TPS）TPS是软件测试结果的测量单位。一个事务是指一个客户机向服务器发送请求然后服务器做出反应的过程。客户机在发送请求时开始计时，收到服务器响应后结束计时，以此来计算使用的时间和完成的事务个数。一般的，评价系统性能均以每秒钟完成的技术交易的数量来衡量。系统整体处理能力取决于处理能力最低模块的TPS值。&lt;/li&gt;
+&lt;li&gt;QPS：每秒查询率QPS是对一个特定的查询服务器在规定时间内所处理流量多少的衡量标准，在因特网上，作为域名系统服务器的机器的性能经常用每秒查询率来衡量。对应fetches/sec，即每秒的响应请求数，也即是最大吞吐能力。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;高并发&#34;&gt;高并发&lt;/h2&gt;
+
+&lt;p&gt;那么什么才叫高并发呢？&lt;/p&gt;
+
+&lt;p&gt;高并发要根据场景来定义，多高的并发算高并发？对于阿里来说可能几千上万才算高并发，对于普通小公司来说，可能几十上百就算高并发了。&lt;/p&gt;
+
+&lt;p&gt;高并发其实是和响应时间有很大关系的，你能把接口的响应时间做到1ms，你一个线程就能有1000QPS！一个服务怎么也能跑200个线程吧，QPS轻松地达到了20万呐！你看看有几个整天把高并发挂嘴上的能做到20万的QPS？可见响应时间是不那么容易快速响应的。&lt;/p&gt;
+
+&lt;p&gt;其实高并发的场景多用于web端的请求处理。我们就web常见架构，对于百万级的的QPS怎么进行处理，常见web架构如下&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/concurrence/cc.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Qps如果不是太高，只要简单的使用上面的进行交互就能满足基本需要。但是如果在QPS达到百万级甚至千万级别的，就会在各种交互组件上出现瓶颈。这个时候就是经验的使用和积累，来使用不同的架构来完成这种需求。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;水平扩展&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、反向代理层的水平扩展&lt;/p&gt;
+
+&lt;p&gt;反向代理层的水平扩展，是通过“DNS轮询”实现的：dns-server对于一个域名配置了多个解析ip，每次DNS解析请求来访问dns-server，会轮询返回这些ip。&lt;/p&gt;
+
+&lt;p&gt;当nginx成为瓶颈的时候，只要增加服务器数量，新增nginx服务的部署，增加一个外网ip，就能扩展反向代理层的性能，做到理论上的无限高并发。&lt;/p&gt;
+
+&lt;p&gt;2、站点层的水平扩展&lt;/p&gt;
+
+&lt;p&gt;站点层的水平扩展，是通过“nginx”实现的。通过修改nginx.conf，可以设置多个web后端。&lt;/p&gt;
+
+&lt;p&gt;当web后端成为瓶颈的时候，只要增加服务器数量，新增web服务的部署，在nginx配置中配置上新的web后端，就能扩展站点层的性能，做到理论上的无限高并发。&lt;/p&gt;
+
+&lt;p&gt;3、服务层的水平扩展&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/concurrence/cc1.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;服务层的水平扩展，是通过“服务连接池”实现的。&lt;/p&gt;
+
+&lt;p&gt;站点层通过RPC-client调用下游的服务层RPC-server时，RPC-client中的连接池会建立与下游服务多个连接，当服务成为瓶颈的时候，只要增加服务器数量，新增服务部署，在RPC-client处建立新的下游服务连接，就能扩展服务层性能，做到理论上的无限高并发。如果需要优雅的进行服务层自动扩容，这里可能需要配置中心里服务自动发现功能的支持。&lt;/p&gt;
+
+&lt;p&gt;4、数据层的水平扩展&lt;/p&gt;
+
+&lt;p&gt;在数据量很大的情况下，数据层（缓存，数据库）涉及数据的水平扩展，将原本存储在一台服务器上的数据（缓存，数据库）水平拆分到不同服务器上去，以达到扩充系统性能的目的。&lt;/p&gt;
+
+&lt;p&gt;互联网数据层常见的水平拆分方式有这么几种，以数据库为例：按照范围水平拆分，按照哈希水平拆分。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;垂直扩展&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、提供每台机器的配置&lt;/p&gt;
+
+&lt;p&gt;2、使用多线程thread（正常是线程池）并发，也有使用fork出来多进行的进行处理，这边可以在逻辑里进行业务划分。&lt;/p&gt;
+
+&lt;p&gt;3、优化业务，解决哪些很耗时间的操作，for循环什么的，数据库连接次数，&lt;/p&gt;
+
+&lt;p&gt;4、数据库的优化，使用缓存数据库，优化数据库正常先对我们写的sql进行优化，可以看执行计划，然后数据库索引进行优化，然后就是分区，分表，分库的各种切分。&lt;/p&gt;
+
+&lt;p&gt;其实数据库是很多需求的响应的瓶颈所在，在数据库上花功夫才是重点，一般数据库正常使用情况&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;mysql 的合理上限不应该超过500万
+oracle。20亿数据。  清单
+HBase在50000条数据批量写的性能大概是在2s左右，单个查，5-10ms左右
+redis qps 500-2000。     几百G
+prometheus。  100W。30s 60。200G
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;5、完善架构，多使用缓存，减少io的交互等。&lt;/p&gt;
+
+&lt;p&gt;在互联网业务发展非常迅猛的早期，如果预算不是问题，强烈建议使用“增强单机硬件性能”的方式提升系统并发能力，因为这个阶段，公司的战略往往是发展业务抢时间，而“增强单机硬件性能”往往是最快的方法。京东的架构说了句大并发，大数据下的业务其实还是靠堆机器保证的，我们现在研究的是如何在堆机器的情况下保证业务的连贯性，容错性，可用性。&lt;/p&gt;
+
+&lt;h1 id=&#34;实践&#34;&gt;实践&lt;/h1&gt;
+
+&lt;h2 id=&#34;java&#34;&gt;java&lt;/h2&gt;
+
+&lt;p&gt;java在web并发中使用很多&lt;/p&gt;
+
+&lt;p&gt;JVMJEE容器中运行的JVM参数配置参数的正确使用直接关系到整个系统的性能和处理能力，JVM的调优主要是对内存管理方面的调优，优化的方向分为以下4点：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1.HeapSize             堆的大小，也可以说Java虚拟机使用内存的策略，这点是非常关键的。
+2.GarbageCollector  通过配置相关的参数进行Java中的垃圾收集器的4个算法(策略)进行使用。
+3.StackSize             栈是JVM的内存指令区,每个线程都有他自己的Stack，Stack的大小限制着线程的数量。
+4.DeBug/Log           在JVM中还可以设置对JVM运行时的日志和JVM挂掉后的日志输出，这点非常的关键，根据各类JVM的日志输出才能配置合适的参数。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;JDBC针对MySQL的JDBC的参数在之前的文章中也有介绍过，在单台机器或者集群的环境下合理的使用JDBC中的配置参数对操作数据库也有很大的影响。一些所谓高性能的 Java ORM开源框架也就是打开了很多JDBC中的默认参数：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1.例如：autoReconnect、prepStmtCacheSize、cachePrepStmts、useNewIO、blobSendChunkSize 等，&lt;/li&gt;
+&lt;li&gt;2.例如集群环境下：roundRobinLoadBalance、failOverReadOnly、autoReconnectForPools、secondsBeforeRetryMaster。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;数据库连接池(DataSource)应用程序与数据库连接频繁的交互会给系统带来瓶颈和大量的开销会影响到系统的性能，JDBC连接池负责分配、管理和释放数据库连接，它允许应用程序重复使用一个现有的数据库连接，而再不是重新建立一个连接，因此应用程序不需要频繁的与数据库开关连接，并且可以释放空闲时间超过最大空闲时间的数据库连接来避免因为没有释放数据库连接而引起的数据库连接遗漏。这项技术能明显提高对数据库操作的性能。&lt;/p&gt;
+
+&lt;p&gt;数据存取数据库服务器的优化和数据的存取，什么类型的数据放在什么地方更好是值得去思考的问题，将来的存储很可能是混用的，Cache，NOSQL，DFS，DataBase 在一个系统中都会有。&lt;/p&gt;
+
+&lt;p&gt;缓存在宏观上看缓存一般分为2种：本地缓存和分布式缓存&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1.本地缓存，对于Java的本地缓存而言就是讲数据放入静态(static)的数据结合中，然后需要用的时候就从静态数据结合中拿出来,对于高并发的环境建议使用 ConcurrentHashMap或者CopyOnWriteArrayList作为本地缓存。缓存的使用更具体点说就是对系统内存的使用，使用多少内存的资源需要有一个适当比例，如果超过适当的使用存储访问，将会适得其反，导致整个系统的运行效率低下。&lt;/li&gt;
+&lt;li&gt;2.分布式缓存，一般用于分布式的环境，将每台机器上的缓存进行集中化的存储，并且不仅仅用于缓存的使用范畴，还可以作为分布式系统数据同步/传输的一种手段，一般被使用最多的就是Memcached和Redis。数据存储在不同的介质上读/写得到的效率是不同的，在系统中如何善用缓存，让你的数据更靠近cpu，&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;并发/多线程在高并发环境下建议开发者使用JDK中自带的并发包(java.util.concurrent)，在JDK1.5以后使用java.util.concurrent下的工具类可以简化多线程开发，在java.util.concurrent的工具中主要分为以下几个主要部分：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1.线程池，线程池的接口(Executor、ExecutorService)与实现类(ThreadPoolExecutor、 ScheduledThreadPoolExecutor），利用jdk自带的线程池框架可以管理任务的排队和安排，并允许受控制的关闭。因为运行一个线程需要消耗系统CPU资源，而创建、结束一个线程也对系统CPU资源有开销，使用线程池不仅仅可以有效的管理多线程的使用，还是可以提高线程的运行效率。&lt;/li&gt;
+&lt;li&gt;2.本地队列，提供了高效的、可伸缩的、线程安全的非阻塞 FIFO 队列。java.util.concurrent 中的五个实现都支持扩展的 BlockingQueue 接口，该接口定义了 put 和 take 的阻塞版本：LinkedBlockingQueue、ArrayBlockingQueue、SynchronousQueue、PriorityBlockingQueue 和 DelayQueue。这些不同的类覆盖了生产者-使用者、消息传递、并行任务执行和相关并发设计的大多数常见使用的上下文。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;拒绝策略介绍&lt;/p&gt;
+
+&lt;p&gt;线程池的拒绝策略，是指当任务添加到线程池中被拒绝，而采取的处理措施。
+当任务添加到线程池中之所以被拒绝，可能是由于：第一，线程池异常关闭。第二，任务数量超过线程池的最大限制。&lt;/p&gt;
+
+&lt;p&gt;线程池共包括4种拒绝策略，它们分别是：AbortPolicy, CallerRunsPolicy, DiscardOldestPolicy和DiscardPolicy。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;AbortPolicy         -- 当任务添加到线程池中被拒绝时，它将抛出 RejectedExecutionException 异常。
+CallerRunsPolicy    -- 当任务添加到线程池中被拒绝时，会在线程池当前正在运行的Thread线程池中处理被拒绝的任务。
+DiscardOldestPolicy -- 当任务添加到线程池中被拒绝时，线程池会放弃等待队列中最旧的未处理任务，然后将被拒绝的任务添加到等待队列中。
+DiscardPolicy       -- 当任务添加到线程池中被拒绝时，线程池将丢弃被拒绝的任务。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;线程池默认的处理策略是AbortPolicy！&lt;/p&gt;
+
+&lt;h2 id=&#34;go&#34;&gt;go&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-concurrence/&#34;&gt;go并发&lt;/a&gt;是golang语言的核心能力。&lt;/p&gt;
+
+&lt;h2 id=&#34;并发安全&#34;&gt;并发安全&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/architecture/concurrencesafe/&#34;&gt;并发安全&lt;/a&gt;是并发中核心需要解决的问题。&lt;/p&gt;
+
+&lt;h2 id=&#34;高并发需要注意的事情&#34;&gt;高并发需要注意的事情&lt;/h2&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;高并发下一定要减少锁的使用，这边也是channel在go中的重要作用之一。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;好的习惯是，稍大的类型存到map都存储指针而不是值。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;定义数据结构的时候，减少后面使用的转换&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;defer是性能杀手，我的原则是能不用尽量避开。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;能不在循环内部做的，就不要在循环内存处理&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;减少内存的频繁分配，减少使用全局锁的可能&lt;/p&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;设置并发数&#34;&gt;设置并发数&lt;/h2&gt;
+
+&lt;p&gt;常规的并发模型就是我们使用的工作池模型，我们需要了解具体的工作模式，可以量化的分析并发，比如下图是一个典型的工作线程的处理过程&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/concurrence/concurrence.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;从开始处理start到结束处理end，该任务的处理共有7个步骤：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1）从工作队列里拿出任务，进行一些本地初始化计算，例如http协议分析、参数解析、参数校验等&lt;/li&gt;
+&lt;li&gt;2）访问cache拿一些数据&lt;/li&gt;
+&lt;li&gt;3）拿到cache里的数据后，再进行一些本地计算，这些计算和业务逻辑相关&lt;/li&gt;
+&lt;li&gt;4）通过RPC调用下游service再拿一些数据，或者让下游service去处理一些相关的任务&lt;/li&gt;
+&lt;li&gt;5）RPC调用结束后，再进行一些本地计算，怎么计算和业务逻辑相关&lt;/li&gt;
+&lt;li&gt;6）访问DB进行一些数据操作&lt;/li&gt;
+&lt;li&gt;7）操作完数据库之后做一些收尾工作，同样这些收尾工作也是本地计算，和业务逻辑相关&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;分析整个处理的时间轴，会发现：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1）其中1，3，5，7步骤中【上图中粉色时间轴】，线程进行本地业务逻辑计算时需要占用CPU&lt;/li&gt;
+&lt;li&gt;2）而2，4，6步骤中【上图中橙色时间轴】，访问cache、service、DB过程中线程处于一个等待结果的状态，不需要占用CPU，进一步的分解，这个“等待结果”的时间共分为三部分：
+
+&lt;ul&gt;
+&lt;li&gt;请求在网络上传输到下游的cache、service、DB&lt;/li&gt;
+&lt;li&gt;下游cache、service、DB进行任务处理&lt;/li&gt;
+&lt;li&gt;cache、service、DB将报文在网络上传回工作线程&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;通过上面的分析，Worker线程在执行的过程中，有一部计算时间需要占用CPU，另一部分等待时间不需要占用CPU，通过量化分析，例如打日志进行统计，可以统计出整个Worker线程执行过程中这两部分时间的比例，例如：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1）时间轴1，3，5，7【上图中粉色时间轴】的计算执行时间是100ms&lt;/li&gt;
+&lt;li&gt;2）时间轴2，4，6【上图中橙色时间轴】的等待时间也是100ms&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;得到的结果是，这个线程计算和等待的时间是1：1，即有50%的时间在计算（占用CPU），50%的时间在等待（不占用CPU）：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;1）假设此时是单核，则设置为2个工作线程就可以把CPU充分利用起来，让CPU跑到100%&lt;/li&gt;
+&lt;li&gt;2）假设此时是N核，则设置为2N个工作现场就可以把CPU充分利用起来，让CPU跑到N*100%&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;结论：&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;N核服务器，通过执行业务的单线程分析出本地计算时间为x，等待时间为y，则工作线程数（线程池线程数）设置为 N*(x+y)/x，能让CPU的利用率最大化。&lt;/p&gt;
+
+&lt;p&gt;一般来说，非CPU密集型的业务（加解密、压缩解压缩、搜索排序等业务是CPU密集型的业务），瓶颈都在后端数据库，本地CPU计算的时间很少，所以设置几十或者几百个工作线程也都是可能的。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>架构系列---- Architecture 总结</title>
           <link>https://kingjcy.github.io/post/architecture/architecture/</link>
           <pubDate>Thu, 05 Nov 2020 10:04:53 CST</pubDate>
@@ -771,6 +994,135 @@ Swift存储的整个数据定位算法就是基于上述一致性哈希实现的
     
       
         <item>
+          <title>架构系列---- 企业架构</title>
+          <link>https://kingjcy.github.io/post/architecture/enterprise-architecture/</link>
+          <pubDate>Fri, 04 Sep 2020 14:38:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/enterprise-architecture/</guid>
+          <description>&lt;p&gt;重下往上：基础平台，应用&lt;/p&gt;
+
+&lt;h1 id=&#34;基础平台&#34;&gt;基础平台&lt;/h1&gt;
+
+&lt;p&gt;目前主要是&lt;a href=&#34;https://kingjcy.github.io/post/cloud/compute/&#34;&gt;云计算&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h2 id=&#34;iaas基础设施建设&#34;&gt;IAAS基础设施建设&lt;/h2&gt;
+
+&lt;p&gt;其实就是服务器，已经很成熟，大部分厂商，包括阿里云都是直接一台什么配置的服务器多少钱，其实就是一台vm，当天有钱也可以卖物理机，还可以买物理机回来自己搭建数据中心。&lt;/p&gt;
+
+&lt;h2 id=&#34;paas平台建设&#34;&gt;PAAS平台建设&lt;/h2&gt;
+
+&lt;p&gt;PAAS平台其实是基于vm基础上一套申请机器，扩缩容的流程，也可以基于vm搭建基础应用。AWS就是典型的&lt;/p&gt;
+
+&lt;p&gt;随着docker虚拟化技术的发展，出现了一种新型的paas平台，就是基于docker的，这个其实比较倾向于应用，利用镜像能够快速的部署应用，扩缩容，十分轻量级，不像vm部署可能需要很长的时间，所以这个就比较倾向于应用了，而不是docker的分配。&lt;/p&gt;
+
+&lt;p&gt;其实上面讲的都是应用型的PAAS，也就是APaaS，APAAS是一种面向IT企业和机构的云计算应用开发与部署平台。APaaS主要为应用提供运行环境和数据存储，能够将本地部署的传统应用直接部署到APaaS上。容器厂商和IaaS厂商的PaaS大致为APaaS。&lt;/p&gt;
+
+&lt;p&gt;还有一种平台访问型的PASS，也就是IPAAS，大数据厂商的PaaS实际上是属于IPaaS。&lt;/p&gt;
+
+&lt;p&gt;IPaaS是用于集成和协同的PaaS平台，不仅可以支持与现有云服务间的连接性，而且可以以安全的方式提供企业应用的访问能力。IPaaS主要用于集成和构建复合应用。&lt;/p&gt;
+
+&lt;p&gt;基础平台并不是所有的企业都会建设的，只有大型的企业会建设这些东西，比如阿里云，他们有自己的数据中心，并且机器并不是全年都在使用的，而小企业只要在大企业搭建的云平台的基础上进行业务中台的建设就可以
+一般paas平台都是以卖自己的产品并且在自己的加上运行的为主的企业会在发展的过程中会需要发展&lt;/p&gt;
+
+&lt;p&gt;1、对外提供saas服务，但是机器会在一段时间内有使用峰值，正常情况下不需要那么多的机器，这些企业一般都是在云上租用的服务器，所以能够快速扩缩容能够应对需求，不用的时候不租用服务器可以降低成本&lt;/p&gt;
+
+&lt;p&gt;2、使用云平台提供的paas服务，但是随着规模的扩大，本来昂贵的paas方案，越来越高，需要自己构建一套方案&lt;/p&gt;
+
+&lt;p&gt;所以现在以docker为核心的paas平台是核心与主流，&lt;a href=&#34;https://kingjcy.github.io/post/cloud/paas/paas&#34;&gt;核心流程&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h2 id=&#34;saas服务&#34;&gt;Saas服务&lt;/h2&gt;
+
+&lt;p&gt;用户通过标准的 Web 浏览器来使用网络上的软件。从用户角度来说，这意味着前期无需在服务器或软件许可证授权上进行投资；从供应商角度来看，与常规的软件服务模式相比，维护一个应用软件的成本要相对低廉。SaaS供应商通常是按照客户所租用的软件模块来进行收费的，因此用户可以根据需求按需订购软件应用服务，而且SaaS的供应商会负责系统的部署、升级和维护。比如我们常用的邮箱服务等。&lt;/p&gt;
+
+&lt;p&gt;SaaS提供商对应的用户是应用软件使用的终端用户。其实和我们下面说的应用是息息相关的。&lt;/p&gt;
+
+&lt;p&gt;现在市场上也有saas应用已经很成熟了。其实就是我们开箱即用的服务，也可以理解为运行在paas平台上的应用。但是paas确实千变万化的。&lt;/p&gt;
+
+&lt;h1 id=&#34;应用&#34;&gt;应用&lt;/h1&gt;
+
+&lt;p&gt;其实就是运行在基础平台上的业务系统，可以是单体系统，可以是分布式系统。比如说使用最多的购物系统和打车系统。&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/architecture/shopping/&#34;&gt;购物系统&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/architecture/car/&#34;&gt;打车系统&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;其实系统架构都是演进的，并不是所有的企业都要走到最后的架构，必须以业务驱动为核心，比如你的企业并不需要大并发，单体系统就可以，有的微服务的SOA架构既可以，但是像淘宝等就需要服务化，微服务。&lt;/p&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://kingjcy.github.io/post/architecture/architecture-evolution/&#34;&gt;架构的演进&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;在不同的架构思想和体系中需要考虑的问题也不一样&lt;/p&gt;
+
+&lt;p&gt;1、单体架构&lt;/p&gt;
+
+&lt;p&gt;也就是我们常用的前后台体系&lt;/p&gt;
+
+&lt;p&gt;应用的开发无非就是解决如下问题,其实就是我们&lt;a href=&#34;https://kingjcy.github.io/post/architecture/architecture/#架构要素&#34;&gt;常规的架构思想&lt;/a&gt;所要解决的问题：&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;安全性&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-net-http/&#34;&gt;web开发&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;2、&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-web-safe/&#34;&gt;安全访问&lt;/a&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;高并发高性能&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;1、&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-context/&#34;&gt;并发控制&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;2、&lt;a href=&#34;https://kingjcy.github.io/post/architecture/concurrencesafe/&#34;&gt;并发安全&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;3、异步处理：定一个channel，以goroutine来运行，用于接受异步返回的结果&lt;/p&gt;
+
+&lt;p&gt;4、&lt;a href=&#34;https://kingjcy.github.io/post/architecture/concurrence/&#34;&gt;并发&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;5、&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-goroutinechannel/&#34;&gt;goroutine并发&lt;/a&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;高可用&lt;/p&gt;
+
+&lt;p&gt;可扩展&lt;/p&gt;
+
+&lt;p&gt;容错性&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;2、第一代微服务架构&amp;ndash;SOA&lt;/p&gt;
+
+&lt;p&gt;考虑单体架构的所有问题，以及分布式带来的&lt;a href=&#34;https://kingjcy.github.io/post/distributed/distributed/&#34;&gt;分布式问题&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;3、第一代微服务架构&amp;ndash;大中台&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;统一抽象规划在中台，中台建设&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;作为一种组织架构模式，“中台”突出的是规划控制和协调的能力，主要是将企业总线的瓶颈转化为中台服务的相互调用，而“前台”强调的是创新和灵活多变。这是一种快速设计和迭代的方法。&lt;/p&gt;
+
+&lt;p&gt;4、下一代微服务架构&lt;/p&gt;
+
+&lt;p&gt;去中心化&lt;/p&gt;
+
+&lt;h2 id=&#34;小前台&#34;&gt;小前台&lt;/h2&gt;
+
+&lt;p&gt;灵活多变，适应很多需求&lt;/p&gt;
+
+&lt;h2 id=&#34;大中台&#34;&gt;大中台&lt;/h2&gt;
+
+&lt;p&gt;其实就是将一些能够统一的业务进行统一规划，所以系统的接入和流出都是标准化的操作。&lt;/p&gt;
+
+&lt;p&gt;可见随着中台的发展，中台已经开始分为业务中台，数据中台，技术中台等，其实就是中台越来越庞大，需要每个领域进行专注，每一种中台都往平台化的方向发展，便于使用。具体中台可以看&lt;a href=&#34;https://kingjcy.github.io/post/architecture/electronic-commerce/&#34;&gt;中台建设&lt;/a&gt;&lt;/p&gt;
+
+&lt;h2 id=&#34;轻后台&#34;&gt;轻后台&lt;/h2&gt;
+
+&lt;p&gt;主要的实现业务的不能抽象统一的逻辑系统还是在后台，比如ERP系统等。
+在建设好的中台上进行业务处理，和服务端开发，或者平台建设。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>分布式系列---- 对象存储云存储</title>
           <link>https://kingjcy.github.io/post/distributed/store/oss/</link>
           <pubDate>Thu, 04 Jun 2020 15:52:04 CST</pubDate>
@@ -1000,6 +1352,122 @@ Swift存储的整个数据定位算法就是基于上述一致性哈希实现的
 &lt;p&gt;这些都是集群，所以集群通俗点说就是一堆节点，当然都是相关的，不相关的不会组合在一起&lt;/p&gt;
 
 &lt;p&gt;所以说集群和分布式是不同的概念，好比“分头做事”和“一堆相关的人”。他们也是紧密相连的，由分布式一般都是集群，有集群一般都是分布式的。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>架构系列---- 计数系统</title>
+          <link>https://kingjcy.github.io/post/architecture/count/</link>
+          <pubDate>Mon, 04 May 2020 14:38:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/count/</guid>
+          <description>&lt;p&gt;很多业务都有“计数”需求，在业务复杂，计数扩展频繁，数据量大，并发量大的情况下，计数系统的架构演进与实践。&lt;/p&gt;
+
+&lt;h1 id=&#34;初始架构&#34;&gt;初始架构&lt;/h1&gt;
+
+&lt;p&gt;我们可以很容易想到，关注服务+粉丝服务+消息服务均提供相应接口，就能拿到相关计数数据。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/count/count.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这样将所有的数据记录入表，然后对某个属性进行count就能得到计数的数据。这个方案叫做“count”计数法，在数据量并发量不大的情况下，最容易想到且最经常使用的就是这种方法，但随着数据量的上升，并发量的上升，这个方法的弊端将逐步展现：计算量特别大，访问数据特别多。&lt;/p&gt;
+
+&lt;h1 id=&#34;计数外置的架构设计&#34;&gt;计数外置的架构设计&lt;/h1&gt;
+
+&lt;p&gt;计数是一个通用的需求，有没有可能，这个计数的需求实现在一个通用的系统里，而不是由关注服务、粉丝服务、微博服务来分别来提供相应的功能呢（否则扩展性极差）？&lt;/p&gt;
+
+&lt;p&gt;通过分析，上述微博的业务可以抽象成两类：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;用户(uid)维度的计数：用户的关注计数，粉丝计数，发布的微博计数&lt;/li&gt;
+&lt;li&gt;微博消息(msg_id)维度的计数：消息转发计数，评论计数，点赞计数&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;于是可以抽象出两个表，针对这两个维度来进行计数的存储：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;t_user_count (uid, gz_count, fs_count, wb_count);
+t_msg_count (msg_id, forword_count, comment_count, praise_count);
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;甚至可以更为抽象，一个表搞定所有计数：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;t_count(id, type, c1, c2, c3, …)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;通过type来判断，id究竟是uid还是msg_id，但并不建议这么做。&lt;/p&gt;
+
+&lt;p&gt;存储抽象完，再抽象出一个计数服务对这些数据进行管理，提供友善的RPC接口：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/count/count1.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这样，在查询一条微博消息的若干个计数的时候，不用进行多次数据库count操作，而会转变为一条数据的多个属性的查询。但是当有微博被转发、评论、点赞的时候，计数服务如何同步的进行计数的变更呢？如果让业务服务来调用计数服务，势必会导致业务系统与计数系统耦合。&lt;/p&gt;
+
+&lt;p&gt;对于不关心下游结果的业务，可以使用MQ来解耦，在业务发生变化的时候，向MQ发送一条异步消息，通知计数系统计数发生了变化即可&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/count/count2.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;计数外置，本质是数据的冗余，架构设计上，数据冗余必将引发数据的一致性问题，需要有机制来保证计数系统里的数据与业务系统里的数据一致，常见的方法有：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;对于一致性要求比较高的业务，要有定期check并fix的机制，例如关注计数，粉丝计数，微博消息计数等&lt;/li&gt;
+&lt;li&gt;对于一致性要求比较低的业务，即使有数据不一致，业务可以接受，例如微博浏览数，微博转发数等&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;计数外置缓存优化&#34;&gt;计数外置缓存优化&lt;/h2&gt;
+
+&lt;p&gt;计数外置很大程度上解决了计数存取的性能问题，但是否还有优化空间呢？像关注计数，粉丝计数，微博消息计数，变化的频率很低，查询的频率很高，这类读多些少的业务场景，非常适合使用缓存来进行查询优化，减少数据库的查询次数，降低数据库的压力。&lt;/p&gt;
+
+&lt;p&gt;但是，缓存是kv结构的，无法像数据库一样，设置成t_uid_count(uid, c1, c2, c3)这样的schema，如何来对kv进行设计呢？缓存kv结构的value是计数，看来只能在key上做设计，很容易想到，可以使用uid:type来做key，存储对应type的计数。&lt;/p&gt;
+
+&lt;p&gt;对于uid=123的用户，其关注计数，粉丝计数，微博消息计数的缓存就可以设计为：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/count/count3.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;此时对应的counting-service架构变为：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/count/count4.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这个“计数外置缓存优化”方案，可以总结为：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;使用缓存来保存读多写少的计数（其实写多读少，一致性要求不高的计数，也可以先用缓存保存，然后定期刷到数据库中，以降低数据库的读写压力）&lt;/li&gt;
+&lt;li&gt;使用id:type的方式作为缓存的key，使用count来作为缓存的value&lt;/li&gt;
+&lt;li&gt;多次读取缓存来查询多个uid的计数&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;缓存批量读取优化&#34;&gt;缓存批量读取优化&lt;/h2&gt;
+
+&lt;p&gt;缓存的使用能够极大降低数据库的压力，但多次缓存交互依旧存在优化空间，有没有办法进一步优化呢？&lt;/p&gt;
+
+&lt;p&gt;不要陷入思维定式，谁说value一定只能是一个计数，难道不能多个计数存储在一个value中么？缓存kv结构的key是uid，value可以是多个计数同时存储。&lt;/p&gt;
+
+&lt;p&gt;对于uid=123的用户，其关注计数，粉丝计数，微博消息计数的缓存就可以设计为：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/count/count5.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;这样多个用户，多个计数的查询就可以一次搞定。&lt;/p&gt;
+
+&lt;p&gt;这个“计数外置缓存批量优化”方案，可以总结为：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;使用id作为key，使用同一个id的多个计数的拼接作为value&lt;/li&gt;
+&lt;li&gt;多个id的多个计数查询，一次搞定&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;计数扩展性优化&#34;&gt;计数扩展性优化&lt;/h2&gt;
+
+&lt;p&gt;考虑完效率，架构设计上还需要考虑扩展性，如果uid除了关注计数，粉丝计数，微博计数，还要增加一个计数，就需要变更表结构，频繁的变更数据库schema的结构显然是不可取的。&lt;/p&gt;
+
+&lt;p&gt;我们可以这样设计表结构来通过行来扩展属性&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;t_user_count(uid, count_key, count_value)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/count/count6.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;如果需要新增一个计数XX_count，只需要增加一行即可，而不需要变更表结构：&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/count/count7.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;</description>
         </item>
       
     
@@ -1324,6 +1792,511 @@ Swift存储的整个数据定位算法就是基于上述一致性哈希实现的
 &lt;p&gt;从应用角度看，分布式事务的现实场景常常无法规避，在有能力给出其他解决方案前，2PC也是一个不错的选择。&lt;/p&gt;
 
 &lt;p&gt;对购物转账等电商和金融业务，中间件层的2PC最大问题在于业务不可见，一旦出现不可抗力或意想不到的一致性破坏，如数据节点永久性宕机，业务难以根据2PC的日志进行补偿。金融场景下，数据一致性是命根，业务需要对数据有百分之百的掌控力，建议使用TCC这类分布式事务模型，或基于消息队列的柔性事务框架，这两种方案都在业务层实现，业务开发者具有足够掌控力，可以结合SOA框架来架构，包括Dubbo、Spring Cloud等&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>架构系列---- 架构的演进</title>
+          <link>https://kingjcy.github.io/post/architecture/architecture-evolution/</link>
+          <pubDate>Thu, 05 Mar 2020 19:11:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/architecture-evolution/</guid>
+          <description>&lt;p&gt;随着计算机软件的发展，不同的应用在落地，应用架构随着规模的越来越大，也在一步步的进行演进，从最初的单体架构，到后来的集群，然后分布式架构一步步的发展着。&lt;/p&gt;
+
+&lt;h1 id=&#34;架构演变&#34;&gt;架构演变&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/microservices/architecture-change&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;整个过程是重单体架构向微服务发展的过程，下面我们来看看每一代架构的发展。&lt;/p&gt;
+
+&lt;h2 id=&#34;单体架构&#34;&gt;单体架构&lt;/h2&gt;
+
+&lt;p&gt;以前使用 Laravel 做 web 项目时，是根据 MVC 去划分目录结构的，即 Controller 层处理业务逻辑，Model 层处理数据库的 CURD，View 层处理数据渲染与页面交互。以及 MVP、MVVM 都是将整个项目的代码是集中在一个代码库中，进行业务处理。这种单一聚合代码的方式在前期实现业务的速度很快，但在后期会暴露很多问题：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1、开发与维护困难：随着业务复杂度的增加，代码的耦合度往往会变高，多个模块相互耦合后不易横向扩展。
+2、效率和可靠性低：过大的代码量将降低响应速度，应用潜在的安全问题也会累积。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;单体架构最终走向了单体地狱，比如&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;1、代码全量编译成一个实例，因为一个模块的问题可能会导致全量的模块不能使用
+2、问题难以地位，比如有一个死循环，会导致cpu占用100%，还会影响机器上其他的应用的使用，同时，很难知道是哪个模块出问题
+3、代码量大，可能编译启动就需要很长时间，到最后就不可维护了，而且线上出问题就没办法处理了，因为重启都需要很长的时间
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在这个时候我们使用的组织架构就是最简单的&lt;strong&gt;前台-后台&lt;/strong&gt;在一个实例进程中。&lt;/p&gt;
+
+&lt;h3 id=&#34;垂直拆分的垂直架构&#34;&gt;垂直拆分的垂直架构&lt;/h3&gt;
+
+&lt;p&gt;单体架构的瓶颈太严重了，变的越来越臃肿，每次开发业务，都要将全部功能进行回归，于是就将前后端进行拆分成不同的进程，通过报文进行相互调用，在一定程度上实现了解耦，但是其实并没有很强的水平扩展的能力，所以还算是单体架构。&lt;/p&gt;
+
+&lt;p&gt;在这个时候我们使用的组织架构还是最简单的架构&lt;strong&gt;前台-后台&lt;/strong&gt;,但是前台后台已经运行在不同的实例中，实现了一定的解耦，由最初的mvc的api的调用，变成了http的调用模式。&lt;/p&gt;
+
+&lt;p&gt;但是随着规模越来越大，每个模块很快各种瓶颈有出现了，需要进行各种水平扩展，这个时候就需要进行服务化，使用分布式系统了。&lt;/p&gt;
+
+&lt;h2 id=&#34;集群&#34;&gt;集群&lt;/h2&gt;
+
+&lt;p&gt;架构经过了垂直拆分，已具有一定的解耦性，但是随着规模的扩展，每个流程都出现了单机处理的瓶颈，需要进行水平扩展，这时候就需要集群来并行共同处理业务来提高处理的能力。&lt;/p&gt;
+
+&lt;p&gt;这个时候我们使用的组织架构还是最简单的架构&lt;strong&gt;前台-后台&lt;/strong&gt;，但是后台已经有了进一步的垂直拆分和水平扩展，随着拆分扩展的越来越多，也就有了&lt;a href=&#34;https://kingjcy.github.io/post/architecture/microservices/microservices/&#34;&gt;微服务的概念，下一代架构的诞生&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h2 id=&#34;第一代微服务-服务化&#34;&gt;第一代微服务&amp;mdash;服务化&lt;/h2&gt;
+
+&lt;p&gt;现在传统的mvc架构带来的单体问题已经十分严重了，基本上已经不再使用了，提倡微服务的思想。&lt;/p&gt;
+
+&lt;p&gt;第一代微服务架构是建立在服务化的基础之上的，什么是服务化？核心就是不同服务之间的通信，一种以服务为核心的解决方案。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;服务注册&lt;/li&gt;
+&lt;li&gt;服务发布&lt;/li&gt;
+&lt;li&gt;服务调用&lt;/li&gt;
+&lt;li&gt;服务监控&lt;/li&gt;
+&lt;li&gt;负载均衡&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;其实简单的说就是将一些服务封装起来，对外提供tcp/http/rpc接口，不需要关心内部的细节，内部有专门的人去维护，就是对这个服务的服务化，这个封装可以是新增一个服务层，也可以是在这个服务的基础提供接口等。&lt;/p&gt;
+
+&lt;p&gt;其中最著名的就是SOA的面向服务架构思想。&lt;/p&gt;
+
+&lt;h3 id=&#34;soa&#34;&gt;SOA&lt;/h3&gt;
+
+&lt;p&gt;SOA是什么？SOA全英文是Service-Oriented Architecture，中文意思是面向服务架构，是一种思想，一种方法论，一种分布式的服务架构。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/microservices/20180305.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;其实就是每个服务独立治理，相互解耦，服务共享不在重复，通过注册中心来服务发现调用的散装架构。我们最常见的架构就是&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Spring Cloud为开发者提供了快速构建分布式系统的通用模型的工具（包括配置管理、服务发现、熔断器、智能路由、微代理、控制总线、一次性令牌、全局锁、领导选举、分布式会话、集群状态等）&lt;/li&gt;
+&lt;li&gt;Dubbo是一个阿里巴巴开源出来的一个分布式服务框架，致力于提供高性能和透明化的RPC远程服务调用方案，以及SOA服务治理方案，其实主要解决的服务间通信的问题。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;在这个时候组织架构就发生了很大的变化，基本都是要加上一层网关或者企业总线，也就是&lt;strong&gt;前台-网关（ESB）-后台&lt;/strong&gt;的结构。&lt;/p&gt;
+
+&lt;h2 id=&#34;下一代微服务-去中心化&#34;&gt;下一代微服务&amp;ndash;去中心化&lt;/h2&gt;
+
+&lt;h3 id=&#34;service-mesh&#34;&gt;Service Mesh&lt;/h3&gt;
+
+&lt;p&gt;随着注册中心的出现，任何调用都走网关，网关的瓶颈有到来，于是出现了下一代的微服务架构service mesh，主要落地的项目就是istio，当然还有其他的一些项目，主要是去中心化的设计。&lt;/p&gt;
+
+&lt;p&gt;目前流行的 Service Mesh 开源软件有 Linkerd、Envoy 和 Istio，而最近 Buoyant（开源 Linkerd 的公司）又发布了基于 Kubernetes 的 Service Mesh 开源项目 Conduit，来看一下Service Mesh 开源项目简介：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Linkerd（&lt;a href=&#34;https://github.com/linkerd/linkerd）：第一代&#34;&gt;https://github.com/linkerd/linkerd）：第一代&lt;/a&gt; Service Mesh，2016 年 1 月 15 日首发布，业界第一个 Service Mesh 项目，由 Buoyant 创业小公司开发（前 Twitter 工程师），2017 年 7 月 11 日，宣布和 Istio 集成，成为 Istio 的数据面板。&lt;/li&gt;
+&lt;li&gt;Envoy（&lt;a href=&#34;https://github.com/envoyproxy/envoy）：第一代&#34;&gt;https://github.com/envoyproxy/envoy）：第一代&lt;/a&gt; Service Mesh，2016 年 9 月 13 日首发布，由 Matt Klein 个人开发（Lyft 工程师），之后默默发展，版本较稳定。&lt;/li&gt;
+&lt;li&gt;Istio（&lt;a href=&#34;https://github.com/istio/istio）：第二代&#34;&gt;https://github.com/istio/istio）：第二代&lt;/a&gt; Service Mesh，2017 年 5 月 24 日首发布，由 Google、IBM 和 Lyft 联合开发，只支持 Kubernetes 平台，2017 年 11 月 30 日发布 0.3 版本，开始支持非 Kubernetes 平台，之后稳定的开发和发布。这个在我们k8s基础平台中&lt;a href=&#34;https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-istio/&#34;&gt;最常使用&lt;/a&gt;。&lt;/li&gt;
+&lt;li&gt;Conduit（&lt;a href=&#34;https://github.com/runconduit/conduit）：第二代&#34;&gt;https://github.com/runconduit/conduit）：第二代&lt;/a&gt; Service Mesh，2017 年 12 月 5 日首发布，由 Buoyant 公司开发（借鉴 Istio 整体架构，部分进行了优化），对抗 Istio 压力山大，也期待 Buoyant 公司的毅力。&lt;/li&gt;
+&lt;li&gt;nginMesh（&lt;a href=&#34;https://github.com/nginmesh/nginmesh）：2017&#34;&gt;https://github.com/nginmesh/nginmesh）：2017&lt;/a&gt; 年 9 月首发布，由 Nginx 开发，定位是作为 Istio 的服务代理，也就是替代 Envoy，思路跟 Linkerd 之前和 Istio 集成很相似，极度低调，GitHub 上的 star 也只有不到 100。&lt;/li&gt;
+&lt;li&gt;Kong（&lt;a href=&#34;https://github.com/Kong/kong）：比&#34;&gt;https://github.com/Kong/kong）：比&lt;/a&gt; nginMesh 更加低调，默默发展中。&lt;/li&gt;
+&lt;li&gt;go-micro是基于Go语言实现的插件化RPC微服务框架，与go-kit，kite等微服务框架相比，它具有易上手、部署简单、工具插件化等优点。go-micro框架提供了服务发现、负载均衡、同步传输、异步通信以及事件驱动等机制，它尝试去简化分布式系统间的通信，让我们可以专注于自身业务逻辑的开发。所以对于新手而言，go-micro是个不错的微服务实践的开始。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;在云原生模型里，一个应用可以由数百个服务组成，每个服务可能有数千个实例，而每个实例可能会持续地发生变化。这种情况下，服务间通信不仅异常复杂，而且也是运行时行为的基础。管理好服务间通信对于保证端到端的性能和可靠性来说是无疑是非常重要的。种种复杂局面便催生了服务间通信层的出现，这个层既不会与应用程序的代码耦合，又能捕捉到底层环境高度动态的特点，让业务开发者只关注自己的业务代码，并将应用云化后带来的诸多问题以不侵入业务代码的方式提供给开发者。&lt;/p&gt;
+
+&lt;p&gt;这个服务间通信层就是 Service Mesh，它可以提供安全、快速、可靠的服务间通讯（service-to-service）。&lt;/p&gt;
+
+&lt;p&gt;Service Mesh，可以将它比作是应用程序或者说微服务间的 TCP/IP，负责服务之间的网络调用、限流、熔断和监控。对于编写应用程序来说一般无须关心 TCP/IP 这一层（比如通过 HTTP 协议的 RESTful 应用），同样使用 Service Mesh 也就无须关系服务之间的那些原来是通过应用程序或者其他框架实现的事情，比如 Spring Cloud、OSS，现在只要交给 Service Mesh 就可以了。&lt;/p&gt;
+
+&lt;h1 id=&#34;电商系统的演进&#34;&gt;电商系统的演进&lt;/h1&gt;
+
+&lt;p&gt;我们结合上面的架构演进，通过我们最常见的电商系统来看单体到分布式的变化：&lt;/p&gt;
+
+&lt;h2 id=&#34;单体&#34;&gt;单体&lt;/h2&gt;
+
+&lt;p&gt;当我们的项目比较小时，我们只有一个系统，并且把他们写到一起，放在一个服务器上，但是随着平台越来越大，数据量越来越大，我们不得不通过分库，把多个模块的数据库分别放在对应得服务器上，每个模块调用自己的子系统即可。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/microservices/ac1&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h2 id=&#34;集群-1&#34;&gt;集群&lt;/h2&gt;
+
+&lt;p&gt;当后台单台没有办法承受的时候，我们需要堆机器来水平扩展集群来处理问题，但是一连串的流程都是在一个实例中进行。&lt;/p&gt;
+
+&lt;h2 id=&#34;esb&#34;&gt;ESB&lt;/h2&gt;
+
+&lt;p&gt;随着我们系统的进一步复杂度的提示，在集群的基础上，我们不得不进一步对系统的性能进行提升，我们将多个模块分成多个子系统，多个子系统直接互相调用（因为SOA一般用于大型项目，比较复杂，所以一般总系统不会再集成，会拆分多个，分别做成服务，相互调用）。当我们的电商UI进行一个下订单的任务时，多个服务直接互相调用，系统通过数据总线(java的ESB，其实也就是我们所说的网关)，分别调用对于的子系统即可。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/microservices/ac2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;企业数据总线：企业数据总线不是对多个子模块的集成，他在这里充当数据通道的作用，数据总线不关心业务，数据总线根据给的地址和协议去调服务，上端不关心服务在哪里是什么，只找数据总线。&lt;/p&gt;
+
+&lt;p&gt;数据总线是起到调度服务的作用，数据总线不是集成服务，数据总线更新一个调度框架，每个服务需要根据约定向数据总线注册服务，那么如何注册那？其实数据总线就像一个字典结构，&lt;/p&gt;
+
+&lt;p&gt;数据总线里面一个key对于一个value，key指的是服务名，value则是服务的调度方式，还有一点需要说明的是，数据总线只是指路人，服务是不经过数据总线的，如上图的黄色线的路径。&lt;/p&gt;
+
+&lt;p&gt;数据总线通过域名解析实现:一个域名绑定多台服务器，ajax也可以，dns也可以，解析域名嘛。&lt;/p&gt;
+
+&lt;p&gt;其实数据总线还有一些高级应用，比如心跳检测，实现负载均衡等等，就不细说了，目前应用数据总线的有阿里的dubbo,还有zookeeper。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;这个时候组织架构加上了企业总线&lt;strong&gt;前台&amp;mdash;ESB&amp;mdash;后台&lt;/strong&gt;的结构。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;随着企业发展到一定程度，需要规范化管理的时候，我们上了ERP系统，要通过供应链建设B2C业务的时候，我们上了SRM系统，仓储管理到一定规模我们上WMS，物流管理我们上TMS……整个公司各个系统功能有重叠，有交叉，内部协同成了重大问题。&lt;/p&gt;
+
+&lt;p&gt;这就好像我们一直在打是局部信息化战争，头痛医头脚痛医脚，需要解决什么样的问题，就上什么样的系统，最终就形成了所谓烟囱式的系统架构。&lt;/p&gt;
+
+&lt;p&gt;导致整个架构重复造轮子，跨系统管理也给运营人员造成了不必要的时间精力浪费。整个系统管理冗杂又造成资源浪费，这时候就需要将原有的系统规范化、一体化，通过数据总线进去进行深度的整合，打通各个信息孤岛，形成前后贯通的信息化建设。&lt;/p&gt;
+
+&lt;p&gt;我们把这个时代称之为ESB数据孤岛时代。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/electroniccommerce/esb.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;大部分情况下基本上都是够用，虽然ESB很重，核心很难改变，不够灵活，但是随着发展，出现了更加灵活的方式。&lt;/p&gt;
+
+&lt;h2 id=&#34;大中台&#34;&gt;大中台&lt;/h2&gt;
+
+&lt;p&gt;其实中台严格意义上来说，不是一种架构，也不是一种系统，而是一种战略。即可以使用第一代微服务架构来构建，也可以使用第二代微服务架构来构建，目前各大企业也正在容器化推进的过程中&lt;/p&gt;
+
+&lt;p&gt;中台的核心价值是在于，在对企业业务有了柔性支撑和贯通的前提下，再形成协同与智慧的运营体系。&lt;/p&gt;
+
+&lt;p&gt;一般企业架构分成了三个层次：前台、中台、后台。中台又分成三大块，业务中台、数据中台和技术中台。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/electroniccommerce/middle&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;技术中台支撑企业业务发展，通过打通企业内异构系统，支持业务中台；
+
+业务中台围绕公司业务运营进行服务，将获取的多维度数据传递给数据中台，由数据中台分析反馈给业务中台，以优化业务运营。同时数据中台通过BI智能分析，帮助企业管理者更好的做决策分析。三者是相辅相成，相互协作的。
+业务中台其实就是把原有的前端的会员中心、营销中心、商品中心，后端的供应链中心、采配中心等重点模块放在业务中台模块，以后前端不管对接多少个第三方，线上线下增加多少家门店，都能进行统一会员、统一商品编码、统一供应链整合，整个系统一体化。真正做到用技术支持业务，通过业务收集大量数据进行决策，统一高效的进行管理。
+
+数据中台：一般指以数据采集、数据集成、数据治理，指标体系和数据仓库统一建设等数据管理活动为典型特征的中台。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;当前最需要建设的中台有两种：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;狭义的业务中台：一般指在线业务为典型特征的中台。在OLDI（Online Data-Intensive）时代，越来越多的企业的核心业务都是在线业务，因此把在线业务中台简称为业务中台。
+数据中台：一般指以数据采集、数据集成、数据治理，指标体系和数据仓库统一建设等数据管理活动为典型特征的中台。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;对业务中台来说，比较符合的场景主要有：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;业务系统研发团队至少大几十人（含外包的），需求多变化快，系统又涉及多个领域（比如做ERP、电商的），业务逻辑比较复杂。
+这时业务中台可以把系统和业务领域划分清楚，提高研发效率。做相似行业的外包项目为主，业务规模也做的比较大的（一年有两位数的项目）。
+这时业务中台可以提升软件复用，降低定制化成本，提高研发效率。如果每个项目都完全不一样，那中台也救不了你。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;支持业务中台的技术体系，包括微服务、DevOps、云原生和分布式事务等。&lt;/p&gt;
+
+&lt;p&gt;将需求设计成微服务架构，然后每个服务使用各种技术栈来开发业务，比如golang的技术栈的高并发的特性来开发web服务等，然后将一些统一的模块进行统一的接入和输出，使用devops的开发模式，在业务中还是需要解决分布式事务等问题。&lt;/p&gt;
+
+&lt;p&gt;比如在网易，是网易轻舟微服务平台，提供微服务应用全生命周期的完整支持，包括下一代微服务Service Mesh支持、经典微服务框架NSF、包括CI/CD的DevOps、分布式事务框架GXTS、APM、API网关、GoAPI全自动化测试以及容器应用管理服务等。&lt;/p&gt;
+
+&lt;p&gt;对数据中台来说，比较符合的场景：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;数据产品比较多，每天要看数据如果没数据就不知道怎么工作的运营人员比较多的业务。
+比如电商就是典型。尤其是数据产品和运营人员还在多个团队。
+用数据的姿势比较复杂，问题比较多，比如经常出现指标不一致、数据出错、想要的数据不知道哪里有等问题。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;支持数据中台的技术体系，包括指标管理、数据服务、元数据管理、数仓开发与管理、数据安全管理、数据资产管理、大数据计算引擎、数据集成/同步/交换引擎等，&lt;/p&gt;
+
+&lt;p&gt;其实数据中台就是将数据进行处理，不同数据资源，统一的输出标准，中间用到大部分就是数据引擎，比如kafka队列，sprak，flink等流式引擎，hadoop，hbase和hive等大数据引擎。&lt;/p&gt;
+
+&lt;p&gt;比如在网易，是以网易猛犸为核心的网易全链路数据中台解决方案。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>架构系列---- 电商购物系统</title>
+          <link>https://kingjcy.github.io/post/architecture/shopping/</link>
+          <pubDate>Tue, 04 Feb 2020 14:38:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/shopping/</guid>
+          <description>&lt;p&gt;电商购物系统算是目前软件技术落地的很大的一个发展方向，主要以阿里为主导的电商购物系统占据整个行业的半壁江山，是直接和价值挂钩的重要业务方向。&lt;/p&gt;
+
+&lt;h1 id=&#34;架构演进&#34;&gt;架构演进&lt;/h1&gt;
+
+&lt;p&gt;电商系统也是和其他系统一样一步步演进的，架构演进都是通用的，可以看&lt;a href=&#34;https://kingjcy.github.io/post/architecture/architecture-evolution/&#34;&gt;这里&lt;/a&gt;。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;通用架构&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/shop/ms2&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;目前电商的整体架构流程如下，并且在每一层如何实现在高并发，大流量的情况下，最大程度能够保证网站的健康。主要是流量控制，让用户的流量像漏斗模型一样逐层减少，让流量始终处于可控的范围之内。&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;客户端可以是各种终端，可以是web，进行各种操作。在web这边，主要是&lt;strong&gt;限流&lt;/strong&gt;，可以使用js技术，比如购买按钮置灰，可以减少大量的重复请求。&lt;/li&gt;
+&lt;li&gt;CDN层，CDN存储静态页面缓存技术。在这一层主要是&lt;strong&gt;缓存&lt;/strong&gt;，很多的静态资源存储在cdn中，能够快速对请求进行返回。
+
+&lt;ul&gt;
+&lt;li&gt;限制用户维度访问频率：针对同一个用户（ Userid 维度），做页面级别缓存，单元时间内的请求，统一走缓存，返回同一个页面。&lt;/li&gt;
+&lt;li&gt;限制商品维度访问频率：大量请求同时间段查询同一个商品时，可以做页面级别缓存，不管下回是谁来访问，只要是这个页面就直接返回。&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;接入层，nginx等负载均衡技术。这一层主要是&lt;strong&gt;限流截流&lt;/strong&gt;，比如相同请求，只转发一个，分发到不同的服务实例，限制同一个ip的多次请求。&lt;/li&gt;
+&lt;li&gt;然后将请求放到MQ中，排队处理，这已经算是到应用层。这一层主要是&lt;strong&gt;削峰&lt;/strong&gt;，请任务放到队列中，峰值的时候排队处理，不会阻塞&lt;/li&gt;
+&lt;li&gt;应用层，处理各种应用。这一层就是&lt;strong&gt;高并发模型和异步处理&lt;/strong&gt;，实例实现并发的多进程，多线程的处理，也就上面购物系统处理的一个流程。
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-context/&#34;&gt;并发控制&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/architecture/concurrencesafe/&#34;&gt;并发安全&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;异步处理：定一个channel，以goroutine来运行，用于接受异步返回的结果，是实现高并发的一种方式。&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/distributed/distributed-event/&#34;&gt;分布式事务&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://kingjcy.github.io/post/distributed/distributed-lock/&#34;&gt;分布式安全&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;最后就是DB层，这一层是瓶颈所在，分层的目的是为了将压力留在上层，一般瓶颈都是在数据库，所以需要把有效得请求到数据库中进行处理，针对数据库的瓶颈，主要就是&lt;strong&gt;索引读写分离，分区分库分表&lt;/strong&gt;等。&lt;/li&gt;
+&lt;li&gt;在每一层能有缓存的地方都要用&lt;strong&gt;缓存&lt;/strong&gt;，缓存的效率比数据库要高很多，哪怕是缓存数据库。&lt;/li&gt;
+&lt;li&gt;在每一层最好能使用&lt;strong&gt;集群和分布式&lt;/strong&gt;来加强系统的承受能力。&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;整体来说，核心思想就是限流、缓存、削峰、高并发、异步处理，集群和分布式，做好这些模块才能保证系统的稳定性和最大的承受能力，在高并发和大流量的情况下。&lt;/p&gt;
+
+&lt;p&gt;当然这些就是属于业务架构了，都是可以使用微服务的架构来实现，每一块都可以做成一个微服务。&lt;/p&gt;
+
+&lt;h2 id=&#34;限流截流算法&#34;&gt;限流截流算法&lt;/h2&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;令牌桶算法&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;令牌桶算法主要用于限制流量的平均流入速率，允许出现一定的突发流量。比如我们常用的nginx就是一个典型的令牌桶算法的实现：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;每秒会有r个令牌被放入桶内，也就是说以1/r的速度向桶中放入令牌&lt;/li&gt;
+&lt;li&gt;桶的容量是固定不变的，所以多出来的令牌就会被丢弃&lt;/li&gt;
+&lt;li&gt;当一个n字节的请求包到达时，消耗n个令牌，然后才能发送该数据包&lt;/li&gt;
+&lt;li&gt;如果桶内令牌小于n，数据包就会被限流，比如缓存或者丢弃&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;实例&lt;/p&gt;
+
+&lt;p&gt;nginx限流模块的使用，tengine是在nginx的基础进行二次开发，针对高并发，大流量的场景进行优化，也可以了解一下&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#统一在http域中进行配置
+
+ #限制请求：表示每个ip每秒的请求数不能超过50个
+ limit_req_zone $uri zone=api_read:20m rate=50r/s;
+
+ #按ip配置一个连接 zone
+ limit_conn_zone $binary_remote_addr zone=perip_conn:10m;
+
+ #按server配置一个连接 zone
+ limit_conn_zone $server_name zone=perserver_conn:100m;
+
+location / {
+ if (!-e $request_filename){
+  rewrite ^/(.*) /index.php last;
+ }
+
+ #请求限流排队通过 burst代表着桶的大小，默认是0，这里代表缓存100个
+ limit_req zone=api_read burst=100;
+
+ #连接数限制,每个IP并发请求为50
+ limit_conn perip_conn 50;
+
+ #服务所限制的连接数(即限制了该server并发连接数量)
+ limit_conn perserver_conn 200;
+
+ #连接限速
+ #limit_rate 100k;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;漏斗算法&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;ul&gt;
+&lt;li&gt;可以以任何速度向桶内发送请求&lt;/li&gt;
+&lt;li&gt;当然桶的容量还是固定的，如果请求大于桶了，就会被丢弃&lt;/li&gt;
+&lt;li&gt;然后按固定过得速度来处理桶内的请求&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;计数器算法&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;就是对某个对象在单位时间内允许被操作的次数，一旦超过了所设定的阈值，就会拒绝请求，到时间后重置计数器，重新限制。&lt;/p&gt;
+
+&lt;p&gt;比如某个商品在10s内只能抢购5000次，对抢购进行计数，当达到5000次之后，就会拒绝请求，10s过后，对已经抢购的次数进行重置，重新进行抢购。&lt;/p&gt;
+
+&lt;h2 id=&#34;缓存&#34;&gt;缓存&lt;/h2&gt;
+
+&lt;p&gt;使用缓存将频繁访问的热点数据存储在最近的地方（比如CDN），最快响应的地方（比如本地内存），能够快速响应。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;本地缓存&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;优点只有一个，操作本地内存简单，响应快。但是他的缺点很明显，因此适用场景也是很明确的&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;数据不能共享&lt;/li&gt;
+&lt;li&gt;数据会丢失&lt;/li&gt;
+&lt;li&gt;内存一般不大，用尽后会OOM&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;所以分布式缓存是比如发展的趋势，正常我们都是会将本地缓存和分布式缓存结合使用。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;分布式缓存&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;分布式缓存也就是我们常用的缓存数据库，比如redis，memcache等，具体就不多说了，可以自己去&lt;a href=&#34;https://kingjcy.github.io/post/database/redis/redis/&#34;&gt;详细了解&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h3 id=&#34;同一key的读要求&#34;&gt;同一key的读要求&lt;/h3&gt;
+
+&lt;p&gt;1、使用redis进行多读多写&lt;/p&gt;
+
+&lt;p&gt;就是采用冗余存储的方案，将一个key进行计算加工将其存储到redis集群中的各个节点，这个时候进行查询的时候就可以通过处理key来轮询均衡处理，解决热点商品哪怕使用集群也会出现单点的问题。需要注意数据一致性问题。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/shop/redis.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;2、本地缓存+redis&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/shop/cache.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;定时重redis缓存中同步数据到本地缓存，时间随着商品的热点来定，在定时期间可能出现数据不一致的情况，需要在最后的数据库扣除的时候做处理，在redis中使用分布式锁，在mysql中就是使用正常的锁。&lt;/p&gt;
+
+&lt;p&gt;还可以通过推送消息的方式来减少不一致的情况，如果redis有变更就推送到队列中，本地消费更新。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/shop/cache2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;3、实时热点系统&lt;/p&gt;
+
+&lt;p&gt;我们不可能准确的把所有的热点数据都推送到缓存中，这就需要我们在交易的过程中发现热点数据同步的缓存中，一般通过收集日志进行分析，最后自动推送到redis中。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/shop/sd.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&#34;同一key的写要求&#34;&gt;同一key的写要求&lt;/h3&gt;
+
+&lt;p&gt;1、在redis中进行扣减库存&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/shop/redis2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;还有进行优化，就是合并操作批量一次处理&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/shop/redis3.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;2、还有用一些优化的数据库，比如ALISQL&lt;/p&gt;
+
+&lt;h2 id=&#34;削峰&#34;&gt;削峰&lt;/h2&gt;
+
+&lt;p&gt;削峰其实就是对峰值流量进行分散处理，避免在同一时间内产生较大的用户流量冲击系统，从而降低系统的负载压力。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;分时削峰&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;将抢购不要设置为一个时间点，比如0点，而是通过多设置几个时间点，来分散用户流量，降低系统压力&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;验证削峰&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;通过验证来拦截缓存用户的请求，比如现在做的验证码新高度的12306的验证，虽然各种各样的验证码，但是确实成功的阻挡了秒杀器和降低了峰值流量&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;队列缓存削峰&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;将请求放到Q中，按顺序固定速率的处理，实现流量可控，保证系统的稳定，不会奔溃。&lt;/p&gt;
+
+&lt;h2 id=&#34;异步&#34;&gt;异步&lt;/h2&gt;
+
+&lt;p&gt;异步处理并不算一种并发的使用方式，但是却是并发中经常使用的，在工作池的基础上使用goroutine处理，但是不用等返回，留一个channenl返回，使用select读取channel中的数据，完成处理，这样可以加大处理的速度，也就提高了并发能力。&lt;/p&gt;
+
+&lt;h2 id=&#34;数据库优化&#34;&gt;数据库优化&lt;/h2&gt;
+
+&lt;p&gt;对于非结构化或者可以设计为非结构化的数据，我们可以放在redis这种缓存数据库中，但是重要的业务数据最终还是需要关系型数据库的保证，所以对于关系型数据库的优化使用，重来都没有停止过。&lt;/p&gt;
+
+&lt;p&gt;关系型数据库最常见的瓶颈&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;大量读写难以承受&lt;/li&gt;
+&lt;li&gt;大量查询索引，效率低下&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;解决这些问题，最常见的就是读写分离，分区分库分表。&lt;/p&gt;
+
+&lt;h3 id=&#34;读写分离&#34;&gt;读写分离&lt;/h3&gt;
+
+&lt;p&gt;读写分离很简单，一般数据库都是一主一从，主库用于写，从库用于读，可以很大程度上缓存数据库的压力。&lt;/p&gt;
+
+&lt;p&gt;当然这样也有问题，就是主从之间存在着数据延迟，一般都是重设计上解决这个问题，在数据落到主库的时候落一份到缓存，避免从库查不到数据。&lt;/p&gt;
+
+&lt;h3 id=&#34;分区分库分表&#34;&gt;分区分库分表&lt;/h3&gt;
+
+&lt;p&gt;设计表的时候就应该有分区，这样可以加快查询，就像设计好的索引一样。&lt;/p&gt;
+
+&lt;p&gt;首先就是垂直拆分，也就是分库，将不同类型的数据放到不同的库中，比如不停地方的订单放到不同的库中，每个库的压力就不大了。&lt;/p&gt;
+
+&lt;p&gt;然后就是水平拆分，也就是分表，同一个业务表，数据量达到500W，查询效率就很低下了，优化索引什么都没有用，就需要对业务表进行拆分，将将业务按一定的序号拆分为子表，这个时候就需要一些组件完成路由，我们常见的有mysql sharding，mycat等。&lt;/p&gt;
+
+&lt;p&gt;其实在业务量再大的情况下，可能需要同一个业务进行分库分表的操作。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本系统&#34;&gt;基本系统&lt;/h1&gt;
+
+&lt;p&gt;不管是正常的购物还是抢购还是秒杀都是这么一个基本流程,包含这个一下基本的系统&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;搜索系统---订单系统---物流系统
+订单系统：购物车系统---确认订单---支付系统，核心就是出发数据库修改库存
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;首页，用户，广告，购物，订单，商品，结算&lt;/p&gt;
+
+&lt;h1 id=&#34;基本业务场景&#34;&gt;基本业务场景&lt;/h1&gt;
+
+&lt;h2 id=&#34;秒杀&#34;&gt;秒杀&lt;/h2&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/shop/timg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;秒杀系统会做，基本的购物，抢购，抢红包，大促都会做，秒杀的特性：限时限量，导致的场景就是瞬时并发量大。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;热场&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;在活动开始之前，最好设计一个“热场”。&lt;/p&gt;
+
+&lt;p&gt;“热场”的形式多种多样，例如：分享活动领优惠券，领秒杀名额等等。“热场”的形式不重要，重要的是通过它获取一些准备信息。&lt;/p&gt;
+
+&lt;p&gt;例如：有可能参与的用户数，他们的地域分布，他们感兴趣的商品。为后面的技术架构提供数据支持，可以先对相关数据进行缓存，减少缓存的压力。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;千万级秒杀系统架构&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;我们再具体看一下包含秒杀的逻辑具体架构&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/shop/timg2&#34; alt=&#34;&#34; /&gt;
+&lt;img src=&#34;https://kingjcy.github.io/media/architecture/shop/ms3&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;秒杀系统设计的核心思想：尽量将请求拦截在上层（限流，削峰），高并发（异步处理），充分使用内存缓存。&lt;/p&gt;
+
+&lt;p&gt;整体流程中优化的点&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;（限流）            1、web层使用js技术，比如购买按钮置灰，可以减少大量的重复请求
+（限流截流）        2、负载均衡nginx（也就是网关），进行截流，比如相同请求，相同的IP，只转发一个，分发到不同的服务实例
+（缓存）            3、cdn缓存技术，将很多的静态资源存储在cdn中，能够快速返回
+                        1、限制用户维度访问频率
+                            针对同一个用户（ Userid 维度），做页面级别缓存，单元时间内的请求，统一走缓存，返回同一个页面。
+                        2、限制商品维度访问频率
+                            大量请求同时间段查询同一个商品时，可以做页面级别缓存，不管下回是谁来访问，只要是这个页面就直接返回。
+（削峰）            4、然后将请求放到MQ中，排队处理，
+（高并发，异步处理）  5、到后台实例实现并发的多进程，多线程的处理，也就上面购物系统处理的一个流程
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;还有一下业务上的优化，其实就是使用了均衡和削峰填谷的思想，比如12306所做的，分时分段售票，原来统一10点卖票，现在8点，8点半，9点，&amp;hellip;每隔半个小时放出一批：将流量摊匀。&lt;/p&gt;
+
+&lt;p&gt;1、&lt;a href=&#34;https://kingjcy.github.io/posts/golang/go-context/&#34;&gt;并发控制&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;2、&lt;a href=&#34;https://kingjcy.github.io/posts/architecture/concurrencesafe/&#34;&gt;并发安全&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;3、异步处理：定一个channel，以goroutine来运行，用于接受异步返回的结果&lt;/p&gt;
+
+&lt;p&gt;4、&lt;a href=&#34;https://kingjcy.github.io/posts/distributed/distributed-event/&#34;&gt;分布式事务&lt;/a&gt;&lt;/p&gt;
+
+&lt;p&gt;5、&lt;a href=&#34;https://kingjcy.github.io/posts/distributed/distributed-lock/&#34;&gt;分布式安全&lt;/a&gt;&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;（高并发）           6、最后到数据库包括缓存数据库的读写分离，分区分库分表。
+（缓存）             7、缓存是很快的用在每一层能够使用的地方
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;分层的目的是为了将压力留在上层，一般瓶颈都是在数据库，所以需要把有效得请求到数据库中进行处理&lt;/p&gt;
+
+&lt;p&gt;秒杀系统设计的核心思想：限流，削峰，高并发，异步处理，内存缓存&lt;/p&gt;</description>
         </item>
       
     
@@ -3175,6 +4148,230 @@ case biz-3 : exec3
     
       
         <item>
+          <title>架构系列---- 搜索系统</title>
+          <link>https://kingjcy.github.io/post/architecture/search/</link>
+          <pubDate>Sat, 04 Jan 2020 14:38:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/search/</guid>
+          <description>&lt;p&gt;搜索系统在我们日常生活中经常使用，比如baidu，google等，我们来看看其架构和原理。&lt;/p&gt;
+
+&lt;h1 id=&#34;全网搜索引擎架构&#34;&gt;全网搜索引擎架构&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/search/search.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;核心系统主要分为三部分：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;spider爬虫系统&lt;/li&gt;
+&lt;li&gt;search&amp;amp;index建立索引与查询索引系统
+
+&lt;ul&gt;
+&lt;li&gt;一部分用于生成索引数据build_index&lt;/li&gt;
+&lt;li&gt;一部分用于查询索引数据search_index&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;rank打分排序系统&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;核心数据主要分为两部分：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;web网页库&lt;/li&gt;
+&lt;li&gt;index索引数据&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;核心流程：&lt;/p&gt;
+
+&lt;p&gt;写入&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;spider把互联网网页抓过来&lt;/li&gt;
+&lt;li&gt;spider把互联网网页存储到网页库中（这个对存储的要求很高，要存储几乎整个“万维网”的镜像）&lt;/li&gt;
+&lt;li&gt;build_index从网页库中读取数据，完成分词&lt;/li&gt;
+&lt;li&gt;build_index生成倒排索引&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;检索&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;search_index获得用户的搜索词，完成分词&lt;/li&gt;
+&lt;li&gt;search_index查询倒排索引，获得“字符匹配”网页，这是初筛的结果&lt;/li&gt;
+&lt;li&gt;rank对初筛的结果进行打分排序&lt;/li&gt;
+&lt;li&gt;rank对排序后的第一页结果返回&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;比如baidu，google就是全网搜索引擎架构，我们来看一下百度如何实现实时搜索十五分钟内的新闻的？&lt;/p&gt;
+
+&lt;p&gt;首先任何对数据的更新，并不会实时修改索引，一旦产生碎片，会大大降低检索效率。既然索引数据不能实时修改，如何保证最新的网页能够被索引到呢？&lt;/p&gt;
+
+&lt;p&gt;就是采用了将索引分为全量库、日增量库、小时增量库。比如&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;300亿数据在全量索引库中&lt;/li&gt;
+&lt;li&gt;1000万1天内修改过的数据在天库中&lt;/li&gt;
+&lt;li&gt;50万1小时内修改过的数据在小时库中&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;当有查询请求发生时，会同时查询各个级别的索引，将结果合并，得到最新的数据：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;全量库是紧密存储的索引，无碎片，速度快&lt;/li&gt;
+&lt;li&gt;天库是紧密存储，速度快&lt;/li&gt;
+&lt;li&gt;小时库数据量小，速度也快&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/search/search2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;当有修改请求发生时，只会操作最低级别的索引，例如小时库。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/search/search3.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;数据库的同步&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/search/search4.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;dumper：将在线的数据导出&lt;/li&gt;
+&lt;li&gt;merger：将离线的数据合并到高一级别的索引中去&lt;/li&gt;
+&lt;li&gt;小时库，一小时一次，合并到天库中去；&lt;/li&gt;
+&lt;li&gt;天库，一天一次，合并到全量库中去；&lt;/li&gt;
+&lt;li&gt;这样就保证了小时库和天库的数据量都不会特别大；&lt;/li&gt;
+&lt;li&gt;如果数据量和并发量更大，还能增加星期库，月库来缓冲。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;数据的写入和读取都是实时的，所以58同城能够检索到1秒钟之前发布的帖子，即使全量库有300亿的数据。百度也能搜索到十五分钟内的数据。&lt;/p&gt;
+
+&lt;h1 id=&#34;站内搜索引擎架构&#34;&gt;站内搜索引擎架构&lt;/h1&gt;
+
+&lt;p&gt;全网搜索需要spider要被动去抓取数据，站内搜索是内部系统生成的数据，例如“发布系统”会将生成的帖子主动推给build_data系统，看似“很小”的差异，架构实现上难度却差很多：全网搜索如何“实时”发现“全量”的网页是非常困难的，而站内搜索容易实时得到全部数据。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/search/search1.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;spider和search&amp;amp;index是相对工程的系统，rank是和业务、策略紧密、算法相关的系统，搜索体验的差异主要在此，而业务、策略的优化是需要时间积累的。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Google的体验比Baidu好，根本在于前者rank牛逼&lt;/li&gt;
+&lt;li&gt;国内互联网公司短时间要搞一个体验超越Baidu的搜索引擎，是很难的，真心需要时间的积累&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;搜索原理&#34;&gt;搜索原理&lt;/h1&gt;
+
+&lt;h2 id=&#34;核心数据结构&#34;&gt;核心数据结构&lt;/h2&gt;
+
+&lt;h3 id=&#34;正排索引-forward-index&#34;&gt;正排索引（forward index）&lt;/h3&gt;
+
+&lt;p&gt;由key查询实体的过程，是正排索引。比如&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;用户表：t_user(uid, name, passwd, age, sex)，由uid查询整行的过程，就是正排索引查询。&lt;/li&gt;
+&lt;li&gt;网页库：t_web_page(url, page_content)，由url查询整个网页的过程，也是正排索引查询。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;举个例子，假设有3个网页：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;url1 -&amp;gt; “我爱北京”
+url2 -&amp;gt; “我爱到家”
+url3 -&amp;gt; “到家美好”
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这是一个正排索引Map&lt;url, page_content&gt;。&lt;/p&gt;
+
+&lt;h3 id=&#34;分词&#34;&gt;分词&lt;/h3&gt;
+
+&lt;p&gt;分词就是将基本的词进行拆分，比如将上面的内容进行分词：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;url1 -&amp;gt; {我，爱，北京}
+url2 -&amp;gt; {我，爱，到家}
+url3 -&amp;gt; {到家，美好}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这是一个分词后的正排索引Map&lt;url, list&lt;item&gt;&amp;gt;。&lt;/p&gt;
+
+&lt;h3 id=&#34;倒排索引-inverted-index&#34;&gt;倒排索引（inverted index）&lt;/h3&gt;
+
+&lt;p&gt;由item查询key的过程，是倒排索引。比如上面的网页进行倒排&lt;/p&gt;
+
+&lt;p&gt;分词后倒排索引：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;我 -&amp;gt; {url1, url2}
+爱 -&amp;gt; {url1, url2}
+北京 -&amp;gt; {url1}
+到家 -&amp;gt; {url2, url3}
+美好 -&amp;gt; {url3}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;由检索词item快速找到包含这个查询词的网页Map&lt;item, list&lt;url&gt;&amp;gt;就是倒排索引。&lt;/p&gt;
+
+&lt;p&gt;正排索引和倒排索引是spider和build_index系统提前建立好的数据结构，为什么要使用这两种数据结构，是因为它能够快速的实现“用户网页检索”需求（业务需求决定架构实现）&lt;/p&gt;
+
+&lt;h2 id=&#34;基本搜索原理&#34;&gt;基本搜索原理&lt;/h2&gt;
+
+&lt;p&gt;假设搜索词是“我爱”，原理如下&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;分词，“我爱”会分词为{我，爱}，时间复杂度为O(1)&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;每个分词后的item，从倒排索引查询包含这个item的网页list&lt;url&gt;，时间复杂度也是O(1)：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;我 -&amp;gt; {url1, url2}
+爱 -&amp;gt; {url1, url2}
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;求list&lt;url&gt;的交集，就是符合所有查询词的结果网页，对于这个例子，{url1, url2}就是最终的查询结果&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;核心就在于如何求两个子集的交集&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;循环遍历，土办法，时间复杂度O(n*n)&lt;/li&gt;
+&lt;li&gt;有序list求交集，拉链法，时间复杂度O(n)&lt;/li&gt;
+&lt;li&gt;分桶并行优化，多线程并行&lt;/li&gt;
+&lt;li&gt;bitmap再次优化，大大提高运算并行度，时间复杂度O(n)&lt;/li&gt;
+&lt;li&gt;跳表skiplist，时间复杂度为O(log(n))&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这些都是搜索引擎中常用的求交集的方法，可见搜索引擎中算法使用还是比较多的，其实引擎基本都是算法的天下。&lt;/p&gt;
+
+&lt;h1 id=&#34;搜索架构演进&#34;&gt;搜索架构演进&lt;/h1&gt;
+
+&lt;h2 id=&#34;原始阶段-like&#34;&gt;原始阶段-LIKE&lt;/h2&gt;
+
+&lt;p&gt;直接通过数据看的like关键词进行模糊匹配，能够快速满足业务需求，显然效率低，每次需要全表扫描，计算量大，并发高时cpu容易100%，而且不支持分词，很多查询不了。&lt;/p&gt;
+
+&lt;h2 id=&#34;初级阶段-全文索引&#34;&gt;初级阶段-全文索引&lt;/h2&gt;
+
+&lt;p&gt;正常数据库查询的时候，我们一般都会想到给数据库建索引，然后用于查询，但是这情况情况也存在一些问题。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;只适用于MyISAM&lt;/li&gt;
+&lt;li&gt;由于全文索引利用的是数据库特性，搜索需求和普通CURD需求耦合在数据库中：检索需求并发大时，可能影响CURD的请求；CURD并发大时，检索会非常的慢；&lt;/li&gt;
+&lt;li&gt;数据量达到百万级别，性能还是会显著降低，查询返回时间很长，业务难以接受&lt;/li&gt;
+&lt;li&gt;比较难水平扩展&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;中级阶段-开源外置索引&#34;&gt;中级阶段-开源外置索引&lt;/h2&gt;
+
+&lt;p&gt;外置索引的核心思路是：索引数据与原始数据分离，前者满足搜索需求，后者满足CURD需求，通过一定的机制（双写，通知，定期重建）来保证数据的一致性。&lt;/p&gt;
+
+&lt;p&gt;Solr，Lucene，ES都是常见的开源方案。比如ES“封装一个接口友好的服务，屏蔽底层复杂性”&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;ES是一个以Lucene为内核来实现搜索功能，提供REStful接口的服务&lt;/li&gt;
+&lt;li&gt;ES能够支持很大数据量的信息存储，支持很高并发的搜索请求&lt;/li&gt;
+&lt;li&gt;ES支持集群，向使用者屏蔽高可用/可扩展/负载均衡等复杂特性&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;ES完全能满足10亿数据量，5k吞吐量的常见搜索业务需求，强烈推荐。&lt;/p&gt;
+
+&lt;h2 id=&#34;高级阶段-自研搜索引擎&#34;&gt;高级阶段-自研搜索引擎&lt;/h2&gt;
+
+&lt;p&gt;当数据量进一步增加，达到10亿、100亿数据量；并发量也进一步增加，达到每秒10万吞吐；业务个性也逐步增加的时候，就需要自研搜索引擎了，定制化实现搜索内核了。比如58同城的E-search，等等。&lt;/p&gt;
+
+&lt;p&gt;到了定制化自研搜索引擎的阶段，超大数据量、超高并发量为设计重点，为了达到“无限容量、无限并发”的需求，架构设计需要重点考虑“扩展性”，力争做到：增加机器就能扩容（数据量+并发量）。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>分布式系列---- 文件存储系统hdfs</title>
           <link>https://kingjcy.github.io/post/distributed/store/fs/hfds/</link>
           <pubDate>Sun, 15 Dec 2019 20:21:18 CST</pubDate>
@@ -3331,6 +4528,240 @@ case biz-3 : exec3
 &lt;li&gt;当指定的时间到达，NameNode将会把文件从命名空间中删除&lt;/li&gt;
 &lt;li&gt;标记删除的文件块释放空间，HDFS文件系统显示空间增加&lt;/li&gt;
 &lt;/ol&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>架构系列---- 常用ID生成的方法</title>
+          <link>https://kingjcy.github.io/post/architecture/id/</link>
+          <pubDate>Wed, 16 Oct 2019 10:04:53 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/id/</guid>
+          <description>&lt;p&gt;几乎所有的业务系统，都有生成一个记录标识的需求，全局唯一，趋势有序是记录标识生成的两大核心需求。&lt;/p&gt;
+
+&lt;p&gt;如何高效生成趋势有序的全局唯一ID？&lt;/p&gt;
+
+&lt;h1 id=&#34;auto-increment&#34;&gt;auto_increment&lt;/h1&gt;
+
+&lt;p&gt;使用数据库的 auto_increment 来生成全局唯一递增ID&lt;/p&gt;
+
+&lt;p&gt;优点&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;简单，使用数据库已有的功能&lt;/li&gt;
+&lt;li&gt;能够保证唯一性&lt;/li&gt;
+&lt;li&gt;能够保证递增性&lt;/li&gt;
+&lt;li&gt;步长固定&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;可用性难以保证：数据库常见架构是一主多从+读写分离，生成自增ID是写请求，主库挂了就玩不转了&lt;/li&gt;
+&lt;li&gt;扩展性差，性能有上限：因为写入是单点，数据库主库的写性能决定ID的生成性能上限，并且难以扩展&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;改进方法：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;增加主库，避免写入单点&lt;/li&gt;
+&lt;li&gt;数据水平切分，保证各主库生成的ID不重复&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/id/id.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;如上图所述，由1个写库变成3个写库，每个写库设置不同的auto_increment初始值，以及相同的增长步长，以保证每个数据库生成的ID是不同的（上图中库0生成0,3,6,9…，库1生成1,4,7,10，库2生成2,5,8,11…）&lt;/p&gt;
+
+&lt;p&gt;改进后的架构保证了可用性，但缺点是：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;丧失了ID生成的“绝对递增性”：先访问库0生成0,3，再访问库1生成1，可能导致在非常短的时间内，ID生成不是绝对递增的（这个问题不大，我们的目标是趋势递增，不是绝对递增）&lt;/li&gt;
+&lt;li&gt;数据库的写压力依然很大，每次生成ID都要访问数据库&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;为了解决上述两个问题，引出了第二个常见的方案&lt;/p&gt;
+
+&lt;h1 id=&#34;单点批量id生成服务&#34;&gt;单点批量ID生成服务&lt;/h1&gt;
+
+&lt;p&gt;分布式系统之所以难，很重要的原因之一是“没有一个全局时钟，难以保证绝对的时序”，要想保证绝对的时序，还是只能使用单点服务，用本地时钟保证“绝对时序”。数据库写压力大，是因为每次生成ID都访问了数据库，可以使用批量的方式降低数据库写压力。&lt;/p&gt;
+
+&lt;p&gt;数据库使用双master保证可用性，数据库中只存储当前ID的最大值，例如0。ID生成服务假设每次批量拉取6个ID，服务访问数据库，将当前ID的最大值修改为5，这样应用访问ID生成服务索要ID，ID生成服务不需要每次访问数据库，就能依次派发0,1,2,3,4,5这些ID了，当ID发完后，再将ID的最大值修改为11，就能再次派发6,7,8,9,10,11这些ID了，于是数据库的压力就降低到原来的1/6了。&lt;/p&gt;
+
+&lt;p&gt;优点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;保证了ID生成的绝对递增有序&lt;/li&gt;
+&lt;li&gt;大大的降低了数据库的压力，ID生成可以做到每秒生成几万几十万个&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;服务仍然是单点&lt;/li&gt;
+&lt;li&gt;如果服务挂了，服务重启起来之后，继续生成ID可能会不连续，中间出现空洞（服务内存是保存着0,1,2,3,4,5，数据库中max-id是5，分配到3时，服务重启了，下次会从6开始分配，4和5就成了空洞，不过这个问题也不大）&lt;/li&gt;
+&lt;li&gt;虽然每秒可以生成几万几十万个ID，但毕竟还是有性能上限，无法进行水平扩展&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;改进方法：&lt;/p&gt;
+
+&lt;p&gt;单点服务的常用高可用优化方案是“备用服务”，也叫“影子服务”，有一个影子服务时刻处于备用状态，当主服务挂了的时候影子服务顶上。这个切换的过程对调用方是透明的，可以自动完成，常用的技术是vip+keepalived，具体就不在这里展开。&lt;/p&gt;
+
+&lt;h1 id=&#34;uuid&#34;&gt;uuid&lt;/h1&gt;
+
+&lt;p&gt;上述方案来生成ID，虽然性能大增，但由于是单点系统，总还是存在性能上限的。同时，上述两种方案，不管是数据库还是服务来生成ID，业务方Application都需要进行一次远程调用，比较耗时。有没有一种本地生成ID的方法，即高性能，又时延低呢？&lt;/p&gt;
+
+&lt;p&gt;uuid是一种常见的方案：string ID =GenUUID();&lt;/p&gt;
+
+&lt;p&gt;优点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;本地生成ID，不需要进行远程调用，时延低&lt;/li&gt;
+&lt;li&gt;扩展性好，基本可以认为没有性能上限&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;无法保证趋势递增&lt;/li&gt;
+&lt;li&gt;uuid过长，往往用字符串表示，作为主键建立索引查询效率低，常见优化方案为“转化为两个uint64整数存储”或者“折半存储”（折半后不能保证唯一性）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;取当前毫秒数&#34;&gt;取当前毫秒数&lt;/h1&gt;
+
+&lt;p&gt;uuid是一个本地算法，生成性能高，但无法保证趋势递增，且作为字符串ID检索效率低，有没有一种能保证递增的本地算法呢？&lt;/p&gt;
+
+&lt;p&gt;取当前毫秒数是一种常见方案：uint64 ID = GenTimeMS();&lt;/p&gt;
+
+&lt;p&gt;优点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;本地生成ID，不需要进行远程调用，时延低&lt;/li&gt;
+&lt;li&gt;生成的ID趋势递增&lt;/li&gt;
+&lt;li&gt;生成的ID是整数，建立索引后查询效率高&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;如果并发量超过1000，会生成重复的ID&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;我去，这个缺点要了命了，不能保证ID的唯一性。当然，使用微秒可以降低冲突概率，但每秒最多只能生成1000000个ID，再多的话就一定会冲突了，所以使用微秒并不从根本上解决问题。&lt;/p&gt;
+
+&lt;h1 id=&#34;类snowflake算法&#34;&gt;类snowflake算法&lt;/h1&gt;
+
+&lt;p&gt;snowflake是twitter开源的分布式ID生成算法，其核心思想是：一个long型的ID，使用其中41bit作为毫秒数，10bit作为机器编号，12bit作为毫秒内序列号。这个算法单机每秒内理论上最多可以生成1000*(2^12)，也就是400W的ID，完全能满足业务的需求。&lt;/p&gt;
+
+&lt;p&gt;借鉴snowflake的思想，结合各公司的业务逻辑和并发量，可以实现自己的分布式ID生成算法。&lt;/p&gt;
+
+&lt;p&gt;举例，假设某公司ID生成器服务的需求如下：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;（1）单机高峰并发量小于1W，预计未来5年单机高峰并发量小于10W
+（2）有2个机房，预计未来5年机房数量小于4个
+（3）每个机房机器数小于100台
+（4）目前有5个业务线有ID生成需求，预计未来业务线数量小于10个
+（5）…
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;分析过程如下：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;高位取从2016年1月1日到现在的毫秒数（假设系统ID生成器服务在这个时间之后上线），假设系统至少运行10年，那至少需要10年*365天*24小时*3600秒*1000毫秒=320*10^9，差不多预留39bit给毫秒数&lt;/li&gt;
+&lt;li&gt;每秒的单机高峰并发量小于10W，即平均每毫秒的单机高峰并发量小于100，差不多预留7bit给每毫秒内序列号&lt;/li&gt;
+&lt;li&gt;5年内机房数小于4个，预留2bit给机房标识&lt;/li&gt;
+&lt;li&gt;每个机房小于100台机器，预留7bit给每个机房内的服务器标识
+0 业务线小于10个，预留4bit给业务线标识&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这样设计的64bit标识，可以保证：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;每个业务线、每个机房、每个机器生成的ID都是不同的&lt;/li&gt;
+&lt;li&gt;同一个机器，每个毫秒内生成的ID都是不同的&lt;/li&gt;
+&lt;li&gt;同一个机器，同一个毫秒内，以序列号区区分保证生成的ID是不同的&lt;/li&gt;
+&lt;li&gt;将毫秒数放在最高位，保证生成的ID是趋势递增的&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;由于“没有一个全局时钟”，每台服务器分配的ID是绝对递增的，但从全局看，生成的ID只是趋势递增的（有些服务器的时间早，有些服务器的时间晚）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;最后一个容易忽略的问题：&lt;/p&gt;
+
+&lt;p&gt;生成的ID，例如message-id/ order-id/ tiezi-id，在数据量大时往往需要分库分表，这些ID经常作为取模分库分表的依据，为了分库分表后数据均匀，ID生成往往有“取模随机性”的需求，所以我们通常把每秒内的序列号放在ID的最末位，保证生成的ID是随机的。&lt;/p&gt;
+
+&lt;p&gt;又如果，我们在跨毫秒时，序列号总是归0，会使得序列号为0的ID比较多，导致生成的ID取模后不均匀。解决方法是，序列号不是每次都归0，而是归一个0到9的随机数，这个地方。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>架构系列---- 调用优化</title>
+          <link>https://kingjcy.github.io/post/architecture/call/</link>
+          <pubDate>Sat, 05 Oct 2019 10:04:53 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/call/</guid>
+          <description>&lt;p&gt;第三方接口挂掉，最好是不影响我们自身服务的运行，但是我们没有办法控制第三方接口稳定，所以我们需要优化我们的调用架构。&lt;/p&gt;
+
+&lt;h1 id=&#34;基本情况&#34;&gt;基本情况&lt;/h1&gt;
+
+&lt;p&gt;我们以跨公网调用其他平台接口为例，很多时候，业务需要跨公网调用一个第三方服务提供的接口，为了避免每个调用方都依赖于第三方服务，往往会抽象一个服务，所以基本调用流程都是&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/call/call.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;可见基本流程&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;业务调用方调用内部service&lt;/li&gt;
+&lt;li&gt;内部service跨公网调用第三方接口&lt;/li&gt;
+&lt;li&gt;第三方接口返回结果给内部service&lt;/li&gt;
+&lt;li&gt;内部service返回结果给业务调用方&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;内部服务可能对上游业务提供了很多服务接口，当有一个接口跨公网第三方调用超时时，可能导致所有接口都不可用，即使大部分接口不依赖于跨公网第三方调用。&lt;/p&gt;
+
+&lt;p&gt;而且我们经常会遇到这种情况，内部服务对业务方提供的N个接口，会共用服务容器内的工作线程（假设有100个工作线程）。假设这N个接口的某个接口跨公网依赖于第三方的接口，发生了网络抖动，或者接口超时（不妨设超时时间为5秒）。&lt;/p&gt;
+
+&lt;h1 id=&#34;解决方案&#34;&gt;解决方案&lt;/h1&gt;
+
+&lt;p&gt;最常想到的就是，加大调用次数，降低超时时间，或者拆分业务，但是都不能重根本上解决问题。&lt;/p&gt;
+
+&lt;h2 id=&#34;异步代理法&#34;&gt;异步代理法&lt;/h2&gt;
+
+&lt;p&gt;增加一个代理，向服务屏蔽究竟是“本地实时”还是“异步远程”去获取返回结果&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/call/call1.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;本地实时流程&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;业务调用方调用内部service&lt;/li&gt;
+&lt;li&gt;内部service调用异步代理service&lt;/li&gt;
+&lt;li&gt;异步代理service通过OpenID在本地拿取数据&lt;/li&gt;
+&lt;li&gt;异步代理service将数据返回内部service&lt;/li&gt;
+&lt;li&gt;内部service返回结果给业务调用方&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;异步远程流程&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;异步代理service定期跨公网调用微信服务&lt;/li&gt;
+&lt;li&gt;微信服务返回数据&lt;/li&gt;
+&lt;li&gt;刷新本地数据&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这样公网抖动，第三方接口超时，不影响内部接口调用，只会返回的不是最新的数据，很多业务场景都是适用允许的。&lt;/p&gt;
+
+&lt;h2 id=&#34;第三方接口备份与切换法&#34;&gt;第三方接口备份与切换法&lt;/h2&gt;
+
+&lt;p&gt;同时使用（或者备份）多个第三方服务。这样就可以调用第一个三方接口超时后，调用第二个备份服务，未来都直接调用备份服务，直到超时的服务恢复，这样公网抖动，第三方接口超时，不影响内部接口调用（初期少数几个请求会超时），但是不是所有公网调用都能够像短息网关，电子合同服务一样有备份接口的，像微信、支付宝等就只此一家&lt;/p&gt;
+
+&lt;h2 id=&#34;异步调用法&#34;&gt;异步调用法&lt;/h2&gt;
+
+&lt;p&gt;本地调用成功就返回成功，异步调用第三方接口同步数据（和异步代理有微小差别），其实就是将数据拉到本地。&lt;/p&gt;</description>
         </item>
       
     
@@ -5427,6 +6858,84 @@ Isr：存活节点
     
       
         <item>
+          <title>架构系列---- 推荐系统</title>
+          <link>https://kingjcy.github.io/post/architecture/recommend/</link>
+          <pubDate>Thu, 04 Jul 2019 14:38:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/recommend/</guid>
+          <description>&lt;p&gt;推荐系统主要依赖于算法，是将大数据进行分析后得到一个想要结果，进行评分推荐，其实和搜索系统有异曲同工之妙。&lt;/p&gt;
+
+&lt;h1 id=&#34;offline&#34;&gt;offline&lt;/h1&gt;
+
+&lt;p&gt;线下推荐子系统又主要分为线下挖掘模块、数据管理工具两大部分。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;挖掘模块&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/recommend/reconmend.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;线下挖掘模块，是各类线下挖掘算法实施的核心，它读取各种数据源，运用各种算法实施线下数据挖掘，产出初步的挖掘结果，并将挖掘结果以一定格式保存下来。典型的，实施这些挖掘策略的是一些跑在hadoop平台上的job，并行实施策略，并将挖掘结果保存到hadoop上。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;数据管理&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;数据管理工具，即DataMgrTools，它是一个工具（或者服务），它能够接受一些管理命令，读取某些特定格式的线下数据，将这些数据实时或者周期性的打到线上的redis或者内存中，供线上服务读取。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/recommend/recommend1.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;定义好线下数据格式，线上数据格式，通过上下游API做数据的迁移和转换。&lt;/p&gt;
+
+&lt;p&gt;数据管理工具是一个与业务无关的通用工具，它需要支持多种特定格式数据的上传，因为线下挖掘模块产出的数据可能存储在文件里，HDFS上，数据库里，甚至是特定二进制数据。&lt;/p&gt;
+
+&lt;h1 id=&#34;online&#34;&gt;online&lt;/h1&gt;
+
+&lt;p&gt;线上推荐子系统主要分为展示服务、分流服务、推荐内核、策略module服务等几个部分。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;展示服务，或者说是接入服务，它是整个推荐系统线上部分的入口，即整个推荐系统的接入层，它向上游提供接口，供上游业务方调用。&lt;/li&gt;
+&lt;li&gt;分流服务，它是推荐系统中一个非常有特色也非常重要的一个服务，它的作用是将上游过来的请求，按照不同的策略，以不同的比例，分流到不同的推荐算法实验平台（也就是下游的推荐内核）中去。&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;推荐内核，是各类线上推荐算法实施的核心，它其实只是一个通用的实验平台容器，每个推荐服务内部可能跑的是不同类型的推荐算法。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;虽然推荐服务中跑着不同的推荐算法，但每个算法的实施步骤都是相同的，都需要经过：
+
+（1）预处理；
+（2）预分析；
+（3）去重过滤；
+（4）排序；
+（5）推荐解释；
+
+等五个步骤，每个步骤都可能存在多种不同的算法，不同的模型，各个步骤中的一种算法组合起来，完成一个完整的流程，构成一个“推荐算法实验平台”。
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;策略服务，又叫策略module服务，它实现了一个个推荐内核下游的推荐module。在推荐内核执行各个推荐步骤时，每个步骤中都可能存在不同的算法/策略，这些算法/和策略可能需要调用一些和策略绑定比较紧密的module服务，它们并不是通用服务，而是相对专有的服务。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;总结&#34;&gt;总结&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/recommend/recommend2.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;其实就是收集数据，数据处理，过滤，打分，推荐。&lt;/p&gt;
+
+&lt;h1 id=&#34;推荐系统&#34;&gt;推荐系统&lt;/h1&gt;
+
+&lt;ul&gt;
+&lt;li&gt;首页推荐：提取用户画像，根据线下提取出的用户年龄、性别、品类偏好等在首页综合推荐宝贝&lt;/li&gt;
+&lt;li&gt;宝贝详情页推荐：买了还买，看了还看类的关联宝贝推荐&lt;/li&gt;
+&lt;li&gt;附近推荐：和首页推荐的差异在于，提高了地理位置的权重，地理位置不仅要包含当前地理位置，还需要包含常见活跃区域，例如家里、公司等&lt;/li&gt;
+&lt;li&gt;搜索推荐：除了关键词全匹配，要考虑同义词、近义词、易错词、拼音等推荐，产品层面，提示“你是不是想找xxoo宝贝”&lt;/li&gt;
+&lt;li&gt;召回推荐：在用户退出系统后，通过RFM模型做优惠券推送或者消息推送做客户挽留与召回&lt;/li&gt;
+&lt;li&gt;列表页推荐：用户既然进入到了美甲，成交意愿是非常强烈的，首页的推荐至关重要&lt;/li&gt;
+&lt;li&gt;宝贝详情页推荐：买了还买，看了还看类的关联宝贝推荐&lt;/li&gt;
+&lt;li&gt;下单成功页推荐：既然下单了某个甲样，可能会喜欢相近的甲样哟&lt;/li&gt;
+&lt;/ul&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控metrics系列---- Prometheus blackbox_exporter</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/prometheus/exporter/blackbox_exporter/</link>
           <pubDate>Wed, 03 Jul 2019 10:10:09 CST</pubDate>
@@ -5455,6 +6964,316 @@ http:
   tls_config:
     ca_file: /opt/promes/exporter/blackbox_exporter/blackbox_exporter_v0.12.1_linux-amd64/ssl/cargo.crt
 &lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>架构系列---- Cache</title>
+          <link>https://kingjcy.github.io/post/architecture/cache/</link>
+          <pubDate>Sat, 15 Jun 2019 20:09:52 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/cache/</guid>
+          <description>&lt;p&gt;缓存是一种提高系统读性能的常见技术，对于读多写少的应用场景，我们经常使用缓存来进行优化。&lt;/p&gt;
+
+&lt;h1 id=&#34;背景&#34;&gt;背景&lt;/h1&gt;
+
+&lt;p&gt;我们在实际情况下总是遇到读多写少的场景，比如用户的余额信息表account(uid, money)，对于查询余额的需求，占99%，对于更改余额的需求只有1%，这个时候我们就要使用缓存来降低数据的压力，提高查询效率。&lt;/p&gt;
+
+&lt;h1 id=&#34;实现&#34;&gt;实现&lt;/h1&gt;
+
+&lt;h2 id=&#34;读操作&#34;&gt;读操作&lt;/h2&gt;
+
+&lt;p&gt;有了数据库和缓存两个地方存放数据之后（uid-&amp;gt;money），每当需要读取相关数据时（money），操作流程一般是这样的：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;读取缓存中是否有相关数据，uid-&amp;gt;money&lt;/li&gt;
+&lt;li&gt;如果缓存中有相关数据money，则返回【这就是所谓的数据命中“hit”】&lt;/li&gt;
+&lt;li&gt;如果缓存中没有相关数据money，则从数据库读取相关数据money【这就是所谓的数据未命中“miss”】，放入缓存中uid-&amp;gt;money，再返回&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缓存的命中率 = 命中缓存请求个数/总缓存访问请求个数 = hit/(hit+miss)&lt;/p&gt;
+
+&lt;h2 id=&#34;写操作&#34;&gt;写操作&lt;/h2&gt;
+
+&lt;p&gt;写操作就比较复杂了，涉及三个问题&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;更新缓存 VS 淘汰缓存&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;更新缓存（setCache(uid, money)）：数据不但写入数据库，还会写入缓存。一般数据获取并不是太复杂，我们都会更新缓存。&lt;/p&gt;
+
+&lt;p&gt;淘汰缓存（deleteCache(uid)）：数据只会写入数据库，不会写入缓存，只会把数据淘汰掉，也就是删除。一般数据需要很复杂的获取方式，就会先把数据删除，然后在需要的时候再计算存入。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;先操作数据库 vs 先操作缓存&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;数据和缓存的操作时序，结论是清楚的：先淘汰缓存，再写数据库。&lt;/p&gt;
+
+&lt;p&gt;假设先写数据库，再淘汰缓存,则会出现DB中是新数据，Cache中是旧数据，数据不一致。&lt;/p&gt;
+
+&lt;p&gt;假设先淘汰缓存，再写数据库：第一步淘汰缓存成功，第二步写数据库失败，则只会引发一次Cache miss。&lt;/p&gt;
+
+&lt;p&gt;&lt;strong&gt;数据不一致&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;1、单库情况下，服务层的并发读写，缓存与数据库的操作交叉进行&lt;/p&gt;
+
+&lt;p&gt;其实在先淘汰缓存，再写数据库中间还是会出现数据不一致的情况：就是在写入数据库之前，查询来一次，将数据存储到来缓存。&lt;/p&gt;
+
+&lt;p&gt;遇到这种情况，我们最常想到的就是使用锁，但是如果使用全局锁的话影响很大，影响并发量，其实锁的思想就是串行化，我们可以通过相同的id走同一个服务实例和db连接来实现串行化&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;修改服务Service连接池，id取模选取服务连接，能够保证同一个数据的读写都落在同一个后端服务上&lt;/li&gt;
+&lt;li&gt;修改数据库DB连接池，id取模选取DB连接，能够保证同一个数据的读写在数据库层面是串行的&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;2、主从同步，读写分离的情况下，读从库读到旧数据&lt;/p&gt;
+
+&lt;p&gt;还有一种情况就是在主从同步，读写分离的架构情况下，如果查询数据的时候数据库主从同步还没有完成，导致数据不一致，这种架构还是我们常用的架构。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/cache/cache3.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;请求A发起一个写操作，第一步淘汰了cache，如上图步骤1&lt;/li&gt;
+&lt;li&gt;请求A写数据库了，写入了最新的数据，如上图步骤2&lt;/li&gt;
+&lt;li&gt;请求B发起一个读操作，读cache，cache miss，如上图步骤3&lt;/li&gt;
+&lt;li&gt;请求B继续读DB，读的是从库，此时主从同步还没有完成，读出来一个脏数据，然后脏数据入cache，如上图步4&lt;/li&gt;
+&lt;li&gt;最后数据库的主从同步完成了，如上图步骤5&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;在这种情况下，我们可以使用&amp;rdquo;缓存双淘汰”法：思想就是淘汰缓存两次，保证数据最新，第二次缓存什么时候淘汰就是一个关键，可以直接暴力的直接1s后再次删除缓存，但是这种方式需要等待，大大降低来并发，业务是接收不了的，所以还是需要异步完成。&lt;/p&gt;
+
+&lt;p&gt;1、想到异步就想到MQ，所以我们可以通过mq来再次删除缓存&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/cache/cache4.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;2、还没有使用日志来二次删除缓存，与业务解耦，对业务线完全没有入侵，比较推荐。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/cache/cache5.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;缓存服务的优化&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/cache/cache.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;上述缓存架构有一个缺点：业务方需要同时关注缓存与DB，我们可以通过服务化来屏蔽数据的细节，实现解耦。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/cache/cache1.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;加入一个服务层，向上游提供帅气的数据访问接口，向上游屏蔽底层数据存储的细节，这样业务线不需要关注数据是来自于cache还是DB。其实golang中同步的map也是这么一个逻辑。&lt;/p&gt;
+
+&lt;p&gt;还可以通过异步缓存更新来实现&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/cache/cache2.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;业务线所有的写操作都走数据库，所有的读操作都总缓存，由一个异步的工具来做数据库与缓存之间数据的同步。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;要有一个init cache的过程，将需要缓存的数据全量写入cache&lt;/li&gt;
+&lt;li&gt;如果DB有写操作，异步更新程序读取binlog，更新cache&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;这样也可以，但是比较浪费资源，还用同步的逻辑需要好好处理。&lt;/p&gt;
+
+&lt;h2 id=&#34;总结&#34;&gt;总结&lt;/h2&gt;
+
+&lt;p&gt;针对这种架构思想，最多实现的就是&lt;a href=&#34;https://kingjcy.github.io/post/database/mysql/redis-mysql/&#34;&gt;mysql+redis&lt;/a&gt;组合了，上面的问题解决方案都可以用到这组实现中。&lt;/p&gt;
+
+&lt;h1 id=&#34;问题&#34;&gt;问题&lt;/h1&gt;
+
+&lt;h2 id=&#34;缓存穿透&#34;&gt;缓存穿透&lt;/h2&gt;
+
+&lt;p&gt;我们在项目中使用缓存通常都是先检查缓存中是否存在，如果存在直接返回缓存内容，如果不存在就直接查询数据库然后再缓存查询结果返回。这个时候如果我们查询的某一个数据在缓存中一直不存在，就会造成每一次请求都查询DB，这样缓存就失去了意义，在流量大时，可能DB就挂掉了。&lt;/p&gt;
+
+&lt;p&gt;那这种问题有什么好办法解决呢？&lt;/p&gt;
+
+&lt;p&gt;要是有人利用不存在的key频繁攻击我们的应用，这就是漏洞。&lt;/p&gt;
+
+&lt;p&gt;有一个比较巧妙的作法是，可以将这个不存在的key预先设定一个值。&lt;/p&gt;
+
+&lt;p&gt;比如，”key” , “&amp;amp;&amp;amp;”。&lt;/p&gt;
+
+&lt;p&gt;在返回这个&amp;amp;&amp;amp;
+值的时候，我们的应用就可以认为这是不存在的key，那我们的应用就可以决定是否继续等待继续访问，还是放弃掉这次操作。如果继续等待访问，过一个时间轮询点后，再次请求这个key，如果取到的值不再是&amp;amp;&amp;amp;，则可以认为这时候key有值了，从而避免了透传到数据库，从而把大量的类似请求挡在了缓存之中。&lt;/p&gt;
+
+&lt;h2 id=&#34;缓存并发&#34;&gt;缓存并发&lt;/h2&gt;
+
+&lt;p&gt;有时候如果网站并发访问高，一个缓存如果失效，可能出现多个进程同时查询DB，同时设置缓存的情况，如果并发确实很大，这也可能造成DB压力过大，还有缓存频繁更新的问题。&lt;/p&gt;
+
+&lt;p&gt;我现在的想法是对缓存查询加锁，如果KEY不存在，就加锁，然后查DB入缓存，然后解锁；其他进程如果发现有锁就等待，然后等解锁后返回数据或者进入DB查询。&lt;/p&gt;
+
+&lt;p&gt;这种情况和刚才说的预先设定值问题有些类似，只不过利用锁的方式，会造成部分请求等待。&lt;/p&gt;
+
+&lt;h2 id=&#34;缓存失效&#34;&gt;缓存失效&lt;/h2&gt;
+
+&lt;p&gt;引起这个问题的主要原因还是高并发的时候，平时我们设定一个缓存的过期时间时，可能有一些会设置1分钟啊，5分钟这些，并发很高时可能会出在某一个时间同时生成了很多的缓存，并且过期时间都一样，这个时候就可能引发一当过期时间到后，这些缓存同时失效，请求全部转发到DB，DB可能会压力过重。&lt;/p&gt;
+
+&lt;p&gt;那如何解决这些问题呢？
+其中的一个简单方案就时讲缓存失效时间分散开，比如我们可以在原有的失效时间基础上增加一个随机值，比如1-5分钟随机，这样每一个缓存的过期时间的重复率就会降低，就很难引发集体失效的事件。&lt;/p&gt;
+
+&lt;p&gt;我们讨论的第二个问题时针对同一个缓存，第三个问题时针对很多缓存。&lt;/p&gt;
+
+&lt;h2 id=&#34;总结-1&#34;&gt;总结&lt;/h2&gt;
+
+&lt;p&gt;1、缓存穿透：查询一个必然不存在的数据。比如文章表，查询一个不存在的id，每次都会访问DB，如果有人恶意破坏，很可能直接对DB造成影响。&lt;/p&gt;
+
+&lt;p&gt;2、缓存失效：如果缓存集中在一段时间内失效，DB的压力凸显。这个没有完美解决办法，但可以分析用户行为，尽量让失效时间点均匀分布。
+当发生大量的缓存穿透，例如对某个失效的缓存的大并发访问就造成了缓存雪崩。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>架构系列---- 冗余表</title>
+          <link>https://kingjcy.github.io/post/architecture/redundanttable/</link>
+          <pubDate>Fri, 14 Jun 2019 14:38:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/redundanttable/</guid>
+          <description>&lt;p&gt;冗余表的架构设计就是牺牲空间一份数据存多张表，可以通过不同索引查询提高效率的一种架构思想。&lt;/p&gt;
+
+&lt;h1 id=&#34;背景&#34;&gt;背景&lt;/h1&gt;
+
+&lt;p&gt;互联网很多业务场景的数据量很大，此时数据库架构要进行水平切分，水平切分会有一个patition key，通过patition key的查询能够直接定位到库，但是非patition key上的查询可能就需要扫描多个库了。&lt;/p&gt;
+
+&lt;p&gt;例如订单表，业务上对用户和商家都有订单查询需求，如果用buyer_id来分库，seller_id的查询就需要扫描多库。如果用seller_id来分库，buyer_id的查询就需要扫描多库。这类需求，为了做到高吞吐量低延时的查询，往往使用“数据冗余”的方式来实现，同一个数据，冗余两份，一份以buyer_id来分库，满足买家的查询需求；一份以seller_id来分库，满足卖家的查询需求。&lt;/p&gt;
+
+&lt;h1 id=&#34;实现&#34;&gt;实现&lt;/h1&gt;
+
+&lt;h2 id=&#34;服务同步写&#34;&gt;服务同步写&lt;/h2&gt;
+
+&lt;p&gt;顾名思义，由服务层同步写冗余数据，先后向两个表中同时插入数据。&lt;/p&gt;
+
+&lt;p&gt;优点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;不复杂，服务层由单次写，变两次写&lt;/li&gt;
+&lt;li&gt;数据一致性相对较高（因为双写成功才返回）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;请求的处理时间增加（要插入次，时间加倍）&lt;/li&gt;
+&lt;li&gt;数据仍可能不一致，例如第二步写入T1完成后服务重启，则数据不会写入T2&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;服务异步写&#34;&gt;服务异步写&lt;/h2&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/redundant/redundant.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;数据的双写并不再由服务来完成，服务层异步发出一个消息，通过消息总线发送给一个专门的数据复制服务来写入冗余数据。&lt;/p&gt;
+
+&lt;p&gt;优点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;请求处理时间短（只插入1次）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;系统的复杂性增加了，多引入了一个组件（消息总线）和一个服务（专用的数据复制服务）&lt;/li&gt;
+&lt;li&gt;因为返回业务线数据插入成功时，数据还不一定插入到T2中，因此数据有一个不一致时间窗口（这个窗口很短，最终是一致的）&lt;/li&gt;
+&lt;li&gt;在消息总线丢失消息时，冗余表数据会不一致&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;线下异步写&#34;&gt;线下异步写&lt;/h2&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/redundant/redundant1.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;数据的双写不再由服务层来完成，而是由线下的一个服务或者任务来读取数据的log来完成。&lt;/p&gt;
+
+&lt;p&gt;优点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;数据双写与业务完全解耦&lt;/li&gt;
+&lt;li&gt;请求处理时间短（只插入1次）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;返回业务线数据插入成功时，数据还不一定插入到T2中，因此数据有一个不一致时间窗口（这个窗口很短，最终是一致的）&lt;/li&gt;
+&lt;li&gt;数据的一致性依赖于线下服务或者任务的可靠性&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;先写正表还是反表&#34;&gt;先写正表还是反表&lt;/h1&gt;
+
+&lt;p&gt;上述三种方案各有优缺点，但不管哪种方案，都会面临“究竟先写T1还是先写T2”的问题，对于一个不能保证事务性的操作，一定涉及“哪个任务先做，哪个任务后做”的问题，解决这个问题的方向是：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;【如果出现不一致】，谁先做对业务的影响较小，就谁先执行，需要根据业务逻辑来做处理。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;比如还是对订单的业务，用户下单时，如果“先插入buyer表T1，再插入seller冗余表T2”，当第一步成功、第二步失败时，出现的业务影响是“买家能看到自己的订单，卖家看不到推送的订单”，相反，如果“先插入seller表T2，再插入buyer冗余表T1”，当第一步成功、第二步失败时，出现的业务影响是“卖家能看到推送的订单，卖家看不到自己的订单”，由于这个生成订单的动作是买家发起的，买家如果看不到订单，会觉得非常奇怪，并且无法支付以推动订单状态的流转，此时即使卖家看到有人下单也是没有意义的，因此，在此例中，应该先插入buyer表T1，再插入seller表T2。&lt;/p&gt;
+
+&lt;h1 id=&#34;保证数据的一致性&#34;&gt;保证数据的一致性&lt;/h1&gt;
+
+&lt;p&gt;不管哪种方案，因为两步操作不能保证原子性，总有出现数据不一致的可能，基本解决方案。&lt;/p&gt;
+
+&lt;h2 id=&#34;线下扫面正反冗余表全部数据&#34;&gt;线下扫面正反冗余表全部数据&lt;/h2&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/redundant/redundant2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;线下启动一个离线的扫描工具，不停的比对正表T1和反表T2，如果发现数据不一致，就进行补偿修复。这个是我们最容易想到的方法，也是最消耗资源的方法。&lt;/p&gt;
+
+&lt;p&gt;优点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;比较简单，开发代价小&lt;/li&gt;
+&lt;li&gt;线上服务无需修改，修复工具与线上服务解耦&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;扫描效率低，会扫描大量的“已经能够保证一致”的数据&lt;/li&gt;
+&lt;li&gt;由于扫描的数据量大，扫描一轮的时间比较长，即数据如果不一致，不一致的时间窗口比较长&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;线下扫描增量数据&#34;&gt;线下扫描增量数据&lt;/h2&gt;
+
+&lt;p&gt;有没有只扫描“可能存在不一致可能性”的数据，而不是每次扫描全部数据，每次只扫描增量的日志数据，就能够极大提高效率，缩短数据不一致的时间窗口。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/redundant/redundant3.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;当然，我们还是需要一个离线的日志扫描工具，不停的比对日志log1和日志log2，如果发现数据不一致，就进行补偿修复&lt;/p&gt;
+
+&lt;p&gt;优点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;虽比方法一复杂，但仍然是比较简单的&lt;/li&gt;
+&lt;li&gt;数据扫描效率高，只扫描增量数据&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;线上服务略有修改（代价不高，多写了2条日志）&lt;/li&gt;
+&lt;li&gt;虽然比方法一更实时，但时效性还是不高，不一致窗口取决于扫描的周期&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;实时线上-消息对-检测&#34;&gt;实时线上“消息对”检测&lt;/h2&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/redundant/redundant4.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;有些系统要求比较高，需要实现实时的检测，所以就不能使用日志了，需要使用消息系统。假设正常情况下，msg1和msg2的接收时间应该在3s以内，如果检测服务在收到msg1后没有收到msg2，就尝试检测数据的一致性，不一致时进行补偿修复&lt;/p&gt;
+
+&lt;p&gt;优点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;效率高&lt;/li&gt;
+&lt;li&gt;实时性高&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;缺点：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;方案比较复杂，上线引入了消息总线这个组件&lt;/li&gt;
+&lt;li&gt;线下多了一个订阅总线的检测服务&lt;/li&gt;
+&lt;/ul&gt;</description>
         </item>
       
     
@@ -5947,6 +7766,137 @@ $ ./cortex -config.file=./docs/single-process-config.yaml
 &lt;/ul&gt;
 
 &lt;p&gt;目前没有看到cortex的可扩展的优秀的方面，可能是社区开发还没有完成，等release。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>架构系列---- 中台建设</title>
+          <link>https://kingjcy.github.io/post/architecture/electronic-commerce/</link>
+          <pubDate>Tue, 04 Jun 2019 14:38:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/electronic-commerce/</guid>
+          <description>&lt;p&gt;中台建设其实就是将一些能够统一的业务进行统一规划，所以系统的接入和流出都是标准化的操作。&lt;/p&gt;
+
+&lt;h1 id=&#34;组织架构的演变&#34;&gt;组织架构的演变&lt;/h1&gt;
+
+&lt;p&gt;其实我们在另一篇文章&lt;a href=&#34;https://kingjcy.github.io/post/architecture/microservices/microservices/&#34;&gt;架构的演变&lt;/a&gt;中已经主要架构的设计思路，其实也是和组织架构相互对应，相互衍生的。&lt;/p&gt;
+
+&lt;h2 id=&#34;中台&#34;&gt;中台&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;前台---中台---后台
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;而到了大中台时代，中台的核心价值是在于，在对企业业务有了柔性支撑和贯通的前提下，再形成协同与智慧的运营体系。&lt;/p&gt;
+
+&lt;p&gt;一般企业架构分成了三个层次：前台、中台、后台。中台又分成三大块，业务中台、数据中台和技术中台。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/electroniccommerce/middle&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;技术中台支撑企业业务发展，通过打通企业内异构系统，支持业务中台；&lt;/li&gt;
+&lt;li&gt;业务中台围绕公司业务运营进行服务，将获取的多维度数据传递给数据中台，由数据中台分析反馈给业务中台，以优化业务运营。同时数据中台通过BI智能分析，帮助企业管理者更好的做决策分析。三者是相辅相成，相互协作的。
+业务中台其实就是把原有的前端的会员中心、营销中心、商品中心，后端的供应链中心、采配中心等重点模块放在业务中台模块，以后前端不管对接多少个第三方，线上线下增加多少家门店，都能进行统一会员、统一商品编码、统一供应链整合，整个系统一体化。真正做到用技术支持业务，通过业务收集大量数据进行决策，统一高效的进行管理。&lt;/li&gt;
+&lt;li&gt;数据中台：一般指以数据采集、数据集成、数据治理，指标体系和数据仓库统一建设等数据管理活动为典型特征的中台。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h1 id=&#34;大中台&#34;&gt;大中台&lt;/h1&gt;
+
+&lt;p&gt;其实中台严格意义上来说，不是一种架构，也不是一种系统，而是一种战略。&lt;/p&gt;
+
+&lt;p&gt;当前最需要建设的中台有两种：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;狭义的业务中台：一般指在线业务为典型特征的中台。在OLDI（Online Data-Intensive）时代，越来越多的企业的核心业务都是在线业务，因此把在线业务中台简称为业务中台。&lt;/li&gt;
+&lt;li&gt;数据中台：一般指以数据采集、数据集成、数据治理，指标体系和数据仓库统一建设等数据管理活动为典型特征的中台。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;对业务中台来说，比较符合的场景主要有：&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;业务系统研发团队至少大几十人（含外包的），需求多变化快，系统又涉及多个领域（比如做ERP、电商的），业务逻辑比较复杂。&lt;/li&gt;
+&lt;li&gt;这时业务中台可以把系统和业务领域划分清楚，提高研发效率。做相似行业的外包项目为主，业务规模也做的比较大的（一年有两位数的项目）。&lt;/li&gt;
+&lt;li&gt;这时业务中台可以提升软件复用，降低定制化成本，提高研发效率。如果每个项目都完全不一样，那中台也救不了你。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;支持业务中台的技术体系，包括微服务、DevOps、云原生和分布式事务等。&lt;/p&gt;
+
+&lt;p&gt;将需求设计成微服务架构，然后每个服务使用各种技术栈来开发业务，比如golang的技术栈的高并发的特性来开发web服务等，然后将一些统一的模块进行统一的接入和输出，使用devops的开发模式，在业务中还是需要解决分布式事务等问题。&lt;/p&gt;
+
+&lt;p&gt;比如在网易，是网易轻舟微服务平台，提供微服务应用全生命周期的完整支持，包括下一代微服务Service Mesh支持、经典微服务框架NSF、包括CI/CD的DevOps、分布式事务框架GXTS、APM、API网关、GoAPI全自动化测试以及容器应用管理服务等。&lt;/p&gt;
+
+&lt;p&gt;对数据中台来说，比较符合的场景：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;数据产品比较多，每天要看数据如果没数据就不知道怎么工作的运营人员比较多的业务。
+比如电商就是典型。尤其是数据产品和运营人员还在多个团队。
+用数据的姿势比较复杂，问题比较多，比如经常出现指标不一致、数据出错、想要的数据不知道哪里有等问题。
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;支持数据中台的技术体系，包括指标管理、数据服务、元数据管理、数仓开发与管理、数据安全管理、数据资产管理、大数据计算引擎、数据集成/同步/交换引擎等，&lt;/p&gt;
+
+&lt;p&gt;其实数据中台就是将数据进行处理，不同数据资源，统一的输出标准，中间用到大部分就是数据引擎，比如kafka队列，sprak，flink等流式引擎，hadoop，hbase和hive等大数据引擎。&lt;/p&gt;
+
+&lt;p&gt;比如在网易，是以网易猛犸为核心的网易全链路数据中台解决方案。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>架构系列---- 广告投放系统</title>
+          <link>https://kingjcy.github.io/post/architecture/advertising/</link>
+          <pubDate>Tue, 04 Jun 2019 14:38:45 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/architecture/advertising/</guid>
+          <description>&lt;p&gt;互联网智能广告系统简易流程与架构。&lt;/p&gt;
+
+&lt;h1 id=&#34;业务简述&#34;&gt;业务简述&lt;/h1&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://kingjcy.github.io/media/architecture/advertising/advertising.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;广告主在业务端投递广告&lt;/p&gt;
+
+&lt;p&gt;广告主登录业务端后台，进行设置：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;•今日投放地域是“北京-上地”
+•投放类别是“租房”
+•定向人群为“女”，“30岁以下”
+•需要推广的广告内容是他发布的一条“房屋出租”的帖子
+•竞价设置的是0.2元
+•单日预算是20元
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这些数据，当然通过业务端存储到了数据层，即数据库和缓存里。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;用户来到了网站，进入了“北京-上地-租房”类别，广告初筛实施&lt;/p&gt;
+
+&lt;p&gt;合适的广告，必须符合“语义相关性”，即基础检索属性（广告属性）必须符合（广告能否满足用户的需求，满足了点击率才高），这个工作是通过BS-basic search检索服务完成的。BS从数据层检索到“北京-上地-租房”的广告帖子。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;用户属性与广告主属性匹配，广告精筛实施&lt;/p&gt;
+
+&lt;p&gt;步骤二中，基础属性初筛了以后，要进行更深层次的策略筛选（用户能否满足广告的需求），此例中，广告主的精准需求为：&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;•用户性别为“女”
+•用户年龄为“30岁以下”
+•用户访问IP是“北京”
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;系统将初筛出来的M条广告和用户属性进行匹配筛选，又过滤掉了一部分，最后剩余N条待定广告，这些广告既满足用户的需求（初筛），这些用户也满足广告主的需求（精筛），后者是在AS-advanced search策略服务完成的。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;综合排序，并返回Top X的广告&lt;/p&gt;
+
+&lt;p&gt;经过步骤2和步骤3的初筛和精筛之后，待选的N条广告既能满足用户当前的需求，用户亦能满足广告主的筛选需求，但实际情况是，广告位只有3个，怎么办呢？就需要我们对N条广告进行综合打分排序（满足平台的需求，广告平台要多赚钱嘛）。&lt;/p&gt;
+
+&lt;p&gt;出价高，但没人点击，广告平台没有收益；点击率高，但出价低，广告平台还是没有收益。最终应该按照广告的出价与CTR的乘积作为综合打分排序的依据，bid*CTR。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;展现端展示了广告，用户点击了广告&lt;/p&gt;
+
+&lt;p&gt;展示了广告后，展现端js会上报广告展示日志，有部分用户点击了广告，服务端会记录点击日志，这些日志可以作为广告算法实施的数据源，同时，他们经过统计分析之后，会被展示给广告主，让他们能够看到自己广告的展示信息，点击信息。&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;对广告主进行扣费&lt;/p&gt;
+
+&lt;p&gt;用户既然点击了广告，平台就要对投放广告的广告主进行扣费了，扣费前当然要经过反作弊系统的过滤（主要是恶意点击），扣费后信息会实时反映到数据层，费用扣光后，广告就要从数据层下线。&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;</description>
         </item>
       
     
@@ -25721,6 +27671,566 @@ delim:N err: EOF
     
       
         <item>
+          <title>Golang使用系列---- Archive</title>
+          <link>https://kingjcy.github.io/post/golang/go-archive/</link>
+          <pubDate>Mon, 25 Dec 2017 14:26:01 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-archive/</guid>
+          <description>&lt;p&gt;archive就是使用tar和zip两种方式对文档进行归档，压缩看compress包。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;tar和zip有什么不同&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;二者使用平台不同，对于 Windows 平台而言，最常用的格式是 zip 和 rar，国内大多数是用 rar，国外大多数是用 zip。而对于类 Unix 平台而言，常用的格式是 tar 和 tar.gz，zip 比较少一些，rar 则几乎没有。&lt;/p&gt;
+
+&lt;p&gt;zip 格式是开放且免费的，所以广泛使用在 Windows、Linux、MacOS 平台，要说 zip 有什么缺点的话，就是它的压缩率并不是很高，不如 rar及 tar.gz 等格式。&lt;/p&gt;
+
+&lt;p&gt;严格的说，tar 只是一种打包格式，并不对文件进行压缩，主要是为了便于文件的管理，所以打包后的文档大小一般远远大于 zip 和 tar.gz，但这种格式也有很明显的优点，例如打包速度非常快，打包时 CPU 占用率也很低，因为不需要压缩嘛。&lt;/p&gt;
+
+&lt;h1 id=&#34;archive-tar&#34;&gt;archive/tar&lt;/h1&gt;
+
+&lt;h2 id=&#34;单个文件操作&#34;&gt;单个文件操作&lt;/h2&gt;
+
+&lt;p&gt;这个非常简单，就是读取一个文件，进行打包及解包操作即可。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;单个文件打包&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;从 /etc/passwd 下复制了一个 passwd 文件到当前目录下，用来做压缩测试。什么文件都是可以的，自己随意写一个也行。这里的示例主要为了说明 tar ，没有处理路径，所以过程全部假设是在当前目录下执行。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;cp /etc/passwd .
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;关于文件的打包直接查看示例代码，已经在示例代码中做了详细的注释。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;os&amp;quot;
+    &amp;quot;log&amp;quot;
+    &amp;quot;archive/tar&amp;quot;
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;io&amp;quot;
+)
+
+func main() {
+    // 准备打包的源文件
+    var srcFile = &amp;quot;passwd&amp;quot;
+    // 打包后的文件
+    var desFile = fmt.Sprintf(&amp;quot;%s.tar&amp;quot;,srcFile)
+
+    // 需要注意文件的打开即关闭的顺序，因为 defer 是后入先出，所以关闭顺序很重要
+    // 第一次写这个示例的时候就没注意，导致写完的 tar 包不完整
+
+    // ###### 第 1 步，先准备好一个 tar.Writer 结构，然后再向里面写入内容。 ######
+    // 创建一个文件，用来保存打包后的 passwd.tar 文件
+    fw, err := os.Create(desFile)
+    ErrPrintln(err)
+    defer fw.Close()
+
+    // 通过 fw 创建一个 tar.Writer
+    tw := tar.NewWriter(fw)
+    // 这里不要忘记关闭，如果不能成功关闭会造成 tar 包不完整
+    // 所以这里在关闭的同时进行判断，可以清楚的知道是否成功关闭
+    defer func() {
+        if err := tw.Close(); err != nil {
+            ErrPrintln(err)
+        }
+    }()
+
+    // ###### 第 2 步，处理文件信息，也就是 tar.Header 相关的 ######
+    // tar 包共有两部分内容：文件信息和文件数据
+    // 通过 Stat 获取 FileInfo，然后通过 FileInfoHeader 得到 hdr tar.*Header
+    fi, err := os.Stat(srcFile)
+    ErrPrintln(err)
+    hdr, err := tar.FileInfoHeader(fi, &amp;quot;&amp;quot;)
+    // 将 tar 的文件信息 hdr 写入到 tw
+    err = tw.WriteHeader(hdr)
+    ErrPrintln(err)
+
+    // 将文件数据写入
+    // 打开准备写入的文件
+    fr, err := os.Open(srcFile)
+    ErrPrintln(err)
+    defer fr.Close()
+
+    written, err := io.Copy(tw, fr)
+    ErrPrintln(err)
+
+    log.Printf(&amp;quot;共写入了 %d 个字符的数据\n&amp;quot;,written)
+}
+
+// 定义一个用来打印的函数，少写点代码，因为要处理很多次的 err
+// 后面其他示例还会继续使用这个函数，就不单独再写，望看到此函数了解
+func ErrPrintln(err error)  {
+    if err != nil {
+        log.Println(err)
+        os.Exit(1)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;单个文件解包&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;这个也很简单，基本上将上面过程反过来，只需要处理 tar.Reader 即可，详细的描述见示例。&lt;/p&gt;
+
+&lt;p&gt;这里就用刚刚打包的 passwd.tar 文件做示例，如果怕结果看不出效果，可以将之前用的 passwd 源文件删除。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;os&amp;quot;
+    &amp;quot;archive/tar&amp;quot;
+    &amp;quot;io&amp;quot;
+    &amp;quot;log&amp;quot;
+)
+
+func main() {
+
+    var srcFile = &amp;quot;passwd.tar&amp;quot;
+
+    // 将 tar 包打开
+    fr, err := os.Open(srcFile)
+    ErrPrintln(err)
+    defer fr.Close()
+
+    // 通过 fr 创建一个 tar.*Reader 结构，然后将 tr 遍历，并将数据保存到磁盘中
+    tr := tar.NewReader(fr)
+
+    for hdr, err := tr.Next(); err != io.EOF; hdr, err = tr.Next(){
+        // 处理 err ！= nil 的情况
+        ErrPrintln(err)
+        // 获取文件信息
+        fi := hdr.FileInfo()
+
+        // 创建一个空文件，用来写入解包后的数据
+        fw, err := os.Create(fi.Name())
+        ErrPrintln(err)
+
+        // 将 tr 写入到 fw
+        n, err := io.Copy(fw, tr)
+        ErrPrintln(err)
+        log.Printf(&amp;quot;解包： %s 到 %s ，共处理了 %d 个字符的数据。&amp;quot;, srcFile,fi.Name(),n)
+
+        // 设置文件权限，这样可以保证和原始文件权限相同，如果不设置，会根据当前系统的 umask 来设置。
+        os.Chmod(fi.Name(),fi.Mode().Perm())
+
+        // 注意，因为是在循环中，所以就没有使用 defer 关闭文件
+        // 如果想使用 defer 的话，可以将文件写入的步骤单独封装在一个函数中即可
+        fw.Close()
+    }
+}
+
+func ErrPrintln(err error){
+    if err != nil {
+        log.Fatalln(err)
+        os.Exit(1)
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;操作整个目录&#34;&gt;操作整个目录&lt;/h2&gt;
+
+&lt;p&gt;我们实际中 tar 很少会去打包单个文件，一般都是打包整个目录，并且打包的时候通过 gzip 或者 bzip2 压缩。&lt;/p&gt;
+
+&lt;p&gt;如果要打包整个目录，可以通过递归的方式来实现。这里只演示了 gzip 方式压缩，这个实现非常简单，只需要在 fw 和 tw 之前加上一层压缩即可，详情见示例代码。&lt;/p&gt;
+
+&lt;p&gt;为了测试打包整个目录，复制了一个 log 目录到当前路径下。什么目录和文件都可以，只是因为这个里面内容比较多，就拿这个来做测试了。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;打包压缩&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;archive/tar&amp;quot;
+    &amp;quot;compress/gzip&amp;quot;
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;io&amp;quot;
+    &amp;quot;log&amp;quot;
+    &amp;quot;os&amp;quot;
+    &amp;quot;path/filepath&amp;quot;
+    &amp;quot;strings&amp;quot;
+)
+
+func main() {
+    // 修改日志格式，显示出错代码的所在行，方便调试，实际项目中一般不记录这个。
+
+    var src = &amp;quot;apt&amp;quot;
+    var dst = fmt.Sprintf(&amp;quot;%s.tar.gz&amp;quot;, src)
+
+    // 将步骤写入了一个函数中，这样处理错误方便一些
+    if err := Tar(src, dst); err != nil {
+        log.Fatalln(err)
+    }
+}
+
+func Tar(src, dst string) (err error) {
+    // 创建文件
+    fw, err := os.Create(dst)
+    if err != nil {
+        return
+    }
+    defer fw.Close()
+
+    // 将 tar 包使用 gzip 压缩，其实添加压缩功能很简单，
+    // 只需要在 fw 和 tw 之前加上一层压缩就行了，和 Linux 的管道的感觉类似
+    gw := gzip.NewWriter(fw)
+    defer gw.Close()
+
+    // 创建 Tar.Writer 结构
+    tw := tar.NewWriter(gw)
+    // 如果需要启用 gzip 将上面代码注释，换成下面的
+
+    defer tw.Close()
+
+    // 下面就该开始处理数据了，这里的思路就是递归处理目录及目录下的所有文件和目录
+    // 这里可以自己写个递归来处理，不过 Golang 提供了 filepath.Walk 函数，可以很方便的做这个事情
+    // 直接将这个函数的处理结果返回就行，需要传给它一个源文件或目录，它就可以自己去处理
+    // 我们就只需要去实现我们自己的 打包逻辑即可，不需要再去路径相关的事情
+    return filepath.Walk(src, func(fileName string, fi os.FileInfo, err error) error {
+        // 因为这个闭包会返回个 error ，所以先要处理一下这个
+        if err != nil {
+            return err
+        }
+
+        // 这里就不需要我们自己再 os.Stat 了，它已经做好了，我们直接使用 fi 即可
+        hdr, err := tar.FileInfoHeader(fi, &amp;quot;&amp;quot;)
+        if err != nil {
+            return err
+        }
+        // 这里需要处理下 hdr 中的 Name，因为默认文件的名字是不带路径的，
+        // 打包之后所有文件就会堆在一起，这样就破坏了原本的目录结果
+        // 例如： 将原本 hdr.Name 的 syslog 替换程 log/syslog
+        // 这个其实也很简单，回调函数的 fileName 字段给我们返回来的就是完整路径的 log/syslog
+        // strings.TrimPrefix 将 fileName 的最左侧的 / 去掉，
+        // 熟悉 Linux 的都知道为什么要去掉这个
+        hdr.Name = strings.TrimPrefix(fileName, string(filepath.Separator))
+
+        // 写入文件信息
+        if err := tw.WriteHeader(hdr); err != nil {
+            return err
+        }
+
+        // 判断下文件是否是标准文件，如果不是就不处理了，
+        // 如： 目录，这里就只记录了文件信息，不会执行下面的 copy
+        if !fi.Mode().IsRegular() {
+            return nil
+        }
+
+        // 打开文件
+        fr, err := os.Open(fileName)
+        defer fr.Close()
+        if err != nil {
+            return err
+        }
+
+        // copy 文件数据到 tw
+        n, err := io.Copy(tw, fr)
+        if err != nil {
+            return err
+        }
+
+        // 记录下过程，这个可以不记录，这个看需要，这样可以看到打包的过程
+        log.Printf(&amp;quot;成功打包 %s ，共写入了 %d 字节的数据\n&amp;quot;, fileName, n)
+
+        return nil
+    })
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;打包及压缩就搞定了，不过这个代码现在我还发现有个问题，就是不能处理软链接&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;解包解压&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;这个过程基本就是把压缩的过程返回来，多了些创建目录的操作&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;archive/tar&amp;quot;
+    &amp;quot;compress/gzip&amp;quot;
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;io&amp;quot;
+    &amp;quot;os&amp;quot;
+    &amp;quot;path/filepath&amp;quot;
+)
+
+func main() {
+    var dst = &amp;quot;&amp;quot; // 不写就是解压到当前目录
+    var src = &amp;quot;log.tar.gz&amp;quot;
+
+    UnTar(dst, src)
+}
+
+func UnTar(dst, src string) (err error) {
+    // 打开准备解压的 tar 包
+    fr, err := os.Open(src)
+    if err != nil {
+        return
+    }
+    defer fr.Close()
+
+    // 将打开的文件先解压
+    gr, err := gzip.NewReader(fr)
+    if err != nil {
+        return
+    }
+    defer gr.Close()
+
+    // 通过 gr 创建 tar.Reader
+    tr := tar.NewReader(gr)
+
+    // 现在已经获得了 tar.Reader 结构了，只需要循环里面的数据写入文件就可以了
+    for {
+        hdr, err := tr.Next()
+
+        switch {
+        case err == io.EOF:
+            return nil
+        case err != nil:
+            return err
+        case hdr == nil:
+            continue
+        }
+
+        // 处理下保存路径，将要保存的目录加上 header 中的 Name
+        // 这个变量保存的有可能是目录，有可能是文件，所以就叫 FileDir 了……
+        dstFileDir := filepath.Join(dst, hdr.Name)
+
+        // 根据 header 的 Typeflag 字段，判断文件的类型
+        switch hdr.Typeflag {
+        case tar.TypeDir: // 如果是目录时候，创建目录
+            // 判断下目录是否存在，不存在就创建
+            if b := ExistDir(dstFileDir); !b {
+                // 使用 MkdirAll 不使用 Mkdir ，就类似 Linux 终端下的 mkdir -p，
+                // 可以递归创建每一级目录
+                if err := os.MkdirAll(dstFileDir, 0775); err != nil {
+                    return err
+                }
+            }
+        case tar.TypeReg: // 如果是文件就写入到磁盘
+            // 创建一个可以读写的文件，权限就使用 header 中记录的权限
+            // 因为操作系统的 FileMode 是 int32 类型的，hdr 中的是 int64，所以转换下
+            file, err := os.OpenFile(dstFileDir, os.O_CREATE|os.O_RDWR, os.FileMode(hdr.Mode))
+            if err != nil {
+                return err
+            }
+            n, err := io.Copy(file, tr)
+            if err != nil {
+                return err
+            }
+            // 将解压结果输出显示
+            fmt.Printf(&amp;quot;成功解压： %s , 共处理了 %d 个字符\n&amp;quot;, dstFileDir, n)
+
+            // 不要忘记关闭打开的文件，因为它是在 for 循环中，不能使用 defer
+            // 如果想使用 defer 就放在一个单独的函数中
+            file.Close()
+        }
+    }
+
+    return nil
+}
+
+// 判断目录是否存在
+func ExistDir(dirname string) bool {
+    fi, err := os.Stat(dirname)
+    return (err == nil || os.IsExist(err)) &amp;amp;&amp;amp; fi.IsDir()
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;archive-zip&#34;&gt;archive/zip&lt;/h1&gt;
+
+&lt;h2 id=&#34;压缩&#34;&gt;压缩&lt;/h2&gt;
+
+&lt;p&gt;和 tar 的过程很像，只有些小的差别，详情见示例代码。&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;archive/zip&amp;quot;
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;io&amp;quot;
+    &amp;quot;log&amp;quot;
+    &amp;quot;os&amp;quot;
+    &amp;quot;path/filepath&amp;quot;
+    &amp;quot;strings&amp;quot;
+)
+
+func main() {
+    // 源档案（准备压缩的文件或目录）
+    var src = &amp;quot;log&amp;quot;
+    // 目标文件，压缩后的文件
+    var dst = &amp;quot;log.zip&amp;quot;
+
+    if err := Zip(dst, src); err != nil {
+        log.Fatalln(err)
+    }
+}
+
+func Zip(dst, src string) (err error) {
+    // 创建准备写入的文件
+    fw, err := os.Create(dst)
+    defer fw.Close()
+    if err != nil {
+        return err
+    }
+
+    // 通过 fw 来创建 zip.Write
+    zw := zip.NewWriter(fw)
+    defer func() {
+        // 检测一下是否成功关闭
+        if err := zw.Close(); err != nil {
+            log.Fatalln(err)
+        }
+    }()
+
+    // 下面来将文件写入 zw ，因为有可能会有很多个目录及文件，所以递归处理
+    return filepath.Walk(src, func(path string, fi os.FileInfo, errBack error) (err error) {
+        if errBack != nil {
+            return errBack
+        }
+
+        // 通过文件信息，创建 zip 的文件信息
+        fh, err := zip.FileInfoHeader(fi)
+        if err != nil {
+            return
+        }
+
+        // 替换文件信息中的文件名
+        fh.Name = strings.TrimPrefix(path, string(filepath.Separator))
+
+        // 这步开始没有加，会发现解压的时候说它不是个目录
+        if fi.IsDir() {
+            fh.Name += &amp;quot;/&amp;quot;
+        }
+
+        // 写入文件信息，并返回一个 Write 结构
+        w, err := zw.CreateHeader(fh)
+        if err != nil {
+            return
+        }
+
+        // 检测，如果不是标准文件就只写入头信息，不写入文件数据到 w
+        // 如目录，也没有数据需要写
+        if !fh.Mode().IsRegular() {
+            return nil
+        }
+
+        // 打开要压缩的文件
+        fr, err := os.Open(path)
+        defer fr.Close()
+        if err != nil {
+            return
+        }
+
+        // 将打开的文件 Copy 到 w
+        n, err := io.Copy(w, fr)
+        if err != nil {
+            return
+        }
+        // 输出压缩的内容
+        fmt.Printf(&amp;quot;成功压缩文件： %s, 共写入了 %d 个字符的数据\n&amp;quot;, path, n)
+
+        return nil
+    })
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;解压缩&#34;&gt;解压缩&lt;/h2&gt;
+
+&lt;pre&gt;&lt;code&gt;package main
+
+import (
+    &amp;quot;archive/zip&amp;quot;
+    &amp;quot;fmt&amp;quot;
+    &amp;quot;io&amp;quot;
+    &amp;quot;log&amp;quot;
+    &amp;quot;os&amp;quot;
+    &amp;quot;path/filepath&amp;quot;
+)
+
+func main() {
+    // 压缩包
+    var src = &amp;quot;log.zip&amp;quot;
+    // 解压后保存的位置，为空表示当前目录
+    var dst = &amp;quot;&amp;quot;
+
+    if err := UnZip(dst, src); err != nil {
+        log.Fatalln(err)
+    }
+}
+
+func UnZip(dst, src string) (err error) {
+    // 打开压缩文件，这个 zip 包有个方便的 ReadCloser 类型
+    // 这个里面有个方便的 OpenReader 函数，可以比 tar 的时候省去一个打开文件的步骤
+    zr, err := zip.OpenReader(src)
+    defer zr.Close()
+    if err != nil {
+        return
+    }
+
+    // 如果解压后不是放在当前目录就按照保存目录去创建目录
+    if dst != &amp;quot;&amp;quot; {
+        if err := os.MkdirAll(dst, 0755); err != nil {
+            return err
+        }
+    }
+
+    // 遍历 zr ，将文件写入到磁盘
+    for _, file := range zr.File {
+        path := filepath.Join(dst, file.Name)
+
+        // 如果是目录，就创建目录
+        if file.FileInfo().IsDir() {
+            if err := os.MkdirAll(path, file.Mode()); err != nil {
+                return err
+            }
+            // 因为是目录，跳过当前循环，因为后面都是文件的处理
+            continue
+        }
+
+        // 获取到 Reader
+        fr, err := file.Open()
+        if err != nil {
+            return err
+        }
+
+        // 创建要写出的文件对应的 Write
+        fw, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, file.Mode())
+        if err != nil {
+            return err
+        }
+
+        n, err := io.Copy(fw, fr)
+        if err != nil {
+            return err
+        }
+
+        // 将解压的结果输出
+        fmt.Printf(&amp;quot;成功解压 %s ，共写入了 %d 个字符的数据\n&amp;quot;, path, n)
+
+        // 因为是在循环中，无法使用 defer ，直接放在最后
+        // 不过这样也有问题，当出现 err 的时候就不会执行这个了，
+        // 可以把它单独放在一个函数中，这里是个实验，就这样了
+        fw.Close()
+        fr.Close()
+    }
+    return nil
+}
+&lt;/code&gt;&lt;/pre&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>监控metrics系列---- zabbix源码阅读</title>
           <link>https://kingjcy.github.io/post/monitor/metrics/zabbix/zabbixcode/</link>
           <pubDate>Sat, 25 Nov 2017 09:52:47 CST</pubDate>
@@ -35289,6 +37799,45 @@ func (o *ObjectStructure) Accept(v IVisitor) {
     
       
         <item>
+          <title>数据库系列---- mysql前置缓存redis</title>
+          <link>https://kingjcy.github.io/post/database/mysql/redis-mysql/</link>
+          <pubDate>Sun, 22 Jan 2017 14:41:38 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/database/mysql/redis-mysql/</guid>
+          <description>&lt;p&gt;mysql前置缓存redis是我们经常使用的提供性能的方案。&lt;/p&gt;
+
+&lt;h1 id=&#34;常规使用&#34;&gt;常规使用&lt;/h1&gt;
+
+&lt;p&gt;1、基于binlog使用mysql_udf_redis，将数据库中的数据同步到Redis。&lt;/p&gt;
+
+&lt;p&gt;      无论MySQL还是Redis，自身都带有数据同步的机制，像比较常用的MySQL的Master/Slave模式，就是由Slave端分析Master的binlog来实现的，这样的数据其实还是一个异步过程，只不过当服务器都在同一内网时，异步的延迟几乎可以忽略。&lt;/p&gt;
+
+&lt;p&gt;      那么理论上我们也可以用同样方式，分析MySQL的binlog文件并将数据插入Redis。但是这需要对binlog文件以及MySQL有非常深入的理解，同时由于binlog存在Statement/Row/Mixedlevel多种形式，分析binlog实现同步的工作量是非常大的。&lt;/p&gt;
+
+&lt;p&gt;2、通过MySQL自动同步刷新Redis&lt;/p&gt;
+
+&lt;p&gt;     当我们在业务层有数据查询需求时，先到Redis缓存中查询，如果查不到，再到MySQL数据库中查询，同时将查到的数据更新到Redis里；当我们在业务层有修改插入数据需求时，直接向MySQL发起请求，同时更新Redis缓存。 就是MySQL的CRUD发生后自动地更新到Redis里，这需要通过MySQL UDF来实现。具体来说，我们把更新Redis的逻辑放到MySQL中去做，即定义一个触发器Trigger，监听CRUD这些操作，当操作发生后，调用对应的UDF函数，远程写回Redis，所以业务逻辑只需要负责更新MySQL就行了，剩下的交给MySQL UDF去完成。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;总结&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;在我们的实际开发当中往往采用如下方式实现实现Mysql和Redis数据同步：当我们在MySQL数据库中进行增删改的时候，我们在增删改的service层将缓存中的数据清除，这个时候用户在此请求的时候我们缓存中没有数据了，直接去数据库中查询，查询回来之后将缓存中的数据放缓存当中，这个时候缓存中的数据就是最新的数据。&lt;/p&gt;
+
+&lt;h1 id=&#34;实战&#34;&gt;实战&lt;/h1&gt;
+
+&lt;p&gt;后台服务器信息查询&lt;/p&gt;
+
+&lt;p&gt;1、后台重kafka订阅信息，如果有服务器信息，后台系统进行消费，放入到mysql数据库中&lt;/p&gt;
+
+&lt;p&gt;2、很多场景都需要查询服务器的信息，比如我们接受到的zbabix的数据，需要根据ip的去查询服务器的信息&lt;/p&gt;
+
+&lt;p&gt;3、这边在查询之间就加了一层redis缓存，先去redis缓存查数据，如果查到数据，就返回，如果没有查到数据就到mysql数据库进行查询，将查到的数据返回的同时更新到redis中，key是IP，json信息是value，同时设置过期事件，用来保存经常查询的数据。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
           <title>Golang使用系列---- Strings</title>
           <link>https://kingjcy.github.io/post/golang/go-strings/</link>
           <pubDate>Wed, 12 Oct 2016 19:37:30 CST</pubDate>
@@ -38114,6 +40663,62 @@ conn, err := net.DialTCP(&amp;quot;tcp&amp;quot;, nil, tcpAddr)
 &lt;h1 id=&#34;扩展&#34;&gt;扩展&lt;/h1&gt;
 
 &lt;p&gt;其实我们最常用的还是&lt;a href=&#34;https://kingjcy.github.io/post/golang/go-net-http/&#34;&gt;http协议&lt;/a&gt;，也即是应用层的协议，其实http协议是在tcp协议的基础上进行封装，最终还是使用的这边基本的网络IO，所以在网络传输中，网络IO的基本协议的实现是基础。&lt;/p&gt;</description>
+        </item>
+      
+    
+      
+        <item>
+          <title>Golang使用系列----  Builtin</title>
+          <link>https://kingjcy.github.io/post/golang/go-builtin/</link>
+          <pubDate>Tue, 28 Jun 2016 20:36:55 CST</pubDate>
+          <author></author>
+          <guid>https://kingjcy.github.io/post/golang/go-builtin/</guid>
+          <description>&lt;p&gt;builtin包是go的预声明定义，包括go语言中常用的各种类型和方法声明，包括变量和常量两部分．&lt;/p&gt;
+
+&lt;p&gt;builtin 包为Go的预声明标识符提供了文档。我们常用的一下常量和函数就是在这个包中定义的，以便于我们直接使用，下面对一些用过的进行整理和记录。&lt;/p&gt;
+
+&lt;h1 id=&#34;常量&#34;&gt;常量&lt;/h1&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;true和false&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;const (
+        true  = 0 == 0 // Untyped bool.
+        false = 0 != 0 // Untyped bool.
+)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;true和false是两个无类型的bool值&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;error&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;type error interface {
+    Error() string
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;内建error接口类型是约定用于表示错误信息，nil值表示无错误。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;iota&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;const iota = 0 // Untyped int.无类型int
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;变量&#34;&gt;变量&lt;/h1&gt;
+
+&lt;p&gt;变量就有很多了，比如我们常量的append函数就是在这边定义的，&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;func append(slice []Type, elems ...Type) []Type
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;总结&#34;&gt;总结&lt;/h1&gt;
+
+&lt;p&gt;还有很多使用的时候看一下，这边就不多说了，主要知道内置的这边常量和变量定义的位置。&lt;/p&gt;</description>
         </item>
       
     

@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="电商购物系统算是目前软件技术落地的很大的一个发展方向，主要以阿里为主导的电商购物系统占据整个行业的半壁江山，是直接和价值挂钩的重要业务方向。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="架构系列---- 电商购物系统 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    架构系列---- 电商购物系统
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年02月04日 
+                </div>
+                <h1 class="post-title">架构系列---- 电商购物系统</h1>
+            </header>
+
+            <div class="post-content">
+                <p>电商购物系统算是目前软件技术落地的很大的一个发展方向，主要以阿里为主导的电商购物系统占据整个行业的半壁江山，是直接和价值挂钩的重要业务方向。</p>
+
+<h1 id="架构演进">架构演进</h1>
+
+<p>电商系统也是和其他系统一样一步步演进的，架构演进都是通用的，可以看<a href="/post/architecture/architecture-evolution/">这里</a>。</p>
+
+<blockquote>
+<p>通用架构</p>
+</blockquote>
+
+<p><img src="/media/architecture/shop/ms2" alt="" /></p>
+
+<p>目前电商的整体架构流程如下，并且在每一层如何实现在高并发，大流量的情况下，最大程度能够保证网站的健康。主要是流量控制，让用户的流量像漏斗模型一样逐层减少，让流量始终处于可控的范围之内。</p>
+
+<ol>
+<li>客户端可以是各种终端，可以是web，进行各种操作。在web这边，主要是<strong>限流</strong>，可以使用js技术，比如购买按钮置灰，可以减少大量的重复请求。</li>
+<li>CDN层，CDN存储静态页面缓存技术。在这一层主要是<strong>缓存</strong>，很多的静态资源存储在cdn中，能够快速对请求进行返回。
+
+<ul>
+<li>限制用户维度访问频率：针对同一个用户（ Userid 维度），做页面级别缓存，单元时间内的请求，统一走缓存，返回同一个页面。</li>
+<li>限制商品维度访问频率：大量请求同时间段查询同一个商品时，可以做页面级别缓存，不管下回是谁来访问，只要是这个页面就直接返回。</li>
+</ul></li>
+<li>接入层，nginx等负载均衡技术。这一层主要是<strong>限流截流</strong>，比如相同请求，只转发一个，分发到不同的服务实例，限制同一个ip的多次请求。</li>
+<li>然后将请求放到MQ中，排队处理，这已经算是到应用层。这一层主要是<strong>削峰</strong>，请任务放到队列中，峰值的时候排队处理，不会阻塞</li>
+<li>应用层，处理各种应用。这一层就是<strong>高并发模型和异步处理</strong>，实例实现并发的多进程，多线程的处理，也就上面购物系统处理的一个流程。
+
+<ul>
+<li><a href="/post/golang/go-context/">并发控制</a></li>
+<li><a href="/post/architecture/concurrencesafe/">并发安全</a></li>
+<li>异步处理：定一个channel，以goroutine来运行，用于接受异步返回的结果，是实现高并发的一种方式。</li>
+<li><a href="/post/distributed/distributed-event/">分布式事务</a></li>
+<li><a href="/post/distributed/distributed-lock/">分布式安全</a></li>
+</ul></li>
+<li>最后就是DB层，这一层是瓶颈所在，分层的目的是为了将压力留在上层，一般瓶颈都是在数据库，所以需要把有效得请求到数据库中进行处理，针对数据库的瓶颈，主要就是<strong>索引读写分离，分区分库分表</strong>等。</li>
+<li>在每一层能有缓存的地方都要用<strong>缓存</strong>，缓存的效率比数据库要高很多，哪怕是缓存数据库。</li>
+<li>在每一层最好能使用<strong>集群和分布式</strong>来加强系统的承受能力。</li>
+</ol>
+
+<p>整体来说，核心思想就是限流、缓存、削峰、高并发、异步处理，集群和分布式，做好这些模块才能保证系统的稳定性和最大的承受能力，在高并发和大流量的情况下。</p>
+
+<p>当然这些就是属于业务架构了，都是可以使用微服务的架构来实现，每一块都可以做成一个微服务。</p>
+
+<h2 id="限流截流算法">限流截流算法</h2>
+
+<blockquote>
+<p>令牌桶算法</p>
+</blockquote>
+
+<p>令牌桶算法主要用于限制流量的平均流入速率，允许出现一定的突发流量。比如我们常用的nginx就是一个典型的令牌桶算法的实现：</p>
+
+<ul>
+<li>每秒会有r个令牌被放入桶内，也就是说以1/r的速度向桶中放入令牌</li>
+<li>桶的容量是固定不变的，所以多出来的令牌就会被丢弃</li>
+<li>当一个n字节的请求包到达时，消耗n个令牌，然后才能发送该数据包</li>
+<li>如果桶内令牌小于n，数据包就会被限流，比如缓存或者丢弃</li>
+</ul>
+
+<p>实例</p>
+
+<p>nginx限流模块的使用，tengine是在nginx的基础进行二次开发，针对高并发，大流量的场景进行优化，也可以了解一下</p>
+
+<pre><code>#统一在http域中进行配置
+
+ #限制请求：表示每个ip每秒的请求数不能超过50个
+ limit_req_zone $uri zone=api_read:20m rate=50r/s;
+
+ #按ip配置一个连接 zone
+ limit_conn_zone $binary_remote_addr zone=perip_conn:10m;
+
+ #按server配置一个连接 zone
+ limit_conn_zone $server_name zone=perserver_conn:100m;
+
+location / {
+ if (!-e $request_filename){
+  rewrite ^/(.*) /index.php last;
+ }
+
+ #请求限流排队通过 burst代表着桶的大小，默认是0，这里代表缓存100个
+ limit_req zone=api_read burst=100;
+
+ #连接数限制,每个IP并发请求为50
+ limit_conn perip_conn 50;
+
+ #服务所限制的连接数(即限制了该server并发连接数量)
+ limit_conn perserver_conn 200;
+
+ #连接限速
+ #limit_rate 100k;
+</code></pre>
+
+<blockquote>
+<p>漏斗算法</p>
+</blockquote>
+
+<ul>
+<li>可以以任何速度向桶内发送请求</li>
+<li>当然桶的容量还是固定的，如果请求大于桶了，就会被丢弃</li>
+<li>然后按固定过得速度来处理桶内的请求</li>
+</ul>
+
+<blockquote>
+<p>计数器算法</p>
+</blockquote>
+
+<p>就是对某个对象在单位时间内允许被操作的次数，一旦超过了所设定的阈值，就会拒绝请求，到时间后重置计数器，重新限制。</p>
+
+<p>比如某个商品在10s内只能抢购5000次，对抢购进行计数，当达到5000次之后，就会拒绝请求，10s过后，对已经抢购的次数进行重置，重新进行抢购。</p>
+
+<h2 id="缓存">缓存</h2>
+
+<p>使用缓存将频繁访问的热点数据存储在最近的地方（比如CDN），最快响应的地方（比如本地内存），能够快速响应。</p>
+
+<blockquote>
+<p>本地缓存</p>
+</blockquote>
+
+<p>优点只有一个，操作本地内存简单，响应快。但是他的缺点很明显，因此适用场景也是很明确的</p>
+
+<ul>
+<li>数据不能共享</li>
+<li>数据会丢失</li>
+<li>内存一般不大，用尽后会OOM</li>
+</ul>
+
+<p>所以分布式缓存是比如发展的趋势，正常我们都是会将本地缓存和分布式缓存结合使用。</p>
+
+<blockquote>
+<p>分布式缓存</p>
+</blockquote>
+
+<p>分布式缓存也就是我们常用的缓存数据库，比如redis，memcache等，具体就不多说了，可以自己去<a href="/post/database/redis/redis/">详细了解</a>。</p>
+
+<h3 id="同一key的读要求">同一key的读要求</h3>
+
+<p>1、使用redis进行多读多写</p>
+
+<p>就是采用冗余存储的方案，将一个key进行计算加工将其存储到redis集群中的各个节点，这个时候进行查询的时候就可以通过处理key来轮询均衡处理，解决热点商品哪怕使用集群也会出现单点的问题。需要注意数据一致性问题。</p>
+
+<p><img src="/media/architecture/shop/redis.png" alt="" /></p>
+
+<p>2、本地缓存+redis</p>
+
+<p><img src="/media/architecture/shop/cache.png" alt="" /></p>
+
+<p>定时重redis缓存中同步数据到本地缓存，时间随着商品的热点来定，在定时期间可能出现数据不一致的情况，需要在最后的数据库扣除的时候做处理，在redis中使用分布式锁，在mysql中就是使用正常的锁。</p>
+
+<p>还可以通过推送消息的方式来减少不一致的情况，如果redis有变更就推送到队列中，本地消费更新。</p>
+
+<p><img src="/media/architecture/shop/cache2.png" alt="" /></p>
+
+<p>3、实时热点系统</p>
+
+<p>我们不可能准确的把所有的热点数据都推送到缓存中，这就需要我们在交易的过程中发现热点数据同步的缓存中，一般通过收集日志进行分析，最后自动推送到redis中。</p>
+
+<p><img src="/media/architecture/shop/sd.png" alt="" /></p>
+
+<h3 id="同一key的写要求">同一key的写要求</h3>
+
+<p>1、在redis中进行扣减库存</p>
+
+<p><img src="/media/architecture/shop/redis2.png" alt="" /></p>
+
+<p>还有进行优化，就是合并操作批量一次处理</p>
+
+<p><img src="/media/architecture/shop/redis3.png" alt="" /></p>
+
+<p>2、还有用一些优化的数据库，比如ALISQL</p>
+
+<h2 id="削峰">削峰</h2>
+
+<p>削峰其实就是对峰值流量进行分散处理，避免在同一时间内产生较大的用户流量冲击系统，从而降低系统的负载压力。</p>
+
+<blockquote>
+<p>分时削峰</p>
+</blockquote>
+
+<p>将抢购不要设置为一个时间点，比如0点，而是通过多设置几个时间点，来分散用户流量，降低系统压力</p>
+
+<blockquote>
+<p>验证削峰</p>
+</blockquote>
+
+<p>通过验证来拦截缓存用户的请求，比如现在做的验证码新高度的12306的验证，虽然各种各样的验证码，但是确实成功的阻挡了秒杀器和降低了峰值流量</p>
+
+<blockquote>
+<p>队列缓存削峰</p>
+</blockquote>
+
+<p>将请求放到Q中，按顺序固定速率的处理，实现流量可控，保证系统的稳定，不会奔溃。</p>
+
+<h2 id="异步">异步</h2>
+
+<p>异步处理并不算一种并发的使用方式，但是却是并发中经常使用的，在工作池的基础上使用goroutine处理，但是不用等返回，留一个channenl返回，使用select读取channel中的数据，完成处理，这样可以加大处理的速度，也就提高了并发能力。</p>
+
+<h2 id="数据库优化">数据库优化</h2>
+
+<p>对于非结构化或者可以设计为非结构化的数据，我们可以放在redis这种缓存数据库中，但是重要的业务数据最终还是需要关系型数据库的保证，所以对于关系型数据库的优化使用，重来都没有停止过。</p>
+
+<p>关系型数据库最常见的瓶颈</p>
+
+<ul>
+<li>大量读写难以承受</li>
+<li>大量查询索引，效率低下</li>
+</ul>
+
+<p>解决这些问题，最常见的就是读写分离，分区分库分表。</p>
+
+<h3 id="读写分离">读写分离</h3>
+
+<p>读写分离很简单，一般数据库都是一主一从，主库用于写，从库用于读，可以很大程度上缓存数据库的压力。</p>
+
+<p>当然这样也有问题，就是主从之间存在着数据延迟，一般都是重设计上解决这个问题，在数据落到主库的时候落一份到缓存，避免从库查不到数据。</p>
+
+<h3 id="分区分库分表">分区分库分表</h3>
+
+<p>设计表的时候就应该有分区，这样可以加快查询，就像设计好的索引一样。</p>
+
+<p>首先就是垂直拆分，也就是分库，将不同类型的数据放到不同的库中，比如不停地方的订单放到不同的库中，每个库的压力就不大了。</p>
+
+<p>然后就是水平拆分，也就是分表，同一个业务表，数据量达到500W，查询效率就很低下了，优化索引什么都没有用，就需要对业务表进行拆分，将将业务按一定的序号拆分为子表，这个时候就需要一些组件完成路由，我们常见的有mysql sharding，mycat等。</p>
+
+<p>其实在业务量再大的情况下，可能需要同一个业务进行分库分表的操作。</p>
+
+<h1 id="基本系统">基本系统</h1>
+
+<p>不管是正常的购物还是抢购还是秒杀都是这么一个基本流程,包含这个一下基本的系统</p>
+
+<pre><code>搜索系统---订单系统---物流系统
+订单系统：购物车系统---确认订单---支付系统，核心就是出发数据库修改库存
+</code></pre>
+
+<p>首页，用户，广告，购物，订单，商品，结算</p>
+
+<h1 id="基本业务场景">基本业务场景</h1>
+
+<h2 id="秒杀">秒杀</h2>
+
+<p><img src="/media/architecture/shop/timg" alt="" /></p>
+
+<p>秒杀系统会做，基本的购物，抢购，抢红包，大促都会做，秒杀的特性：限时限量，导致的场景就是瞬时并发量大。</p>
+
+<blockquote>
+<p>热场</p>
+</blockquote>
+
+<p>在活动开始之前，最好设计一个“热场”。</p>
+
+<p>“热场”的形式多种多样，例如：分享活动领优惠券，领秒杀名额等等。“热场”的形式不重要，重要的是通过它获取一些准备信息。</p>
+
+<p>例如：有可能参与的用户数，他们的地域分布，他们感兴趣的商品。为后面的技术架构提供数据支持，可以先对相关数据进行缓存，减少缓存的压力。</p>
+
+<blockquote>
+<p>千万级秒杀系统架构</p>
+</blockquote>
+
+<p>我们再具体看一下包含秒杀的逻辑具体架构</p>
+
+<p><img src="/media/architecture/shop/timg2" alt="" />
+<img src="/media/architecture/shop/ms3" alt="" /></p>
+
+<p>秒杀系统设计的核心思想：尽量将请求拦截在上层（限流，削峰），高并发（异步处理），充分使用内存缓存。</p>
+
+<p>整体流程中优化的点</p>
+
+<pre><code>（限流）            1、web层使用js技术，比如购买按钮置灰，可以减少大量的重复请求
+（限流截流）        2、负载均衡nginx（也就是网关），进行截流，比如相同请求，相同的IP，只转发一个，分发到不同的服务实例
+（缓存）            3、cdn缓存技术，将很多的静态资源存储在cdn中，能够快速返回
+                        1、限制用户维度访问频率
+                            针对同一个用户（ Userid 维度），做页面级别缓存，单元时间内的请求，统一走缓存，返回同一个页面。
+                        2、限制商品维度访问频率
+                            大量请求同时间段查询同一个商品时，可以做页面级别缓存，不管下回是谁来访问，只要是这个页面就直接返回。
+（削峰）            4、然后将请求放到MQ中，排队处理，
+（高并发，异步处理）  5、到后台实例实现并发的多进程，多线程的处理，也就上面购物系统处理的一个流程
+</code></pre>
+
+<p>还有一下业务上的优化，其实就是使用了均衡和削峰填谷的思想，比如12306所做的，分时分段售票，原来统一10点卖票，现在8点，8点半，9点，&hellip;每隔半个小时放出一批：将流量摊匀。</p>
+
+<p>1、<a href="/posts/golang/go-context/">并发控制</a></p>
+
+<p>2、<a href="/posts/architecture/concurrencesafe/">并发安全</a></p>
+
+<p>3、异步处理：定一个channel，以goroutine来运行，用于接受异步返回的结果</p>
+
+<p>4、<a href="/posts/distributed/distributed-event/">分布式事务</a></p>
+
+<p>5、<a href="/posts/distributed/distributed-lock/">分布式安全</a></p>
+
+<pre><code>（高并发）           6、最后到数据库包括缓存数据库的读写分离，分区分库分表。
+（缓存）             7、缓存是很快的用在每一层能够使用的地方
+</code></pre>
+
+<p>分层的目的是为了将压力留在上层，一般瓶颈都是在数据库，所以需要把有效得请求到数据库中进行处理</p>
+
+<p>秒杀系统设计的核心思想：限流，削峰，高并发，异步处理，内存缓存</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/architecture/shopping/">https://kingjcy.github.io/post/architecture/shopping/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/shop/">
+                            <i class="fa fa-tags"></i>
+                            shop
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/architecture/">
+                            <i class="fa fa-tags"></i>
+                            architecture
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/architecture/enterprise-architecture/">架构系列---- 企业架构</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月04日)</span></li><li id="li-rels"><a href="/post/architecture/count/">架构系列---- 计数系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月04日)</span></li><li id="li-rels"><a href="/post/architecture/architecture-evolution/">架构系列---- 架构的演进</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年03月05日)</span></li><li id="li-rels"><a href="/post/architecture/search/">架构系列---- 搜索系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月04日)</span></li><li id="li-rels"><a href="/post/architecture/recommend/">架构系列---- 推荐系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月04日)</span></li><li id="li-rels"><a href="/post/architecture/cache/">架构系列---- Cache</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月15日)</span></li><li id="li-rels"><a href="/post/architecture/redundanttable/">架构系列---- 冗余表</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月14日)</span></li><li id="li-rels"><a href="/post/architecture/electronic-commerce/">架构系列---- 中台建设</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/advertising/">架构系列---- 广告投放系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/microservices/microservices/">架构系列---- 微服务</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月05日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/architecture/architecture-evolution/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/log/loki/loki/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#架构演进">架构演进</a>
+<ul>
+<li><a href="#限流截流算法">限流截流算法</a></li>
+<li><a href="#缓存">缓存</a>
+<ul>
+<li><a href="#同一key的读要求">同一key的读要求</a></li>
+<li><a href="#同一key的写要求">同一key的写要求</a></li>
+</ul></li>
+<li><a href="#削峰">削峰</a></li>
+<li><a href="#异步">异步</a></li>
+<li><a href="#数据库优化">数据库优化</a>
+<ul>
+<li><a href="#读写分离">读写分离</a></li>
+<li><a href="#分区分库分表">分区分库分表</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#基本系统">基本系统</a></li>
+<li><a href="#基本业务场景">基本业务场景</a>
+<ul>
+<li><a href="#秒杀">秒杀</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

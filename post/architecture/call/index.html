@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="第三方接口挂掉，最好是不影响我们自身服务的运行，但是我们没有办法控制第三方接口稳定，所以我们需要优化我们的调用架构。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="架构系列---- 调用优化 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    架构系列---- 调用优化
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年10月05日 
+                </div>
+                <h1 class="post-title">架构系列---- 调用优化</h1>
+            </header>
+
+            <div class="post-content">
+                <p>第三方接口挂掉，最好是不影响我们自身服务的运行，但是我们没有办法控制第三方接口稳定，所以我们需要优化我们的调用架构。</p>
+
+<h1 id="基本情况">基本情况</h1>
+
+<p>我们以跨公网调用其他平台接口为例，很多时候，业务需要跨公网调用一个第三方服务提供的接口，为了避免每个调用方都依赖于第三方服务，往往会抽象一个服务，所以基本调用流程都是</p>
+
+<p><img src="/media/architecture/call/call.png" alt="" /></p>
+
+<p>可见基本流程</p>
+
+<ul>
+<li>业务调用方调用内部service</li>
+<li>内部service跨公网调用第三方接口</li>
+<li>第三方接口返回结果给内部service</li>
+<li>内部service返回结果给业务调用方</li>
+</ul>
+
+<p>内部服务可能对上游业务提供了很多服务接口，当有一个接口跨公网第三方调用超时时，可能导致所有接口都不可用，即使大部分接口不依赖于跨公网第三方调用。</p>
+
+<p>而且我们经常会遇到这种情况，内部服务对业务方提供的N个接口，会共用服务容器内的工作线程（假设有100个工作线程）。假设这N个接口的某个接口跨公网依赖于第三方的接口，发生了网络抖动，或者接口超时（不妨设超时时间为5秒）。</p>
+
+<h1 id="解决方案">解决方案</h1>
+
+<p>最常想到的就是，加大调用次数，降低超时时间，或者拆分业务，但是都不能重根本上解决问题。</p>
+
+<h2 id="异步代理法">异步代理法</h2>
+
+<p>增加一个代理，向服务屏蔽究竟是“本地实时”还是“异步远程”去获取返回结果</p>
+
+<p><img src="/media/architecture/call/call1.png" alt="" /></p>
+
+<p>本地实时流程</p>
+
+<ul>
+<li>业务调用方调用内部service</li>
+<li>内部service调用异步代理service</li>
+<li>异步代理service通过OpenID在本地拿取数据</li>
+<li>异步代理service将数据返回内部service</li>
+<li>内部service返回结果给业务调用方</li>
+</ul>
+
+<p>异步远程流程</p>
+
+<ul>
+<li>异步代理service定期跨公网调用微信服务</li>
+<li>微信服务返回数据</li>
+<li>刷新本地数据</li>
+</ul>
+
+<p>这样公网抖动，第三方接口超时，不影响内部接口调用，只会返回的不是最新的数据，很多业务场景都是适用允许的。</p>
+
+<h2 id="第三方接口备份与切换法">第三方接口备份与切换法</h2>
+
+<p>同时使用（或者备份）多个第三方服务。这样就可以调用第一个三方接口超时后，调用第二个备份服务，未来都直接调用备份服务，直到超时的服务恢复，这样公网抖动，第三方接口超时，不影响内部接口调用（初期少数几个请求会超时），但是不是所有公网调用都能够像短息网关，电子合同服务一样有备份接口的，像微信、支付宝等就只此一家</p>
+
+<h2 id="异步调用法">异步调用法</h2>
+
+<p>本地调用成功就返回成功，异步调用第三方接口同步数据（和异步代理有微小差别），其实就是将数据拉到本地。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/architecture/call/">https://kingjcy.github.io/post/architecture/call/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/architecture/">
+                            <i class="fa fa-tags"></i>
+                            Architecture
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/call/">
+                            <i class="fa fa-tags"></i>
+                            call
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/architecture/concurrence/">架构系列---- 并发</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月09日)</span></li><li id="li-rels"><a href="/post/architecture/architecture/">架构系列---- Architecture 总结</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月05日)</span></li><li id="li-rels"><a href="/post/architecture/coupling/">架构系列---- 架构解耦</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月05日)</span></li><li id="li-rels"><a href="/post/architecture/id/">架构系列---- 常用ID生成的方法</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月16日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/architecture/id/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/trace/jaeger/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本情况">基本情况</a></li>
+<li><a href="#解决方案">解决方案</a>
+<ul>
+<li><a href="#异步代理法">异步代理法</a></li>
+<li><a href="#第三方接口备份与切换法">第三方接口备份与切换法</a></li>
+<li><a href="#异步调用法">异步调用法</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="缓存是一种提高系统读性能的常见技术，对于读多写少的应用场景，我们经常使用缓存来进行优化。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="架构系列---- Cache - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    架构系列---- Cache
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年06月15日 
+                </div>
+                <h1 class="post-title">架构系列---- Cache</h1>
+            </header>
+
+            <div class="post-content">
+                <p>缓存是一种提高系统读性能的常见技术，对于读多写少的应用场景，我们经常使用缓存来进行优化。</p>
+
+<h1 id="背景">背景</h1>
+
+<p>我们在实际情况下总是遇到读多写少的场景，比如用户的余额信息表account(uid, money)，对于查询余额的需求，占99%，对于更改余额的需求只有1%，这个时候我们就要使用缓存来降低数据的压力，提高查询效率。</p>
+
+<h1 id="实现">实现</h1>
+
+<h2 id="读操作">读操作</h2>
+
+<p>有了数据库和缓存两个地方存放数据之后（uid-&gt;money），每当需要读取相关数据时（money），操作流程一般是这样的：</p>
+
+<ul>
+<li>读取缓存中是否有相关数据，uid-&gt;money</li>
+<li>如果缓存中有相关数据money，则返回【这就是所谓的数据命中“hit”】</li>
+<li>如果缓存中没有相关数据money，则从数据库读取相关数据money【这就是所谓的数据未命中“miss”】，放入缓存中uid-&gt;money，再返回</li>
+</ul>
+
+<p>缓存的命中率 = 命中缓存请求个数/总缓存访问请求个数 = hit/(hit+miss)</p>
+
+<h2 id="写操作">写操作</h2>
+
+<p>写操作就比较复杂了，涉及三个问题</p>
+
+<blockquote>
+<p>更新缓存 VS 淘汰缓存</p>
+</blockquote>
+
+<p>更新缓存（setCache(uid, money)）：数据不但写入数据库，还会写入缓存。一般数据获取并不是太复杂，我们都会更新缓存。</p>
+
+<p>淘汰缓存（deleteCache(uid)）：数据只会写入数据库，不会写入缓存，只会把数据淘汰掉，也就是删除。一般数据需要很复杂的获取方式，就会先把数据删除，然后在需要的时候再计算存入。</p>
+
+<blockquote>
+<p>先操作数据库 vs 先操作缓存</p>
+</blockquote>
+
+<p>数据和缓存的操作时序，结论是清楚的：先淘汰缓存，再写数据库。</p>
+
+<p>假设先写数据库，再淘汰缓存,则会出现DB中是新数据，Cache中是旧数据，数据不一致。</p>
+
+<p>假设先淘汰缓存，再写数据库：第一步淘汰缓存成功，第二步写数据库失败，则只会引发一次Cache miss。</p>
+
+<p><strong>数据不一致</strong></p>
+
+<p>1、单库情况下，服务层的并发读写，缓存与数据库的操作交叉进行</p>
+
+<p>其实在先淘汰缓存，再写数据库中间还是会出现数据不一致的情况：就是在写入数据库之前，查询来一次，将数据存储到来缓存。</p>
+
+<p>遇到这种情况，我们最常想到的就是使用锁，但是如果使用全局锁的话影响很大，影响并发量，其实锁的思想就是串行化，我们可以通过相同的id走同一个服务实例和db连接来实现串行化</p>
+
+<ul>
+<li>修改服务Service连接池，id取模选取服务连接，能够保证同一个数据的读写都落在同一个后端服务上</li>
+<li>修改数据库DB连接池，id取模选取DB连接，能够保证同一个数据的读写在数据库层面是串行的</li>
+</ul>
+
+<p>2、主从同步，读写分离的情况下，读从库读到旧数据</p>
+
+<p>还有一种情况就是在主从同步，读写分离的架构情况下，如果查询数据的时候数据库主从同步还没有完成，导致数据不一致，这种架构还是我们常用的架构。</p>
+
+<p><img src="/media/architecture/cache/cache3.png" alt="" /></p>
+
+<ul>
+<li>请求A发起一个写操作，第一步淘汰了cache，如上图步骤1</li>
+<li>请求A写数据库了，写入了最新的数据，如上图步骤2</li>
+<li>请求B发起一个读操作，读cache，cache miss，如上图步骤3</li>
+<li>请求B继续读DB，读的是从库，此时主从同步还没有完成，读出来一个脏数据，然后脏数据入cache，如上图步4</li>
+<li>最后数据库的主从同步完成了，如上图步骤5</li>
+</ul>
+
+<p>在这种情况下，我们可以使用&rdquo;缓存双淘汰”法：思想就是淘汰缓存两次，保证数据最新，第二次缓存什么时候淘汰就是一个关键，可以直接暴力的直接1s后再次删除缓存，但是这种方式需要等待，大大降低来并发，业务是接收不了的，所以还是需要异步完成。</p>
+
+<p>1、想到异步就想到MQ，所以我们可以通过mq来再次删除缓存</p>
+
+<p><img src="/media/architecture/cache/cache4.png" alt="" /></p>
+
+<p>2、还没有使用日志来二次删除缓存，与业务解耦，对业务线完全没有入侵，比较推荐。</p>
+
+<p><img src="/media/architecture/cache/cache5.png" alt="" /></p>
+
+<blockquote>
+<p>缓存服务的优化</p>
+</blockquote>
+
+<p><img src="/media/architecture/cache/cache.jpg" alt="" /></p>
+
+<p>上述缓存架构有一个缺点：业务方需要同时关注缓存与DB，我们可以通过服务化来屏蔽数据的细节，实现解耦。</p>
+
+<p><img src="/media/architecture/cache/cache1.jpg" alt="" /></p>
+
+<p>加入一个服务层，向上游提供帅气的数据访问接口，向上游屏蔽底层数据存储的细节，这样业务线不需要关注数据是来自于cache还是DB。其实golang中同步的map也是这么一个逻辑。</p>
+
+<p>还可以通过异步缓存更新来实现</p>
+
+<p><img src="/media/architecture/cache/cache2.jpg" alt="" /></p>
+
+<p>业务线所有的写操作都走数据库，所有的读操作都总缓存，由一个异步的工具来做数据库与缓存之间数据的同步。</p>
+
+<ul>
+<li>要有一个init cache的过程，将需要缓存的数据全量写入cache</li>
+<li>如果DB有写操作，异步更新程序读取binlog，更新cache</li>
+</ul>
+
+<p>这样也可以，但是比较浪费资源，还用同步的逻辑需要好好处理。</p>
+
+<h2 id="总结">总结</h2>
+
+<p>针对这种架构思想，最多实现的就是<a href="/post/database/mysql/redis-mysql/">mysql+redis</a>组合了，上面的问题解决方案都可以用到这组实现中。</p>
+
+<h1 id="问题">问题</h1>
+
+<h2 id="缓存穿透">缓存穿透</h2>
+
+<p>我们在项目中使用缓存通常都是先检查缓存中是否存在，如果存在直接返回缓存内容，如果不存在就直接查询数据库然后再缓存查询结果返回。这个时候如果我们查询的某一个数据在缓存中一直不存在，就会造成每一次请求都查询DB，这样缓存就失去了意义，在流量大时，可能DB就挂掉了。</p>
+
+<p>那这种问题有什么好办法解决呢？</p>
+
+<p>要是有人利用不存在的key频繁攻击我们的应用，这就是漏洞。</p>
+
+<p>有一个比较巧妙的作法是，可以将这个不存在的key预先设定一个值。</p>
+
+<p>比如，”key” , “&amp;&amp;”。</p>
+
+<p>在返回这个&amp;&amp;
+值的时候，我们的应用就可以认为这是不存在的key，那我们的应用就可以决定是否继续等待继续访问，还是放弃掉这次操作。如果继续等待访问，过一个时间轮询点后，再次请求这个key，如果取到的值不再是&amp;&amp;，则可以认为这时候key有值了，从而避免了透传到数据库，从而把大量的类似请求挡在了缓存之中。</p>
+
+<h2 id="缓存并发">缓存并发</h2>
+
+<p>有时候如果网站并发访问高，一个缓存如果失效，可能出现多个进程同时查询DB，同时设置缓存的情况，如果并发确实很大，这也可能造成DB压力过大，还有缓存频繁更新的问题。</p>
+
+<p>我现在的想法是对缓存查询加锁，如果KEY不存在，就加锁，然后查DB入缓存，然后解锁；其他进程如果发现有锁就等待，然后等解锁后返回数据或者进入DB查询。</p>
+
+<p>这种情况和刚才说的预先设定值问题有些类似，只不过利用锁的方式，会造成部分请求等待。</p>
+
+<h2 id="缓存失效">缓存失效</h2>
+
+<p>引起这个问题的主要原因还是高并发的时候，平时我们设定一个缓存的过期时间时，可能有一些会设置1分钟啊，5分钟这些，并发很高时可能会出在某一个时间同时生成了很多的缓存，并且过期时间都一样，这个时候就可能引发一当过期时间到后，这些缓存同时失效，请求全部转发到DB，DB可能会压力过重。</p>
+
+<p>那如何解决这些问题呢？
+其中的一个简单方案就时讲缓存失效时间分散开，比如我们可以在原有的失效时间基础上增加一个随机值，比如1-5分钟随机，这样每一个缓存的过期时间的重复率就会降低，就很难引发集体失效的事件。</p>
+
+<p>我们讨论的第二个问题时针对同一个缓存，第三个问题时针对很多缓存。</p>
+
+<h2 id="总结-1">总结</h2>
+
+<p>1、缓存穿透：查询一个必然不存在的数据。比如文章表，查询一个不存在的id，每次都会访问DB，如果有人恶意破坏，很可能直接对DB造成影响。</p>
+
+<p>2、缓存失效：如果缓存集中在一段时间内失效，DB的压力凸显。这个没有完美解决办法，但可以分析用户行为，尽量让失效时间点均匀分布。
+当发生大量的缓存穿透，例如对某个失效的缓存的大并发访问就造成了缓存雪崩。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/architecture/cache/">https://kingjcy.github.io/post/architecture/cache/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/architecture/">
+                            <i class="fa fa-tags"></i>
+                            architecture
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cache/">
+                            <i class="fa fa-tags"></i>
+                            Cache
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/architecture/enterprise-architecture/">架构系列---- 企业架构</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月04日)</span></li><li id="li-rels"><a href="/post/architecture/count/">架构系列---- 计数系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月04日)</span></li><li id="li-rels"><a href="/post/architecture/architecture-evolution/">架构系列---- 架构的演进</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年03月05日)</span></li><li id="li-rels"><a href="/post/architecture/shopping/">架构系列---- 电商购物系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年02月04日)</span></li><li id="li-rels"><a href="/post/architecture/search/">架构系列---- 搜索系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月04日)</span></li><li id="li-rels"><a href="/post/architecture/recommend/">架构系列---- 推荐系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月04日)</span></li><li id="li-rels"><a href="/post/architecture/redundanttable/">架构系列---- 冗余表</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月14日)</span></li><li id="li-rels"><a href="/post/architecture/electronic-commerce/">架构系列---- 中台建设</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/advertising/">架构系列---- 广告投放系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/microservices/microservices/">架构系列---- 微服务</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月05日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/redundanttable/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#背景">背景</a></li>
+<li><a href="#实现">实现</a>
+<ul>
+<li><a href="#读操作">读操作</a></li>
+<li><a href="#写操作">写操作</a></li>
+<li><a href="#总结">总结</a></li>
+</ul></li>
+<li><a href="#问题">问题</a>
+<ul>
+<li><a href="#缓存穿透">缓存穿透</a></li>
+<li><a href="#缓存并发">缓存并发</a></li>
+<li><a href="#缓存失效">缓存失效</a></li>
+<li><a href="#总结-1">总结</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

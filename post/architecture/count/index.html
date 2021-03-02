@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="很多业务都有“计数”需求，在业务复杂，计数扩展频繁，数据量大，并发量大的情况下，计数系统的架构演进与实践。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="架构系列---- 计数系统 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    架构系列---- 计数系统
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年05月04日 
+                </div>
+                <h1 class="post-title">架构系列---- 计数系统</h1>
+            </header>
+
+            <div class="post-content">
+                <p>很多业务都有“计数”需求，在业务复杂，计数扩展频繁，数据量大，并发量大的情况下，计数系统的架构演进与实践。</p>
+
+<h1 id="初始架构">初始架构</h1>
+
+<p>我们可以很容易想到，关注服务+粉丝服务+消息服务均提供相应接口，就能拿到相关计数数据。</p>
+
+<p><img src="/media/architecture/count/count.jpg" alt="" /></p>
+
+<p>这样将所有的数据记录入表，然后对某个属性进行count就能得到计数的数据。这个方案叫做“count”计数法，在数据量并发量不大的情况下，最容易想到且最经常使用的就是这种方法，但随着数据量的上升，并发量的上升，这个方法的弊端将逐步展现：计算量特别大，访问数据特别多。</p>
+
+<h1 id="计数外置的架构设计">计数外置的架构设计</h1>
+
+<p>计数是一个通用的需求，有没有可能，这个计数的需求实现在一个通用的系统里，而不是由关注服务、粉丝服务、微博服务来分别来提供相应的功能呢（否则扩展性极差）？</p>
+
+<p>通过分析，上述微博的业务可以抽象成两类：</p>
+
+<ul>
+<li>用户(uid)维度的计数：用户的关注计数，粉丝计数，发布的微博计数</li>
+<li>微博消息(msg_id)维度的计数：消息转发计数，评论计数，点赞计数</li>
+</ul>
+
+<p>于是可以抽象出两个表，针对这两个维度来进行计数的存储：</p>
+
+<pre><code>t_user_count (uid, gz_count, fs_count, wb_count);
+t_msg_count (msg_id, forword_count, comment_count, praise_count);
+</code></pre>
+
+<p>甚至可以更为抽象，一个表搞定所有计数：</p>
+
+<pre><code>t_count(id, type, c1, c2, c3, …)
+</code></pre>
+
+<p>通过type来判断，id究竟是uid还是msg_id，但并不建议这么做。</p>
+
+<p>存储抽象完，再抽象出一个计数服务对这些数据进行管理，提供友善的RPC接口：</p>
+
+<p><img src="/media/architecture/count/count1.png" alt="" /></p>
+
+<p>这样，在查询一条微博消息的若干个计数的时候，不用进行多次数据库count操作，而会转变为一条数据的多个属性的查询。但是当有微博被转发、评论、点赞的时候，计数服务如何同步的进行计数的变更呢？如果让业务服务来调用计数服务，势必会导致业务系统与计数系统耦合。</p>
+
+<p>对于不关心下游结果的业务，可以使用MQ来解耦，在业务发生变化的时候，向MQ发送一条异步消息，通知计数系统计数发生了变化即可</p>
+
+<p><img src="/media/architecture/count/count2.jpg" alt="" /></p>
+
+<p>计数外置，本质是数据的冗余，架构设计上，数据冗余必将引发数据的一致性问题，需要有机制来保证计数系统里的数据与业务系统里的数据一致，常见的方法有：</p>
+
+<ul>
+<li>对于一致性要求比较高的业务，要有定期check并fix的机制，例如关注计数，粉丝计数，微博消息计数等</li>
+<li>对于一致性要求比较低的业务，即使有数据不一致，业务可以接受，例如微博浏览数，微博转发数等</li>
+</ul>
+
+<h2 id="计数外置缓存优化">计数外置缓存优化</h2>
+
+<p>计数外置很大程度上解决了计数存取的性能问题，但是否还有优化空间呢？像关注计数，粉丝计数，微博消息计数，变化的频率很低，查询的频率很高，这类读多些少的业务场景，非常适合使用缓存来进行查询优化，减少数据库的查询次数，降低数据库的压力。</p>
+
+<p>但是，缓存是kv结构的，无法像数据库一样，设置成t_uid_count(uid, c1, c2, c3)这样的schema，如何来对kv进行设计呢？缓存kv结构的value是计数，看来只能在key上做设计，很容易想到，可以使用uid:type来做key，存储对应type的计数。</p>
+
+<p>对于uid=123的用户，其关注计数，粉丝计数，微博消息计数的缓存就可以设计为：</p>
+
+<p><img src="/media/architecture/count/count3.png" alt="" /></p>
+
+<p>此时对应的counting-service架构变为：</p>
+
+<p><img src="/media/architecture/count/count4.png" alt="" /></p>
+
+<p>这个“计数外置缓存优化”方案，可以总结为：</p>
+
+<ul>
+<li>使用缓存来保存读多写少的计数（其实写多读少，一致性要求不高的计数，也可以先用缓存保存，然后定期刷到数据库中，以降低数据库的读写压力）</li>
+<li>使用id:type的方式作为缓存的key，使用count来作为缓存的value</li>
+<li>多次读取缓存来查询多个uid的计数</li>
+</ul>
+
+<h2 id="缓存批量读取优化">缓存批量读取优化</h2>
+
+<p>缓存的使用能够极大降低数据库的压力，但多次缓存交互依旧存在优化空间，有没有办法进一步优化呢？</p>
+
+<p>不要陷入思维定式，谁说value一定只能是一个计数，难道不能多个计数存储在一个value中么？缓存kv结构的key是uid，value可以是多个计数同时存储。</p>
+
+<p>对于uid=123的用户，其关注计数，粉丝计数，微博消息计数的缓存就可以设计为：</p>
+
+<p><img src="/media/architecture/count/count5.png" alt="" /></p>
+
+<p>这样多个用户，多个计数的查询就可以一次搞定。</p>
+
+<p>这个“计数外置缓存批量优化”方案，可以总结为：</p>
+
+<ul>
+<li>使用id作为key，使用同一个id的多个计数的拼接作为value</li>
+<li>多个id的多个计数查询，一次搞定</li>
+</ul>
+
+<h2 id="计数扩展性优化">计数扩展性优化</h2>
+
+<p>考虑完效率，架构设计上还需要考虑扩展性，如果uid除了关注计数，粉丝计数，微博计数，还要增加一个计数，就需要变更表结构，频繁的变更数据库schema的结构显然是不可取的。</p>
+
+<p>我们可以这样设计表结构来通过行来扩展属性</p>
+
+<pre><code>t_user_count(uid, count_key, count_value)
+</code></pre>
+
+<p><img src="/media/architecture/count/count6.png" alt="" /></p>
+
+<p>如果需要新增一个计数XX_count，只需要增加一行即可，而不需要变更表结构：</p>
+
+<p><img src="/media/architecture/count/count7.png" alt="" /></p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/architecture/count/">https://kingjcy.github.io/post/architecture/count/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/count/">
+                            <i class="fa fa-tags"></i>
+                            count
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/architecture/">
+                            <i class="fa fa-tags"></i>
+                            architecture
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/architecture/enterprise-architecture/">架构系列---- 企业架构</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月04日)</span></li><li id="li-rels"><a href="/post/architecture/architecture-evolution/">架构系列---- 架构的演进</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年03月05日)</span></li><li id="li-rels"><a href="/post/architecture/shopping/">架构系列---- 电商购物系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年02月04日)</span></li><li id="li-rels"><a href="/post/architecture/search/">架构系列---- 搜索系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月04日)</span></li><li id="li-rels"><a href="/post/architecture/recommend/">架构系列---- 推荐系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年07月04日)</span></li><li id="li-rels"><a href="/post/architecture/cache/">架构系列---- Cache</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月15日)</span></li><li id="li-rels"><a href="/post/architecture/redundanttable/">架构系列---- 冗余表</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月14日)</span></li><li id="li-rels"><a href="/post/architecture/electronic-commerce/">架构系列---- 中台建设</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/advertising/">架构系列---- 广告投放系统</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月04日)</span></li><li id="li-rels"><a href="/post/architecture/microservices/microservices/">架构系列---- 微服务</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年03月05日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/distributed/distributed/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/distributed/distributed-event/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#初始架构">初始架构</a></li>
+<li><a href="#计数外置的架构设计">计数外置的架构设计</a>
+<ul>
+<li><a href="#计数外置缓存优化">计数外置缓存优化</a></li>
+<li><a href="#缓存批量读取优化">缓存批量读取优化</a></li>
+<li><a href="#计数扩展性优化">计数扩展性优化</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2020  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
