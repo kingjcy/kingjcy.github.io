@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="控制并发有两种经典的方式，一种是WaitGroup，另外一种就是Context，当然还可以简单的直接用channel通知。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Golang使用系列---- Go Context - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Golang使用系列---- Go Context
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年06月06日 
+                </div>
+                <h1 class="post-title">Golang使用系列---- Go Context</h1>
+            </header>
+
+            <div class="post-content">
+                <p>控制并发有两种经典的方式，一种是WaitGroup，另外一种就是Context，当然还可以简单的直接用channel通知。</p>
+
+<h1 id="waitgroup">waitgroup</h1>
+
+<p>WaitGroup以前我们在并发的时候介绍过，它是一种控制并发的方式，它的这种方式是控制多个goroutine同时完成。</p>
+
+<pre><code>func main() {
+    var wg sync.WaitGroup
+
+    wg.Add(2)
+    go func() {
+        time.Sleep(2*time.Second)
+        fmt.Println(&quot;1号完成&quot;)
+        wg.Done()
+    }()
+    go func() {
+        time.Sleep(2*time.Second)
+        fmt.Println(&quot;2号完成&quot;)
+        wg.Done()
+    }()
+    wg.Wait()
+    fmt.Println(&quot;好了，大家都干完了，放工&quot;)
+}
+</code></pre>
+
+<p>一个很简单的例子，一定要例子中的2个goroutine同时做完，才算是完成，先做好的就要等着其他未完成的，所有的goroutine要都全部完成才可以。</p>
+
+<p>这是一种控制并发的方式，这种尤其适用于好多个goroutine协同做一件事情的时候，因为每个goroutine做的都是这件事情的一部分，只有全部的goroutine都完成，这件事情才算是完成，这是等待的方式。</p>
+
+<p>这边说一下wg的传输，像上面这种事全局的，直接使用就好，但是很多时候wg的局部变量需要传输使用，这个时候需要传输地址</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;sync&quot;
+    &quot;time&quot;
+)
+
+func dosomething(millisecs time.Duration, wg *sync.WaitGroup) {
+    duration := millisecs * time.Millisecond
+    time.Sleep(duration)
+    fmt.Println(&quot;Function in background, duration:&quot;, duration)
+    wg.Done()
+}
+
+func main() {
+    var wg sync.WaitGroup
+    wg.Add(4)
+    go dosomething(200, &amp;wg)
+    go dosomething(400, &amp;wg)
+    go dosomething(150, &amp;wg)
+    go dosomething(600, &amp;wg)
+
+    wg.Wait()
+    fmt.Println(&quot;Done&quot;)
+}
+</code></pre>
+
+<p>在实际的业务种，我们可能会有这么一种场景：需要我们主动的通知某一个goroutine结束。比如我们开启一个后台goroutine一直做事情，比如监控，现在不需要了，就需要通知这个监控goroutine结束，不然它会一直跑，就泄漏了，这个时候我们就需要使用chan了。</p>
+
+<h1 id="chan通知">chan通知</h1>
+
+<p>我们都知道一个goroutine启动后，我们是无法控制他的，大部分情况是等待它自己结束，那么如果这个goroutine是一个不会自己结束的后台goroutine呢？比如监控等，会一直运行的。</p>
+
+<p>这种情况，一种傻瓜式的办法是全局变量，其他地方通过修改这个变量完成结束通知，然后后台goroutine不停的检查这个变量，如果发现被通知关闭了，就自我结束。</p>
+
+<p>这种方式也可以，但是首先我们要保证这个变量在多线程下的安全，基于此，有一种更好的方式：chan + select 。</p>
+
+<pre><code>func main() {
+    stop := make(chan bool)
+
+    go func() {
+        for {
+            select {
+            case &lt;-stop:
+                fmt.Println(&quot;监控退出，停止了...&quot;)
+                return
+            default:
+                fmt.Println(&quot;goroutine监控中...&quot;)
+                time.Sleep(2 * time.Second)
+            }
+        }
+    }()
+
+    time.Sleep(10 * time.Second)
+    fmt.Println(&quot;可以了，通知监控停止&quot;)
+    stop&lt;- true
+    //为了检测监控过是否停止，如果没有监控输出，就表示停止了
+    time.Sleep(5 * time.Second)
+
+}
+</code></pre>
+
+<p>例子中我们定义一个stop的chan，通知他结束后台goroutine。实现也非常简单，在后台goroutine中，使用select判断stop是否可以接收到值，如果可以接收到，就表示可以退出停止了；如果没有接收到，就会执行default里的监控逻辑，继续监控，只到收到stop的通知。</p>
+
+<p>有了以上的逻辑，我们就可以在其他goroutine种，给stop chan发送值了，例子中是在main goroutine中发送的，控制让这个监控的goroutine结束。</p>
+
+<p>发送了stop&lt;- true结束的指令后，我这里使用time.Sleep(5 * time.Second)故意停顿5秒来检测我们结束监控goroutine是否成功。如果成功的话，不会再有goroutine监控中&hellip;的输出了；如果没有成功，监控goroutine就会继续打印goroutine监控中&hellip;输出。这其实是一种异步的思想，可以好好琢磨对比一下。</p>
+
+<p>这种chan+select的方式，是比较优雅的结束一个goroutine的方式，不过这种方式也有局限性，如果有很多goroutine都需要控制结束怎么办呢？如果这些goroutine又衍生了其他更多的goroutine怎么办呢？如果一层层的无穷尽的goroutine呢？这就非常复杂了，即使我们定义很多chan也很难解决这个问题，因为goroutine的关系链就导致了这种场景非常复杂。</p>
+
+<h1 id="初识context">初识Context</h1>
+
+<p>上面说的这种场景是存在的，比如一个网络请求Request，每个Request都需要开启一个goroutine做一些事情，这些goroutine又可能会开启其他的goroutine。所以我们需要一种可以跟踪goroutine的方案，才可以达到控制他们的目的，这就是Go语言为我们提供的Context，称之为上下文非常贴切，它就是goroutine的上下文。</p>
+
+<p>下面我们就使用Go Context重写上面的示例。</p>
+
+<pre><code>func main() {
+    ctx, cancel := context.WithCancel(context.Background())
+    go func(ctx context.Context) {
+        for {
+            select {
+            case &lt;-ctx.Done():
+                fmt.Println(&quot;监控退出，停止了...&quot;)
+                return
+            default:
+                fmt.Println(&quot;goroutine监控中...&quot;)
+                time.Sleep(2 * time.Second)
+            }
+        }
+    }(ctx)
+
+    time.Sleep(10 * time.Second)
+    fmt.Println(&quot;可以了，通知监控停止&quot;)
+    cancel()
+    //为了检测监控过是否停止，如果没有监控输出，就表示停止了
+    time.Sleep(5 * time.Second)
+
+}
+</code></pre>
+
+<p>重写比较简单，就是把原来的chan stop 换成Context，使用Context跟踪goroutine，以便进行控制，比如结束等。</p>
+
+<p>context.Background() 返回一个空的Context，这个空的Context一般用于整个Context树的根节点。然后我们使用context.WithCancel(parent)函数，创建一个可取消的子Context，然后当作参数传给goroutine使用，这样就可以使用这个子Context跟踪这个goroutine。</p>
+
+<p>在goroutine中，使用select调用&lt;-ctx.Done()判断是否要结束，如果接受到值的话，就可以返回结束goroutine了；如果接收不到，就会继续进行监控。</p>
+
+<p>那么是如何发送结束指令的呢？这就是示例中的cancel函数啦，它是我们调用context.WithCancel(parent)函数生成子Context的时候返回的，第二个返回值就是这个取消函数，它是CancelFunc类型的。我们调用它就可以发出取消指令，然后我们的监控goroutine就会收到信号，就会返回结束。</p>
+
+<h2 id="context控制多个goroutine">Context控制多个goroutine</h2>
+
+<p>使用Context控制一个goroutine的例子如上，非常简单，下面我们看看控制多个goroutine的例子，其实也比较简单。</p>
+
+<pre><code>func main() {
+    ctx, cancel := context.WithCancel(context.Background())
+    go watch(ctx,&quot;【监控1】&quot;)
+    go watch(ctx,&quot;【监控2】&quot;)
+    go watch(ctx,&quot;【监控3】&quot;)
+
+    time.Sleep(10 * time.Second)
+    fmt.Println(&quot;可以了，通知监控停止&quot;)
+    cancel()
+    //为了检测监控过是否停止，如果没有监控输出，就表示停止了
+    time.Sleep(5 * time.Second)
+}
+
+func watch(ctx context.Context, name string) {
+    for {
+        select {
+        case &lt;-ctx.Done():
+            fmt.Println(name,&quot;监控退出，停止了...&quot;)
+            return
+        default:
+            fmt.Println(name,&quot;goroutine监控中...&quot;)
+            time.Sleep(2 * time.Second)
+        }
+    }
+}
+</code></pre>
+
+<p>示例中启动了3个监控goroutine进行不断的监控，每一个都使用了Context进行跟踪，当我们使用cancel函数通知取消时，这3个goroutine都会被结束。这就是Context的控制能力，它就像一个控制器一样，按下开关后，所有基于这个Context或者衍生的子Context都会收到通知，这时就可以进行清理操作了，最终释放goroutine，这就优雅的解决了goroutine启动后不可控的问题。</p>
+
+<h2 id="context接口">Context接口</h2>
+
+<p>Context的接口定义的比较简洁，我们看下这个接口的方法。</p>
+
+<pre><code>type Context interface {
+    Deadline() (deadline time.Time, ok bool)
+
+    Done() &lt;-chan struct{}
+
+    Err() error
+
+    Value(key interface{}) interface{}
+}
+</code></pre>
+
+<p>这个接口共有4个方法，了解这些方法的意思非常重要，这样我们才可以更好的使用他们。</p>
+
+<p>Deadline方法是获取设置的截止时间的意思，第一个返回式是截止时间，到了这个时间点，Context会自动发起取消请求；第二个返回值ok==false时表示没有设置截止时间，如果需要取消的话，需要调用取消函数进行取消。</p>
+
+<p>Done方法返回一个只读的chan，类型为struct{}，我们在goroutine中，如果该方法返回的chan可以读取，则意味着parent context已经发起了取消请求，我们通过Done方法收到这个信号后，就应该做清理操作，然后退出goroutine，释放资源。</p>
+
+<p>Err方法返回取消的错误原因，因为什么Context被取消。</p>
+
+<p>Value方法获取该Context上绑定的值，是一个键值对，所以要通过一个Key才可以获取对应的值，这个值一般是线程安全的。</p>
+
+<p>以上四个方法中常用的就是Done了，如果Context取消的时候，我们就可以得到一个关闭的chan，关闭的chan是可以读取的，所以只要可以读取的时候，就意味着收到Context取消的信号了，以下是这个方法的经典用法。</p>
+
+<pre><code>  func Stream(ctx context.Context, out chan&lt;- Value) error {
+    for {
+        v, err := DoSomething(ctx)
+        if err != nil {
+            return err
+        }
+        select {
+        case &lt;-ctx.Done():
+            return ctx.Err()
+        case out &lt;- v:
+        }
+    }
+  }
+</code></pre>
+
+<p>Context接口并不需要我们实现，Go内置已经帮我们实现了2个，我们代码中最开始都是以这两个内置的作为最顶层的partent context，衍生出更多的子Context。</p>
+
+<pre><code>var (
+    background = new(emptyCtx)
+    todo       = new(emptyCtx)
+)
+
+func Background() Context {
+    return background
+}
+
+func TODO() Context {
+    return todo
+}
+</code></pre>
+
+<p>一个是Background，主要用于main函数、初始化以及测试代码中，作为Context这个树结构的最顶层的Context，也就是根Context。</p>
+
+<p>一个是TODO,它目前还不知道具体的使用场景，如果我们不知道该使用什么Context的时候，可以使用这个。</p>
+
+<p>他们两个本质上都是emptyCtx结构体类型，是一个不可取消，没有设置截止时间，没有携带任何值的Context。</p>
+
+<pre><code>type emptyCtx int
+
+func (*emptyCtx) Deadline() (deadline time.Time, ok bool) {
+    return
+}
+
+func (*emptyCtx) Done() &lt;-chan struct{} {
+    return nil
+}
+
+func (*emptyCtx) Err() error {
+    return nil
+}
+
+func (*emptyCtx) Value(key interface{}) interface{} {
+    return nil
+}
+</code></pre>
+
+<p>这就是emptyCtx实现Context接口的方法，可以看到，这些方法什么都没做，返回的都是nil或者零值。</p>
+
+<h2 id="context的继承衍生">Context的继承衍生</h2>
+
+<p>有了如上的根Context，那么是如何衍生更多的子Context的呢？这就要靠context包为我们提供的With系列的函数了。</p>
+
+<pre><code>func WithCancel(parent Context) (ctx Context, cancel CancelFunc)
+func WithDeadline(parent Context, deadline time.Time) (Context, CancelFunc)
+func WithTimeout(parent Context, timeout time.Duration) (Context, CancelFunc)
+func WithValue(parent Context, key, val interface{}) Context
+</code></pre>
+
+<p>这四个With函数，接收的都有一个partent参数，就是父Context，我们要基于这个父Context创建出子Context的意思，这种方式可以理解为子Context对父Context的继承，也可以理解为基于父Context的衍生。</p>
+
+<p>通过这些函数，就创建了一颗Context树，树的每个节点都可以有任意多个子节点，节点层级可以有任意多个。</p>
+
+<p>WithCancel函数，传递一个父Context作为参数，返回子Context，以及一个取消函数用来取消Context。</p>
+
+<p>WithDeadline函数，和WithCancel差不多，它会多传递一个截止时间参数，意味着到了这个时间点，会自动取消Context，当然我们也可以不等到这个时候，可以提前通过取消函数进行取消。</p>
+
+<p>WithTimeout和WithDeadline基本上一样，这个表示是超时自动取消，是多少时间后自动取消Context的意思。</p>
+
+<p>WithValue函数和取消Context无关，它是为了生成一个绑定了一个键值对数据的Context，这个绑定的数据可以通过Context.Value方法访问到，后面我们会专门讲。</p>
+
+<p>大家可能留意到，前三个函数都返回一个取消函数CancelFunc，这是一个函数类型，它的定义非常简单。</p>
+
+<pre><code>type CancelFunc func()
+</code></pre>
+
+<p>这就是取消函数的类型，该函数可以取消一个Context，以及这个节点Context下所有的所有的Context，不管有多少层级。</p>
+
+<pre><code>WithValue传递元数据
+</code></pre>
+
+<p>通过Context我们也可以传递一些必须的元数据，这些数据会附加在Context上以供使用。</p>
+
+<pre><code>var key string=&quot;name&quot;
+
+func main() {
+    ctx, cancel := context.WithCancel(context.Background())
+    //附加值
+    valueCtx:=context.WithValue(ctx,key,&quot;【监控1】&quot;)
+    go watch(valueCtx)
+    time.Sleep(10 * time.Second)
+    fmt.Println(&quot;可以了，通知监控停止&quot;)
+    cancel()
+    //为了检测监控过是否停止，如果没有监控输出，就表示停止了
+    time.Sleep(5 * time.Second)
+}
+
+func watch(ctx context.Context) {
+    for {
+        select {
+        case &lt;-ctx.Done():
+            //取出值
+            fmt.Println(ctx.Value(key),&quot;监控退出，停止了...&quot;)
+            return
+        default:
+            //取出值
+            fmt.Println(ctx.Value(key),&quot;goroutine监控中...&quot;)
+            time.Sleep(2 * time.Second)
+        }
+    }
+}
+</code></pre>
+
+<p>在前面的例子，我们通过传递参数的方式，把name的值传递给监控函数。在这个例子里，我们实现一样的效果，但是通过的是Context的Value的方式。</p>
+
+<p>我们可以使用context.WithValue方法附加一对K-V的键值对，这里Key必须是等价性的，也就是具有可比性；Value值要是线程安全的。</p>
+
+<p>这样我们就生成了一个新的Context，这个新的Context带有这个键值对，在使用的时候，可以通过Value方法读取ctx.Value(key)。</p>
+
+<p>记住，使用WithValue传值，一般是必须的值，不要什么值都传递。</p>
+
+<h2 id="context-使用原则">Context 使用原则</h2>
+
+<ul>
+<li>不要把Context放在结构体中，要以参数的方式传递</li>
+<li>以Context作为参数的函数方法，应该把Context作为第一个参数，放在第一位。命名为ctx。 func DoSomething（ctx context.Context，arg Arg）error { // &hellip; use ctx &hellip; }</li>
+<li>给一个函数方法传递Context的时候，不要传递nil，如果不知道传递什么，就使用context.TODO</li>
+<li>Context的Value相关方法应该传递必须的数据，不要什么数据都使用这个传递，不要用它来传递一些可选的参数</li>
+<li>Context是线程安全的，可以放心的在多个goroutine中传递，相同的 Context 可以传递给在不同的goroutine；</li>
+</ul>
+
+<h2 id="应用场景">应用场景</h2>
+
+<p>在 Go http 包的 Server 中，每一个请求在都有一个对应的goroutine去处理。请求处理函数通常会启动额外的goroutine用来访问后端服务，比如数据库和 RPC 服务。用来处理一个请求的goroutine通常需要访问一些与请求特定的数据，比如终端用户的身份认证信息、验证相关的 token、请求的截止时间。当一个请求被取消或超时时，所有用来处理该请求的goroutine都应该迅速退出，然后系统才能释放这些goroutine占用的资源。</p>
+
+<p>注意：go1.6及之前版本请使用golang.org/x/net/context。go1.7及之后已移到标准库context。</p>
+
+<h2 id="实战">实战</h2>
+
+<h3 id="withcancel-例子">WithCancel 例子</h3>
+
+<p>WithCancel 以一个新的 Done channel 返回一个父 Context 的拷贝。</p>
+
+<pre><code>func WithCancel(parent Context) (ctx Context, cancel CancelFunc) {
+    c := newCancelCtx(parent)
+    propagateCancel(parent, &amp;c)
+    return &amp;c, func() { c.cancel(true, Canceled) }
+}
+
+// newCancelCtx returns an initialized cancelCtx.
+func newCancelCtx(parent Context) cancelCtx {
+    return cancelCtx{
+        Context: parent,
+        done:    make(chan struct{}),
+    }
+}
+</code></pre>
+
+<p>此示例演示使用一个可取消的上下文，以防止 goroutine 泄漏。示例函数结束时，defer 调用 cancel 方法，gen goroutine 将返回而不泄漏。</p>
+
+<pre><code>package main
+
+import (
+    &quot;context&quot;
+    &quot;fmt&quot;
+)
+
+func main() {
+    // gen generates integers in a separate goroutine and
+    // sends them to the returned channel.
+    // The callers of gen need to cancel the context once
+    // they are done consuming generated integers not to leak
+    // the internal goroutine started by gen.
+    gen := func(ctx context.Context) &lt;-chan int {
+        dst := make(chan int)
+        n := 1
+        go func() {
+            for {
+                select {
+                case &lt;-ctx.Done():
+                    return // returning not to leak the goroutine
+                case dst &lt;- n:
+                    n++
+                }
+            }
+        }()
+        return dst
+    }
+
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel() // cancel when we are finished consuming integers
+
+    for n := range gen(ctx) {
+        fmt.Println(n)
+        if n == 5 {
+            break
+        }
+    }
+}
+</code></pre>
+
+<h3 id="withdeadline-例子">WithDeadline 例子</h3>
+
+<pre><code>func WithDeadline(parent Context, deadline time.Time) (Context, CancelFunc) {
+    if cur, ok := parent.Deadline(); ok &amp;&amp; cur.Before(deadline) {
+        // The current deadline is already sooner than the new one.
+        return WithCancel(parent)
+    }
+    c := &amp;timerCtx{
+        cancelCtx: newCancelCtx(parent),
+        deadline:  deadline,
+    }
+</code></pre>
+
+<p>可以清晰的看到，当派生出的子 Context 的deadline在父Context之后，直接返回了一个父Context的拷贝。故语义上等效为父。</p>
+
+<p>WithDeadline 的最后期限调整为不晚于 d 返回父上下文的副本。如果父母的截止日期已经早于 d，WithDeadline （父，d） 是在语义上等效为父。返回的上下文完成的通道关闭的最后期限期满后，返回的取消函数调用时，或当父上下文完成的通道关闭，以先发生者为准。</p>
+
+<p>看看官方例子：</p>
+
+<pre><code>package main
+
+import (
+    &quot;context&quot;
+    &quot;fmt&quot;
+    &quot;time&quot;
+)
+
+func main() {
+    d := time.Now().Add(50 * time.Millisecond)
+    ctx, cancel := context.WithDeadline(context.Background(), d)
+
+    // Even though ctx will be expired, it is good practice to call its
+    // cancelation function in any case. Failure to do so may keep the
+    // context and its parent alive longer than necessary.
+    defer cancel()
+
+    select {
+    case &lt;-time.After(1 * time.Second):
+        fmt.Println(&quot;overslept&quot;)
+    case &lt;-ctx.Done():
+        fmt.Println(ctx.Err())
+    }
+}
+</code></pre>
+
+<h3 id="withtimeout-例子">WithTimeout 例子</h3>
+
+<p>WithTimeout 返回 WithDeadline(parent, time.Now().Add(timeout))。</p>
+
+<pre><code>func WithTimeout(parent Context, timeout time.Duration) (Context, CancelFunc) {
+    return WithDeadline(parent, time.Now().Add(timeout))
+}
+</code></pre>
+
+<p>看看官方例子：</p>
+
+<pre><code>package main
+
+import (
+    &quot;context&quot;
+    &quot;fmt&quot;
+    &quot;time&quot;
+)
+
+func main() {
+    // Pass a context with a timeout to tell a blocking function that it
+    // should abandon its work after the timeout elapses.
+    ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+    defer cancel()
+
+    select {
+    case &lt;-time.After(1 * time.Second):
+        fmt.Println(&quot;overslept&quot;)
+    case &lt;-ctx.Done():
+        fmt.Println(ctx.Err()) // prints &quot;context deadline exceeded&quot;
+    }
+}
+</code></pre>
+
+<p>自己写的例子</p>
+
+<pre><code>func Requset(ctx context.Context,ip string,w http.ResponseWriter){
+    c := make(chan string, 1024)
+
+    go func(ip string){
+        cfg := g.GlbServerCfg.Conf
+
+        url := &quot;http://&quot; + ip + &quot;:&quot; + strconv.Itoa(cfg.PromesPort) + &quot;/-/reload&quot;
+        log.Debug(&quot;Reload %s&quot;, ip)
+
+        client := &amp;http.Client{
+            Timeout: time.Duration(cfg.TimeOut)*time.Second,
+        }
+
+        request, err := http.NewRequest(&quot;POST&quot;,url,nil)
+        if err != nil {
+            log.Error(&quot;New Request Error &quot;,err)
+        }
+
+        resp, err := client.Do(request)
+        defer resp.Body.Close()
+
+        //resp, err := http.Post(url, &quot;&quot;, nil)
+        if err != nil || resp.StatusCode != 200 {
+            log.Error(&quot;Http Post Faild : %s, Status Code: %d&quot;, err, resp.StatusCode)
+            c &lt;- string(ip + &quot; Reload Faild\n&quot;)
+        }
+        log.Debug(&quot;Http Post Successd , Status Code: : %d&quot;, resp.StatusCode)
+        c &lt;- string(ip + &quot; Reload Success\n&quot;)
+    }(ip)
+
+    for {
+        select {
+        case &lt;-ctx.Done():
+            w.Write([]byte(ip + &quot; Reload TimeOut\n&quot;))
+            return
+        case response := &lt;-c:
+            w.Write([]byte(response))
+            return
+        }
+    }
+
+
+
+}
+</code></pre>
+
+<h3 id="withvalue-例子">WithValue 例子</h3>
+
+<pre><code>func WithValue(parent Context, key, val interface{}) Context {
+    if key == nil {
+        panic(&quot;nil key&quot;)
+    }
+    if !reflect.TypeOf(key).Comparable() {
+        panic(&quot;key is not comparable&quot;)
+    }
+    return &amp;valueCtx{parent, key, val}
+}
+</code></pre>
+
+<p>WithValue 返回的父与键关联的值在 val 的副本。</p>
+
+<p>使用上下文值仅为过渡进程和 Api 的请求范围的数据，而不是将可选参数传递给函数。</p>
+
+<p>提供的键必须是可比性和应该不是字符串类型或任何其他内置的类型以避免包使用的上下文之间的碰撞。WithValue 用户应该定义自己的键的类型。为了避免分配分配给接口 {} 时，上下文键经常有具体类型结构 {}。另外，导出的上下文关键变量静态类型应该是一个指针或接口。</p>
+
+<p>看看官方例子：</p>
+
+<pre><code>package main
+
+import (
+    &quot;context&quot;
+    &quot;fmt&quot;
+)
+
+func main() {
+    type favContextKey string
+
+    f := func(ctx context.Context, k favContextKey) {
+        if v := ctx.Value(k); v != nil {
+            fmt.Println(&quot;found value:&quot;, v)
+            return
+        }
+        fmt.Println(&quot;key not found:&quot;, k)
+    }
+
+    k := favContextKey(&quot;language&quot;)
+    ctx := context.WithValue(context.Background(), k, &quot;Go&quot;)
+
+    f(ctx, k)
+    f(ctx, favContextKey(&quot;color&quot;))
+}
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-context/">https://kingjcy.github.io/post/golang/go-context/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/context/">
+                            <i class="fa fa-tags"></i>
+                            context
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-channel/">Golang使用系列---- channel</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年08月24日)</span></li><li id="li-rels"><a href="/post/golang/go-goroutinechannel/">Golang使用系列---- Goroutine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月24日)</span></li><li id="li-rels"><a href="/post/golang/go-net-http-pporf/">golang使用系列---- net/http/pprof</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月26日)</span></li><li id="li-rels"><a href="/post/golang/go-net-http/">Golang使用系列---- Net/Http 应用层</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年09月26日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">Golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-runtime/">Golang使用系列---- Runtime</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/golang/go-concurrence/">Golang使用系列---- Concurrence</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月26日)</span></li><li id="li-rels"><a href="/post/golang/go/">golang使用系列---- go基本使用积累</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月23日)</span></li><li id="li-rels"><a href="/post/golang/go-map/">Golang使用系列---- Map</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月28日)</span></li><li id="li-rels"><a href="/post/golang/go-sync/">Golang使用系列---- Sync</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月28日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/prometheus-operater/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/prometheus-principle/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#waitgroup">waitgroup</a></li>
+<li><a href="#chan通知">chan通知</a></li>
+<li><a href="#初识context">初识Context</a>
+<ul>
+<li><a href="#context控制多个goroutine">Context控制多个goroutine</a></li>
+<li><a href="#context接口">Context接口</a></li>
+<li><a href="#context的继承衍生">Context的继承衍生</a></li>
+<li><a href="#context-使用原则">Context 使用原则</a></li>
+<li><a href="#应用场景">应用场景</a></li>
+<li><a href="#实战">实战</a>
+<ul>
+<li><a href="#withcancel-例子">WithCancel 例子</a></li>
+<li><a href="#withdeadline-例子">WithDeadline 例子</a></li>
+<li><a href="#withtimeout-例子">WithTimeout 例子</a></li>
+<li><a href="#withvalue-例子">WithValue 例子</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

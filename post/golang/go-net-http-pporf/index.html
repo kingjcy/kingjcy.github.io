@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="golang 开发过程进行性能调优，pprof 一定是一个大杀器般的工具。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="golang使用系列---- net/http/pprof - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    golang使用系列---- net/http/pprof
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年12月26日 
+                </div>
+                <h1 class="post-title">golang使用系列---- net/http/pprof</h1>
+            </header>
+
+            <div class="post-content">
+                <p>golang 开发过程进行性能调优，pprof 一定是一个大杀器般的工具。</p>
+
+<h1 id="pprof">PProf</h1>
+
+<p>想要进行性能优化，首先瞩目在 Go 自身提供的工具链来作为分析依据，本文将带你学习、使用 Go 后花园，涉及如下：</p>
+
+<pre><code>runtime/pprof：采集程序（非 Server）的运行数据进行分析
+net/http/pprof：采集 HTTP Server 的运行时数据进行分析
+</code></pre>
+
+<p>其实net/http/pprof中只是使用runtime/pprof包来进行封装了一下，并在http端口上暴露出来</p>
+
+<h1 id="基本原理">基本原理</h1>
+
+<p>pprof 是用于可视化和分析性能分析数据的工具,pprof 以 profile.proto 读取分析样本的集合，并生成报告以可视化并帮助分析数据（支持文本和图形报告）</p>
+
+<p>profile.proto 是一个 Protocol Buffer v3 的描述文件，它描述了一组 callstack 和 symbolization 信息， 作用是表示统计分析的一组采样的调用栈，是很常见的 stacktrace 配置文件格式</p>
+
+<h1 id="基本使用">基本使用</h1>
+
+<p>1、使用方式</p>
+
+<ul>
+<li>基准测试文件：例如使用命令go test . -bench . -cpuprofile prof.cpu 生成采样文件后，再通过命令 go tool pprof [binary] prof.cpu 来进行分析。</li>
+<li>import _ net/http/pprof：如果我们的应用是一个web服务，我们可以在http服务启动的代码文件(eg: main.go)添加 import _ net/http/pprof，这样我们的服务 便能自动开启profile功能，有助于我们直接分析采样结果。</li>
+<li>通过在代码里面调用 runtime.StartCPUProfile或者runtime.WriteHeapProfile。</li>
+</ul>
+
+<p>2、支持什么使用模式</p>
+
+<ul>
+<li>Report generation：报告生成</li>
+<li>Interactive terminal use：交互式终端使用</li>
+<li>Web interface：Web 界面</li>
+</ul>
+
+<p>3、可以做什么</p>
+
+<ul>
+<li>CPU Profiling：CPU 分析，按照一定的频率采集所监听的应用程序 CPU（含寄存器）的使用情况，可确定应用程序在主动消耗 CPU 周期时花费时间的位置</li>
+<li>Memory Profiling：内存分析，在应用程序进行堆分配时记录堆栈跟踪，用于监视当前和历史内存使用情况，以及检查内存泄漏</li>
+<li>Block Profiling：阻塞分析，记录 goroutine 阻塞等待同步（包括定时器通道）的位置</li>
+<li>Mutex Profiling：互斥锁分析，报告互斥锁的竞争情况</li>
+</ul>
+
+<p>上面只是常用的一部分，还有如下都可以分析，只不过使用的不多。</p>
+
+<pre><code>Profile Descriptions:
+allocs: A sampling of all past memory allocations
+block: Stack traces that led to blocking on synchronization primitives
+cmdline: The command line invocation of the current program
+goroutine: Stack traces of all current goroutines
+heap: A sampling of memory allocations of live objects. You can specify the gc GET parameter to run GC before taking the heap sample.
+mutex: Stack traces of holders of contended mutexes
+profile: CPU profile. You can specify the duration in the seconds GET parameter. After you get the profile file, use the go tool pprof command to investigate the profile.
+threadcreate: Stack traces that led to the creation of new OS threads
+trace: A trace of execution of the current program. You can specify the duration in the seconds GET parameter. After you get the trace file, use the go tool trace command to investigate the trace.
+</code></pre>
+
+<h2 id="使用">使用</h2>
+
+<blockquote>
+<p>第一种使用方式</p>
+</blockquote>
+
+<p>编写测试用例</p>
+
+<pre><code>package data
+
+import &quot;testing&quot;
+
+const url = &quot;https://github.com/EDDYCJY&quot;
+
+func TestAdd(t *testing.T) {
+    s := Add(url)
+    if s == &quot;&quot; {
+        t.Errorf(&quot;Test.Add error!&quot;)
+    }
+}
+
+func BenchmarkAdd(b *testing.B) {
+    for i := 0; i &lt; b.N; i++ {
+        Add(url)
+    }
+}
+</code></pre>
+
+<p>执行测试用例</p>
+
+<pre><code>$ go test -bench=. -cpuprofile=cpu.prof
+pkg: github.com/EDDYCJY/go-pprof-example/data
+BenchmarkAdd-4       10000000           187 ns/op
+PASS
+ok      github.com/EDDYCJY/go-pprof-example/data    2.300s
+</code></pre>
+
+<p>启动 PProf 可视化界面进行分析</p>
+
+<pre><code>方法一：
+$ go tool pprof -http=:8080 cpu.prof
+方法二：
+$ go tool pprof cpu.prof
+$ (pprof) web
+</code></pre>
+
+<blockquote>
+<p>第二种使用方式</p>
+</blockquote>
+
+<p>我们最常用的就是第二种方式，import _ net/http/pprof，我们将编写一个简单且有点问题的例子，用于基本的程序初步分析</p>
+
+<pre><code>package main
+
+import (
+    &quot;log&quot;
+    &quot;net/http&quot;
+    _ &quot;net/http/pprof&quot;
+    &quot;github.com/EDDYCJY/go-pprof-example/data&quot;
+)
+
+func main() {
+    go func() {
+        for {
+            log.Println(data.Add(&quot;https://github.com/EDDYCJY&quot;))
+        }
+    }()
+
+    http.ListenAndServe(&quot;0.0.0.0:6060&quot;, nil)
+}
+
+
+
+package data
+
+var datas []string
+
+func Add(str string) string {
+    data := []byte(str)
+    sData := string(data)
+    datas = append(datas, sData)
+
+    return sData
+}
+</code></pre>
+
+<p>运行这个文件，你的 HTTP 服务会多出 /debug/pprof 的 endpoint 可用于观察应用程序的情况</p>
+
+<h2 id="交互分析">交互分析</h2>
+
+<blockquote>
+<p>通过 Web 界面</p>
+</blockquote>
+
+<p>查看当前总览：访问 <a href="http://127.0.0.1:6060/debug/pprof/">http://127.0.0.1:6060/debug/pprof/</a></p>
+
+<pre><code>/debug/pprof/
+
+profiles:
+0    block
+5    goroutine
+3    heap
+0    mutex
+9    threadcreate
+
+full goroutine stack dump
+</code></pre>
+
+<p>这个页面中有许多子页面，咱们继续深究下去，看看可以得到什么？</p>
+
+<pre><code>cpu（CPU Profiling）: $HOST/debug/pprof/profile，默认进行 30s 的 CPU Profiling，得到一个分析用的 profile 文件
+block（Block Profiling）：$HOST/debug/pprof/block，查看导致阻塞同步的堆栈跟踪
+goroutine：$HOST/debug/pprof/goroutine，查看当前所有运行的 goroutines 堆栈跟踪
+heap（Memory Profiling）: $HOST/debug/pprof/heap，查看活动对象的内存分配情况
+mutex（Mutex Profiling）：$HOST/debug/pprof/mutex，查看导致互斥锁的竞争持有者的堆栈跟踪
+threadcreate：$HOST/debug/pprof/threadcreate，查看创建新OS线程的堆栈跟踪
+</code></pre>
+
+<blockquote>
+<p>通过交互式终端使用</p>
+</blockquote>
+
+<p>（1）获取cpu相关：go tool pprof <a href="http://localhost:6060/debug/pprof/profile?seconds=60">http://localhost:6060/debug/pprof/profile?seconds=60</a></p>
+
+<pre><code>$ go tool pprof http://localhost:6060/debug/pprof/profile\?seconds\=60
+
+Fetching profile over HTTP from http://localhost:6060/debug/pprof/profile?seconds=60
+Saved profile in /Users/eddycjy/pprof/pprof.samples.cpu.007.pb.gz
+Type: cpu
+Duration: 1mins, Total samples = 26.55s (44.15%)
+Entering interactive mode (type &quot;help&quot; for commands, &quot;o&quot; for options)
+(pprof)
+</code></pre>
+
+<p>执行该命令后，需等待 60 秒（可调整 seconds 的值），pprof 会进行 CPU Profiling。结束后将默认进入 pprof 的交互式命令模式，可以对分析的结果进行查看或导出。具体可执行 pprof help 查看命令说明</p>
+
+<pre><code>(pprof) top10
+Showing nodes accounting for 25.92s, 97.63% of 26.55s total
+Dropped 85 nodes (cum &lt;= 0.13s)
+Showing top 10 nodes out of 21
+      flat  flat%   sum%        cum   cum%
+    23.28s 87.68% 87.68%     23.29s 87.72%  syscall.Syscall
+     0.77s  2.90% 90.58%      0.77s  2.90%  runtime.memmove
+     0.58s  2.18% 92.77%      0.58s  2.18%  runtime.freedefer
+     0.53s  2.00% 94.76%      1.42s  5.35%  runtime.scanobject
+     0.36s  1.36% 96.12%      0.39s  1.47%  runtime.heapBitsForObject
+     0.35s  1.32% 97.44%      0.45s  1.69%  runtime.greyobject
+     0.02s 0.075% 97.51%     24.96s 94.01%  main.main.func1
+     0.01s 0.038% 97.55%     23.91s 90.06%  os.(*File).Write
+     0.01s 0.038% 97.59%      0.19s  0.72%  runtime.mallocgc
+     0.01s 0.038% 97.63%     23.30s 87.76%  syscall.Write
+flat：给定函数上运行耗时
+flat%：同上的 CPU 运行耗时总比例
+sum%：给定函数累积使用 CPU 总比例
+cum：当前函数加上它之上的调用运行总耗时
+cum%：同上的 CPU 运行耗时总比例
+最后一列为函数名称，在大多数的情况下，我们可以通过这五列得出一个应用程序的运行情况，加以优化 🤔
+</code></pre>
+
+<p>（2）获取内存相关：go tool pprof <a href="http://localhost:6060/debug/pprof/heap">http://localhost:6060/debug/pprof/heap</a></p>
+
+<pre><code>$ go tool pprof http://localhost:6060/debug/pprof/heap
+Fetching profile over HTTP from http://localhost:6060/debug/pprof/heap
+Saved profile in /Users/eddycjy/pprof/pprof.alloc_objects.alloc_space.inuse_objects.inuse_space.008.pb.gz
+Type: inuse_space
+Entering interactive mode (type &quot;help&quot; for commands, &quot;o&quot; for options)
+(pprof) top
+Showing nodes accounting for 837.48MB, 100% of 837.48MB total
+      flat  flat%   sum%        cum   cum%
+  837.48MB   100%   100%   837.48MB   100%  main.main.func1
+-inuse_space：分析应用程序的常驻内存占用情况
+-alloc_objects：分析应用程序的内存临时分配情况
+</code></pre>
+
+<p>（3）获取阻塞相关：go tool pprof <a href="http://localhost:6060/debug/pprof/block">http://localhost:6060/debug/pprof/block</a></p>
+
+<p>（4）获取锁相关：go tool pprof <a href="http://localhost:6060/debug/pprof/mutex">http://localhost:6060/debug/pprof/mutex</a></p>
+
+<blockquote>
+<p>PProf 可视化界面</p>
+</blockquote>
+
+<p>1、web命令</p>
+
+<p>启动 PProf 可视化界面正常有两种方式，一种就是对cpu文件进行分析，比如上面bench的cpu.prof，或者交互生成的pprof.samples.cpu.007.pb.gz，在交互的命令中输入web，就可以通过web进行访问。</p>
+
+<pre><code>$ (pprof) web
+</code></pre>
+
+<p>如果出现 Could not execute dot; may need to install graphviz.，就是提示你要安装 graphviz 了 ，我们简单说明一下安装（详细请右拐谷歌）。</p>
+
+<pre><code>brew install graphviz # for macos
+apt install graphviz # for ubuntu
+yum install graphviz # for centos
+</code></pre>
+
+<p>查看 PProf 可视化界面，下面是url</p>
+
+<pre><code>（1）Top
+（2）Graph
+框越大，线越粗代表它占用的时间越大哦
+（3）Peek
+（4）Source
+</code></pre>
+
+<p>通过 PProf 的可视化界面，我们能够更方便、更直观的看到 Go 应用程序的调用链、使用情况等，并且在 View 菜单栏中，还支持如上多种方式的切换</p>
+
+<p>我们也可以直接在上面的命令行中直接操作，安装完成后，我们继续在上文的交互式终端里输入 web，注意，虽然这个命令的名字叫“web”，但它的实际行为是产生一个 .svg 文件，并调用你的系统里设置的默认打开 .svg 的程序打开它。如果你的系统里打开 .svg 的默认程序并不是浏览器（比如可能是你的代码编辑器），这时候你需要设置一下默认使用浏览器打开 .svg 文件，相信这难不倒你。</p>
+
+<p>2、PProf 火焰图</p>
+
+<p>另一种可视化数据的方法是火焰图，原先是 uber 开源的一个工具：go-torch，可以直接读取 golang profiling 数据，并生成一个火焰图的 svg 文件。火焰图 svg 文件可以通过浏览器打开，它对于调用图的最优点是它是动态的：可以通过点击每个方块来 zoom in 分析它上面的内容。</p>
+
+<p>现在这个项目已经合并到工具pprof中去了</p>
+
+<pre><code>go-torch is deprecated, use pprof instead
+</code></pre>
+
+<p>需要安装FlameGraph的脚本</p>
+
+<pre><code>git clone https://github.com/brendangregg/FlameGraph.git
+</code></pre>
+
+<p>把flamegraph.pl拷到我们机器环境变量$PATH的路径中去</p>
+
+<pre><code>cp flamegraph.pl /usr/local/bin
+</code></pre>
+
+<p>在终端输入 flamegraph.pl -h 是否安装FlameGraph成功</p>
+
+<p>1.获取cpuprofile</p>
+
+<p>获取最近10秒程序运行的cpuprofile,-seconds参数不填默认为30。</p>
+
+<pre><code>go tool pprof http://127.0.0.1:8080/debug/pprof/profile -seconds 10
+</code></pre>
+
+<p>等10s后会生成一个: pprof.samples.cpu.001.pb.gz文件</p>
+
+<p>2.生成火焰图</p>
+
+<pre><code>go tool pprof -http=:8081 ~/pprof/pprof.samples.cpu.001.pb.gz
+</code></pre>
+
+<p>其中-http=:8081会启动一个http服务,端口为8081,然后浏览器会弹出此文件的图解</p>
+
+<p>还是需要基于上面安装的graphviz，如果没有安装需要先安装一下。然后可以在界面选择</p>
+
+<p><img src="/media/golang/net/pprof/pprof.png" alt="" /></p>
+
+<p>在使用火焰图的时候，也是需要使用交互的命令的，比如在list函数的时候，也可以看出每个函数的调用时间。</p>
+
+<h1 id="实战">实战</h1>
+
+<h2 id="获取问题程序">获取问题程序</h2>
+
+<p>直接到github上下载</p>
+
+<pre><code>go get -d github.com/wolfogre/go-pprof-practice
+cd $GOPATH/src/github.com/wolfogre/go-pprof-practice
+</code></pre>
+
+<p>简单看一下</p>
+
+<pre><code>package main
+
+import (
+    // 略
+    _ &quot;net/http/pprof&quot; // 会自动注册 handler 到 http server，方便通过 http 接口获取程序运行采样报告
+    // 略
+)
+
+func main() {
+    // 略
+
+    runtime.GOMAXPROCS(1) // 限制 CPU 使用数，避免过载
+    runtime.SetMutexProfileFraction(1) // 开启对锁调用的跟踪
+    runtime.SetBlockProfileRate(1) // 开启对阻塞操作的跟踪
+
+    go func() {
+        // 启动一个 http server，注意 pprof 相关的 handler 已经自动注册过了
+        if err := http.ListenAndServe(&quot;:6060&quot;, nil); err != nil {
+            log.Fatal(err)
+        }
+        os.Exit(0)
+    }()
+
+    // 略
+}
+</code></pre>
+
+<p>编译运行</p>
+
+<pre><code>go build
+./go-pprof-practice
+</code></pre>
+
+<p>使用pprof查看资源使用情况，这个在上面都详细说明过了。</p>
+
+<pre><code>http://localhost:6060/debug/pprof/
+</code></pre>
+
+<h2 id="排查cpu占比过高">排查cpu占比过高</h2>
+
+<p>1、使用命令：go tool pprof <a href="http://localhost:6060/debug/pprof/profile">http://localhost:6060/debug/pprof/profile</a> ，等待一会儿后，进入一个交互式终端：</p>
+
+<p><img src="/media/golang/net/pprof/pprof1.jpg" alt="" /></p>
+
+<p>2、输入 top 命令，查看 CPU 占用较高的调用：</p>
+
+<p><img src="/media/golang/net/pprof/pprof2.jpg" alt="" /></p>
+
+<p>很明显，CPU 占用过高是 github.com/wolfogre/go-pprof-practice/animal/felidae/tiger.(*Tiger).Eat 造成的。</p>
+
+<p>3、输入 list Eat，查看问题具体在代码的哪一个位置</p>
+
+<p><img src="/media/golang/net/pprof/pprof3.jpg" alt="" /></p>
+
+<p>可以看到，是第 24 行那个一百亿次空循环占用了大量 CPU 时间，至此，问题定位成功！</p>
+
+<p>4、我们还可以使用web来形象的查看</p>
+
+<p><img src="/media/golang/net/pprof/pprof4.jpg" alt="" /></p>
+
+<p>图中，tiger.(*Tiger).Eat 函数的框特别大，箭头特别粗，pprof 生怕你不知道这个函数的 CPU 占用很高，这张图还包含了很多有趣且有价值的信息。</p>
+
+<h2 id="排查内存占用过高">排查内存占用过高</h2>
+
+<p>同样命令：go tool pprof <a href="http://localhost:6060/debug/pprof/heap，">http://localhost:6060/debug/pprof/heap，</a> 然后再一次使用 top、list 来定问问题代码，就不多说了</p>
+
+<p><img src="/media/golang/net/pprof/pprof5.jpg" alt="" /></p>
+
+<p>可以看到这次出问题的地方在 github.com/wolfogre/go-pprof-practice/animal/muridae/mouse.(*Mouse).Steal，可以看到，这里有个循环会一直向 m.buffer 里追加长度为 1 MiB 的数组，直到总容量到达 1 GiB 为止，且一直不释放这些内存，这就难怪会有这么高的内存占用了。</p>
+
+<h2 id="其他">其他</h2>
+
+<p>其实排查其他的问题都是通过相同的方式进行排查，top，list，web来看出问题所在，当然使用火焰图就更加的形象了。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-net-http-pporf/">https://kingjcy.github.io/post/golang/go-net-http-pporf/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/net/">
+                            <i class="fa fa-tags"></i>
+                            net
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/http/">
+                            <i class="fa fa-tags"></i>
+                            http
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/pprof/">
+                            <i class="fa fa-tags"></i>
+                            pprof
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-channel/">Golang使用系列---- channel</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年08月24日)</span></li><li id="li-rels"><a href="/post/golang/go-goroutinechannel/">Golang使用系列---- Goroutine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月24日)</span></li><li id="li-rels"><a href="/post/golang/go-net-http/">Golang使用系列---- Net/Http 应用层</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年09月26日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">Golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-runtime/">Golang使用系列---- Runtime</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/golang/go-concurrence/">Golang使用系列---- Concurrence</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月26日)</span></li><li id="li-rels"><a href="/post/golang/go/">golang使用系列---- go基本使用积累</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月23日)</span></li><li id="li-rels"><a href="/post/golang/go-map/">Golang使用系列---- Map</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月28日)</span></li><li id="li-rels"><a href="/post/golang/go-sync/">Golang使用系列---- Sync</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月28日)</span></li><li id="li-rels"><a href="/post/golang/go-mutex/">Golang使用系列---- mutex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月28日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/paas/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/distributed/store/fs/hfds/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#pprof">PProf</a></li>
+<li><a href="#基本原理">基本原理</a></li>
+<li><a href="#基本使用">基本使用</a>
+<ul>
+<li><a href="#使用">使用</a></li>
+<li><a href="#交互分析">交互分析</a></li>
+</ul></li>
+<li><a href="#实战">实战</a>
+<ul>
+<li><a href="#获取问题程序">获取问题程序</a></li>
+<li><a href="#排查cpu占比过高">排查cpu占比过高</a></li>
+<li><a href="#排查内存占用过高">排查内存占用过高</a></li>
+<li><a href="#其他">其他</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

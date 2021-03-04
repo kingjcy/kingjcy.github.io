@@ -1,0 +1,2797 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="kubernetes是一种以容器为核心的，自动化部署应用程序的分布式的容器管理系统。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s系列---- K8s Principle - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s系列---- K8s Principle
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年11月20日 
+                </div>
+                <h1 class="post-title">云计算K8s系列---- K8s Principle</h1>
+            </header>
+
+            <div class="post-content">
+                <p>kubernetes是一种以容器为核心的，自动化部署应用程序的分布式的容器管理系统。</p>
+
+<h1 id="架构">架构</h1>
+
+<p><img src="/media/cloud/k8s/k8s1.png" alt="" /></p>
+
+<h2 id="核心组件">核心组件</h2>
+
+<blockquote>
+<p>master</p>
+</blockquote>
+
+<ul>
+<li>apiserver: 提供了资源操作的唯一入口，并提供认证、授权、访问控制、API注册和发现等机制；可以说是k8s的内部交互的网关总线。</li>
+<li>controller manager: 负责维护集群的状态，比如故障检测、自动扩展、滚动更新等；是控制器的管理者，负责很多的控制器。</li>
+<li>scheduler: 负责资源的调度，按照（预选优选）调度策略将Pod调度到相应的机器上；</li>
+</ul>
+
+<blockquote>
+<p>node</p>
+</blockquote>
+
+<ul>
+<li>kubelet: 负责维护容器的生命周期，同时也负责Volume（CVI）和网络（CNI）的管理；主要干活的对象，负责和docker进行交互，创建容器，维护容器。</li>
+<li>kube-proxy: 负责为Service提供cluster内部的服务发现和负载均衡；提供了一种网络模式。</li>
+<li>docker engine:  docker引擎，负责docker的创建和管理，containerd已经快速崛起了。</li>
+</ul>
+
+<blockquote>
+<p>数据库</p>
+</blockquote>
+
+<ul>
+<li>etcd: 保存了整个集群的状态；</li>
+</ul>
+
+<blockquote>
+<p>网络</p>
+</blockquote>
+
+<ul>
+<li>fannel: 实现pod网络的互通</li>
+</ul>
+
+<p>除了核心组件，还有一些推荐的插件Add-ons：</p>
+
+<ul>
+<li>kube-dns负责为整个集群提供DNS服务，主要用于解决igress的负载均衡策略，如何找到相关的容器。从 Kubernetes v1.12 开始，CoreDNS 是推荐的 DNS 服务器，取代了kube-dns。</li>
+<li>Ingress Controller为服务提供外网入口，负载均衡。</li>
+<li>kube-state-metrics提供资源监控，主要是状态。</li>
+<li>Dashboard提供GUI，友好的界面。</li>
+</ul>
+
+<h2 id="分层架构">分层架构</h2>
+
+<p><img src="/media/cloud/k8s/k8s2.png" alt="" /></p>
+
+<p>根据作用可以将对应的功能进行分层</p>
+
+<ul>
+<li>基础设施层：container runtime、网络、存储等</li>
+<li>核心层：Kubernetes 最核心的功能，对外提供 API 构建高层的应用，对内提供插件式应用执行环境。</li>
+<li>应用层：部署（无状态、有状态应用、Job等）和路由（服务发现、负载均衡等）</li>
+<li>管理层：系统度量（如基础设施、容器和网络的度量），自动化（如自动扩展、动态 Provision 等）以及策略管理（RBAC、Quota、PSP、NetworkPolicy 等）</li>
+<li>接口层：kubectl 命令行工具、客户端 SDK 以及集群联邦</li>
+<li>生态系统：在接口层之上的庞大容器集群管理调度的生态系统，可以划分为两个范畴。
+
+<ul>
+<li>Kubernetes 外部：日志、监控、配置管理、CI、CD、Workflow等</li>
+<li>Kubernetes 内部：CRI、CNI、CSI、镜像仓库、Cloud Provider、集群自身的配置和管理等。</li>
+</ul></li>
+</ul>
+
+<h1 id="详细说明">详细说明</h1>
+
+<p>kubernetes架构是master/node，下面我们对每个节点上的组件进行了解.</p>
+
+<h2 id="master">master</h2>
+
+<p><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">k8s组件系列（一）&mdash;- apiserver详解</a></p>
+
+<p><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">k8s组件系列（二）&mdash;- scheduler详解</a></p>
+
+<p><a href="/post/cloud/paas/base/kubernetes/k8s-controller-manager/">k8s组件系列（三）&mdash;- controller-manager详解</a></p>
+
+<h2 id="node组件">node组件</h2>
+
+<p><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">k8s组件系列（四）&mdash;- kubelet详解</a></p>
+
+<p><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">k8s组件系列（五）&mdash;- proxy详解</a></p>
+
+<p><a href="/posts/cloud/paas/base/docker/docker">k8s组件系列（六）&mdash;- docker详解</a></p>
+
+<h2 id="数据库">数据库</h2>
+
+<p><a href="/post/cloud/paas/db/etcd">k8s组件系列（七）&mdash;- etcd详解</a></p>
+
+<h2 id="存储">存储</h2>
+
+<p><a href="/post/cloud/paas/base/kubernetes/k8s-store/">k8s组件系列（八）&mdash;- 存储</a></p>
+
+<h2 id="网络">网络</h2>
+
+<p><a href="/post/cloud/paas/base/kubernetes/k8s-network/">k8s组件系列（九）&mdash;- 网络</a></p>
+
+<h2 id="核心插件">核心插件</h2>
+
+<p><a href="/post/cloud/paas/base/kubernetes/k8s-addons/">k8s组件系列（十）&mdash;- 核心插件</a></p>
+
+<hr />
+
+<h1 id="基本概念">基本概念</h1>
+
+<h2 id="pod">pod</h2>
+
+<blockquote>
+<p>pod</p>
+</blockquote>
+
+<p>1、为什么需要pod？pause父容器是做什么的？</p>
+
+<p>Pod的概念，主要是在多个容器中，隐藏了docker中复杂的标志位以及管理docker容器、共享卷及其他docker资源的复杂性。同时也隐藏了不同容器运行环境的差异。</p>
+
+<p>原则上，任何人只需要创建一个父容器就可以配置docker来管理容器组之间的共享问题。这个父容器需要能够准确的知道如何去创建共享运行环境的容器，还能管理这些容器的生命周期。为了实现这个父容器的构想，kubernetes中，用pause容器来作为一个pod中所有容器的父容器。这个pause容器有两个核心的功能：</p>
+
+<ul>
+<li>它提供整个pod的Linux命名空间的基础。业务容器共享pause的ip（pod_ip）和挂载的volume（存储空间）</li>
+<li>启用PID命名空间，它在每个pod中都作为PID为1进程，并回收僵尸进程。</li>
+</ul>
+
+<p><img src="/media/cloud/k8s/pod.png" alt="" />
+<img src="/media/cloud/k8s/pod2.png" alt="" /></p>
+
+<p>2、pod是什么？</p>
+
+<p>pod是kubernetes定义的一种操作单位。连接了容器和管理。</p>
+
+<p>pod可以用一个或者多个容器组成。</p>
+
+<ul>
+<li>多个容器（sidecar模式）：在一个Pod中同时运行多个容器。一个Pod中也可以同时封装几个需要紧密耦合互相协作的容器，它们之间共享资源。这些在同一个Pod中的容器可以互相协作成为一个service单位——一个容器共享文件，另一个“sidecar”容器来更新这些文件。Pod将这些容器的存储资源作为一个实体来管理。比如：一种应用的实例，例如一个web站点，包含前端，后端，数据库这三个容器，放在一个pod中对外就是一个web服务。</li>
+<li>单个容器：一个Pod中运行一个容器。“每个Pod中一个容器”的模式是最常见的用法；在这种使用方式中，你可以把Pod想象成是单个容器的封装，kuberentes管理的是Pod而不是直接管理容器。</li>
+</ul>
+
+<p>pod内部共享资源</p>
+
+<ol>
+<li><p>Pod中可以共享两种资源：网络和存储（挂载的volume）。</p></li>
+
+<li><p>Pod内部的容器可以使用localhost互相通信。</p></li>
+
+<li><p>可以Pod指定多个共享的Volume。Pod中的所有容器都可以访问共享的volume。Volume也可以用来持久化Pod中的存储资源，以防容器重启后文件丢失。</p></li>
+</ol>
+
+<p>3、pod的特性</p>
+
+<ol>
+<li><p>你很少会直接在kubernetes中创建单个Pod。因为Pod的生命周期是短暂的，用后即焚的实体。</p></li>
+
+<li><p>Controller可以创建和管理多个Pod，提供副本管理、滚动升级和集群级别的自愈能力。例如，如果一个Node故障，Controller就能自动将该节点上的Pod调度到其他健康的Node上。</p></li>
+</ol>
+
+<blockquote>
+<p>状态</p>
+</blockquote>
+
+<p>pod的五种状态</p>
+
+<ul>
+<li>pending pod已经创建，但是内部镜像还没有完全创建</li>
+<li>running 容器已经创建，至少有一个容器处于运行状态</li>
+<li>succeeded  pod内容器都成功终止，且不会重启</li>
+<li>failed  所有容器已经退出，至少有一个是因为发生错误而退出</li>
+<li>Unkown：由于某中原因apiserver无法获取到Pod的状态。通常是由于Master与pod所在的主机失去连接了。</li>
+</ul>
+
+<p>还有一下其他的状态</p>
+
+<pre><code>CrashLoopBackOff： 容器退出，kubelet正在将它重启
+InvalidImageName： 无法解析镜像名称
+ImageInspectError： 无法校验镜像
+ErrImageNeverPull： 策略禁止拉取镜像
+ImagePullBackOff： 正在重试拉取
+RegistryUnavailable： 连接不到镜像中心
+ErrImagePull： 通用的拉取镜像出错
+CreateContainerConfigError： 不能创建kubelet使用的容器配置
+CreateContainerError： 创建容器失败
+m.internalLifecycle.PreStartContainer  执行hook报错
+RunContainerError： 启动容器失败
+PostStartHookError： 执行hook报错
+ContainersNotInitialized： 容器没有初始化完毕
+ContainersNotReady： 容器没有准备完毕
+ContainerCreating：容器创建中
+PodInitializing：pod 初始化中
+DockerDaemonNotReady：docker还没有完全启动
+NetworkPluginNotReady： 网络插件还没有完全启动
+Terminating： 退出中
+</code></pre>
+
+<blockquote>
+<p>重启策略</p>
+</blockquote>
+
+<p>pod的重启策略：kubelet将根据RestartPolicy的设置来进行相应的操作</p>
+
+<ul>
+<li>Always: 当容器失效时, 由kubelet自动重启该容器</li>
+<li>OnFailure: 当容器终止运行且退出码不为0时, 由kubelet自动重启该容器</li>
+<li>Never: 不论容器运行状态如何, kubelet都不会重启该容器</li>
+</ul>
+
+<blockquote>
+<p>镜像拉取策略</p>
+</blockquote>
+
+<p>支持三种ImagePullPolicy</p>
+
+<ul>
+<li>Always：不管镜像是否存在都会进行一次拉取。</li>
+<li>Never：不管镜像是否存在都不会进行拉取</li>
+<li>IfNotPresent：只有镜像不存在时，才会进行镜像拉取。</li>
+</ul>
+
+<p>注意：</p>
+
+<ul>
+<li>默认为IfNotPresent，但:latest标签的镜像默认为Always。</li>
+<li>拉取镜像时docker会进行校验，如果镜像中的MD5码没有变，则不会拉取镜像数据。</li>
+<li>生产环境中应该尽量避免使用:latest标签，而开发环境中可以借助:latest标签自动拉取最新的镜像。</li>
+</ul>
+
+<blockquote>
+<p>资源限制</p>
+</blockquote>
+
+<pre><code>spec.containers[].resources.limits.cpu：CPU上限，可以短暂超过，容器也不会被停止
+spec.containers[].resources.limits.memory：内存上限，不可以超过；如果超过，容器可能会被停止或调度到其他资源充足的机器上
+spec.containers[].resources.requests.cpu：CPU请求，可以超过
+spec.containers[].resources.requests.memory：内存请求，可以超过；但如果超过，容器可能会在Node内存不足时清理
+</code></pre>
+
+<p>cpu是以千分之一c为最小单位m，一般设置0.3核就是300m</p>
+
+<p>limit是上限，如果应用超过limit，会kill掉</p>
+
+<p>request给调度用的  调度在选择pod调度到那个node上，会看node上已经调度的pod所声明的request。你如果设置最小需求，那么你node上可能会被调度很多pod, 但是业务大的时候，会使得node的压力比较大，所以设置为正常的时候的需求，request不应该是一个下线值，而是一个运行参考值。</p>
+
+<blockquote>
+<p>钩子</p>
+</blockquote>
+
+<p>容器生命周期钩子（Container Lifecycle Hooks）监听容器生命周期的特定事件，并在事件发生时执行已注册的回调函数。支持两种钩子：</p>
+
+<ul>
+<li>postStart： 容器启动后执行，注意由于是异步执行，它无法保证一定在ENTRYPOINT之后运行。如果失败，容器会被杀死，并根据RestartPolicy决定是否重启</li>
+<li>preStop：容器停止前执行，常用于资源清理。如果失败，容器同样也会被杀死</li>
+</ul>
+
+<p>而钩子的回调函数支持两种方式：</p>
+
+<ul>
+<li>exec：在容器内执行命令</li>
+<li>httpGet：向指定URL发起GET请求</li>
+</ul>
+
+<p>postStart和preStop钩子示例：</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: lifecycle-demo
+spec:
+  containers:
+  - name: lifecycle-demo-container
+    image: nginx
+    lifecycle:
+      postStart:
+        exec:
+          command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;echo Hello from the postStart handler &gt; /usr/share/message&quot;]
+      preStop:
+        exec:
+          command: [&quot;/usr/sbin/nginx&quot;,&quot;-s&quot;,&quot;quit&quot;]
+</code></pre>
+
+<blockquote>
+<p>控制器</p>
+</blockquote>
+
+<p>pod只是运行的最小单元，我们一般不会直接使用pod。大部分情况下我们都是使用deployment（RS），deamonset，statefulset，job等控制器来完成部署调度使用，具体可以查看<a href="/post/cloud/paas/base/kubernetes/k8s-controller/">k8s控制器</a>。</p>
+
+<blockquote>
+<p>扩缩容</p>
+</blockquote>
+
+<p>Pod 水平自动伸缩（Horizontal Pod Autoscaler）和垂直扩展（Vertical Pod Autoscaler）以及CA（ cluster-autoscaler）特性，可以说是很实用的特性，完全自动化实现了资源的充分利用，所以单独拿出来说说，具体可以查看<a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">k8s autoscaler</a>。。</p>
+
+<blockquote>
+<p>限制带宽</p>
+</blockquote>
+
+<p>可以通过给Pod增加kubernetes.io/ingress-bandwidth和kubernetes.io/egress-bandwidth这两个annotation来限制Pod的网络带宽</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: qos
+  annotations:
+    kubernetes.io/ingress-bandwidth: 3M
+    kubernetes.io/egress-bandwidth: 4M
+spec:
+  containers:
+  - name: iperf3
+    image: networkstatic/iperf3
+    command:
+    - iperf3
+    - -s
+</code></pre>
+
+<blockquote>
+<p>yaml模版</p>
+</blockquote>
+
+<p>其实就是我们声明式操作的资源配置清单，具体参数详解可以查看k8s权威指南的第二章第四节。</p>
+
+<blockquote>
+<p>pod的配置管理</p>
+</blockquote>
+
+<p>configmap，下面有详解的使用说明</p>
+
+<blockquote>
+<p>健康检查</p>
+</blockquote>
+
+<p>Kubelet使用liveness probe（存活探针）来确定何时重启容器。例如，当应用程序处于运行状态但无法做进一步操作，liveness探针将捕获到deadlock，重启处于该状态下的容器，使应用程序在存在bug的情况下依然能够继续运行下去（谁的程序还没几个bug呢）。</p>
+
+<p>Kubelet使用readiness probe（就绪探针）来确定容器是否已经就绪可以接受流量。只有当Pod中的容器都处于就绪状态时kubelet才会认定该Pod处于就绪状态。该信号的作用是控制哪些Pod应该作为service的后端。如果Pod处于非就绪状态，那么它们将会被从service的load balancer中移除。</p>
+
+<p>一、探测</p>
+
+<p><strong>liveness probe</strong></p>
+
+<p>两种探测都有三种方式</p>
+
+<p>1、基于命令的探测</p>
+
+<p>实例</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    test: liveness
+  name: liveness-exec
+spec:
+  containers:
+  - name: liveness
+    args:
+    - /bin/sh
+    - -c
+    - touch /tmp/healthy; sleep 30; rm -rf /tmp/healthy; sleep 600
+    image: gcr.io/google_containers/busybox
+    livenessProbe:
+      exec:
+        command:
+        - cat
+        - /tmp/healthy
+      initialDelaySeconds: 5
+      periodSeconds: 5
+</code></pre>
+
+<p>该配置文件给Pod配置了一个容器。periodSeconds 规定kubelet要每隔5秒执行一次liveness probe。 initialDelaySeconds 告诉kubelet在第一次执行probe之前要的等待5秒钟。探针检测命令是在容器中执行 cat /tmp/healthy 命令。如果命令执行成功，将返回0，kubelet就会认为该容器是活着的并且很健康。如果返回非0值，kubelet就会杀掉这个容器并重启它。</p>
+
+<p>容器启动时，执行该命令：</p>
+
+<pre><code>/bin/sh -c &quot;touch /tmp/healthy; sleep 30; rm -rf /tmp/healthy; sleep 600&quot;
+</code></pre>
+
+<p>在容器生命的最初30秒内有一个 /tmp/healthy 文件，在这30秒内 cat /tmp/healthy命令会返回一个成功的返回码。30秒后， cat /tmp/healthy 将返回失败的返回码。</p>
+
+<p>创建Pod：</p>
+
+<pre><code>kubectl create -f https://k8s.io/docs/tasks/configure-pod-container/exec-liveness.yaml
+</code></pre>
+
+<p>在30秒内，查看Pod的event：结果显示没有失败的liveness probe：</p>
+
+<pre><code>kubectl describe pod liveness-exec
+FirstSeen    LastSeen    Count   From            SubobjectPath           Type        Reason      Message
+--------- --------    -----   ----            -------------           --------    ------      -------
+24s       24s     1   {default-scheduler }                    Normal      Scheduled   Successfully assigned liveness-exec to worker0
+23s       23s     1   {kubelet worker0}   spec.containers{liveness}   Normal      Pulling     pulling image &quot;gcr.io/google_containers/busybox&quot;
+23s       23s     1   {kubelet worker0}   spec.containers{liveness}   Normal      Pulled      Successfully pulled image &quot;gcr.io/google_containers/busybox&quot;
+23s       23s     1   {kubelet worker0}   spec.containers{liveness}   Normal      Created     Created container with docker id 86849c15382e; Security:[seccomp=unconfined]
+23s       23s     1   {kubelet worker0}   spec.containers{liveness}   Normal      Started     Started container with docker id 86849c15382e
+</code></pre>
+
+<p>启动35秒后，再次查看pod的event：在最下面有一条信息显示liveness probe失败，容器被删掉并重新创建。</p>
+
+<pre><code>kubectl describe pod liveness-exec
+FirstSeen LastSeen    Count   From            SubobjectPath           Type        Reason      Message
+--------- --------    -----   ----            -------------           --------    ------      -------
+37s       37s     1   {default-scheduler }                    Normal      Scheduled   Successfully assigned liveness-exec to worker0
+36s       36s     1   {kubelet worker0}   spec.containers{liveness}   Normal      Pulling     pulling image &quot;gcr.io/google_containers/busybox&quot;
+36s       36s     1   {kubelet worker0}   spec.containers{liveness}   Normal      Pulled      Successfully pulled image &quot;gcr.io/google_containers/busybox&quot;
+36s       36s     1   {kubelet worker0}   spec.containers{liveness}   Normal      Created     Created container with docker id 86849c15382e; Security:[seccomp=unconfined]
+36s       36s     1   {kubelet worker0}   spec.containers{liveness}   Normal      Started     Started container with docker id 86849c15382e
+2s        2s      1   {kubelet worker0}   spec.containers{liveness}   Warning     Unhealthy   Liveness probe failed: cat: can't open '/tmp/healthy': No such file or directory
+</code></pre>
+
+<p>再等30秒，确认容器已经重启：从输出结果来RESTARTS值加1了。</p>
+
+<pre><code>kubectl get pod liveness-exec
+NAME            READY     STATUS    RESTARTS   AGE
+liveness-exec   1/1       Running   1          1m
+</code></pre>
+
+<p>2、基于HTTP请求</p>
+
+<p>我们还可以使用HTTP GET请求作为liveness probe。下面是一个基于gcr.io/google_containers/liveness镜像运行了一个容器的Pod的例子http-liveness.yaml：</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    test: liveness
+  name: liveness-http
+spec:
+  containers:
+  - name: liveness
+    args:
+    - /server
+    image: gcr.io/google_containers/liveness
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8080
+        httpHeaders:
+          - name: X-Custom-Header
+            value: Awesome
+      initialDelaySeconds: 3
+      periodSeconds: 3
+</code></pre>
+
+<p>该配置文件只定义了一个容器，livenessProbe 指定kubelet需要每隔3秒执行一次liveness probe。initialDelaySeconds 指定kubelet在该执行第一次探测之前需要等待3秒钟。该探针将向容器中的server的8080端口发送一个HTTP GET请求。如果server的/healthz路径的handler返回一个成功的返回码，kubelet就会认定该容器是活着的并且很健康。如果返回失败的返回码，kubelet将杀掉该容器并重启它。</p>
+
+<p>任何大于200小于400的返回码都会认定是成功的返回码。其他返回码都会被认为是失败的返回码。</p>
+
+<p>最开始的10秒该容器是活着的， /healthz handler返回200的状态码。这之后将返回500的返回码。</p>
+
+<pre><code>http.HandleFunc(&quot;/healthz&quot;, func(w http.ResponseWriter, r *http.Request) {
+    duration := time.Now().Sub(started)
+    if duration.Seconds() &gt; 10 {
+        w.WriteHeader(500)
+        w.Write([]byte(fmt.Sprintf(&quot;error: %v&quot;, duration.Seconds())))
+    } else {
+        w.WriteHeader(200)
+        w.Write([]byte(&quot;ok&quot;))
+    }
+})
+</code></pre>
+
+<p>容器启动3秒后，kubelet开始执行健康检查。第一次健康监测会成功，但是10秒后，健康检查将失败，kubelet将杀掉和重启容器。</p>
+
+<p>创建一个Pod来测试一下HTTP liveness检测：</p>
+
+<pre><code>kubectl create -f https://k8s.io/docs/tasks/configure-pod-container/http-liveness.yaml
+
+After 10 seconds, view Pod events to verify that liveness probes have failed and the Container has been restarted:
+</code></pre>
+
+<p>10秒后，查看Pod的event，确认liveness probe失败并重启了容器。</p>
+
+<pre><code>kubectl describe pod liveness-http
+</code></pre>
+
+<p>3、基于TCP liveness探针</p>
+
+<p>第三种liveness probe使用TCP Socket。 使用此配置，kubelet将尝试在指定端口上打开容器的套接字。 如果可以建立连接，容器被认为是健康的，如果不能就认为是失败的。</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: goproxy
+  labels:
+    app: goproxy
+spec:
+  containers:
+  - name: goproxy
+    image: gcr.io/google_containers/goproxy:0.1
+    ports:
+    - containerPort: 8080
+    readinessProbe:
+      tcpSocket:
+        port: 8080
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    livenessProbe:
+      tcpSocket:
+        port: 8080
+      initialDelaySeconds: 15
+      periodSeconds: 20
+</code></pre>
+
+<p>如您所见，TCP检查的配置与HTTP检查非常相似。 此示例同时使用了readiness和liveness probe。 容器启动后5秒钟，kubelet将发送第一个readiness probe。 这将尝试连接到端口8080上的goproxy容器。如果探测成功，则该pod将被标记为就绪。Kubelet将每隔10秒钟执行一次该检查。</p>
+
+<p>除了readiness probe之外，该配置还包括liveness probe。 容器启动15秒后，kubelet将运行第一个liveness probe。 就像readiness probe一样，这将尝试连接到goproxy容器上的8080端口。如果liveness probe失败，容器将重新启动。</p>
+
+<p>4、使用命名的端口</p>
+
+<p>可以使用命名的ContainerPort作为HTTP或TCP liveness检查：</p>
+
+<pre><code>ports:
+- name: liveness-port
+  containerPort: 8080
+  hostPort: 8080
+
+livenessProbe:
+  httpGet:
+  path: /healthz
+  port: liveness-port
+</code></pre>
+
+<p><strong>readiness probe</strong></p>
+
+<p>1、定义readiness探针</p>
+
+<p>有时，应用程序暂时无法对外部流量提供服务。 例如，应用程序可能需要在启动期间加载大量数据或配置文件。 在这种情况下，你不想杀死应用程序，但你也不想发送请求。 Kubernetes提供了readiness probe来检测和减轻这些情况。 Pod中的容器可以报告自己还没有准备，不能处理Kubernetes服务发送过来的流量。</p>
+
+<p>Readiness probe的配置跟liveness probe很像。唯一的不同是使用 readinessProbe而不是livenessProbe。</p>
+
+<pre><code>readinessProbe:
+  exec:
+    command:
+    - cat
+    - /tmp/healthy
+  initialDelaySeconds: 5
+  periodSeconds: 5
+</code></pre>
+
+<p>Readiness probe的HTTP和TCP的探测器配置跟liveness probe一样。</p>
+
+<p>Readiness和livenss probe可以并行用于同一容器。 使用两者可以确保流量无法到达未准备好的容器，并且容器在失败时重新启动。</p>
+
+<p>二、配置Probe</p>
+
+<p>Probe 中有很多精确和详细的配置，通过它们你能准确的控制liveness和readiness检查：</p>
+
+<pre><code>initialDelaySeconds：容器启动后第一次执行探测是需要等待多少秒。
+periodSeconds：执行探测的频率。默认是10秒，最小1秒。
+timeoutSeconds：探测超时时间。默认1秒，最小1秒。
+successThreshold：探测失败后，最少连续探测成功多少次才被认定为成功。默认是1。对于liveness必须是1。最小值是1。
+failureThreshold：探测成功后，最少连续探测失败多少次才被认定为失败。默认是3。最小值是1。
+</code></pre>
+
+<p>HTTP probe 中可以给 httpGet设置其他配置项：</p>
+
+<pre><code>host：连接的主机名，默认连接到pod的IP。你可能想在http header中设置&quot;Host&quot;而不是使用IP。
+scheme：连接使用的schema，默认HTTP。
+path: 访问的HTTP server的path。
+httpHeaders：自定义请求的header。HTTP运行重复的header。
+port：访问的容器的端口名字或者端口号。端口号必须介于1和65535之间。
+</code></pre>
+
+<p>对于HTTP探测器，kubelet向指定的路径和端口发送HTTP请求以执行检查。 Kubelet将probe发送到容器的IP地址，除非地址被httpGet中的可选host字段覆盖。 在大多数情况下，你不想设置主机字段。 有一种情况下你可以设置它。 假设容器在127.0.0.1上侦听，并且Pod的hostNetwork字段为true。 然后，在httpGet下的host应该设置为127.0.0.1。 如果你的pod依赖于虚拟主机，这可能是更常见的情况，你不应该是用host，而是应该在httpHeaders中设置Host头。</p>
+
+<h2 id="label">label</h2>
+
+<blockquote>
+<p>label</p>
+</blockquote>
+
+<p>Label keys的语法</p>
+
+<ul>
+<li>一个可选前缀+名称，通过/来区分</li>
+<li>名称部分是必须的，并且最多63个字符，开始和结束的字符必须是字母或者数字，中间是字母数字和_、-、.。</li>
+<li>前缀可选，如指定必须是个DNS子域，一系列的DNS label通过.来划分，长度不超过253个字符，“/”来结尾。如前缀被省略了，这个Label的key被假定为对用户私有的。系统组成部分（比如scheduler,controller-manager,apiserver,kubectl）,必须要指定一个前缀，Kuberentes.io前缀是为K8S内核部分保留的。</li>
+</ul>
+
+<p>label value语法</p>
+
+<ul>
+<li>长度不超过63个字符。</li>
+<li>可以为空</li>
+<li>首位字符必须为字母数字字符</li>
+<li>中间必须是横线、_、.、数字、字母。</li>
+</ul>
+
+<p>主要用于label selector对其他的没有任何意义。</p>
+
+<blockquote>
+<p>Label选择器</p>
+</blockquote>
+
+<p>基于相等性或者不相等性的</p>
+
+<pre><code>environment = production
+tier != frontend
+</code></pre>
+
+<p>第一个选择所有键等于 environment 值为 production 的资源。后一种选择所有键为 tier 值不等于 frontend 的资源，和那些没有键为 tier 的label的资源。</p>
+
+<p>要过滤所有处于 production 但不是 frontend 的资源，可以使用逗号操作符</p>
+
+<pre><code>environment=production,tier!=frontend
+</code></pre>
+
+<p>基于set的条件</p>
+
+<p>基于集合的label条件允许用一组值来过滤键。支持三种操作符: in ， notin ,和 exists(仅针对于key符号) 。例如：</p>
+
+<pre><code>environment in (production, qa)
+tier notin (frontend, backend)
+partition
+!partitio
+</code></pre>
+
+<blockquote>
+<p>主要使用场景</p>
+</blockquote>
+
+<p>1、kube-controller进程通过资源对象RC上定义的Label Selector来筛选要监控的pod副本的数量，实现pod数量的自动控制。</p>
+
+<p>2、kube-proxy进程通过service的Label Selector来选择对应的Pod，建立出对应的Pod的转发路由表。</p>
+
+<p>3、通过Node定义的Label，使用NodeSelector实现定向调度。</p>
+
+<h2 id="service">service</h2>
+
+<p>Kubernete Service 是一个定义了一组Pod的策略的抽象，我们也有时候叫做宏观服务，也可以是我们常说的微服务，之前说的pod，rs等就是服务。这些被服务标记的Pod都是（一般）通过label Selector决定的。可见service主要提供了负载均衡和服务发现的功能。</p>
+
+<p>我们已经能够通过ReplicaSet来创建一组Pod来提供具有高可用性的服务。虽然每个Pod都会分配一个单独的Pod IP，然而却存在如下两问题：</p>
+
+<ul>
+<li>Pod IP仅仅是集群内可见的虚拟IP，外部无法访问。</li>
+<li>Pod IP会随着Pod的销毁而消失，当ReplicaSet对Pod进行动态伸缩时，Pod IP可能随时随地都会变化，这样对于我们访问这个服务带来了难度。</li>
+</ul>
+
+<p>因此，Kubernetes中的Service对象就是解决以上问题的实现服务发现核心关键。</p>
+
+<blockquote>
+<p>yaml模版</p>
+</blockquote>
+
+<p>参考k8s权威指南第二章第五节。</p>
+
+<blockquote>
+<p>创建</p>
+</blockquote>
+
+<p>Service同其他Kubernetes对象一样，也是通过yaml或json文件进行定义。此外，它和其他Controller对象一样，通过Label Selector来确定一个Service将要使用哪些Pod。一个简单的Service定义如下：</p>
+
+<pre><code>apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    run: nginx
+  name: nginx-service
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 81
+  selector:
+    app: nginx
+  type: ClusterIP
+</code></pre>
+
+<p>解析</p>
+
+<p>1、通过spec.selector字段确定这个Service将要使用哪些Label。在本例中，这个名为nginx的Service，将会管理所有具有app: nginxLabel的Pod。</p>
+
+<p>2、spec.ports.port: 80表明此Service将会监听80端口，并将所有监听到的请求转发给其管理的Pod。spec.ports.targetPort: 81表明此Service监听到的80端口的请求都会被转发给其管理的Pod的81端口，此字段可以省略，省略后其值会被设置为spec.ports.port的值。</p>
+
+<p>3、type: ClusterIP表面此Service的type，有如下几种</p>
+
+<ul>
+<li>ClusterIP。默认值。给这个Service分配一个Cluster IP，它是Kubernetes系统自动分配的虚拟IP，因此只能在集群内部访问。</li>
+<li>NodePort。将Service通过指定的Node上的端口暴露给外部。通过此方法，访问任意一个NodeIP:nodePort都将路由到ClusterIP，从而成功获得该服务。</li>
+<li>LoadBalancer。在 NodePort 的基础上，借助 cloud provider 创建一个外部的负载均衡器，并将请求转发到 <NodeIP>:NodePort。此模式只能在云服务器（AWS等）上使用。</li>
+<li>ExternalName。将服务通过 DNS CNAME 记录方式转发到指定的域名（通过 spec.externlName 设定）。需要 kube-dns 版本在 1.7 以上。</li>
+</ul>
+
+<p>实例</p>
+
+<p>1、假如有3个app: nginx Pod运行在3个不同的Node中，那么此时客户端访问任意一个Node的30001端口都能访问到这个nginx服务。</p>
+
+<pre><code>apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  labels:
+    run: nginx
+spec:
+  selector:
+    app: nginx
+  ports:
+  - port: 80
+    nodePort: 30001
+  type: NodePort
+</code></pre>
+
+<p>2、如果云服务商支持外接负载均衡器，则可以通过spec.type=LoadBalancer来定义Service</p>
+
+<pre><code>kind: Service
+apiVersion: v1
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 9376
+  clusterIP: 10.0.171.239
+  loadBalancerIP: 78.11.24.19
+  type: LoadBalancer
+status:
+  loadBalancer:
+    ingress:
+    - ip: 146.148.47.155
+</code></pre>
+
+<p>创建</p>
+
+<pre><code>kubectl apply -f service.yaml
+</code></pre>
+
+<blockquote>
+<p>查看service</p>
+</blockquote>
+
+<pre><code>kubectl discribe service
+</code></pre>
+
+<p><img src="/media/cloud/k8s/service1" alt="" /></p>
+
+<p>这个 IP 地址就是 service 的 IP 地址（clusterIP），这个 IP 地址在集群里面可以被其它 pod 所访问，相当于通过这个 IP 地址提供了统一的一个 pod 的访问入口，以及服务发现。</p>
+
+<p><img src="/media/cloud/k8s/service2" alt="" /></p>
+
+<p>实际的架构如上图所示。在 service 创建之后，它会在集群里面创建一个虚拟的 IP 地址以及端口，在集群里，所有的 pod 和 node 都可以通过这样一个 IP 地址和端口去访问到这个 service。这个 service 会把它选择的 pod 及其 IP 地址都挂载到后端。这样通过 service 的 IP 地址访问时，就可以负载均衡到后端这些 pod 上面去。</p>
+
+<p>当 pod 的生命周期有变化时，比如说其中一个 pod 销毁，service 就会自动从后端摘除这个 pod。这样实现了：就算 pod 的生命周期有变化，它访问的端点是不会发生变化的。</p>
+
+<blockquote>
+<p>访问service</p>
+</blockquote>
+
+<p><strong>集群内</strong></p>
+
+<p>1、首先我们可以通过 service 的虚拟 IP 去访问，比如说刚创建的 my-service 这个服务，通过 kubectl get svc 或者 kubectl discribe service 都可以看到它的虚拟 IP 地址是 172.29.3.27，端口是 80，然后就可以通过这个虚拟 IP 及端口在 pod 里面直接访问到这个 service 的地址。</p>
+
+<p>2、第二种方式直接访问服务名，依靠 DNS 解析，就是同一个 namespace 里 pod 可以直接通过 service 的名字去访问到刚才所声明的这个 service。不同的 namespace 里面，我们可以通过 service 名字加“.”，然后加 service 所在的哪个 namespace 去访问这个 service，例如我们直接用 curl 去访问，就是 my-service:80 就可以访问到这个 service。</p>
+
+<p>3、第三种是通过环境变量访问，在同一个 namespace 里的 pod 启动时，K8s 会把 service 的一些 IP 地址、端口，以及一些简单的配置，通过环境变量的方式放到 K8s 的 pod 里面。在 K8s pod 的容器启动之后，通过读取系统的环境变量比读取到 namespace 里面其他 service 配置的一个地址，或者是它的端口号等等。比如在集群的某一个 pod 里面，可以直接通过 curl $ 取到一个环境变量的值，比如取到 MY_SERVICE_SERVICE_HOST 就是它的一个 IP 地址，MY_SERVICE 就是刚才我们声明的 MY_SERVICE，SERVICE_PORT 就是它的端口号，这样也可以请求到集群里面的 MY_SERVICE 这个 service。</p>
+
+<p>Headless Service</p>
+
+<p>service 有一个特别的形态就是 Headless Service。service 创建的时候可以指定 clusterIP:None，告诉 K8s 说我不需要 clusterIP（就是刚才所说的集群里面的一个虚拟 IP），然后 K8s 就不会分配给这个 service 一个虚拟 IP 地址，它没有虚拟 IP 地址怎么做到负载均衡以及统一的访问入口呢？</p>
+
+<p>它是这样来操作的：pod 可以直接通过 service_name 用 DNS 的方式解析到所有后端 pod 的 IP 地址，通过 DNS 的 A 记录的方式会解析到所有后端的 Pod 的地址，由客户端选择一个后端的 IP 地址，这个 A 记录会随着 pod 的生命周期变化，返回的 A 记录列表也发生变化，这样就要求客户端应用要从 A 记录把所有 DNS 返回到 A 记录的列表里面 IP 地址中，客户端自己去选择一个合适的地址去访问 pod。</p>
+
+<p><img src="/media/cloud/k8s/service3" alt="" /></p>
+
+<p>可以从上图看一下跟刚才我们声明的模板的区别，就是在中间加了一个 clusterIP:None，即表明不需要虚拟 IP。实际效果就是集群的 pod 访问 my-service 时，会直接解析到所有的 service 对应 pod 的 IP 地址，返回给 pod，然后 pod 里面自己去选择一个 IP 地址去直接访问。</p>
+
+<p><strong>集群外</strong></p>
+
+<p>1、NodePort 的方式就是在集群的 node 上面（即集群的节点的宿主机上面）去暴露节点上的一个端口，这样相当于在节点的一个端口上面访问到之后就会再去做一层转发，转发到虚拟的 IP 地址上面，就是刚刚宿主机上面 service 虚拟 IP 地址。</p>
+
+<p>2、也可以直接把容器的port直接映射到node上，hostNetWork=true</p>
+
+<p>3、LoadBalancer 类型就是在 NodePort 上面又做了一层转换，刚才所说的 NodePort 其实是集群里面每个节点上面一个端口，LoadBalancer 是在所有的节点前又挂一个负载均衡。比如在阿里云上挂一个 SLB，这个负载均衡会提供一个统一的入口，并把所有它接触到的流量负载均衡到每一个集群节点的 node pod 上面去。然后 node pod 再转化成 ClusterIP，去访问到实际的 pod 上面。</p>
+
+<blockquote>
+<p>没有 selector 的 Service</p>
+</blockquote>
+
+<p>服务最常见的是抽象化对 Kubernetes Pod 的访问，但是它们也可以抽象化其他种类的后端。 实例:</p>
+
+<ul>
+<li>希望在生产环境中使用外部的数据库集群，但测试环境使用自己的数据库。</li>
+<li>希望服务指向另一个 命名空间 中或其它集群中的服务。</li>
+<li>您正在将工作负载迁移到 Kubernetes。 在评估该方法时，您仅在 Kubernetes 中运行一部分后端。</li>
+</ul>
+
+<p>在任何这些场景中，都能够定义没有 selector 的 Service。 实例:</p>
+
+<pre><code>apiVersion: v1
+kind: Service
+metadata:
+  name: my-service
+spec:
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9376
+</code></pre>
+
+<p>由于此服务没有选择器，因此 不会 自动创建相应的 Endpoint 对象。 您可以通过手动添加 Endpoint 对象，将服务手动映射到运行该服务的网络地址和端口：</p>
+
+<pre><code>apiVersion: v1
+kind: Endpoints
+metadata:
+  name: my-service
+subsets:
+  - addresses:
+      - ip: 192.0.2.42
+    ports:
+      - port: 9376
+</code></pre>
+
+<p>访问没有 selector 的 Service，与有 selector 的 Service 的原理相同。 请求将被路由到用户定义的 Endpoint， YAML中为: 192.0.2.42:9376 (TCP)。</p>
+
+<p>ExternalName Service 是 Service 的特例，它没有 selector，也没有使用 DNS 名称代替。</p>
+
+<h2 id="volume-pv-pvc-storageclass">Volume,pv,pvc,StorageClass</h2>
+
+<p>Kubernetes中存储中有四个重要的概念：Volume、PersistentVolume PV、PersistentVolumeClaim PVC、StorageClass。掌握了这四个概念，就掌握了Kubernetes中存储系统的核心。</p>
+
+<ul>
+<li>Volumes是最基础的存储抽象，其支持多种类型，包括本地存储、NFS、FC以及众多的云存储，我们也可以编写自己的存储插件来支持特定的存储系统。Volume可以被Pod直接使用，也可以被PV使用。普通的Volume和Pod之间是一种静态的绑定关系，在定义Pod的同时，通过volume属性来定义存储的类型，通过volumeMount来定义容器内的挂载点。</li>
+<li>PersistentVolume。与普通的Volume不同，PV是Kubernetes中的一个资源对象，创建一个PV相当于创建了一个存储资源对象，这个资源的使用要通过PVC来请求。</li>
+<li>PersistentVolumeClaim。PVC是用户对存储资源PV的请求，根据PVC中指定的条件Kubernetes动态的寻找系统中的PV资源并进行绑定。目前PVC与PV匹配可以通过StorageClassName、matchLabels或者matchExpressions三种方式。</li>
+<li>StorageClass就是动态创建pv。</li>
+</ul>
+
+<p>具体使用可以看<a href="/post/cloud/paas/base/kubernetes/k8s-store/">k8s存储</a>。</p>
+
+<h2 id="configmap">configmap</h2>
+
+<p>k8s提供了两种配置模式，一种就是正常的配置configmap，另外一种就是加密的secret。</p>
+
+<blockquote>
+<p>configmap的作用</p>
+</blockquote>
+
+<p>应用部署的一个最佳实战是将应用所需的配置信息与程序进行分离，这样可以使应用程序被更好的复用，通过不同的配置也能实现更灵活的功能，将应用打包为容器镜像后，可以通过环境变量或者外挂文件的方式在创建容器时进行配置注入，但在大规模容器集群的环境中，对多个容器进行不同的配置讲变得非常复杂，Kubernetes 1.2开始提供了一种统一的应用配置管理方案-configMap</p>
+
+<blockquote>
+<p>configmap的用法</p>
+</blockquote>
+
+<p>ConfigMap供容器使用的典型用法如下：</p>
+
+<ul>
+<li>生成为容器内的环境变量</li>
+<li>设置容器启动命令的启动参数（需设置为环境变量）</li>
+<li>以volume的形式挂载为容器内部的文件或者目录</li>
+</ul>
+
+<p>1、configMap编写变量注入pod中</p>
+
+<p>比如我们用configmap创建两个变量，一个是nginx_port=80，一个是nginx_server=192.168.254.13</p>
+
+<pre><code>[root@master ~]# kubectl create configmap nginx-var --from-literal=nginx_port=80 --from-literal=nginx_server=192.168.254.13
+configmap/nginx-var created
+</code></pre>
+
+<p>查看configmap</p>
+
+<pre><code>[root@master ~]# kubectl get cm
+NAME        DATA   AGE
+nginx-var   2      5s
+
+
+[root@master ~]# kubectl describe cm nginx-var
+Name:         nginx-var
+Namespace:    default
+Labels:       &lt;none&gt;
+Annotations:  &lt;none&gt;
+
+Data
+====
+nginx_port:
+----
+80
+nginx_server:
+----
+192.168.254.13
+Events:  &lt;none&gt;
+</code></pre>
+
+<p>然后我们创建pod，把这2个变量注入到环境变量当中</p>
+
+<pre><code>[root@master ~]# cat test2.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-nginx
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: nginx
+  ports:
+  - name: nginx
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mydeploy
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      name: web
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - name: nginx
+          containerPort: 80
+        volumeMounts:
+          - name: html
+            mountPath: /user/share/nginx/html/
+        env:
+        - name: TEST_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: nginx-var
+              key: nginx_port
+        - name: TEST_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: nginx-var
+              key: nginx_server
+      volumes:
+      - name: html
+        emptyDir: {}
+</code></pre>
+
+<p>执行pod文件</p>
+
+<pre><code>[root@master ~]# kubectl create -f test2.yaml
+service/service-nginx created
+</code></pre>
+
+<p>查看pod</p>
+
+<pre><code>[root@master ~]# kubectl get pods
+NAME                       READY   STATUS    RESTARTS   AGE
+mydeploy-d975ff774-fzv7g   1/1     Running   0          19s
+mydeploy-d975ff774-nmmqt   1/1     Running   0          19s
+</code></pre>
+
+<p>进入到容器中查看环境变量</p>
+
+<pre><code>[root@master ~]# kubectl exec -it mydeploy-d975ff774-fzv7g -- /bin/sh
+
+
+# printenv
+SERVICE_NGINX_PORT_80_TCP_PORT=80
+KUBERNETES_PORT=tcp://10.96.0.1:443
+SERVICE_NGINX_PORT_80_TCP_PROTO=tcp
+KUBERNETES_SERVICE_PORT=443
+HOSTNAME=mydeploy-d975ff774-fzv7g
+SERVICE_NGINX_SERVICE_PORT_NGINX=80
+HOME=/root
+PKG_RELEASE=1~buster
+SERVICE_NGINX_PORT_80_TCP=tcp://10.99.184.186:80
+TEST_HOST=192.168.254.13
+TEST_PORT=80
+TERM=xterm
+KUBERNETES_PORT_443_TCP_ADDR=10.96.0.1
+NGINX_VERSION=1.17.3
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+KUBERNETES_PORT_443_TCP_PORT=443
+NJS_VERSION=0.3.5
+KUBERNETES_PORT_443_TCP_PROTO=tcp
+SERVICE_NGINX_SERVICE_HOST=10.99.184.186
+SERVICE_NGINX_PORT=tcp://10.99.184.186:80
+SERVICE_NGINX_SERVICE_PORT=80
+KUBERNETES_SERVICE_PORT_HTTPS=443
+KUBERNETES_PORT_443_TCP=tcp://10.96.0.1:443
+KUBERNETES_SERVICE_HOST=10.96.0.1
+PWD=/
+SERVICE_NGINX_PORT_80_TCP_ADDR=10.99.184.186
+</code></pre>
+
+<p>可以发现configMap当中的环境变量已经注入到了pod容器当中</p>
+
+<p>这里要注意的是，如果是用这种环境变量的注入方式，pod启动后，如果在去修改configMap当中的变量，对于pod是无效的，如果是以卷的方式挂载，是可的实时更新的，这一点要清楚</p>
+
+<p>2、用configMap以存储卷的形式挂载到pod中</p>
+
+<p>上面说到了configMap以变量的形式虽然可以注入到pod当中，但是如果在修改变量的话pod是不会更新的，如果想让configMap中的配置跟pod内部的实时更新，就需要以存储卷的形式挂载</p>
+
+<pre><code>[root@master ~]# cat test2.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-nginx
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: nginx
+  ports:
+  - name: nginx
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mydeploy
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      name: web
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - name: nginx
+          containerPort: 80
+        volumeMounts:
+          - name: html-config
+            mountPath: /nginx/vars/
+            readOnly: true
+      volumes:
+      - name: html-config
+        configMap:
+          name: nginx-var
+</code></pre>
+
+<p>执行yaml文件</p>
+
+<pre><code>[root@master ~]# kubectl create -f test2.yaml
+service/service-nginx created
+deployment.apps/mydeploy created
+</code></pre>
+
+<p>查看pod</p>
+
+<pre><code>[root@master ~]# kubectl get pods
+NAME                        READY   STATUS    RESTARTS   AGE
+mydeploy-6f6b6c8d9d-pfzjs   1/1     Running   0          90s
+mydeploy-6f6b6c8d9d-r9rz4   1/1     Running   0          90s
+</code></pre>
+
+<p>进入到容器中</p>
+
+<pre><code>[root@master ~]# kubectl exec -it mydeploy-6f6b6c8d9d-pfzjs -- /bin/bash
+</code></pre>
+
+<p>在容器中查看configMap对应的配置</p>
+
+<pre><code>root@mydeploy-6f6b6c8d9d-pfzjs:/# cd /nginx/vars
+root@mydeploy-6f6b6c8d9d-pfzjs:/nginx/vars# ls
+nginx_port  nginx_server
+root@mydeploy-6f6b6c8d9d-pfzjs:/nginx/vars# cat nginx_port
+80
+root@mydeploy-6f6b6c8d9d-pfzjs:/nginx/vars#
+</code></pre>
+
+<p>修改configMap中的配置，把端口号从80修改成8080</p>
+
+<pre><code>[root@master ~]# kubectl edit cm nginx-var
+# Please edit the object below. Lines beginning with a '#' will be ignored,
+# and an empty file will abort the edit. If an error occurs while saving this file will be
+# reopened with the relevant failures.
+#
+apiVersion: v1
+data:
+  nginx_port: &quot;8080&quot;
+  nginx_server: 192.168.254.13
+kind: ConfigMap
+metadata:
+  creationTimestamp: &quot;2019-09-13T14:22:20Z&quot;
+  name: nginx-var
+  namespace: default
+  resourceVersion: &quot;248779&quot;
+  selfLink: /api/v1/namespaces/default/configmaps/nginx-var
+  uid: dfce8730-f028-4c57-b497-89b8f1854630
+</code></pre>
+
+<p>修改完稍等片刻查看文件档中的值，已然更新成8080</p>
+
+<pre><code>root@mydeploy-6f6b6c8d9d-pfzjs:/nginx/vars# cat nginx_port
+8080
+root@mydeploy-6f6b6c8d9d-pfzjs:/nginx/vars#
+</code></pre>
+
+<p>3、configMap创建配置文件注入到pod当中</p>
+
+<p>这里以nginx配置文件为例子，我们在宿主机上配置好nginx的配置文件，创建configmap，最后通过configmap注入到容器中</p>
+
+<p>创建nginx配置文件</p>
+
+<pre><code>[root@master ~]# vim www.conf
+server {
+    server_name: 192.168.254.13;
+    listen: 80;
+    root /data/web/html/;
+}
+</code></pre>
+
+<p>创建configMap</p>
+
+<pre><code>[root@master ~]# kubectl create configmap nginx-config --from-file=/root/www.conf
+configmap/nginx-config created
+</code></pre>
+
+<p>查看configMap</p>
+
+<pre><code>[root@master ~]# kubectl get cm
+NAME           DATA   AGE
+nginx-config   1      3m3s
+nginx-var      2      63m
+</code></pre>
+
+<p>创建pod并挂载configMap存储卷</p>
+
+<pre><code>[root@master ~]# cat test2.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-nginx
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: nginx
+  ports:
+  - name: nginx
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mydeploy
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      name: web
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - name: nginx
+          containerPort: 80
+        volumeMounts:
+          - name: html-config
+            mountPath: /etc/nginx/conf.d/
+            readOnly: true
+      volumes:
+      - name: html-config
+        configMap:
+          name: nginx-config
+</code></pre>
+
+<p>启动容器，并让容器启动的时候就加载configMap当中的配置</p>
+
+<pre><code>[root@master ~]# kubectl create -f test2.yaml
+service/service-nginx created
+deployment.apps/mydeploy created
+</code></pre>
+
+<p>查看容器</p>
+
+<pre><code>[root@master ~]# kubectl get pods -o wide
+NAME                       READY   STATUS    RESTARTS   AGE   IP            NODE    NOMINATED NODE   READINESS GATES
+mydeploy-fd46f76d6-jkq52   1/1     Running   0          22s   10.244.1.46   node1   &lt;none&gt;           &lt;none&gt;
+</code></pre>
+
+<p>访问容器当中的网页，80端口是没问题的，8888端口访问不同</p>
+
+<pre><code>[root@master ~]# curl 10.244.1.46
+this is test web
+
+
+[root@master ~]# curl 10.244.1.46:8888
+curl: (7) Failed connect to 10.244.1.46:8888; 拒绝连接
+</code></pre>
+
+<p>接下来我们去修改configMap当中的内容，吧80端口修改成8888</p>
+
+<pre><code>[root@master ~]# kubectl edit cm nginx-config
+# Please edit the object below. Lines beginning with a '#' will be ignored,
+# and an empty file will abort the edit. If an error occurs while saving this file will be
+# reopened with the relevant failures.
+#
+apiVersion: v1
+data:
+  www.conf: |
+    server {
+        server_name 192.168.254.13;
+        listen 8888;
+        root /data/web/html/;
+    }
+kind: ConfigMap
+metadata:
+  creationTimestamp: &quot;2019-09-13T15:22:22Z&quot;
+  name: nginx-config
+  namespace: default
+  resourceVersion: &quot;252615&quot;
+  selfLink: /api/v1/namespaces/default/configmaps/nginx-config
+  uid: f1881f87-5a91-4b8e-ab39-11a2f45733c2
+</code></pre>
+
+<p>进入到容器查看配置文件，可以发现配置文件已经修改过来了</p>
+
+<pre><code>root@mydeploy-fd46f76d6-jkq52:/usr/bin# cat /etc/nginx/conf.d/www.conf
+server {
+    server_name 192.168.254.13;
+    listen 8888;
+    root /data/web/html/;
+}
+</code></pre>
+
+<p>在去测试访问，发现还是报错，这是因为配置文件虽然已经修改了，但是nginx服务并没有加载配置文件，我们手动加载一下，以后可以用脚本形式自动完成加载文件</p>
+
+<pre><code>[root@master ~]# curl 10.244.1.46
+this is test web
+[root@master ~]# curl 10.244.1.46:8888
+curl: (7) Failed connect to 10.244.1.46:8888; 拒绝连接
+</code></pre>
+
+<p>在容器内部手动加载配置文件</p>
+
+<pre><code>root@mydeploy-fd46f76d6-jkq52:/usr/bin# nginx -s reload
+2019/09/13 16:04:12 [notice] 34#34: signal process started
+</code></pre>
+
+<p>再去测试访问，可以看到80端口已经访问不通，反而是我们修改的8888端口可以访问通</p>
+
+<pre><code>[root@master ~]# curl 10.244.1.46
+curl: (7) Failed connect to 10.244.1.46:80; 拒绝连接
+[root@master ~]# curl 10.244.1.46:8888
+this is test web
+</code></pre>
+
+<blockquote>
+<p>configmap的实际应用</p>
+</blockquote>
+
+<p>1、我们经常使用的就是设置pod的环境变量，比如一些IP和端口的设置</p>
+
+<pre><code>[root@001 ~]# kubectl get cm agent-config -n kube-system -o yaml
+apiVersion: v1
+data:
+  voyage_agent_exporter_port: &quot;969&quot;
+  voyage_agent_grpc_port: &quot;966&quot;
+  voyage_agent_http_port: &quot;968&quot;
+  voyage_agent_mulit_uplinks: '{&quot;ovs&quot;:[&quot;service0&quot;, &quot;service1&quot;]}'
+  voyage_agent_netlink_timeout: &quot;10000&quot;
+  voyage_agent_single_uplinks: service0,service1
+  voyage_cni_config: |-
+    {
+      &quot;cniVersion&quot;: &quot;0.3.1&quot;,
+      &quot;name&quot;: &quot;voyage-net&quot;,
+      &quot;type&quot;: &quot;voyage-cni&quot;
+    }
+  voyage_server_grpc_port: &quot;961&quot;
+  voyage_server_ip_list: 10.243.40.1,10.243.40.2,10.243.40.3
+kind: ConfigMap
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {&quot;apiVersion&quot;:&quot;v1&quot;,&quot;data&quot;:{&quot;voyage_agent_exporter_port&quot;:&quot;969&quot;,&quot;voyage_agent_grpc_port&quot;:&quot;966&quot;,&quot;voyage_agent_http_port&quot;:&quot;968&quot;,&quot;voyage_agent_mulit_uplinks&quot;:&quot;{\&quot;ovs\&quot;:[\&quot;service0\&quot;, \&quot;service1\&quot;]}&quot;,&quot;voyage_agent_netlink_timeout&quot;:&quot;10000&quot;,&quot;voyage_agent_single_uplinks&quot;:&quot;service0,service1&quot;,&quot;voyage_cni_config&quot;:&quot;{\n  \&quot;cniVersion\&quot;: \&quot;0.3.1\&quot;,\n  \&quot;name\&quot;: \&quot;voyage-net\&quot;,\n  \&quot;type\&quot;: \&quot;voyage-cni\&quot;\n}&quot;,&quot;voyage_server_grpc_port&quot;:&quot;961&quot;,&quot;voyage_server_ip_list&quot;:&quot;10.243.40.1,10.243.40.2,10.243.40.3&quot;},&quot;kind&quot;:&quot;ConfigMap&quot;,&quot;metadata&quot;:{&quot;annotations&quot;:{},&quot;name&quot;:&quot;voyage-agent-config&quot;,&quot;namespace&quot;:&quot;kube-system&quot;}}
+  creationTimestamp: &quot;2020-01-19T18:03:55Z&quot;
+  name: voyage-agent-config
+  namespace: kube-system
+  resourceVersion: &quot;692680451&quot;
+  selfLink: /api/v1/namespaces/kube-system/configmaps/voyage-agent-config
+  uid: 0ebf9112-3ae6-11ea-ad4e-6c92bf8d8058
+</code></pre>
+
+<p>然后在pod启动的时候可以设置这些探针，但是由于这种方式并不是实时的，如果修改还是需要重新发布，所以并不常用，对于这些配置我们设置一个配置中心，然后在每次发布的时候，拉去配置来设置环境变量，我们更多的是使用env，比如日志采集的环境变量</p>
+
+<pre><code>spec:
+  containers:
+  - args:
+    - --log.file=/opt/logs/app/test1.log
+    - --log.interval=60s
+    - --log.lineSize=500
+    - --log.maxLines=10000000
+    env:
+    - name: test_log_app
+      value: /opt/logs/app/*.log
+    - name: test_log_app_prefix
+      value: V1,ldcId,hostgroup,appId,ip,path,lid
+    - name: appId
+      value: loggen
+    - name: test_log_app_brokerlist
+      value: kafkasit02broker01.cnsuning.com:9092,kafkasit02broker02.cnsuning.com:9092,kafkasit02broker03.cnsuning.com:9092
+    - name: test_log_app_topic
+      value: ctdsa_nodejs_sit_njxz
+    - name: KUBERNETES_POD_IP
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: status.podIP
+    image: xgharborsit01.sncloud.com/sncloud/loggen:v0.0.1
+    imagePullPolicy: IfNotPresent
+    name: loggen
+    resources: {}
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /opt/logs
+      name: log
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: default-token-gj6mr
+      readOnly: true
+  dnsPolicy: ClusterFirst
+</code></pre>
+
+<p>2、将应用的配置文件挂载，然后给应用程序启动使用，是我们最常用的，比如filebeat的yaml文件。</p>
+
+<pre><code>[root@xgpcc01m010243040001 ~]# kubectl get cm filebeat-config -n kube-system -o yaml
+apiVersion: v1
+data:
+  filebeat-k8slog.yml: &quot;filebeat.inputs:\n- type: log\n  enabled: true\n  close_eof:
+    false\n  close_inactive: 5m\n  close_removed: false\n  close_renamed: false\n
+    \ ignore_older: 48h\n  clean_inactive: 72h\n  clean_removed: true\n  paths:\n
+    \ - \&quot;\&quot;\n  fields_under_root: true\n  fields:\n    brokerlist:\n    split: \&quot;
+    \       \&quot;\noutput.kafka:\n  topic: \n  version: \&quot;0.8.2.2\&quot;\n  codec.format:\n
+    \   ignoreNotFound: true\n    string: 'V1%{[split]}%{[ldc]}%{[split]}%{[hostgroup]}%{[split]}%{[appid]}%{[split]}%{[ip]}%{[split]}%{[path]}%{[split]}%{[lid]}%{[split]}%{[host.name]}%{[split]}%{[host.ip]}%{[split]}%{[@timestamp]}%{[split]}%{[message]}'\n&quot;
+  filebeat.yml: |
+    max_procs: 2
+    queue:
+      mem:
+        events: 512
+        flush.min_events: 256
+    filebeat.inputs:
+    - type: log
+      enabled: false
+      paths:
+      - /var/log/filebeat-pause.log
+    filebeat.config:
+      inputs:
+        enabled: true
+        path: ${path.home}/inputs.d/*.yml
+        reload.enabled: true
+        reload.period: 10s
+    output.kafka:
+      topic: &quot;%{[topic]}&quot;
+      version: &quot;0.8.2.2&quot;
+      codec.format:
+        ignoreNotFound: true
+        string: '%{[message]}'
+      metadata:
+        retry.max: 2
+        full: true
+kind: ConfigMap
+metadata:
+  creationTimestamp: &quot;2020-04-23T13:58:00Z&quot;
+  name: filebeat-config
+  namespace: kube-system
+  resourceVersion: &quot;654788331&quot;
+  selfLink: /api/v1/namespaces/kube-system/configmaps/filebeat-config
+  uid: 7153cf8e-856a-11ea-8bc6-6c92bf977c52
+</code></pre>
+
+<p>再来看filebeat的资源配置清单filebeat.yaml</p>
+
+<pre><code>[root@xgpcc01m010243040001 ~]# kubectl get ds filebeat -n kube-system -o yaml
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  creationTimestamp: &quot;2020-04-09T17:43:00Z&quot;
+  generation: 2
+  labels:
+    addon: filebeat
+    app: filebeat
+    namespace: kube-system
+  name: filebeat
+  namespace: kube-system
+  resourceVersion: &quot;741573898&quot;
+  selfLink: /apis/extensions/v1beta1/namespaces/kube-system/daemonsets/filebeat
+  uid: 8e6ee5ef-7a89-11ea-a446-6c92bf8d8058
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      addon: filebeat
+      app: filebeat
+      namespace: kube-system
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        addon: filebeat
+        app: filebeat
+        namespace: kube-system
+    spec:
+      containers:
+      - args:
+        - --path.home=/opt/filebeats/filebeat
+        - --path.config=/etc/filebeat
+        - --httpprof=:6060
+        command:
+        - /opt/filebeats/bin/filebeat
+        env:
+        - name: ldc
+          value: NJXZ
+        - name: appid
+          value: PCC
+        - name: envType
+          value: prd
+        - name: system_MwType_serviceID
+          value: PCC_filebeat_01
+        - name: cloudHostGroupId
+          value: &quot;01&quot;
+        - name: KUBERNETES_POD_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+        - name: HOST_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.hostIP
+        image: xgharbor01.sncloud.com/sncloud/filebeat:7.5.2-4
+        imagePullPolicy: Always
+        name: filebeat
+        resources:
+          limits:
+            cpu: &quot;3&quot;
+            memory: 2Gi
+          requests:
+            cpu: &quot;1&quot;
+            memory: 800Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /host/var/lib/kubelet/pods
+          mountPropagation: HostToContainer
+          name: kubeletpods
+          readOnly: true
+        - mountPath: /opt/filebeats/filebeat
+          name: k8slog
+          subPath: filebeats/filebeat
+        - mountPath: /etc/filebeat
+          name: config
+      - args:
+        - --path.home=/opt/filebeats/filebeat-k8slog
+        - --path.config=/etc/filebeat
+        - -c
+        - filebeat-k8slog.yml
+        command:
+        - /opt/filebeats/bin/filebeat
+        env:
+        - name: ldc
+          value: NJXZ
+        - name: appid
+          value: PCC
+        - name: envType
+          value: prd
+        - name: system_MwType_serviceID
+          value: PCC_filebeat_01
+        - name: cloudHostGroupId
+          value: &quot;01&quot;
+        - name: KUBERNETES_POD_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+        - name: HOST_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.hostIP
+        image: xgharbor01.sncloud.com/sncloud/filebeat:7.5.2-4
+        imagePullPolicy: Always
+        name: filebeat-k8slog
+        resources:
+          limits:
+            cpu: 250m
+            memory: 512Mi
+          requests:
+            cpu: 125m
+            memory: 125Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/filebeats/filebeat-k8slog
+          name: k8slog
+          subPath: filebeats/filebeat-k8slog
+        - mountPath: /k8s_log
+          name: k8slog
+        - mountPath: /etc/filebeat
+          name: config
+      - args:
+        - --path.base=/host
+        - --path.template=filebeat.tpl
+        - --path.filebeat-home=/opt/filebeats/filebeat
+        - --path.logs=/opt/log-pilot/logs
+        - --logLevel=debug
+        - --logPrefix=sn
+        command:
+        - /opt/log-pilot/bin/log-pilot
+        env:
+        - name: ldc
+          value: NJXZ
+        - name: appid
+          value: PCC
+        - name: envType
+          value: prd
+        - name: system_MwType_serviceID
+          value: PCC_filebeat_01
+        - name: cloudHostGroupId
+          value: &quot;01&quot;
+        - name: KUBERNETES_POD_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        image: xgharbor01.sncloud.com/sncloud/log-pilot:1.0.2
+        imagePullPolicy: Always
+        name: log-pilot
+        resources:
+          limits:
+            cpu: 250m
+            memory: 512Mi
+          requests:
+            cpu: 125m
+            memory: 125Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/filebeats/filebeat
+          name: k8slog
+          subPath: filebeats/filebeat
+        - mountPath: /opt/log-pilot/logs
+          name: k8slog
+          subPath: log-pilot
+        - mountPath: /host/var/lib/kubelet/pods
+          mountPropagation: HostToContainer
+          name: kubeletpods
+          readOnly: true
+        - mountPath: /var/run/docker.sock
+          mountPropagation: HostToContainer
+          name: docker-sock
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      hostNetwork: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: filebeat-config
+        name: config
+      - hostPath:
+          path: /var/lib/kubelet/pods
+          type: &quot;&quot;
+        name: kubeletpods
+      - hostPath:
+          path: /var/run/docker.sock
+          type: &quot;&quot;
+        name: docker-sock
+      - hostPath:
+          path: /k8s_log
+          type: &quot;&quot;
+        name: k8slog
+  templateGeneration: 6
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 25%
+    type: RollingUpdate
+status:
+  currentNumberScheduled: 128
+  desiredNumberScheduled: 128
+  numberAvailable: 128
+  numberMisscheduled: 0
+  numberReady: 128
+  observedGeneration: 2
+  updatedNumberScheduled: 128
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: special-config
+  namespace: default
+data:
+  special.how: very
+  special.type: charm
+</code></pre>
+
+<p>创建</p>
+
+<pre><code>$ kubectl create  -f  config.yaml
+configmap &quot;special-config&quot; created
+</code></pre>
+
+<p><strong>用作环境变量</strong></p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pod
+spec:
+  containers:
+    - name: test-container
+      image: gcr.io/google_containers/busybox
+      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;env&quot;]
+      env:
+        - name: SPECIAL_LEVEL_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: special-config
+              key: special.how
+        - name: SPECIAL_TYPE_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: special-config
+              key: special.type
+      envFrom:
+        - configMapRef:
+            name: env-config
+  restartPolicy: Never
+</code></pre>
+
+<p>当 Pod 结束后会输出</p>
+
+<pre><code>SPECIAL_LEVEL_KEY=very
+SPECIAL_TYPE_KEY=charm
+log_level=INFO
+</code></pre>
+
+<p><strong>用作命令行参数</strong></p>
+
+<p>将 ConfigMap 用作命令行参数时，需要先把 ConfigMap 的数据保存在环境变量中，然后通过 $(VAR_NAME) 的方式引用环境变量.</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: dapi-test-pod
+spec:
+  containers:
+    - name: test-container
+      image: gcr.io/google_containers/busybox
+      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;echo $(SPECIAL_LEVEL_KEY) $(SPECIAL_TYPE_KEY)&quot; ]
+      env:
+        - name: SPECIAL_LEVEL_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: special-config
+              key: special.how
+        - name: SPECIAL_TYPE_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: special-config
+              key: special.type
+  restartPolicy: Never
+</code></pre>
+
+<p>当 Pod 结束后会输出</p>
+
+<pre><code>very charm
+</code></pre>
+
+<p><strong>使用 volume 将 ConfigMap 作为文件或目录直接挂载</strong></p>
+
+<p>将创建的 ConfigMap 直接挂载至 Pod 的 / etc/config 目录下，其中每一个 key-value 键值对都会生成一个文件，key 为文件名，value 为内容</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: vol-test-pod
+spec:
+  containers:
+    - name: test-container
+      image: gcr.io/google_containers/busybox
+      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;cat /etc/config/special.how&quot;]
+      volumeMounts:
+      - name: config-volume
+        mountPath: /etc/config
+  volumes:
+    - name: config-volume
+      configMap:
+        name: special-config
+  restartPolicy: Never
+</code></pre>
+
+<p>当 Pod 结束后会输出</p>
+
+<pre><code>very
+</code></pre>
+
+<p>将创建的 ConfigMap 中 special.how 这个 key 挂载到 / etc/config 目录下的一个相对路径 / keys/special.level。如果存在同名文件，直接覆盖。其他的 key 不挂载</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: dapi-test-pod
+spec:
+  containers:
+    - name: test-container
+      image: gcr.io/google_containers/busybox
+      command: [&quot;/bin/sh&quot;,&quot;-c&quot;,&quot;cat /etc/config/keys/special.level&quot;]
+      volumeMounts:
+      - name: config-volume
+        mountPath: /etc/config
+  volumes:
+    - name: config-volume
+      configMap:
+        name: special-config
+        items:
+        - key: special.how
+          path: keys/special.level
+  restartPolicy: Never
+</code></pre>
+
+<p>当 Pod 结束后会输出</p>
+
+<pre><code>very
+</code></pre>
+
+<p>ConfigMap 支持同一个目录下挂载多个 key 和多个目录。例如下面将 special.how 和 special.type 通过挂载到 / etc/config 下。并且还将 special.how 同时挂载到 / etc/config2 下。</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: dapi-test-pod
+spec:
+  containers:
+    - name: test-container
+      image: gcr.io/google_containers/busybox
+      command: [&quot;/bin/sh&quot;,&quot;-c&quot;,&quot;sleep 36000&quot;]
+      volumeMounts:
+      - name: config-volume
+        mountPath: /etc/config
+      - name: config-volume2
+        mountPath: /etc/config2
+  volumes:
+    - name: config-volume
+      configMap:
+        name: special-config
+        items:
+        - key: special.how
+          path: keys/special.level
+        - key: special.type
+          path: keys/special.type
+    - name: config-volume2
+      configMap:
+        name: special-config
+        items:
+        - key: special.how
+          path: keys/special.level
+  restartPolicy: Never
+
+# ls  /etc/config/keys/
+special.level  special.type
+# ls  /etc/config2/keys/
+special.level
+# cat  /etc/config/keys/special.level
+very
+# cat  /etc/config/keys/special.type
+charm
+</code></pre>
+
+<p>使用 subpath 将 ConfigMap 作为单独的文件挂载到目录</p>
+
+<p>在一般情况下 configmap 挂载文件时，会先覆盖掉挂载目录，然后再将 congfigmap 中的内容作为文件挂载进行。如果想不对原来的文件夹下的文件造成覆盖，只是将 configmap 中的每个 key，按照文件的方式挂载到目录下，可以使用 subpath 参数。</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: dapi-test-pod
+spec:
+  containers:
+    - name: test-container
+      image: nginx
+      command: [&quot;/bin/sh&quot;,&quot;-c&quot;,&quot;sleep 36000&quot;]
+      volumeMounts:
+      - name: config-volume
+        mountPath: /etc/nginx/special.how
+        subPath: special.how
+  volumes:
+    - name: config-volume
+      configMap:
+        name: special-config
+        items:
+        - key: special.how
+          path: special.how
+  restartPolicy: Never
+
+
+root@dapi-test-pod:/# ls /etc/nginx/
+conf.d    fastcgi_params    koi-utf  koi-win  mime.types  modules  nginx.conf  scgi_params    special.how  uwsgi_params  win-utf
+root@dapi-test-pod:/# cat /etc/nginx/special.how
+very
+root@dapi-test-pod:/#
+</code></pre>
+
+<h2 id="secret">secret</h2>
+
+<p>Secret解决了密码、token、密钥等敏感数据的配置问题，而不需要把这些敏感数据暴露到镜像或者Pod Spec中。Secret可以以Volume或者环境变量的方式使用。</p>
+
+<p>Secret有三种类型：</p>
+
+<pre><code>Service Account：用来访问Kubernetes API，由Kubernetes自动创建，并且会自动挂载到Pod的/run/secrets/kubernetes.io/serviceaccount目录中；
+Opaque：base64编码格式的Secret，用来存储密码、密钥等；
+kubernetes.io/dockerconfigjson：用来存储私有docker registry的认证信息。
+</code></pre>
+
+<blockquote>
+<p>Opaque Secret</p>
+</blockquote>
+
+<p>Opaque类型的数据是一个map类型，要求value是base64编码格式：</p>
+
+<pre><code>$ echo -n &quot;admin&quot; | base64
+YWRtaW4=
+$ echo -n &quot;1f2d1e2e67df&quot; | base64
+MWYyZDFlMmU2N2Rm
+</code></pre>
+
+<p>secrets.yml</p>
+
+<pre><code>apiVersion: v1
+kind: Secret
+metadata:
+  name: mysecret
+type: Opaque
+data:
+  password: MWYyZDFlMmU2N2Rm
+  username: YWRtaW4=
+</code></pre>
+
+<p>接着，就可以创建secret了：kubectl create -f secrets.yml。</p>
+
+<p>创建好secret之后，有两种方式来使用它：</p>
+
+<p>1、以Volume方式</p>
+
+<p>将Secret挂载到Volume中</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    name: db
+  name: db
+spec:
+  volumes:
+  - name: secrets
+    secret:
+      secretName: mysecret
+  containers:
+  - image: gcr.io/my_project_id/pg:v1
+    name: db
+    volumeMounts:
+    - name: secrets
+      mountPath: &quot;/etc/secrets&quot;
+      readOnly: true
+    ports:
+    - name: cp
+      containerPort: 5432
+      hostPort: 5432
+</code></pre>
+
+<p>2、以环境变量方式</p>
+
+<p>将Secret导出到环境变量中</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: wordpress-deployment
+spec:
+  replicas: 2
+  strategy:
+      type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: wordpress
+        visualize: &quot;true&quot;
+    spec:
+      containers:
+      - name: &quot;wordpress&quot;
+        image: &quot;wordpress&quot;
+        ports:
+        - containerPort: 80
+        env:
+        - name: WORDPRESS_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysecret
+              key: username
+        - name: WORDPRESS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysecret
+              key: password
+</code></pre>
+
+<blockquote>
+<p>kubernetes.io/dockerconfigjson</p>
+</blockquote>
+
+<p>可以直接用kubectl命令来创建用于docker registry认证的secret：</p>
+
+<pre><code>$ kubectl create secret docker-registry myregistrykey --docker-server=DOCKER_REGISTRY_SERVER --docker-username=DOCKER_USER --docker-password=DOCKER_PASSWORD --docker-email=DOCKER_EMAIL
+secret &quot;myregistrykey&quot; created.
+</code></pre>
+
+<p>也可以直接读取~/.docker/config.json的内容来创建：</p>
+
+<pre><code>$ cat ~/.docker/config.json | base64
+$ cat &gt; myregistrykey.yaml &lt;&lt;EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: myregistrykey
+data:
+  .dockerconfigjson: UmVhbGx5IHJlYWxseSByZWVlZWVlZWVlZWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGx5eXl5eXl5eXl5eXl5eXl5eXl5eSBsbGxsbGxsbGxsbGxsbG9vb29vb29vb29vb29vb29vb29vb29vb29vb25ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubmdnZ2dnZ2dnZ2dnZ2dnZ2dnZ2cgYXV0aCBrZXlzCg==
+type: kubernetes.io/dockerconfigjson
+EOF
+
+$ kubectl create -f myregistrykey.yaml
+</code></pre>
+
+<p>在创建Pod的时候，通过imagePullSecrets来引用刚创建的myregistrykey:</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: foo
+spec:
+  containers:
+    - name: foo
+      image: janedoe/awesomeapp:v1
+  imagePullSecrets:
+    - name: myregistrykey
+</code></pre>
+
+<blockquote>
+<p>Service Account</p>
+</blockquote>
+
+<p>Service Account用来访问Kubernetes API，由Kubernetes自动创建，并且会自动挂载到Pod的/run/secrets/kubernetes.io/serviceaccount目录中。</p>
+
+<pre><code>$ kubectl run nginx --image nginx
+deployment &quot;nginx&quot; created
+$ kubectl get pods
+NAME                     READY     STATUS    RESTARTS   AGE
+nginx-3137573019-md1u2   1/1       Running   0          13s
+$ kubectl exec nginx-3137573019-md1u2 ls /run/secrets/kubernetes.io/serviceaccount
+ca.crt
+namespace
+token
+</code></pre>
+
+<h2 id="namespace">namespace</h2>
+
+<p>namespace主要是实现资源的隔离，Namespace是对一组资源和对象的抽象集合，比如可以用来将系统内部的对象划分为不同的项目组或用户组。比如我们将namespace命名为系统名，一个系统一个namespace。</p>
+
+<p>初始化的namespace</p>
+
+<p>在默认情况下，新的集群上有三个命名空间：</p>
+
+<ul>
+<li>default：向集群中添加对象而不提供命名空间，这样它会被放入默认的命名空间中。在创建替代的命名空间之前，该命名空间会充当用户新添加资源的主要目的地，无法删除。</li>
+<li>kube-public：kube-public命名空间的目的是让所有具有或不具有身份验证的用户都能全局可读。这对于公开bootstrap组件所需的集群信息非常有用。它主要是由Kubernetes自己管理。</li>
+<li>kube-system：kube-system命名空间用于Kubernetes管理的Kubernetes组件，一般规则是，避免向该命名空间添加普通的工作负载。它一般由系统直接管理，因此具有相对宽松的策略。</li>
+</ul>
+
+<p>创建命名空间</p>
+
+<p>方式一</p>
+
+<p>vi ns.yaml</p>
+
+<pre><code>apiVersion: v1
+kind: Namespace
+metadata:
+  name: custom-namespace     #这是命名空间的名称
+</code></pre>
+
+<p>kubectl create -f ns.yaml</p>
+
+<p>方式二</p>
+
+<pre><code>kubectl create namespace custom-namespace
+</code></pre>
+
+<h2 id="resource-quotas">Resource Quotas</h2>
+
+<p>资源配额（Resource Quotas）是用来限制用户资源用量的一种机制。</p>
+
+<p>它的工作原理为</p>
+
+<pre><code>资源配额应用在Namespace上，并且每个Namespace最多只能有一个ResourceQuota对象
+开启计算资源配额后，创建容器时必须配置计算资源请求或限制（也可以用LimitRange设置默认值）
+用户超额后禁止创建新的资源
+</code></pre>
+
+<p>资源配额的启用</p>
+
+<p>首先，在API Server启动时配置ResourceQuota adminssion control；然后在namespace中创建ResourceQuota对象即可。</p>
+
+<p>资源配额的类型</p>
+
+<p>1、计算资源，包括cpu和memory
+    cpu, limits.cpu, requests.cpu
+    memory, limits.memory, requests.memory</p>
+
+<p>2、存储资源，包括存储资源的总量以及指定storage class的总量</p>
+
+<pre><code>requests.storage：存储资源总量，如500Gi
+persistentvolumeclaims：pvc的个数
+.storageclass.storage.k8s.io/requests.storage
+.storageclass.storage.k8s.io/persistentvolumeclaims
+</code></pre>
+
+<p>3、对象数，即可创建的对象的个数</p>
+
+<pre><code>pods, replicationcontrollers, configmaps, secrets
+resourcequotas, persistentvolumeclaims
+services, services.loadbalancers, services.nodeports
+</code></pre>
+
+<p>计算资源示例</p>
+
+<pre><code>apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute-resources
+spec:
+  hard:
+    pods: &quot;4&quot;
+    requests.cpu: &quot;1&quot;
+    requests.memory: 1Gi
+    limits.cpu: &quot;2&quot;
+    limits.memory: 2Gi
+</code></pre>
+
+<p>对象个数示例</p>
+
+<pre><code>apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: object-counts
+spec:
+  hard:
+    configmaps: &quot;10&quot;
+    persistentvolumeclaims: &quot;4&quot;
+    replicationcontrollers: &quot;20&quot;
+    secrets: &quot;10&quot;
+    services: &quot;10&quot;
+    services.loadbalancers: &quot;2&quot;
+</code></pre>
+
+<blockquote>
+<p>LimitRange</p>
+</blockquote>
+
+<p>默认情况下，Kubernetes中所有容器都没有任何CPU和内存限制。LimitRange用来给Namespace增加一个资源限制，包括最小、最大和默认资源。比如</p>
+
+<pre><code>apiVersion: v1
+kind: LimitRange
+metadata:
+  name: mylimits
+spec:
+  limits:
+  - max:
+      cpu: &quot;2&quot;
+      memory: 1Gi
+    min:
+      cpu: 200m
+      memory: 6Mi
+    type: Pod
+  - default:
+      cpu: 300m
+      memory: 200Mi
+    defaultRequest:
+      cpu: 200m
+      memory: 100Mi
+    max:
+      cpu: &quot;2&quot;
+      memory: 1Gi
+    min:
+      cpu: 100m
+      memory: 3Mi
+    type: Container
+</code></pre>
+
+<p>创建limitrange</p>
+
+<pre><code>$ kubectl create -f https://k8s.io/docs/tasks/configure-pod-container/limits.yaml --namespace=limit-example
+limitrange &quot;mylimits&quot; created
+$ kubectl describe limits mylimits --namespace=limit-example
+Name:   mylimits
+Namespace:  limit-example
+Type        Resource      Min      Max      Default Request      Default Limit      Max Limit/Request Ratio
+----        --------      ---      ---      ---------------      -------------      -----------------------
+Pod         cpu           200m     2        -                    -                  -
+Pod         memory        6Mi      1Gi      -                    -                  -
+Container   cpu           100m     2        200m                 300m               -
+Container   memory        3Mi      1Gi      100Mi                200Mi              -
+</code></pre>
+
+<blockquote>
+<p>配额范围</p>
+</blockquote>
+
+<p>每个配额在创建时可以指定一系列的范围</p>
+
+<pre><code>范围  说明
+Terminating podSpec.ActiveDeadlineSeconds&gt;=0的Pod
+NotTerminating  podSpec.activeDeadlineSeconds=nil的Pod
+BestEffort  所有容器的requests和limits都没有设置的Pod（Best-Effort）
+NotBestEffort   与BestEffort相反
+</code></pre>
+
+<h2 id="ingress">Ingress</h2>
+
+<p>service和pod的IP仅可在集群内部访问。集群外部的请求需要通过负载均衡转发到service在Node上暴露的NodePort上，然后再由kube-proxy将其转发给相关的Pod。</p>
+
+<p>而Ingress就是为进入集群的请求提供路由规则的集合，如下图所示</p>
+
+<pre><code>    internet
+        |
+   [ Ingress ]
+   --|-----|--
+   [ Services ]
+</code></pre>
+
+<p>Ingress可以给service提供集群外部访问的URL、负载均衡、SSL终止、HTTP路由等。为了配置这些Ingress规则，集群管理员需要部署一个Ingress controller，它监听Ingress和service的变化，并根据规则配置负载均衡并提供访问入口。</p>
+
+<p>Ingress格式</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: test-ingress
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /testpath
+        backend:
+          serviceName: test
+          servicePort: 80
+</code></pre>
+
+<p>每个Ingress都需要配置rules，目前Kubernetes仅支持http规则。上面的示例表示请求/testpath时转发到服务test的80端口。</p>
+
+<p>根据Ingress Spec配置的不同，Ingress可以分为以下几种类型：</p>
+
+<blockquote>
+<p>单服务Ingress</p>
+</blockquote>
+
+<p>单服务Ingress即该Ingress仅指定一个没有任何规则的后端服务。</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: test-ingress
+spec:
+  backend:
+    serviceName: testsvc
+    servicePort: 80
+</code></pre>
+
+<p>注：单个服务还可以通过设置Service.Type=NodePort或者Service.Type=LoadBalancer来对外暴露。</p>
+
+<blockquote>
+<p>路由到多服务的Ingress</p>
+</blockquote>
+
+<p>路由到多服务的Ingress即根据请求路径的不同转发到不同的后端服务上，比如</p>
+
+<pre><code>foo.bar.com -&gt; 178.91.123.132 -&gt; / foo    s1:80
+                                 / bar    s2:80
+</code></pre>
+
+<p>可以通过下面的Ingress来定义：</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: test
+spec:
+  rules:
+  - host: foo.bar.com
+    http:
+      paths:
+      - path: /foo
+        backend:
+          serviceName: s1
+          servicePort: 80
+      - path: /bar
+        backend:
+          serviceName: s2
+          servicePort: 80
+</code></pre>
+
+<p>使用kubectl create -f创建完ingress后：</p>
+
+<pre><code>$ kubectl get ing
+NAME      RULE          BACKEND   ADDRESS
+test      -
+          foo.bar.com
+          /foo          s1:80
+          /bar          s2:80
+</code></pre>
+
+<blockquote>
+<p>虚拟主机Ingress</p>
+</blockquote>
+
+<p>虚拟主机Ingress即根据名字的不同转发到不同的后端服务上，而他们共用同一个的IP地址，如下所示</p>
+
+<pre><code>foo.bar.com --|                 |-&gt; foo.bar.com s1:80
+              | 178.91.123.132  |
+bar.foo.com --|                 |-&gt; bar.foo.com s2:80
+</code></pre>
+
+<p>下面是一个基于Host header路由请求的Ingress：</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: test
+spec:
+  rules:
+  - host: foo.bar.com
+    http:
+      paths:
+      - backend:
+          serviceName: s1
+          servicePort: 80
+  - host: bar.foo.com
+    http:
+      paths:
+      - backend:
+          serviceName: s2
+          servicePort: 80
+</code></pre>
+
+<p>注：没有定义规则的后端服务称为默认后端服务，可以用来方便的处理404页面。</p>
+
+<blockquote>
+<p>TLS Ingress</p>
+</blockquote>
+
+<p>TLS Ingress通过Secret获取TLS私钥和证书(名为tls.crt和tls.key)，来执行TLS终止。如果Ingress中的TLS配置部分指定了不同的主机，则它们将根据通过SNI TLS扩展指定的主机名（假如Ingress controller支持SNI）在多个相同端口上进行复用。</p>
+
+<p>定义一个包含tls.crt和tls.key的secret：</p>
+
+<pre><code>apiVersion: v1
+data:
+  tls.crt: base64 encoded cert
+  tls.key: base64 encoded key
+kind: Secret
+metadata:
+  name: testsecret
+  namespace: default
+type: Opaque
+</code></pre>
+
+<p>Ingress中引用secret：</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: no-rules-map
+spec:
+  tls:
+    - secretName: testsecret
+  backend:
+    serviceName: s1
+    servicePort: 80
+</code></pre>
+
+<p>注意，不同Ingress controller支持的TLS功能不尽相同。 请参阅有关nginx，GCE或任何其他Ingress controller的文档，以了解TLS的支持情况。</p>
+
+<blockquote>
+<p>更新Ingress</p>
+</blockquote>
+
+<p>可以通过kubectl edit ing name的方法来更新ingress：</p>
+
+<pre><code>$ kubectl get ing
+NAME      RULE          BACKEND   ADDRESS
+test      -                       178.91.123.132
+          foo.bar.com
+          /foo          s1:80
+
+$ kubectl edit ing test
+</code></pre>
+
+<p>这会弹出一个包含已有IngressSpec yaml文件的编辑器，修改并保存就会将其更新到kubernetes API server，进而触发Ingress Controller重新配置负载均衡：</p>
+
+<pre><code>spec:
+  rules:
+  - host: foo.bar.com
+    http:
+      paths:
+      - backend:
+          serviceName: s1
+          servicePort: 80
+        path: /foo
+  - host: bar.baz.com
+    http:
+      paths:
+      - backend:
+          serviceName: s2
+          servicePort: 80
+        path: /foo
+..
+</code></pre>
+
+<p>更新后：</p>
+
+<pre><code>$ kubectl get ing
+NAME      RULE          BACKEND   ADDRESS
+test      -                       178.91.123.132
+          foo.bar.com
+          /foo          s1:80
+          bar.baz.com
+          /foo          s2:80
+</code></pre>
+
+<p>当然，也可以通过kubectl replace -f new-ingress.yaml命令来更新，其中new-ingress.yaml是修改过的Ingress yaml。</p>
+
+<h2 id="dns">DNS</h2>
+
+<p>kubernetes 提供了 service 的概念可以通过 VIP 访问 pod 提供的服务，但是在使用的时候还有一个问题：怎么知道某个应用的 VIP？</p>
+
+<p>比如我们有两个应用，一个 app，一个 是 db，每个应用使用 rc 进行管理，并通过 service 暴露出端口提供服务。app 需要连接到 db 应用，我们只知道 db 应用的名称，但是并不知道它的 VIP 地址。</p>
+
+<ul>
+<li>最简单的办法是从 kubernetes 提供的 API 查询。但这是一个糟糕的做法，首先每个应用都要在启动的时候编写查询依赖服务的逻辑，这本身就是重复和增加应用的复杂度；其次这也导致应用需要依赖 kubernetes，不能够单独部署和运行。</li>
+<li>当然如果通过增加配置选项也是可以做到的，但这又是增加复杂度同时，在配置规模变大后难以维护。</li>
+<li>开始的时候，kubernetes 采用了 docker 使用过的方法——环境变量。每个 pod 启动时候，会把通过环境变量设置所有服务的 IP 和 port 信息，这样 pod 中的应用可以通过读取环境变量来获取依赖服务的地址信息。这种方式服务和环境变量的匹配关系有一定的规范，使用起来也相对简单，但是有个很大的问题：依赖的服务必须在 pod 启动之前就存在，不然是不会出现在环境变量中的。</li>
+<li>更理想的方案是：应用能够直接使用服务的名字，不需要关心它实际的 ip 地址，中间的转换能够自动完成。名字和 ip 之间的转换就是 DNS 系统的功能，因此 kubernetes 也提供了 DNS 方法来解决这个问题。</li>
+</ul>
+
+<p>DNS具体的实现和原理可以看<a href="/post/cloud/paas/base/kubernetes/k8s-addons/#dns">这里</a>。</p>
+
+<h1 id="原理">原理</h1>
+
+<h2 id="服务发现">服务发现</h2>
+
+<p>服务发现是分布式架构里服务治理的重要组成部分，服务发现的的基本原理，可以参考<a href="/post/middleware/serverdiscovery/sd/">这里</a>。我们这里主要看服务发现的实现之一：k8s的服务发现</p>
+
+<p>在 K8s 里面，服务发现与负载均衡就是通过Service实现。通过下图我们可以看出，K8s Service 向上提供了外部网络以及 pod 网络的访问，即外部网络可以通过 service 去访问，pod 网络也可以通过 K8s Service 去访问。</p>
+
+<p><img src="/media/cloud/k8s/sd" alt="" /></p>
+
+<p>关于service实现的负载均衡和服务发现，主要是以下几个部分</p>
+
+<blockquote>
+<p>k8s服务注册</p>
+</blockquote>
+
+<p>1、环境变量： 当你创建一个Pod的时候，kubelet会在该Pod中注入集群内所有Service的相关环境变量。需要注意的是，要想一个Pod中注入某个Service的环境变量，则必须Service要先比该Pod创建。这一点，几乎使得这种方式进行服务发现不可用。</p>
+
+<p>比如，一个ServiceName为redis-master的Service，对应的ClusterIP:Port为10.0.0.11:6379，则其对应的环境变量为：</p>
+
+<pre><code>REDIS_MASTER_SERVICE_HOST=10.0.0.11
+REDIS_MASTER_SERVICE_PORT=6379
+REDIS_MASTER_PORT=tcp://10.0.0.11:6379
+REDIS_MASTER_PORT_6379_TCP=tcp://10.0.0.11:6379
+REDIS_MASTER_PORT_6379_TCP_PROTO=tcp
+REDIS_MASTER_PORT_6379_TCP_PORT=6379
+REDIS_MASTER_PORT_6379_TCP_ADDR=10.0.0.11
+</code></pre>
+
+<p>然后pod可以根据对应服务的环境变量来进行调用，可见这种方式需要前置条件，目前已经基本上不使用。</p>
+
+<p>2、直接使用配置来调用，已经不算服务注册与发现了，就是我们正常的配置调用，这个也是有很大的问题的，主要是在k8s集群的规模中配置太过复杂，根本难以配置和维护。</p>
+
+<p>3、k8s提供api查询对应的服务，这也可以解决，但这是一个糟糕的做法，首先每个应用都要在启动的时候编写查询依赖服务的逻辑，这本身就是重复和增加应用的复杂度；其次这也导致应用需要依赖 kubernetes，不能够单独部署和运行。</p>
+
+<p>4、DNS：这也是k8s官方强烈推荐的方式。可以通过cluster add-on的方式轻松的创建KubeDNS来对集群内的Service进行服务发现。核心就是DNS监控服务进行注册，服务调用通过DNS服务器进行解析ip调用，更多关于<a href="/post/cloud/paas/base/kubernetes/k8s-principle/#dns">DNS</a>的内容在上面有说明。</p>
+
+<blockquote>
+<p>k8s域名解析</p>
+</blockquote>
+
+<p>Kubernetes 中，域名的全称，必须是 service-name.namespace.svc.cluster.local 这种模式，服务名，就是Kubernetes中 Service 的名称，namespace就是namespace的名称。</p>
+
+<p>然后通过查询DNS服务器来获取对应的ip进行调用。</p>
+
+<blockquote>
+<p>负载均衡</p>
+</blockquote>
+
+<p>可以把 Kubernetes Service 理解为前端和后端两部分：</p>
+
+<ul>
+<li>前端：名称、IP 和端口等不变的部分。也就是我们前面主要的服务发现的注册和发现</li>
+<li>后端：符合特定标签选择条件的 Pod 集合。主要是用于后端的负载均衡。</li>
+</ul>
+
+<p>前端是稳定可靠的，它的名称、IP 和端口在 Service 的整个生命周期中都不会改变。前端的稳定性意味着无需担心客户端 DNS 缓存超时等问题。</p>
+
+<p>后端是高度动态的，其中包括一组符合标签选择条件的 Pod，会通过负载均衡的方式进行访问。这里的负载均衡是一个简单的 4 层轮询。</p>
+
+<blockquote>
+<p>服务发现流程</p>
+</blockquote>
+
+<p><img src="/media/cloud/k8s/service" alt="" /></p>
+
+<p>如上图所示，K8s 服务发现以及 K8s Service 是这样整体的一个架构。</p>
+
+<p>在 K8s master 节点里面有 APIServer，就是统一管理 K8s 所有对象的地方，所有的组件都会注册到 APIServer 上面去监听这个对象的变化，比如说我们刚才的组件 pod 生命周期发生变化等这些事件。这里面最关键的有三个组件：</p>
+
+<ul>
+<li>一个是 Cloud Controller Manager，负责去配置 LoadBalancer 的一个负载均衡器给外部去访问；</li>
+<li>另外一个就是 Coredns，就是通过 Coredns 去观测 APIServer 里面的 service 后端 pod 的一个变化，去配置 service 的 DNS 解析，实现可以通过 service 的名字直接访问到 service 的虚拟 IP，或者是 Headless 类型的 Service 中的 IP 列表的解析；</li>
+<li>然后在每个 node 里面会有 kube-proxy 这个组件，它通过监听 service 以及 pod 变化，然后实际去配置集群里面的 node pod 或者是虚拟 IP 地址的一个访问。</li>
+</ul>
+
+<p>实际访问链路是什么样的呢？比如说从集群内部的一个 Client Pod3 去访问 Service，就类似于刚才所演示的一个效果。Client Pod3 首先通过 Coredns 这里去解析出 ServiceIP，Coredns 会返回给它 ServiceName 所对应的 service IP 是什么，这个 Client Pod3 就会拿这个 Service IP 去做请求，它的请求到宿主机的网络之后，就会被 kube-proxy 所配置的 iptables 或者 IPVS 去做一层拦截处理，之后去负载均衡到每一个实际的后端 pod 上面去，这样就实现了一个负载均衡以及服务发现。</p>
+
+<p>对于外部的流量，比如说刚才通过公网访问的一个请求。它是通过外部的一个负载均衡器 Cloud Controller Manager 去监听 service 的变化之后，去配置的一个负载均衡器，然后转发到节点上的一个 NodePort 上面去，NodePort 也会经过 kube-proxy 的一个配置的一个 iptables，把 NodePort 的流量转换成 ClusterIP，紧接着转换成后端的一个 pod 的 IP 地址，去做负载均衡以及服务发现。这就是整个 K8s 服务发现以及 K8s Service 整体的结构。</p>
+
+<h2 id="安全机制">安全机制</h2>
+
+<p><img src="/media/cloud/k8s/safe" alt="" /></p>
+
+<p>Kubernetes 官方文档给出了上面这张图。描述了用户在访问或变更资源的之前，需要经过 APIServer 的认证机制、授权机制以及准入控制机制。这三个机制(简称3A)可以这样理解，先检查是否合法用户，再检查该请求的行为是否有权限，最后做进一步的验证或添加默认参数。</p>
+
+<p>这一块属于paas的中的安全云的基础，具体我们在<a href="/post/cloud/paas/safe/safe/">安全云</a>中做说明。</p>
+
+<h2 id="k8s的pod创建流程">k8s的pod创建流程</h2>
+
+<p><img src="/media/cloud/k8s/create" alt="" /></p>
+
+<p>具体的创建步骤包括：</p>
+
+<ul>
+<li>客户端提交创建请求，可以通过API Server的Restful API，也可以使用kubectl命令行工具。支持的数据类型包括JSON和YAML。</li>
+<li>API Server处理用户请求，存储Pod数据到etcd。</li>
+<li>控制器根据资源情况确定创建的pod</li>
+<li>调度器通过API Server查看未绑定的Pod。尝试为Pod分配主机。</li>
+<li>过滤主机 (调度预选)：调度器用一组规则过滤掉不符合要求的主机。比如Pod指定了所需要的资源量，那么可用资源比Pod需要的资源量少的主机会被过滤掉。</li>
+<li>主机打分(调度优选)：对第一步筛选出的符合要求的主机进行打分，在主机打分阶段，调度器会考虑一些整体优化策略，比如把容一个Replication Controller的副本分布到不同的主机上，使用最低负载的主机等。</li>
+<li>选择主机：选择打分最高的主机，进行binding操作，结果存储到etcd中。</li>
+<li>kubelet根据调度结果执行Pod创建操作： 绑定成功后，scheduler会调用APIServer的API在etcd中创建一个boundpod对象，描述在一个工作节点上绑定运行的所有pod信息。运行在每个工作节点上的kubelet也会定期与etcd同步boundpod信息，一旦发现应该在该工作节点上运行的boundpod对象没有更新，则调用Docker API创建并启动pod内的容器。</li>
+</ul>
+
+<blockquote>
+<p>kubelet创建pod</p>
+</blockquote>
+
+<p><img src="/media/cloud/k8s/create1" alt="" /></p>
+
+<p>1、获取Pod进行准入检查</p>
+
+<p>kubelet的事件源主要包含两个部分：静态Pod和Apiserver，我们这里只考虑普通的Pod，则会直接将Pod加入到PodManager来进行管理，并且进行准入检查</p>
+
+<p>准入检查主要包含两个关键的控制器：驱逐管理与预选检查驱逐管理主要是根据当前的资源压力，检测对应的Pod是否容忍当前的资源压力；预选检查则是根据当前活跃的容器和当前节点的信息来检查是否满足当前Pod的基础运行环境，例如亲和性检查，同时如果当前的Pod的优先级特别高或者是静态Pod，则会尝试为其进行资源抢占，会按照QOS等级逐级来进行抢占从而满足其运行环境</p>
+
+<p>2、创建事件管道与容器管理主线程</p>
+
+<p>kubelet接收到一个新创建的Pod首先会为其创建一个事件管道，并且启动一个容器管理的主线程消费管道里面的事件，并且会基于最后同步时间来等待当前kubelet中最新发生的事件(从本地的podCache中获取)，如果是一个新建的Pod，则主要是通过PLEG中更新时间操作，广播的默认空状态来作为最新的状态</p>
+
+<p>3、同步最新状态</p>
+
+<p>当从本地的podCache中获取到最新的状态信息和从事件源获取的Pod信息后，会结合当前当前statusManager和probeManager里面的Pod里面的容器状态来更新，从而获取当前感知到的最新的Pod状态</p>
+
+<p>4、准入控制检查</p>
+
+<p>之前的准入检查是Pod运行的资源硬性限制的检查，而这里的准入检查则是软状态即容器运行时和版本的一些软件运行环境检查，如果这里检查失败，则会讲对应的容器状态设置为Blocked</p>
+
+<p>5、更新容器状态</p>
+
+<p>在通过准入检查之后，会调用statusManager来进行POd最新状态的同步，此处可能会同步给apiserver</p>
+
+<p>6、Cgroup配置</p>
+
+<p>在更新完成状态之后会启动一个PodCOntainerManager主要作用则是为对应的Pod根据其QOS等级来进行Cgroup配置的更新</p>
+
+<p>7、Pod基础运行环境准备</p>
+
+<p>接下来kubelet会为Pod的创建准备基础的环境，包括Pod数据目录的创建、镜像秘钥的获取、等待volume挂载完成等操作创建Pod的数据目录主要是创建 Pod运行所需要的Pod、插件、Volume目录，并且会通过Pod配置的镜像拉取秘钥生成秘钥信息，到此kubelet创建容器的工作就已经基本完成</p>
+
+<p>8、container创建</p>
+
+<p><img src="/media/cloud/k8s/create2" alt="" /></p>
+
+<ul>
+<li>计算Pod容器变更
+计算容器变更主要包括：Pod的sandbox是否变更、短声明周期容器、初始化容器是否完成、业务容器是否已经完成，相应的我们会得到一个几个对应的容器列表：需要被kill掉的容器列表、需要启动的容器列表，注意如果我们的初始化容器未完成，则不会进行将要运行的业务容器加入到需要启动的容器列表，可以看到这个地方是两个阶段</li>
+<li>初始化失败尝试终止
+如果之前检测到之前的初始化容器失败，则会检查当前Pod的所有容器和sandbox关联的容器如果有在运行的容器，会全部进行Kill操作，并且等待操作完成</li>
+<li>未知状态容器补偿
+当一些Pod的容器已经运行，但是其状态仍然是Unknow的时候，在这个地方会进行统一的处理，全部kill掉，从而为接下来的重新启动做清理操作，此处和3.2只会进行一个分支，但核心的目标都是清理那些运行失败或者无法获取状态的容器</li>
+<li>创建容器沙箱
+在启动Pod的容器之前，首先会为其创建一个sandbox容器，当前Pod的所有容器都和Pod对应的sandbox共享同一个namespace从而共享一个namespace里面的资源，创建Sandbox比较复杂，后续会继续介绍</li>
+
+<li><p>启动Pod相关容器
+Pod的容器目前分为三大类：短生命周期容器、初始化容器、业务容器，启动顺序也是从左到右依次进行,如果对于的容器创建失败，则会通过backoff机制来延缓容器的创建，这里我们顺便介绍下containerRuntime启动容器的流程</p>
+
+<ul>
+<li><p>检查容器镜像是否拉取
+镜像的拉取首先会进行对应容器镜像的拼接，然后将之前获取的拉取的秘钥信息和镜像信息，一起交给CRI运行时来进行底层容器镜像的拉取，当然这里也会各种backoff机制，从而避免频繁拉取失败影响kubelet的性能</p></li>
+
+<li><p>创建容器配置
+创建容器配置主要是为了容器的运行创建对应的配置数据，主要包括：Pod的主机名、域名、挂载的volume、configMap、secret、环境变量、挂载的设备信息、要挂载的目录信息、端口映射信息、根据环境生成执行的命令、日志目录等信息</p></li>
+
+<li><p>调用runtimeService完成容器的创建
+调用runtimeService传递容器的配置信息，调用CRI，并且最终调用容器的创建接口完成容器的状态</p></li>
+
+<li><p>调用runtimeService启动容器
+通过之前创建容器返回的容器ID，来进行对应的容器的启动，并且会为容器创建对应的日志目录</p></li>
+
+<li><p>执行容器的回调钩子
+如果容器配置了PostStart钩子，则会在此处进行对应钩子的执行，如果钩子的类型是Exec类则会调用CNI的EXec接口完成在容器内的执行</p></li>
+</ul></li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-principle/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-principle/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/principle/">
+                            <i class="fa fa-tags"></i>
+                            principle
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/monitor-scheme/k8s-base/">监控metrics系列---- K8s监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月12日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-principle/">云计算容器系列---- Docker Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker/">云计算容器系列---- Docker</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年02月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/paas/">云计算系列---- PaaS</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/jenkins/">云计算CDCI系列---- jenkins</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年09月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/harbor/">云计算CDCI系列---- harbor</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月23日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-tutorial/">云计算K8s系列---- K8s Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/helm/">云计算CDCI系列---- helm</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月11日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/distributed/store/fs/hfds/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/id/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#架构">架构</a>
+<ul>
+<li><a href="#核心组件">核心组件</a></li>
+<li><a href="#分层架构">分层架构</a></li>
+</ul></li>
+<li><a href="#详细说明">详细说明</a>
+<ul>
+<li><a href="#master">master</a></li>
+<li><a href="#node组件">node组件</a></li>
+<li><a href="#数据库">数据库</a></li>
+<li><a href="#存储">存储</a></li>
+<li><a href="#网络">网络</a></li>
+<li><a href="#核心插件">核心插件</a></li>
+</ul></li>
+<li><a href="#基本概念">基本概念</a>
+<ul>
+<li><a href="#pod">pod</a></li>
+<li><a href="#label">label</a></li>
+<li><a href="#service">service</a></li>
+<li><a href="#volume-pv-pvc-storageclass">Volume,pv,pvc,StorageClass</a></li>
+<li><a href="#configmap">configmap</a></li>
+<li><a href="#secret">secret</a></li>
+<li><a href="#namespace">namespace</a></li>
+<li><a href="#resource-quotas">Resource Quotas</a></li>
+<li><a href="#ingress">Ingress</a></li>
+<li><a href="#dns">DNS</a></li>
+</ul></li>
+<li><a href="#原理">原理</a>
+<ul>
+<li><a href="#服务发现">服务发现</a></li>
+<li><a href="#安全机制">安全机制</a></li>
+<li><a href="#k8s的pod创建流程">k8s的pod创建流程</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

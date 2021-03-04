@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Jenkins是一款开源 CI&amp;CD 软件，用于自动化各种任务，包括构建、测试和部署软件,Jenkins 支持各种运行方式，可通过系统包、Docker 或者通过一个独立的 Java 程序。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算CDCI系列---- jenkins - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算CDCI系列---- jenkins
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年09月13日 
+                </div>
+                <h1 class="post-title">云计算CDCI系列---- jenkins</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Jenkins是一款开源 CI&amp;CD 软件，用于自动化各种任务，包括构建、测试和部署软件,Jenkins 支持各种运行方式，可通过系统包、Docker 或者通过一个独立的 Java 程序。</p>
+
+<h1 id="jenkins">Jenkins</h1>
+
+<p>为什么选择jenkins？</p>
+
+<ul>
+<li>jenkins无论是使用基数还是使用趋势,jenkins的学习性价比对比travis（老牌的托管工具），gitlab ci,bamboo（存在关键词意义重叠还没有解决方案）要高许多.</li>
+<li>从二次开发的角度来看,jenkins开源,而且使用的语言是java,使用的框架为spring,两者分别为国内语言社区和框架社区中的顶级社区,发展的特别的好.</li>
+</ul>
+
+<p>jenkins的中文官方文档还是比较好的，可以作为很有用的<a href="https://www.jenkins.io/zh/doc/">参考文档</a>。</p>
+
+<h2 id="安装">安装</h2>
+
+<p>Jenkins通常作为一个独立的应用程序在其自己的流程中运行， 内置Java servlet 容器/应用程序服务器（Jetty）。</p>
+
+<blockquote>
+<p>系统要求</p>
+</blockquote>
+
+<p>最低推荐配置:</p>
+
+<ul>
+<li>256MB可用内存</li>
+<li>1GB可用磁盘空间(作为一个Docker容器运行jenkins的话推荐10GB)</li>
+</ul>
+
+<p>为小团队推荐的硬件配置:</p>
+
+<ul>
+<li>1GB+可用内存</li>
+<li>50 GB+ 可用磁盘空间</li>
+</ul>
+
+<p>软件配置:</p>
+
+<ul>
+<li>Java 8—​无论是Java运行时环境（JRE）还是Java开发工具包（JDK）都可以。</li>
+</ul>
+
+<blockquote>
+<p>docker</p>
+</blockquote>
+
+<p>直接使用官方镜像运行</p>
+
+<pre><code>docker run \
+    -u root \
+    --rm \
+    -d \
+    -p 8080:8080 \
+    -p 50000:50000 \
+    -v jenkins-data:/var/jenkins_home \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    jenkinsci/blueocean
+</code></pre>
+
+<ul>
+<li>&ndash;rm：（可选） jenkinsci/blueocean 关闭时自动删除Docker容器（下图为实例）。如果您需要退出Jenkins，这可以保持整洁。</li>
+<li>-d：（可选）jenkinsci/blueocean 在后台运行容器（即“分离”模式）并输出容器ID。如果您不指定此选项， 则在终端窗口中输出正在运行的此容器的Docker日志。</li>
+<li>-p 8080:8080：映射（例如“发布”）jenkinsci/blueocean 容器的端口8080到主机上的端口8080。 第一个数字代表主机上的端口，而最后一个代表容器的端口。因此，如果您为此选项指定 -p 49000:8080 ，您将通过端口49000访问主机上的Jenkins。</li>
+<li>-p 50000:50000：（可选）将 jenkinsci/blueocean 容器的端口50000 映射到主机上的端口50000。 如果您在其他机器上设置了一个或多个基于JNLP的Jenkins代理程序，而这些代理程序又与 jenkinsci/blueocean 容器交互（充当“主”Jenkins服务器，或者简称为“Jenkins主”）， 则这是必需的。默认情况下，基于JNLP的Jenkins代理通过TCP端口50000与Jenkins主站进行通信。 您可以通过“ 配置全局安全性” 页面更改Jenkins主服务器上的端口号。如果您要将您的Jenkins主机的JNLP代理端口的TCP端口 值更改为51000（例如），那么您需要重新运行Jenkins（通过此 docker run …​命令）并指定此“发布”选项 -p 52000:51000，其中最后一个值与Jenkins master上的这个更改值相匹配，第一个值是Jenkins主机的主机上的端口号， 通过它，基于JNLP的Jenkins代理与Jenkins主机进行通信 - 例如52000。</li>
+<li>-v jenkins-data:/var/jenkins_home：（可选，但强烈建议）映射在容器中的<code>/var/jenkins_home</code> 目录到具有名字 jenkins-data 的volume。 如果这个卷不存在，那么这个 docker run 命令会自动为你创建卷。 如果您希望每次重新启动Jenkins（通过此 docker run &hellip; 命令）时保持Jenkins状态，则此选项是必需的 。 如果你没有指定这个选项，那么在每次重新启动后，Jenkins将有效地重置为新的实例。
+注意: 所述的 jenkins-data 卷也可以 docker volume create命令创建： docker volume create jenkins-data 代替映射 /var/jenkins_home 目录转换为Docker卷，还 可以将此目录映射到计算机本地文件系统上的目录。 例如，指定该选项 -v $HOME/jenkins:/var/jenkins_home 会将容器的 /var/jenkins_home 目录映射 到 本地计算机上目录中的 jenkins 子目录， 该$HOME目录通常是 /Users/<your-username>/jenkins 或<code>/home/&lt;your-username&gt;/jenkins</code> 。</li>
+<li>-v /var/run/docker.sock:/var/run/docker.sock（可选 /var/run/docker.sock 表示Docker守护程序通过其监听的基于Unix的套接字。 该映射允许 jenkinsci/blueocean 容器与Docker守护进程通信， 如果 jenkinsci/blueocean 容器需要实例化其他Docker容器，则该守护进程是必需的。 如果运行声明式管道，其语法包含agent部分用 docker
+例如， agent { docker { &hellip; } } 此选项是必需的。 在Pipeline Syntax 页面上阅读更多关于这个的信息 。</li>
+<li>jenkinsci/blueocean Docker镜像本身。如果此镜像尚未下载，则此 docker run 命令 将自动为您下载镜像。此外，如果自上次运行此命令后发布了此镜像的任何更新， 则再次运行此命令将自动为您下载这些已发布的镜像更新。</li>
+</ul>
+
+<blockquote>
+<p>Linux</p>
+</blockquote>
+
+<p>可以直接用yum源或者不同操作系统的包管理工具进行安装，比如我们在CentOS 7上用yum安装</p>
+
+<pre><code># Java 8
+yum install java
+
+# Jenkins stable version
+sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io.key
+yum install jenkins
+
+# start jenkins
+service jenkins start
+
+# 初始化配置向导
+http://192.168.56.103:8080/
+
+cat /var/lib/jenkins/secrets/initialAdminPassword
+5224fc83b6d84cc2be69a18c53309ea4
+
+Install suggested plugins
+</code></pre>
+
+<blockquote>
+<p>war</p>
+</blockquote>
+
+<p>直接去官网下载 war 文件，并 cd 到 jenkins.war 所在目录，执行：</p>
+
+<pre><code>java -jar jenkins.war --httpPort=8080
+</code></pre>
+
+<p>war 包自带 jetty 服务器，以上命令会自动启服务器，并完成部署。</p>
+
+<h2 id="基本概念">基本概念</h2>
+
+<blockquote>
+<p>Job 类型</p>
+</blockquote>
+
+<ul>
+<li><p>Freestyle project
+自由风格项目，Jenkins 最主要的项目类型</p></li>
+
+<li><p>Maven Project
+Maven 项目专用，类似 Freestyle，更简单</p></li>
+
+<li><p>Multi-configuration project
+多配置项目，适合需要大量不同配置 (环境，平台等) 构建</p></li>
+
+<li><p>Pipeline
+流水线项目，适合使用 pipeline(workflow)插件功能构建流水线任务，或者使用 Freestyle project 不容易实现的复杂任务</p></li>
+
+<li><p>Multibranch Pipeline
+多分支流水线项目，根据 SCM 仓库中的分支创建多个 Pipeline 项目</p></li>
+</ul>
+
+<blockquote>
+<p>Freestyle 项目</p>
+</blockquote>
+
+<ul>
+<li><p>General
+项目基本配置
+项目名字，描述，参数，禁用项目，并发构建，限制构建默认 node 等等</p></li>
+
+<li><p>Source code Management
+代码库信息，支持 Git，Subversion 等</p></li>
+
+<li><p>Build Triggers
+构建触发方式
+周期性构建，Poll SCM，远程脚本触发构建，其他项目构建结束后触发等</p></li>
+
+<li><p>Build Environment
+构建环境相关设置
+构建前删除 workspace，向 Console 输出添加时间戳，设置构建名称，插入环境变量等</p></li>
+
+<li><p>Build
+项目构建任务
+添加 1 个或者多个构建步骤</p></li>
+
+<li><p>Post-build Actions
+构建后行为
+Artifact 归档，邮件通知，发布单元测试报告，触发下游项目等等</p></li>
+</ul>
+
+<blockquote>
+<p>Pipeline项目</p>
+</blockquote>
+
+<p>Pipeline，简而言之，就是一套运行于 Jenkins 上的工作流框架，将原本独立 运行于单个或者多个节点的任务连接起来，实现单个任务难以完成的复杂流程编排与可视化。</p>
+
+<p>Pipeline 是 Jenkins2.X 最核心的特性，帮助 Jenkins 实现从 CI 到 CD 与 DevOps 的转变</p>
+
+<ul>
+<li><p>Stage
+阶段，一个 Pipeline 可以划分为若干个 Stage，每个 Stage 代表一组操作，例如: “Build”, “Test”, “Deploy” 。
+注意，Stage 是一个逻辑分组的概念，可以跨多个 Node。</p></li>
+
+<li><p>Node
+节点，一个 Node 就是一个 Jenkins 节点，或者是 Master，或者是 Agent，是执行 Step 的具体 运行环境。</p></li>
+
+<li><p>Step
+步骤，Step 是最基本的操作单元，小到创建一个目录，大到构建一个 Docker 镜像，由各类 Jenkins Plugin 提供，例如: sh ‘make’</p></li>
+</ul>
+
+<blockquote>
+<p>Pipeline 和 Freestyle 的区别</p>
+</blockquote>
+
+<p>Freestyle:</p>
+
+<ul>
+<li>上游 / 下游 Job 调度，如 BuildJob -&gt;TestJob -&gt; DeployJob</li>
+<li>在 DSL Job 里面调度多个子 Job(利用 Build Flow plugin)</li>
+</ul>
+
+<p>Pipeline:
+- 单个 Job 中完成所有的任务编排
+- 全局视图</p>
+
+<p>Pipeline 会取代 Freestyle 么?</p>
+
+<pre><code>Pipeline 一定会取代 Build Flow 插件
+会，当你希望做到 Pipeline as code 的时候
+会，当你独立运行一组 Job 没有特殊价值或者意义的时候
+会，当你可以从 Multibranch Pipeline 受益的时候
+会，当你希望获取类似于 TravisCI 风格的工作流的时候
+</code></pre>
+
+<h2 id="使用">使用</h2>
+
+<blockquote>
+<p>创建第一个Freestyle Job</p>
+</blockquote>
+
+<p>1、安装 Timestamper 插件</p>
+
+<p>系统管理 - 插件管理 - 可用插件，搜索到 timestamper 点击 Install without restart</p>
+
+<p>2、新建一个 Freestyle 类型的 Job</p>
+
+<ul>
+<li>General 项目名称: My-first-freestyle-demo</li>
+<li>Build Environment 构建环境: 勾选 Add timestamps to the Console Output</li>
+<li>Build 构建: 屏幕打印出 “这是我的第一个 Jenkins Job, oops”</li>
+<li>Post-build Actions 构建后操作: 无</li>
+<li>点击立刻构建</li>
+
+<li><p>找到控制台输出</p>
+
+<pre><code>Console Output
+14:40:59 Started by user admin
+14:40:59 Building in workspace /var/lib/jenkins/workspace/My-first-freestyle-demo
+14:41:00 [My-first-freestyle-demo] $ /bin/sh -xe /tmp/jenkins3737737887278720679.sh
+14:41:00 + echo '这是我的第一个 Jenkins Job, oops'
+14:41:00 这是我的第一个 Jenkins Job, oops
+14:41:00 Finished: SUCCESS
+</code></pre></li>
+</ul>
+
+<blockquote>
+<p>Pipeline</p>
+</blockquote>
+
+<p>Pipeline 脚本是由 Groovy 语言实现</p>
+
+<p>Pipeline 支持两种语法
+- Declarative 声明式(在 Pipeline plugin 2.5 中引入)
+- Scripted Pipeline 脚本式</p>
+
+<p>如何创建基本的 Pipeline
+- 直接在 Jenkins Web UI 网页界面中输入脚本
+- 通过创建一个 Jenkinsfile 可以检入项目的源代码管理库</p>
+
+<p>最佳实践
+- 通常推荐在 Jenkins 中直接从源代码控制 (SCM) 中载入 Jenkinsfile Pipeline</p>
+
+<p>快速创建一个简单的 Pipeline</p>
+
+<p>1、新建 Job: Jenkins -&gt; 新建 -&gt; 输入 Job 名称: “My-first-pipeline-demo” -&gt; 选择 Pipeline -&gt; 点击 “OK”</p>
+
+<p>2、配置: 在 Pipeline -&gt; Script 文本输入框中输入下列语句，点击 ”保存”</p>
+
+<p>3、立即构建</p>
+
+<pre><code>pipeline {
+    agent any
+    stages {
+        stage('Build') {
+            steps {
+                echo 'Build'
+            }
+        }
+        stage('Test') {
+            steps {
+                echo 'Test'
+            }
+        }
+        stage('Deploy') {
+            steps {
+                echo 'Deploy'
+            }
+        }
+    }
+}
+</code></pre>
+
+<h1 id="kubernetes集成jenkins实现cicd">Kubernetes集成Jenkins实现CICD</h1>
+
+<h2 id="架构">架构</h2>
+
+<p><img src="/media/cloud/jenkins/jenkins" alt="" /></p>
+
+<ul>
+<li>github/gitlab/svn，存储代码的仓库，研发人员code代码提交到代码仓库中，触发jenkins的job任务。</li>
+<li>jenkins，CICD组件，负责编译，打包，安装。jenkins读取项目配置文件，进行测试，编译，构建镜像，推送到的harbor镜像仓库，然后生成helm部署的yaml文件。</li>
+<li>harbor，docker镜像仓库。存储jenkins推送的镜像，给helm在k8s上部署的时候拉去。</li>
+<li>helm，批量部署镜像，使用jenkins生成的yaml文件批量部署应用。</li>
+<li>k8s，容器编排调度平台。</li>
+</ul>
+
+<p>我们再来看看基于Jenkins的CI/CD流程</p>
+
+<p><img src="/media/cloud/jenkins/jenkins1" alt="" /></p>
+
+<p>应用构建和发布流程说明。</p>
+
+<ul>
+<li>用户向Gitlab提交代码，代码中必须包含Dockerfile</li>
+<li>用户在发布应用时需要填写git仓库地址和分支、服务类型、服务名称、资源数量、实例个数，确定后触发Jenkins自动构建</li>
+<li>Jenkins的CI流水线自动编译代码并打包成docker镜像推送到Harbor镜像仓库</li>
+<li>Jenkins的CI流水线中包括了自定义脚本，根据我们已准备好的kubernetes的YAML模板，将其中的变量替换成用户输入的选项</li>
+<li>生成应用的kubernetes YAML配置文件</li>
+<li>更新Ingress的配置，根据新部署的应用的名称，在ingress的配置文件中增加一条路由信息</li>
+<li>更新PowerDNS，向其中插入一条DNS记录，IP地址是边缘节点的IP地址。关于边缘节点，请查看边缘节点配置</li>
+<li>Jenkins调用kubernetes的API，部署应用</li>
+</ul>
+
+<h2 id="k8s中安装jenkins">k8s中安装jenkins</h2>
+
+<p>通过service暴露服务，通过deployment来部署jenkins，使用jenkins镜像，同样设置启动参数，还有以下就是用户和权限的问题。具体可以参考[这里]()。</p>
+
+<h2 id="插件">插件</h2>
+
+<p>为了方便集成 Maven、Kubernetes、配置文件等等，这里需要安装几个插件,这里插件可以在 系统管理—&gt;插件管理—&gt;可选插件 里面安装下面列出的插件。</p>
+
+<ul>
+<li><p>Git 插件</p>
+
+<ul>
+<li>Jenkins 安装中默认安装 Git 插件，所以不需要单独安装。利用 git 工具可以将 github、gitlab 等等的地址下载源码。</li>
+<li>如果是私有项目 Git 一般需要配置一个凭据用于验证（凭据-&gt;系统-&gt;全局凭据-&gt;添加凭据），如果是公开项目，则无需任何配置。</li>
+
+<li><p>利用 Git 插件拉取源码,分别可以在jenkinsfile中设置拉取的“分支”、“显示拉取日志”、“拉取的凭据”、“拉取的地址”。</p>
+
+<pre><code>git branch: &quot;master&quot; ,changelog: true , credentialsId: &quot;xxxx-xxxx-xxxx&quot;, url: &quot;https://github.com/xxxxxx&quot;
+</code></pre></li>
+</ul></li>
+
+<li><p>Docker 插件</p>
+
+<ul>
+<li><p>Jenkins 安装中默认安装 Docker 插件，所以不需要单独安装。利用 Docker 插件可以设置 Docker 环境，运行 Docker 命令，配置远程 Docker 仓库凭据等。比如写一个简单的执行例子来描述 Docker 镜像的构建过程在jenkinsfile中。</p>
+
+<pre><code>// 此方法是设置docker仓库地址，然后选择存了用户名、密码的凭据ID进行验证。注意，只有在此方法之中才生效。
+docker.withRegistry(&quot;https://hub.docker.com/&quot;, &quot;xxxxx-xxxx-xxxx-xxxx&quot;) {
+    echo &quot;构建镜像&quot;
+    def customImage = docker.build(&quot;hub.mydlq.club/myproject/springboot-helloworld:0.0.1&quot;)
+    echo &quot;推送镜像&quot;
+    customImage.push()
+    echo &quot;删除镜像&quot;
+    sh &quot;docker rmi hub.mydlq.club/myproject/springboot-helloworld:0.0.1&quot;
+}
+</code></pre></li>
+</ul></li>
+
+<li><p>Kubernetes</p>
+
+<ul>
+<li>Kubernetes 插件的目的是能够使用 Kubernetes 集群动态配置 Jenkins 代理（使用Kubernetes调度机制来优化负载），运行单个构建，等构建完成后删除该代理。这里我们需要用到这个插件来启动 Jenkins Slave 代理镜像，让代理执行 Jenkins 要执行的 Job。</li>
+<li>需要配置连接 kubernetes 集群的凭据（Kubernetes ServiceAccount token），此凭据的账户权限最好设置较大点，避免出现未知问题。配置完成后，需要在后面的 Cloud 云配置中设置这个凭据。</li>
+
+<li><p>需要配置连接Kubernetes集群，启动 Jenkins Slave 代理的相关配置（系统管理—&gt;系统设置—&gt;云）。</p>
+
+<pre><code>名称： kubernetesKubernetes
+地址： kubernetes.default.svc.cluster.local (默认集群内调用 k8s api 地址)
+禁用 HTTPS 证书检查： 勾选 (不验证https)
+凭据： 新增凭据—&gt;Secret text—&gt;Secret 设置 kubernetes 的 Token (进入 k8s dashboard 的 token 等都行)
+Jenkins地址： jenkins.mydlqcloud:8080/jenkins (用于代理与 Jenkins 连接的地址，用的是 k8s 集群中 jenkins 服务的地址为“http://jenkins服务名.jenkins所在namespace:jenkins端口号/jenkins后缀”)
+其他： 默认即可
+</code></pre></li>
+
+<li><p>Template 模板配置，也就是我们启动应用的yaml文件</p></li>
+</ul></li>
+
+<li><p>Kubernetes Cli</p>
+
+<ul>
+<li><p>Kubernetes Cli 插件作用是在执行 Jenkins Job 时候提供 kubectl 与 Kubernetes 集群交互环境。可以在 Pipeline 或自由式项目中允许执行 kubectl 相关命令。它的主要作用是提供 kubectl 运行环境，当然也可以提供 helm 运行环境。比如</p>
+
+<pre><code>// 提供 kubectl 执行的环境，其中得设置存储了 token 的凭据ID和 kubernetes api 地址
+withKubeConfig([credentialsId: &quot;xxxx-xxxx-xxxx-xxxx&quot;,serverUrl: &quot;https://kubernetes.default.svc.cluster.local&quot;]) {
+    sh &quot;kubectl get nodes&quot;
+}
+</code></pre></li>
+</ul></li>
+
+<li><p>Config File Provider</p>
+
+<ul>
+<li>Config File Provider 插件作用就是提供在 Jenkins 中存储 properties、xml、json、settings.xml 等信息，可以在执行 Pipeline 过程中可以写入存储的配置。</li>
+</ul></li>
+
+<li><p>Pipeline Utility Steps</p>
+
+<ul>
+<li>这是一个操作文件的插件，例如读写 json、yaml、pom.xml、Properties 等等。在这里主要用这个插件读取 pom.xml 文件的参数设置，获取变量，方便构建 Docker 镜像。</li>
+</ul></li>
+</ul>
+
+<h2 id="实践">实践</h2>
+
+<p>1、创建一个名为 “k8s-test” 的任务，类型选择“流水线”。</p>
+
+<p><img src="/media/cloud/jenkins/jenkins2" alt="" /></p>
+
+<p>2、配置流水线</p>
+
+<ul>
+<li>常规配置
+
+<ul>
+<li>为了安全，禁止并发构建。</li>
+<li>为了提升效率，这里设置流水线效率，持久保存设置覆盖。</li>
+</ul></li>
+</ul>
+
+<p><img src="/media/cloud/jenkins/jenkins3" alt="" /></p>
+
+<ul>
+<li><p>Pipeline脚本也就是jenkinsfile</p>
+
+<pre><code>// 代理名称，填写系统设置中设置的 Cloud 中 Template 模板的 label
+def label = &quot;jnlp-agent&quot;
+
+// 调用Kubernetes提供的方法
+podTemplate(label: label,cloud: 'kubernetes' ){
+    // 在代理节点上运行脚本
+    node (label) {
+        echo &quot;测试 kubernetes 中 jenkins slave 代理！~&quot;
+    }
+}
+</code></pre>
+
+<p>核心就是在这边的流水线脚本，他是一个步骤一个步骤的执行，没步骤执行的命令如果没有就需要安装对应的插件，整个脚本是使用Groovy语言。</p></li>
+</ul>
+
+<p>3、运行构建</p>
+
+<p>回到任务界面，点击立即构造来执行任务。</p>
+
+<p><img src="/media/cloud/jenkins/jenkins4" alt="" /></p>
+
+<p>4、查看流水线日志</p>
+
+<p>点击执行历史栏中点击，查看控制台输出的日志信息。</p>
+
+<p><img src="/media/cloud/jenkins/jenkins5" alt="" /></p>
+
+<h3 id="jenkinsfile">jenkinsfile</h3>
+
+<p>我们这边重点来看看jenkinsfile。首先是 Jenkinsfile 脚本存放在哪比较方便？</p>
+
+<ul>
+<li>1、新建 Git 项目，专门存放不同的 jenkinsfile 脚本，Jenkins 创建任务时候指定脚本存放的 Git 地址；方便统一管理，一改动git上的配置，jenkins 任务的流水线脚本都会跟着变化；也是我最推荐的方式。</li>
+<li>2、放到各个项目中，当在执行 Jenkins 任务时候读取 Git项目，从中检测 jenkinsfile 脚本从而执行；可以针对每个项目单独设置，更灵活，就是不方便统一管理，维护需要各个项目组；</li>
+<li>3、每个脚本都放置到 Jenkins 每个任务的配置中，每次都执行配置中设置的脚本；每次都新建项目时候在配置中设置脚本，比较费力不方便维护，不太推荐；</li>
+</ul>
+
+<p>然后我们先写一个简单的脚本，用于一般项目的构建</p>
+
+<pre><code>def label = &quot;jnlp-agent&quot;
+
+podTemplate(label: label,cloud: 'kubernetes' ){
+    node (label) {
+        stage('Git阶段'){
+            echo &quot;1、开始拉取代码&quot;
+            sh &quot;git version&quot;
+        }
+        stage('Maven阶段'){
+            container('maven') {
+                echo &quot;2、开始Maven编译、推送到本地库&quot;
+                sh &quot;mvn -version&quot;
+            }
+        }
+        stage('Docker阶段'){
+            container('docker') {
+                echo &quot;3、开始读取Maven pom变量，并执行Docker编译、推送、删除&quot;
+                sh &quot;docker version&quot;
+            }
+        }
+         stage('Helm阶段'){
+            container('helm-kubectl') {
+                echo &quot;4、开始检测Kubectl环境，测试执行Helm部署，与执行部署&quot;
+                sh &quot;helm version&quot;
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>这个里面并没有真正的操作，只是一个流程，我们运行一下看看</p>
+
+<pre><code>Running on jnlp-agent-g7qk5 in /home/jenkins/workspace/k8s-test
+[Pipeline] {
+[Pipeline] stage
+[Pipeline] { (Git阶段)
+[Pipeline] echo
+1、开始拉取代码
+[Pipeline] sh
++ git version
+git version 2.11.0
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Maven阶段)
+[Pipeline] container
+[Pipeline] {
+[Pipeline] echo
+2、开始Maven编译、推送到本地库
+[Pipeline] sh
++ mvn -version
+Apache Maven 3.6.0 (97c98ec64a1fdfee7767ce5ffb20918da4f719f3; 2018-10-24T18:41:47Z)
+Maven home: /usr/share/maven
+Java version: 1.8.0_201, vendor: Oracle Corporation, runtime: /usr/lib/jvm/java-1.8-openjdk/jre
+Default locale: en_US, platform encoding: UTF-8
+OS name: &quot;linux&quot;, version: &quot;3.10.0-957.1.3.el7.x86_64&quot;, arch: &quot;amd64&quot;, family: &quot;unix&quot;
+[Pipeline] }
+[Pipeline] // container
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Docker阶段)
+[Pipeline] container
+[Pipeline] {
+[Pipeline] echo
+3、开始读取Maven pom变量，并执行Docker编译、推送、删除
+[Pipeline] sh
++ docker version
+Client:
+ Version:           18.06.2-ce
+ API version:       1.38
+ Go version:        go1.10.4
+ Git commit:        6d37f41
+ Built:             Sun Feb 10 03:43:40 2019
+ OS/Arch:           linux/amd64
+ Experimental:      false
+Server: Docker Engine - Community
+ Engine:
+  Version:          18.09.3
+  API version:      1.39 (minimum version 1.12)
+  Go version:       go1.10.8
+  Git commit:       774a1f4
+  Built:            Thu Feb 28 06:02:24 2019
+  OS/Arch:          linux/amd64
+  Experimental:     false
+[Pipeline] }
+[Pipeline] // container
+[Pipeline] }
+[Pipeline] // stage
+[Pipeline] stage
+[Pipeline] { (Helm阶段)
+[Pipeline] container
+[Pipeline] {
+[Pipeline] echo
+4、开始检测Kubectl环境，测试执行Helm部署，与执行部署
+[Pipeline] sh
++ helm version
+Client: &amp;version.Version{SemVer:&quot;v2.13.1&quot;, GitCommit:&quot;618447cbf203d147601b4b9bd7f8c37a5d39fbb4&quot;, GitTreeState:&quot;clean&quot;}
+Server: &amp;version.Version{SemVer:&quot;v2.13.1&quot;, GitCommit:&quot;79d07943b03aea2b76c12644b4b54733bc5958d6&quot;, GitTreeState:&quot;clean&quot;}
+[Pipeline] // podTemplate
+[Pipeline] End of Pipeline
+Finished: SUCCESS
+</code></pre>
+
+<p>可以看到清晰的流程，我们来丰富每个流程的操作</p>
+
+<p>1、Git 拉取</p>
+
+<pre><code>def label = &quot;jnlp-agent&quot;
+
+podTemplate(label: label,cloud: 'kubernetes' ){
+    node (label) {
+        stage('Git阶段'){
+            echo &quot;Git 阶段&quot;
+            git branch: &quot;master&quot; ,changelog: true , url: &quot;https://github.com/my-dlq/springboot-helloworld.git&quot;
+        }
+    }
+}
+</code></pre>
+
+<p>2、Maven 编译</p>
+
+<pre><code>def label = &quot;jnlp-agent&quot;
+
+podTemplate(label: label,cloud: 'kubernetes' ){
+    node (label) {
+        stage('Git阶段'){
+            echo &quot;Git 阶段&quot;
+            git branch: &quot;master&quot; ,changelog: true , url: &quot;https://github.com/my-dlq/springboot-helloworld.git&quot;
+        }
+        stage('Maven阶段'){
+            container('maven') {
+                //这里引用上面设置的全局的 settings.xml 文件，根据其ID将其引入并创建该文件
+                configFileProvider([configFile(fileId: &quot;75884c5a-4ec2-4dc0-8d87-58b6b1636f8a&quot;, targetLocation: &quot;settings.xml&quot;)]){
+                    sh &quot;mvn clean install -Dmaven.test.skip=true --settings settings.xml&quot;
+                }
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>3、Docker 编译</p>
+
+<pre><code>def label = &quot;jnlp-agent&quot;
+
+podTemplate(label: label,cloud: 'kubernetes' ){
+    node (label) {
+        stage('Git阶段'){
+            echo &quot;Git 阶段&quot;
+            git branch: &quot;master&quot; ,changelog: true , url: &quot;https://github.com/my-dlq/springboot-helloworld.git&quot;
+        }
+        stage('Maven阶段'){
+            echo &quot;Maven 阶段&quot;
+            container('maven') {
+                //这里引用上面设置的全局的 settings.xml 文件，根据其ID将其引入并创建该文件
+                configFileProvider([configFile(fileId: &quot;75884c5a-4ec2-4dc0-8d87-58b6b1636f8a&quot;, targetLocation: &quot;settings.xml&quot;)]){
+                    sh &quot;mvn clean install -Dmaven.test.skip=true --settings settings.xml&quot;
+                }
+            }
+        }
+        stage('Docker阶段'){
+            echo &quot;Docker 阶段&quot;
+            container('docker') {
+                // 读取pom参数
+                echo &quot;读取 pom.xml 参数&quot;
+                pom = readMavenPom file: './pom.xml'
+                // 设置镜像仓库地址
+                hub = &quot;registry.cn-shanghai.aliyuncs.com&quot;
+                // 设置仓库项目名
+                project_name = &quot;mydlq&quot;
+                echo &quot;编译 Docker 镜像&quot;
+                docker.withRegistry(&quot;http://${hub}&quot;, &quot;ffb3b544-108e-4851-b747-b8a00bfe7ee0&quot;) {
+                    echo &quot;构建镜像&quot;
+                    // 设置推送到aliyun仓库的mydlq项目下，并用pom里面设置的项目名与版本号打标签
+                    def customImage = docker.build(&quot;${hub}/${project_name}/${pom.artifactId}:${pom.version}&quot;)
+                    echo &quot;推送镜像&quot;
+                    customImage.push()
+                    echo &quot;删除镜像&quot;
+                    sh &quot;docker rmi ${hub}/${project_name}/${pom.artifactId}:${pom.version}&quot;
+                }
+            }
+        }
+    }
+}
+</code></pre>
+
+<p>4、Helm 启动应用</p>
+
+<pre><code>// 执行Helm的方法
+def helmDeploy(Map args) {
+    // Helm 初始化
+    if(args.init){
+        sh &quot;helm init --client-only --stable-repo-url ${args.url}&quot;
+    }
+    // Helm 尝试部署
+    else if (args.dry_run) {
+        println &quot;尝试 Helm 部署，验证是否能正常部署&quot;
+        sh &quot;helm upgrade --install ${args.name} --namespace ${args.namespace} -f values.yaml --set ${args.repository},${args.tag} stable/${args.template} --dry-run --debug&quot;
+    }
+    // Helm 正式部署
+    else {
+        println &quot;正式 Helm 部署&quot;
+        sh &quot;helm upgrade --install ${args.name} --namespace ${args.namespace} -f values.yaml --set ${args.repository},${args.tag} stable/${args.template}&quot;
+    }
+}
+
+// 方法调用
+stage() {
+    echo &quot;Helm 初始化 http://chart.mydlq.club&quot;
+    helmDeploy(init: true ,url: &quot;Helm 仓库地址&quot;);
+    echo &quot;Helm 尝试执行部署&quot;
+    helmDeploy(init: false ,dry: true ,name: &quot;应用名&quot; ,namespace: &quot;应用启动的Namespace&quot; ,image: &quot;镜像名&quot;,tag: &quot;镜像标签&quot; ,template: &quot;选用的chart模板&quot;)
+    echo &quot;Helm 正式执行部署&quot;
+    helmDeploy(init: false ,dry: false ,name: &quot;应用名&quot; ,namespace: &quot;应用启动的Namespace&quot; ,image: &quot;镜像名&quot;,tag: &quot;镜像标签&quot; ,template: &quot;选用的chart模板&quot;)
+}
+</code></pre>
+
+<h3 id="运行结果和后续">运行结果和后续</h3>
+
+<p>上面的 Helm步骤执行完成后，就可以进行简单测试了，其中此项目引用的chart是一个简单的 SpringBoot 项目，其中用 NodePort 方式暴露了两个端口，30080 &amp; 30081，分别对应8080、8081俩个端口，切提供了一个 Hello World 接口为“/hello”，所以我们这里访问一下这个接口地址：<a href="http://192.168.2.11:30080/hello">http://192.168.2.11:30080/hello</a></p>
+
+<p>在实现基本功能的同时也会新增和完善整个流程，比如在脚本中设置每个阶段超时时间，设置相关的邮件通知等，完整的jenkinsfile如下：</p>
+
+<pre><code>// 执行Helm的方法
+def helmDeploy(Map args) {
+    if(args.init){
+        println &quot;Helm 初始化&quot;
+        sh &quot;helm init --client-only --stable-repo-url ${args.url}&quot;
+    } else if (args.dry_run) {
+        println &quot;尝试 Helm 部署，验证是否能正常部署&quot;
+        sh &quot;helm upgrade --install ${args.name} --namespace ${args.namespace} ${args.values} --set ${args.image},${args.tag} stable/${args.template} --dry-run --debug&quot;
+    } else {
+        println &quot;正式 Helm 部署&quot;
+        sh &quot;helm upgrade --install ${args.name} --namespace ${args.namespace} ${args.values} --set ${args.image},${args.tag} stable/${args.template}&quot;
+    }
+}
+
+// jenkins slave 执行流水线任务
+timeout(time: 600, unit: 'SECONDS') {
+    try{
+        def label = &quot;jnlp-agent&quot;
+        podTemplate(label: label,cloud: 'kubernetes' ){
+            node (label) {
+                stage('Git阶段'){
+                    echo &quot;Git 阶段&quot;
+                    git branch: &quot;master&quot; ,changelog: true , url: &quot;https://github.com/my-dlq/springboot-helloworld.git&quot;
+                }
+                stage('Maven阶段'){
+                    echo &quot;Maven 阶段&quot;
+                    container('maven') {
+                        //这里引用上面设置的全局的 settings.xml 文件，根据其ID将其引入并创建该文件
+                        configFileProvider([configFile(fileId: &quot;75884c5a-4ec2-4dc0-8d87-58b6b1636f8a&quot;, targetLocation: &quot;settings.xml&quot;)]){
+                            sh &quot;mvn clean install -Dmaven.test.skip=true --settings settings.xml&quot;
+                        }
+                    }
+                }
+                stage('Docker阶段'){
+                    echo &quot;Docker 阶段&quot;
+                    container('docker') {
+                        // 读取pom参数
+                        echo &quot;读取 pom.xml 参数&quot;
+                        pom = readMavenPom file: './pom.xml'
+                        // 设置镜像仓库地址
+                        hub = &quot;registry.cn-shanghai.aliyuncs.com&quot;
+                        // 设置仓库项目名
+                        project_name = &quot;mydlq&quot;
+                        echo &quot;编译 Docker 镜像&quot;
+                        docker.withRegistry(&quot;http://${hub}&quot;, &quot;ffb3b544-108e-4851-b747-b8a00bfe7ee0&quot;) {
+                            echo &quot;构建镜像&quot;
+                            // 设置推送到aliyun仓库的mydlq项目下，并用pom里面设置的项目名与版本号打标签
+                            def customImage = docker.build(&quot;${hub}/${project_name}/${pom.artifactId}:${pom.version}&quot;)
+                            echo &quot;推送镜像&quot;
+                            customImage.push()
+                            echo &quot;删除镜像&quot;
+                            sh &quot;docker rmi ${hub}/${project_name}/${pom.artifactId}:${pom.version}&quot;
+                        }
+                    }
+                }
+                stage('Helm阶段'){
+                    container('helm-kubectl') {
+                        withKubeConfig([credentialsId: &quot;8510eda6-e1c7-4535-81af-17626b9575f7&quot;,serverUrl: &quot;https://kubernetes.default.svc.cluster.local&quot;]) {
+                            // 设置参数
+                            image = &quot;image.repository=${hub}/${project_name}/${pom.artifactId}&quot;
+                            tag = &quot;image.tag=${pom.version}&quot;
+                            template = &quot;spring-boot&quot;
+                            repo_url = &quot;http://chart.mydlq.club&quot;
+                            app_name = &quot;${pom.artifactId}&quot;
+                            // 检测是否存在yaml文件
+                            def values = &quot;&quot;
+                            if (fileExists('values.yaml')) {
+                                values = &quot;-f values.yaml&quot;
+                            }
+                            // 执行 Helm 方法
+                            echo &quot;Helm 初始化&quot;
+                            helmDeploy(init: true ,url: &quot;${repo_url}&quot;);
+                            echo &quot;Helm 执行部署测试&quot;
+                            helmDeploy(init: false ,dry_run: true ,name: &quot;${app_name}&quot; ,namespace: &quot;mydlqcloud&quot; ,image: &quot;${image}&quot; ,tag: &quot;${tag}&quot; , values: &quot;${values}&quot; ,template: &quot;${template}&quot;)
+                            echo &quot;Helm 执行正式部署&quot;
+                            helmDeploy(init: false ,dry_run: false ,name: &quot;${app_name}&quot; ,namespace: &quot;mydlqcloud&quot;,image: &quot;${image}&quot; ,tag: &quot;${tag}&quot; , values: &quot;${values}&quot; ,template: &quot;${template}&quot;)
+                        }
+                    }
+                }
+            }
+        }
+    }catch(Exception e) {
+        currentBuild.result = &quot;FAILURE&quot;
+    }finally {
+        // 获取执行状态
+        def currResult = currentBuild.result ?: 'SUCCESS'
+        // 判断执行任务状态，根据不同状态发送邮件
+        stage('email'){
+            if (currResult == 'SUCCESS') {
+                echo &quot;发送成功邮件&quot;
+                emailext(subject: '任务执行成功',to: '32******7@qq.com',body: '''任务已经成功构建完成...''')
+            }else {
+                echo &quot;发送失败邮件&quot;
+                emailext(subject: '任务执行失败',to: '32******7@qq.com',body: '''任务执行失败构建失败...''')
+            }
+        }
+    }
+}
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/cdci/jenkins/">https://kingjcy.github.io/post/cloud/paas/cdci/jenkins/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/jenkins/">
+                            <i class="fa fa-tags"></i>
+                            jenkins
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cdci/">
+                            <i class="fa fa-tags"></i>
+                            CDCI
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/monitor-scheme/k8s-base/">监控metrics系列---- K8s监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月12日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-principle/">云计算容器系列---- Docker Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker/">云计算容器系列---- Docker</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年02月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/paas/">云计算系列---- PaaS</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-principle/">云计算K8s系列---- K8s Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/harbor/">云计算CDCI系列---- harbor</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月23日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-tutorial/">云计算K8s系列---- K8s Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/helm/">云计算CDCI系列---- helm</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月11日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-net-http/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-gc/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#jenkins">Jenkins</a>
+<ul>
+<li><a href="#安装">安装</a></li>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#使用">使用</a></li>
+</ul></li>
+<li><a href="#kubernetes集成jenkins实现cicd">Kubernetes集成Jenkins实现CICD</a>
+<ul>
+<li><a href="#架构">架构</a></li>
+<li><a href="#k8s中安装jenkins">k8s中安装jenkins</a></li>
+<li><a href="#插件">插件</a></li>
+<li><a href="#实践">实践</a>
+<ul>
+<li><a href="#jenkinsfile">jenkinsfile</a></li>
+<li><a href="#运行结果和后续">运行结果和后续</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

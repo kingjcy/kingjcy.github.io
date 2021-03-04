@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="标准库syscall给这些系统调用做了不错的封装，不少常用的系统调用已经可以像普通函数一样直接调用，但是大部分使用起来都比较陌生。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="Golang使用系列---- Syscall - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    Golang使用系列---- Syscall
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年12月25日 
+                </div>
+                <h1 class="post-title">Golang使用系列---- Syscall</h1>
+            </header>
+
+            <div class="post-content">
+                <p>标准库syscall给这些系统调用做了不错的封装，不少常用的系统调用已经可以像普通函数一样直接调用，但是大部分使用起来都比较陌生。</p>
+
+<h1 id="syscall">Syscall</h1>
+
+<p>Golang 的 syscall 库已经对常用系统调用进行了封装，我们只需要调用相应的函数，并传入相应的参数就可以等着执行完成，给我们返回需要的结果了。</p>
+
+<p>man 这个我们平日里经常用到的命令，除了提供各种命令的使用帮助，还提供了不少系统层面的资料，其中就有我们所需要的各个系统调用的具体描述。通过比对 man 里的资料与封装函数的外观，我们可以得到具体系统调用的对应实践方式。</p>
+
+<p>我们来做个尝试，在实现过程中来体会具体的实践方式。这里，我们选择使用 mmap 来实现数据的持久化存储作为示例。</p>
+
+<blockquote>
+<p>mmap</p>
+</blockquote>
+
+<p>mmap 就是将文件映射进内存的基本原理，以及相比传统的文件读写方式的优劣势。</p>
+
+<p>然后，查看标准库对 mmap 这个系统调用的封装：</p>
+
+<pre><code>func Mmap(fd int, offset int64, length int, prot int, flags int) (data []byte, err error)
+</code></pre>
+
+<p>接着，我们查看 man 对 mmap 的介绍 ：</p>
+
+<pre><code>void *mmap(void *addr, size_t length, int prot, int flags,
+                  int fd, off_t offset);
+</code></pre>
+
+<p>这下，两边就能够对应上了，让我们来了解一下各个参数的具体定义：</p>
+
+<ul>
+<li>fd：映射进内存的文件描述符</li>
+<li>offset：映射进内存的文件段的起始位置，在文件中的偏移量</li>
+<li>length：映射进内存的文件段的长度，必须是正整数</li>
+<li>prot：protection 的缩写，用来做权限控制，golang 标准库已有预定义的值</li>
+<li>flags：对 mmap 的一些行为进行控制，golang 标准库已有预定义的值</li>
+</ul>
+
+<p>同样，返回值也可以对应得上，不过，在形式上进行了一些转变，需要进行理解和翻译：</p>
+
+<ul>
+<li>data：对应 *addr，返回映射进内存的文件段对应的数组，持久化数据就是使用这个数组</li>
+<li>err：对应这个函数的返回值 void ，返回值的含义，在 golang 已有对应的定义</li>
+</ul>
+
+<p>我们来试一下，根据这个文档写出实现代码：</p>
+
+<pre><code>func main() {
+    f, err := os.OpenFile(&quot;mmap.bin&quot;, os.O_RDWR|os.O_CREATE, 0644)
+    if nil != err {
+        log.Fatalln(err)
+    }
+    // extend file
+    if _, err := f.WriteAt([]byte{byte(0)}, 1&lt;&lt;8); nil != err {
+        log.Fatalln(err)
+    }
+    data, err := syscall.Mmap(int(f.Fd()), 0, 1&lt;&lt;8, syscall.PROT_WRITE, syscall.MAP_SHARED)
+    if nil != err {
+        log.Fatalln(err)
+    }
+    if err := f.Close(); nil != err {
+        log.Fatalln(err)
+    }
+    for i, v := range []byte(&quot;hello syscall&quot;) {
+        data[i] = v
+    }
+    if err := syscall.Munmap(data); nil != err {
+        log.Fatalln(err)
+    }
+}
+</code></pre>
+
+<p>编译并执行这段代码，会在当前目录生成 mmap.bin 文件，执行 hexdump -C mmap.bin 可以看到，文件里面已有我们写入的内容。</p>
+
+<p>其他的系统调用都可以参照这个方法来理解。</p>
+
+<h1 id="封装方式">封装方式</h1>
+
+<p>标准库syscall提供了 4 个通用的封装方式，供我们执行任意的系统调用：</p>
+
+<pre><code>Syscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno)
+Syscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno)
+RawSyscall(trap, a1, a2, a3 uintptr) (r1, r2 uintptr, err Errno)
+RawSyscall6(trap, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err Errno)
+</code></pre>
+
+<p>从外观观察，可以知道它们可以按支持的参数个数分成两类：</p>
+
+<ul>
+<li>供 4 个及 4 个以下参数的系统调用使用的 Syscall、RawSyscall</li>
+<li>供 6 个及 6 个以下参数的系统调用使用的 Syscall6、RawSyscall6</li>
+</ul>
+
+<p>而从对我们来说更有意义的实现、功用的角度看，可以分为 Syscall、RawSyscall 两类。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/golang/go-syscall/">https://kingjcy.github.io/post/golang/go-syscall/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/golang/">
+                            <i class="fa fa-tags"></i>
+                            golang
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/syscall/">
+                            <i class="fa fa-tags"></i>
+                            syscall
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/golang/go-channel/">Golang使用系列---- channel</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年08月24日)</span></li><li id="li-rels"><a href="/post/golang/go-goroutinechannel/">Golang使用系列---- Goroutine</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月24日)</span></li><li id="li-rels"><a href="/post/golang/go-net-http-pporf/">golang使用系列---- net/http/pprof</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月26日)</span></li><li id="li-rels"><a href="/post/golang/go-net-http/">Golang使用系列---- Net/Http 应用层</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年09月26日)</span></li><li id="li-rels"><a href="/post/golang/go-gc/">Golang使用系列---- Gc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月27日)</span></li><li id="li-rels"><a href="/post/golang/go-runtime/">Golang使用系列---- Runtime</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/golang/go-concurrence/">Golang使用系列---- Concurrence</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月26日)</span></li><li id="li-rels"><a href="/post/golang/go/">golang使用系列---- go基本使用积累</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月23日)</span></li><li id="li-rels"><a href="/post/golang/go-map/">Golang使用系列---- Map</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月28日)</span></li><li id="li-rels"><a href="/post/golang/go-sync/">Golang使用系列---- Sync</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月28日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-bufio/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/exporter/snmp_exporter/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#syscall">Syscall</a></li>
+<li><a href="#封装方式">封装方式</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

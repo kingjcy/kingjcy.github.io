@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Rancher是一个开源的企业级容器管理平台,Rancher提供了在生产环境中使用的管理Docker和Kubernetes的全栈化容器部署与管理平台。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算平台系列---- rancher - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算平台系列---- rancher
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2017年07月17日 
+                </div>
+                <h1 class="post-title">云计算平台系列---- rancher</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Rancher是一个开源的企业级容器管理平台,Rancher提供了在生产环境中使用的管理Docker和Kubernetes的全栈化容器部署与管理平台。</p>
+
+<h1 id="rancher">rancher</h1>
+
+<p>Rancher 1.x 最初是为了支持多种容器编排引擎而构建的，其中包括自己的容器编排引擎 Cattle。但随着 Kubernetes 在市场上的兴起，Rancher 2.x 已经完全转向了 Kubernetes。Rancher 2.x 可以部署和管理在任何地方运行的 Kubernetes 集群。</p>
+
+<p>Rancher 通过支持集群的身份验证和基于角色的访问控制（RBAC），使系统管理员能够从一个位置控制全部集群的访问。Rancher 可以对集群及其资源进行详细的监控和并在需要时发送告警，也可以将容器日志发送给外部日志系统，并通过应用商店与 Helm 集成。如果您具有外部 CI/CD 流水线系统，则可以将其与 Rancher 对接，如果没有，Rancher 也提供了简单易用的流水线来帮助您自动部署和升级工作负载。除此之外，Rancher 还有很多开箱即用的功能来帮助您更好的管理集群和业务应用，例如多集群应用，全局 DNS，服务网格，安全扫描，集群模版和基于 OPA 的策略管理等功能。</p>
+
+<h2 id="部署">部署</h2>
+
+<h3 id="单节点安装">单节点安装</h3>
+
+<p>单节点安装只适用于测试和 demo 环境，而且单节点安装和高可用集群安装之间不能进行数据迁移，所以我们推荐从一开始就使用高可用集群（k8s）安装的方式安装 Rancher。</p>
+
+<p>docker安装</p>
+
+<pre><code>sudo docker run -d --restart=unless-stopped -p 80:80 -p 443:443 rancher/rancher
+</code></pre>
+
+<p>直接使用镜像rancher来运行rancher server服务</p>
+
+<p>我们看一下容器中的应用进程的情况</p>
+
+<pre><code>$ docker ps
+CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS                                      NAMES
+9a1278c071cf        rancher/rancher     &quot;entrypoint.sh&quot;     2 days ago          Up 25 hours         0.0.0.0:80-&gt;80/tcp, 0.0.0.0:443-&gt;443/tcp   thirsty_elbakyan
+MacBook-Pro:~ chunyinjiang$ docker exec -ti 9a1278c071cf -- sh
+OCI runtime exec failed: exec failed: container_linux.go:348: starting container process caused &quot;exec: \&quot;--\&quot;: executable file not found in $PATH&quot;: unknown
+$ docker exec -ti 9a1278c071cf /bin/bash
+root@9a1278c071cf:/var/lib/rancher# ps -ef
+UID        PID  PPID  C STIME TTY          TIME CMD
+root         1     0  0 Aug06 ?        00:00:03 tini -- rancher --http-listen-port=80 --https-listen-port=443 --audit-log-path=/var/log/auditlog/rancher-api-audit.log --audit-level=0 --audit-log-maxage=10 --audit-log-maxbackup=
+root         7     1  0 Aug06 ?        00:05:59 rancher --http-listen-port=80 --https-listen-port=443 --audit-log-path=/var/log/auditlog/rancher-api-audit.log --audit-level=0 --audit-log-maxage=10 --audit-log-maxbackup=10 --aud
+root        16     7  4 Aug06 ?        00:38:52 etcd --data-dir=management-state/etcd
+root        28     7 38 Aug06 ?        05:27:37 k3s server --no-deploy=traefik --no-deploy=coredns --no-deploy=servicelb --no-deploy=metrics-server --no-deploy=local-storage --disable-agent --datastore-endpoint=http://localhost
+root        44     7  0 Aug06 ?        00:00:06 channelserver --config-key=k3s --url https://releases.rancher.com/kontainer-driver-metadata/release-v2.4/data.json --url=/var/lib/rancher-data/driver-metadata/data.json --refresh-
+root        81     7  0 Aug06 ?        00:00:03 telemetry client --url https://localhost:443/v3 --token-key telemetry:mcg9bn8r7nwh6gxb4gmwqzwn5xvwb2s2b7m5552sjrv6btkmkxtrnh
+root       370     0  1 00:47 pts/0    00:00:00 /bin/bash
+root       386   370  0 00:47 pts/0    00:00:00 ps -ef
+</code></pre>
+
+<p>我们可以看到在新版中rancher-server已经直接是rancher了，这是一个小的变化。</p>
+
+<p>1、登录 Rancher 界面并配置初始设置</p>
+
+<p>您需要先登录 Rancher，然后再开始使用 Rancher。登录以后，您需要完成一些一次性的配置。</p>
+
+<ul>
+<li>打开浏览器，输入主机的 IP 地址：https://<SERVER_IP>，请使用真实的主机 IP 地址替换 <SERVER_IP> 。</li>
+<li>首次登录时，请按照页面提示设置登录密码。</li>
+<li>设置 Rancher Server URL。URL 既可以是一个 IP 地址，也可以是一个主机名称。请确保您在集群内添加的每个节点都可以连接到这个 URL。如果您使用的是主机名称，请保证主机名称可以被节点的 DNS 服务器成功解析。</li>
+</ul>
+
+<p>2、创建业务集群</p>
+
+<p>完成安装和登录 Rancher 的步骤之后，在 Rancher 中创建第一个 Kubernetes 集群。您可以使用自定义集群选项，使用的任意 Linux 主机（云主机、虚拟机或裸金属服务器）创建集群。</p>
+
+<ul>
+<li>访问集群页面，单击添加集群。</li>
+<li>选择自定义选项。</li>
+<li>输入集群名称。</li>
+<li>跳过集群角色和集群选项。</li>
+<li>单击下一步。</li>
+<li>勾选主机选项 - 角色选择中的所有角色： Etcd、 Control 和 Worker。可选： Rancher 会自动探查用于 Rancher 通信和集群通信的 IP 地址。您可以通过主机选项 &gt; 显示高级选项中的公网地址和内网地址指定 IP 地址。</li>
+<li>跳过主机标签参数，因为对快速入门来说，这部分的参数不太重要。</li>
+<li>复制代码框中的命令。登录您的 Linux 主机，打开命令行工具，粘贴命令，单击回车键运命令。</li>
+<li>运行完成后，回到 Rancher 界面，单击完成。</li>
+</ul>
+
+<p>到这边就在 Rancher 中创建了一个 Kubernetes 集群。</p>
+
+<p>3、部署工作负载</p>
+
+<p>k8s集群部署好，就可以创建工作负载（workload）。工作负载（workload）即 Kubernetes 对一组 Pod 的抽象模型，用于描述业务的运行载体，包括 Deployment、Statefulset、Daemonset、Job、CronJob 等多种类型。</p>
+
+<p>我们在 Rancher Server 中部署带有 Ingress 的工作负载是一个“Hello-World”应用。</p>
+
+<ul>
+<li>访问集群页面，选择您刚刚创建的集群，进入集群页面。</li>
+<li>从集群页面的主菜单中选择项目/命名空间。</li>
+<li>打开 项目：Default。</li>
+<li>单击资源 &gt; 工作负载。如果您使用的是 v2.3.0 之前的版本，请单击 工作负载 &gt; 工作负载。</li>
+<li>单击部署。</li>
+<li>输入工作负载的名称。</li>
+<li>在Docker 镜像一栏，输入rancher/hello-world，请注意区分大小写字母。</li>
+<li>余下的选项保持默认配置即可。</li>
+<li>单击运行。</li>
+</ul>
+
+<p>然后就开始部署对应的工作负载。这个过程可能需要几分钟完成。当工作负载部署完成后，它的状态将变为Active，可以从项目的工作负载页面查看工作负载当前的状态。</p>
+
+<p>4、暴露服务</p>
+
+<p>上述步骤帮助您完成了工作负载的部署，现在需要将服务暴露出来，让其他服务可以通过网络连接和调用这个工作负载。</p>
+
+<ul>
+<li>访问集群页面，选择您刚刚创建的集群，进入集群页面。</li>
+<li>从集群页面的主菜单中选择项目/命名空间。</li>
+<li>打开 项目 &gt; Default。</li>
+<li>单击资源 &gt; 工作负载 &gt; 负载均衡。如果您使用的是 v2.3.0 之前的版本，请单击 工作负载 &gt; 负载均衡。</li>
+<li>单击添加 Ingress</li>
+<li>输入 Ingress 负载均衡的名称，如 “hello”。</li>
+<li>在目标一栏，从下拉菜单选择您服务的名称。</li>
+<li>在端口一栏输入 80。</li>
+<li>余下的选项保持默认配置即可，单击保存。</li>
+</ul>
+
+<p>这个时候这个工作负载分配到了一个xip.io地址，已经暴露出去了。可能需要 1~2 分钟完成服务关联。</p>
+
+<h3 id="高可用集群安装">高可用集群安装</h3>
+
+<p>分开部署 Rancher 与下游集群</p>
+
+<p><img src="/media/cloud/rancher/rancher2.svg" alt="" /></p>
+
+<p>可以单点，也可以使用负载均衡来做rancher的高可用，所以我们建议将 Rancher Server 安装在高可用的 Kubernetes 集群上，主要是因为它可以保护 Rancher Server 的数据。在高可用安装中，负载均衡器充当客户端的单点入口，并在集群中的多台服务器之间分配网络流量，这有助于防止任何一台服务器成为单点故障。我们不建议在单个 Docker 容器中安装 Rancher，因为如果该节点发生故障，则其他节点上将没有可用的集群数据副本，并且您可能会丢失 Rancher Server 上的数据。</p>
+
+<p>我们建议使用Helm (Kubernetes 包管理器)在专用的 Kubernetes 集群上安装 Rancher。因为通过在多个节点上运行 Rancher 可以提高可用性，这个安装方式叫做“高可用 Kubernetes 安装”。</p>
+
+<p>高可用的流程</p>
+
+<ul>
+<li>Rancher 的 DNS 应该解析为 4 层负载均衡器</li>
+<li>负载均衡器应将端口 TCP/80 和 TCP/443 流量转发到 Kubernetes 集群中的所有 3 个节点。</li>
+<li>Ingress 控制器会将 HTTP 重定向到 HTTPS，并在端口 TCP/443 上终止 SSL/TLS。</li>
+<li>Ingress 控制器会将流量转发到 Rancher deployment 中 Pod 上的端口 TCP/80。</li>
+</ul>
+
+<p>在上面我们多次提到专用的k8s集群，其实就是rancher自身推出的也是经过CNCF认证的轻量级的k8s集群：k3s。这个可以说都是k8s集群，但是现在还是很少用人使用部署业务和k8s还是有差距的，目前也只是用于安装rancher，用于高可用的实现。</p>
+
+<h4 id="k3s集群">k3s集群</h4>
+
+<p>K3s 也是 Rancher 发布的经过完全认证的 Kubernetes 发行版，但比 RKE 更新。我们建议在 K3s 上安装 Rancher，因为 K3s 易于使用且更轻量，全部组件都打包在了一个二进制文件里。并且这个二进制文件小于 100 MB。注意：如果在 RKE 集群上安装了 Rancher 之后，目前没有办法将这个高可用迁移到 K3s 集群上。</p>
+
+<p>1、部署要求</p>
+
+<ul>
+<li>2 个 Linux 节点，通常是虚拟机，您可以自行选择的基础设施提供商，例如 Amazon EC2，阿里云，腾讯云或者 vShpere 等。</li>
+<li>1 个外置数据库，用于存储集群数据。我们建议使用 MySQL。</li>
+<li>1 个负载均衡器，用于将流量转发到这两个节点。</li>
+<li>一条 DNS 记录，用于将 URL 指向负载均衡器。这将成为 Rancher Server 的 URL，下游集群需要可以访问到这个地址。</li>
+</ul>
+
+<p>2、安装</p>
+
+<ul>
+<li>连接到您准备运行 Rancher Server 的 Linux 节点。</li>
+
+<li><p>在 Linux 节点上，运行以下命令以启动 K3s Server 并将其连接到外部数据库：</p>
+
+<pre><code>curl -sfL https://get.k3s.io | sh -s - server \
+  --datastore-endpoint=&quot;mysql://username:password@tcp(hostname:3306)/database-name&quot;
+
+//国内用户，可以使用以下方法加速安装：
+curl -sfL https://docs.rancher.cn/k3s/k3s-install.sh | INSTALL_K3S_MIRROR=cn sh -s - server \
+--datastore-endpoint=&quot;mysql://username:password@tcp(hostname:3306)/database-name&quot;
+</code></pre></li>
+
+<li><p>确认 K3s 是否创建成功，在任一 K3s Server 节点上运行以下命令，如下表示k3s集群已经成功</p>
+
+<pre><code>$ sudo k3s kubectl get nodes
+NAME               STATUS   ROLES    AGE    VERSION
+ip-172-31-60-194   Ready    master   44m    v1.17.2+k3s1
+ip-172-31-63-88    Ready    master   6m8s   v1.17.2+k3s1
+
+sudo k3s kubectl get pods --all-namespaces
+</code></pre></li>
+
+<li><p>保存并使用 kubeconfig 文件，在每个 Rancher Server 节点上安装 K3s 时，会在节点上/etc/rancher/k3s/k3s.yaml位置创建一个kubeconfig文件。该文件包含用于完全访问集群的凭据，您应该将此文件保存在安全的位置，要使用此kubeconfig文件：</p>
+
+<ul>
+<li>安装 Kubernetes 命令行工具kubectl。</li>
+<li>将文件/etc/rancher/k3s/k3s.yaml复制并保存到本地计算机上的~/.kube/config文件中。</li>
+<li>在这个 kubeconfig 文件中，server参数为 localhost。您需要手动更改这个地址为负载均衡器的 DNS，并且指定端口 6443。（Kubernetes API Server 的端口为 6443，Rancher Server 的端口为 80 和 443。）以下是一个示例k3s.yaml：</li>
+</ul></li>
+
+<li><p>现在可以使用kubectl来管理您的 K3s 集群。如果您有多个 kubeconfig 文件，可以在使用kubectl时通过传递文件路径来指定要使用的 kubeconfig 文件：</p>
+
+<pre><code>kubectl --kubeconfig ~/.kube/config/k3s.yaml get pods --all-namespaces
+</code></pre></li>
+
+<li><p>已确认可以使用kubectl访问集群，并且 K3s 集群正在正确运行。现在，可以在集群上安装 Rancher Server 了。</p></li>
+</ul>
+
+<h4 id="rke集群">RKE集群</h4>
+
+<p>除了上面说的k3s，我们还可以将rancher运行在真正的k8s上实现高可用，前面我们也说过rancher安装k8s集群的流程，这边就使用到了RKE。RKE是一个用Golang编写的Kubernetes安装程序，rancher就是使用这个工具完成了k8s集群的部署和管理的，一般我们使用RKE部署的k8s集群就叫RKE集群。</p>
+
+<p>1、部署要求</p>
+
+<ul>
+<li>3 个 Linux 节点，通常是虚拟机，您可以自行选择的基础设施提供商，例如 Amazon EC2，阿里云，腾讯云或者 vShpere。</li>
+<li>1 个负载均衡器，用于将流量转发到这三个节点。</li>
+<li>一条 DNS 记录，用于将 URL 指向负载均衡器。这将成为 Rancher Server 的 URL，下游集群需要可以访问到这个地址。</li>
+</ul>
+
+<p>2、部署</p>
+
+<ul>
+<li>那种REK，国内用户，可以导航到 <a href="http://mirror.cnrancher.com">http://mirror.cnrancher.com</a> 下载所需资源</li>
+
+<li><p>创建 RKE 配置文件rancher-cluster.yml</p>
+
+<pre><code>nodes:
+  - address: 165.227.114.63
+    internal_address: 172.16.22.12
+    user: ubuntu
+    role: [controlplane, worker, etcd]
+  - address: 165.227.116.167
+    internal_address: 172.16.32.37
+    user: ubuntu
+    role: [controlplane, worker, etcd]
+  - address: 165.227.127.226
+    internal_address: 172.16.42.73
+    user: ubuntu
+    role: [controlplane, worker, etcd]
+
+services:
+  etcd:
+    snapshot: true
+    creation: 6h
+    retention: 24h
+
+# 当使用外部 TLS 终止，并且使用 ingress-nginx v0.22或以上版本时，必须。
+ingress:
+  provider: nginx
+  options:
+    use-forwarded-headers: &quot;true&quot;
+</code></pre>
+
+<ul>
+<li>address: 公用 DNS 或 IP 地址</li>
+<li>user: 可以运行 docker 命令的用户</li>
+<li>role: 分配给节点的 Kubernetes 角色列表</li>
+<li>internal_address: 内部集群流量的专用 DNS 或 IP 地址</li>
+<li>ssh_key_path: 用于对节点进行身份验证的 SSH 私钥的路径（默认为~/.ssh/id_rsa）</li>
+</ul></li>
+
+<li><p>运行 RKE</p>
+
+<pre><code>rke up --config ./rancher-cluster.yml
+</code></pre>
+
+<p>完成后，它应该以这样一行结束： Finished building Kubernetes cluster successfully.</p></li>
+
+<li><p>测试集群</p>
+
+<p>当您运行 rke up 时，RKE 应该已经创建了一个名为kube_config_rancher-cluster.yml的kubeconfig文件。该文件具有kubectl和helm的凭据。如果您已经安装了kubectl，您需要将kubeconfig文件放置在kubectl可以访问的位置。kubeconfig文件包含使用kubectl访问集群所必需的凭证。</p>
+
+<pre><code>kubectl get nodes
+
+NAME                          STATUS    ROLES                      AGE       VERSION
+165.227.114.63                Ready     controlplane,etcd,worker   11m       v1.13.5
+165.227.116.167               Ready     controlplane,etcd,worker   11m       v1.13.5
+165.227.127.226               Ready     controlplane,etcd,worker   11m       v1.13.5
+</code></pre></li>
+
+<li><p>保存文件</p>
+
+<p>将以下文件的副本保存在安全的位置：</p>
+
+<pre><code>rancher-cluster.yml: RKE 集群配置文件。
+kube_config_rancher-cluster.yml: 集群的Kubeconfig 文件，此文件包含用于访问集群的凭据。
+rancher-cluster.rkestate: Kubernetes 集群状态文件，此文件包含用于完全访问集群的凭据。
+</code></pre></li>
+</ul>
+
+<h4 id="安装rancher">安装rancher</h4>
+
+<p>1、添加 Helm Chart 仓库</p>
+
+<pre><code>helm repo add rancher-&lt;CHART_REPO&gt; https://releases.rancher.com/server-charts/&lt;CHART_REPO&gt;
+</code></pre>
+
+<p>2、为 Rancher 创建 Namespace</p>
+
+<pre><code>kubectl create namespace cattle-system
+</code></pre>
+
+<p>3、设置ssl</p>
+
+<pre><code># 安装 CustomResourceDefinition 资源
+
+kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/v0.15.0/cert-manager.crds.yaml
+
+# **重要：**
+# 如果您正在运行 Kubernetes v1.15 或更低版本，
+# 则需要在上方的 kubectl apply 命令中添加`--validate=false`标志，
+# 否则您将在 cert-manager 的 CustomResourceDefinition 资源中收到与
+# x-kubernetes-preserve-unknown-fields 字段有关的验证错误。
+# 这是一个良性错误，是由于 kubectl 执行资源验证的方式造成的。
+
+# 为 cert-manager 创建命名空间
+
+kubectl create namespace cert-manager
+
+# 添加 Jetstack Helm 仓库
+
+helm repo add jetstack https://charts.jetstack.io
+
+# 更新本地 Helm chart 仓库缓存
+
+helm repo update
+
+# 安装 cert-manager Helm chart
+
+helm install \
+ cert-manager jetstack/cert-manager \
+ --namespace cert-manager \
+ --version v0.15.0
+</code></pre>
+
+<p>4、安装rancher</p>
+
+<pre><code>helm install rancher rancher-&lt;CHART_REPO&gt;/rancher \
+ --namespace cattle-system \
+ --set hostname=rancher.my.org
+</code></pre>
+
+<h1 id="架构">架构</h1>
+
+<p>Rancher Server 由认证代理（Authentication Proxy）、Rancher API Server、集群控制器（Cluster Controller）、etcd 节点和集群 Agent（Cluster Agent） 组成。除了集群 Agent 以外，其他组件都部署在 Rancher Server 中。</p>
+
+<p><img src="/media/cloud/rancher/rancher.svg" alt="" /></p>
+
+<p>图中描述的是用户通过 Rancher Server 管控 Rancher 部署的 Kubernetes 集群（RKE 集群）和托管的 Kubernetes 集群的（EKS）集群的流程。以用户下发指令为例，指令的流动路径如下：</p>
+
+<ul>
+<li>首先，用户通过 Rancher UI（即 Rancher 控制台） Rancher 命令行工具（Rancher CLI）输入指令；直接调用 Rancher API 接口也可以达到相同的效果。</li>
+<li>用户通过 Rancher 的代理认证后，指令会进一步下发到 Rancher Server 。</li>
+<li>与此同时，Rancher Server 也会执行容灾备份，将数据备份到 etcd 节点。</li>
+<li>然后 Rancher Server 把指令传递给集群控制器。集群控制器把指令传递到下游集群的 Agent，最终通过 Agent 把指令下发到指定的集群中。</li>
+</ul>
+
+<p>Agent和k8s的交互流程</p>
+
+<p><img src="/media/cloud/rancher/rancher1.svg" alt="" /></p>
+
+<h1 id="使用">使用</h1>
+
+<p>Rancher 支持的集群种类繁多：云供应商托管的 Kubernetes 集群、RKE 集群、基础设施提供商创建节点并创建 Kubernetes 集群、在自定义节点上创建 Kubernetes 集群、导入现有 Kubernetes 集群和导入 K3s 集群，都是 Rancher 支持的创建集群的方式。</p>
+
+<h2 id="创建正常的k8s集群">创建正常的k8s集群</h2>
+
+<p>创建k8s集群也就是rancher通过RKE来部署一个自定义的K8s集群</p>
+
+<p>1、在集群页面中，单击添加集群。</p>
+
+<p>2、选择Custom。</p>
+
+<p>3、输入集群名称。</p>
+
+<p>4、通过成员角色来设置用户访问集群的权限。</p>
+
+<ul>
+<li>点击添加成员将需要访问这个集群的用户添加到成员中。</li>
+<li>在角色下拉菜单中选择每个用户的权限。</li>
+</ul>
+
+<p>5、使用集群选项设置 Kubernetes 的版本，网络插件以及是否要启用项目网络隔离。要查看更多集群选项，请单击显示高级选项。</p>
+
+<p>6、点击 下一步 。</p>
+
+<p>7、从节点角色中，选择需要的集群节点角色。</p>
+
+<p>8、可选：点击显示高级选项以指定注册节点时要使用的 IP 地址、重写节点的主机名或添加标签或污点到节点上。</p>
+
+<p>9、复制屏幕上显示的命令到剪贴板。使用 shell 工具登录到您的 Linux 主机，如 PuTTy 等。运行复制到剪贴板的命令。如果要将特定主机专用于特定节点角色，请重复步骤 7-10。根据需要多次重复这些步骤。</p>
+
+<p>10、当您完成在 Linux 主机上运行该命令时，点击 完成。</p>
+
+<p>这个时候一个集群就部署完成了，下面rancher完成下列工作</p>
+
+<ul>
+<li>集群已创建并进入为 Provisioning 的状态。Rancher 正在启动您的集群。</li>
+<li>您可以在集群的状态更新为 Active 后访问它。</li>
+<li>Rancher 为活动的集群分配了两个项目，即 Default（包含命名空间 default）和 System（包含命名空间 cattle-system，ingress-nginx，kube-public 和 kube-system，如果存在）。</li>
+</ul>
+
+<h2 id="导入现有的k8s集群">导入现有的k8s集群</h2>
+
+<p>1、在 集群 页, 点击 添加。</p>
+
+<p>2、选择 导入。</p>
+
+<p>3、输入 集群名称。</p>
+
+<p>4、通过成员角色来设置用户访问集群的权限。</p>
+
+<pre><code>- 点击添加成员将需要访问这个集群的用户添加到成员中。
+- 在角色下拉菜单中选择每个用户的权限。
+</code></pre>
+
+<p>5、单击 创建。</p>
+
+<p>6、这里显示了需要集群管理员特权的先决条件 (请参阅上面的先决条件)的提示，其中包括了达到该先决条件的示例命令。</p>
+
+<p>7、将kubectl命令复制到剪贴板，并在有着指向您要导入的集群的 kubeconfig 的节点上运行它。如果您不确定它是否正确配置，在运行 Rancher 中显示的命令之前，运行kubectl get nodes来验证一下。</p>
+
+<p>8、如果您正在使用自签名证书，您将收到certificate signed by unknown authority消息。要解决这个验证问题，请把 Rancher 中显示的curl开头的命令复制到剪贴板中。并在有着指向您要导入的集群的 kubeconfig 的节点上运行它。</p>
+
+<p>9、在节点上运行完命令后, 单击 完成。</p>
+
+<p>到这里就导入完成，后面还要等一会，rancher自动完如下工作：</p>
+
+<ul>
+<li>您的集群创建成功并进入到Pending（等待中）的状态。Rancher 正在向您的集群部署资源。</li>
+<li>在集群状态变为Active（激活）状态后，您将可以开始访问您的集群。</li>
+<li>在Active的集群中，默认会有两个项目：Default项目（包括default命名空间）和System项目（包括cattle-system、ingress-nginx、kube-public 和 kube-system）。</li>
+<li>不能重新导入当前在 Rancher 设置中处于激活状态的集群.</li>
+</ul>
+
+<h2 id="部署workload">部署workload</h2>
+
+<h2 id="基础运维">基础运维</h2>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/platform/racher/">https://kingjcy.github.io/post/cloud/paas/platform/racher/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/rancher/">
+                            <i class="fa fa-tags"></i>
+                            rancher
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/monitor-scheme/k8s-base/">监控metrics系列---- K8s监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月12日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-principle/">云计算容器系列---- Docker Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker/">云计算容器系列---- Docker</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年02月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/paas/">云计算系列---- PaaS</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-principle/">云计算K8s系列---- K8s Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/jenkins/">云计算CDCI系列---- jenkins</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年09月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/harbor/">云计算CDCI系列---- harbor</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月23日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-tutorial/">云计算K8s系列---- K8s Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月04日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/architecture/map/uml/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/prometheus/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#rancher">rancher</a>
+<ul>
+<li><a href="#部署">部署</a>
+<ul>
+<li><a href="#单节点安装">单节点安装</a></li>
+<li><a href="#高可用集群安装">高可用集群安装</a>
+<ul>
+<li><a href="#k3s集群">k3s集群</a></li>
+<li><a href="#rke集群">RKE集群</a></li>
+<li><a href="#安装rancher">安装rancher</a></li>
+</ul></li>
+</ul></li>
+</ul></li>
+<li><a href="#架构">架构</a></li>
+<li><a href="#使用">使用</a>
+<ul>
+<li><a href="#创建正常的k8s集群">创建正常的k8s集群</a></li>
+<li><a href="#导入现有的k8s集群">导入现有的k8s集群</a></li>
+<li><a href="#部署workload">部署workload</a></li>
+<li><a href="#基础运维">基础运维</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Docker实质上是汇集了linux容器（各种namespaces）、cgroups以及“叠加”类文件系统（changeroot）等多种核心技术的一种复合技术。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算容器系列---- Docker Principle - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算容器系列---- Docker Principle
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年04月14日 
+                </div>
+                <h1 class="post-title">云计算容器系列---- Docker Principle</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Docker实质上是汇集了linux容器（各种namespaces）、cgroups以及“叠加”类文件系统（changeroot）等多种核心技术的一种复合技术。</p>
+
+<h1 id="架构">架构</h1>
+
+<p><img src="/media/cloud/docker/docker4" alt="" /></p>
+
+<p>Docker 是一个 C/S 模式的架构，后端是一个松耦合架构，模块各司其职。</p>
+
+<ul>
+<li>Docker Daemon作为Docker架构中的主体部分，首先提供Server的功能使其可以接受Docker Client的请求；而后Engine执行Docker内部的一系列工作，每一项工作都是以一个Job的形式的存在。</li>
+<li>Job的运行过程中，当需要容器镜像时，则从Docker Registry中下载镜像，并通过镜像管理驱动graphdriver将下载镜像以Graph的形式存储；当需要为Docker创建网络环境时，通过网络管理驱动networkdriver创建并配置Docker容器网络环境；当需要限制Docker容器运行资源或执行用户指令等操作时，则通过execdriver来完成。</li>
+<li>而libcontainer是一项独立的容器管理包，networkdriver以及execdriver都是通过libcontainer来实现具体对容器进行的操作。当执行完运行容器的命令后，一个实际的Docker容器就处于运行状态，该容器拥有独立的文件系统，独立并且安全的运行环境等。</li>
+</ul>
+
+<p>再来看看另外一个架构，这个个架构就简单清晰指明了server/client交互，容器和镜像、数据之间的一些联系</p>
+
+<p><img src="/media/cloud/docker/docker5" alt="" /></p>
+
+<h2 id="docker-client">docker client</h2>
+
+<p>docker client 是docker架构中用户用来和docker daemon建立通信的客户端，用户使用的可执行文件为docker，通过docker命令行工具可以发起众多管理container的请求</p>
+
+<p>docker client可以通过以下方式和docker daemon建立通信：</p>
+
+<ul>
+<li>tcp://host:port</li>
+<li>unix:path_to_socket</li>
+<li>fd://socketfd</li>
+</ul>
+
+<p>docker client可以通过设置命令行flag参数的形式设置安全传输层协议(TLS)的有关参数，保证传输的安全性</p>
+
+<p>docker client发送容器管理请求后，由docker daemon接受并处理请求，当docker client 接收到返回的请求相应并简单处理后，docker client 一次完整的生命周期就结束了，当需要继续发送容器管理请求时，用户必须再次通过docker可以执行文件创建docker client。</p>
+
+<h2 id="docker-daemon">docker daemon</h2>
+
+<p>docker daemon 是docker架构中一个常驻在后台的系统进程，功能是：接收处理docker client发送的请求。该守护进程在后台启动一个server，server负载接受docker client发送的请求；接受请求后，server通过路由与分发调度，找到相应的handler来执行请求。</p>
+
+<p>docker daemon启动所使用的可执行文件也为docker，与docker client启动所使用的可执行文件docker相同，在docker命令执行时，通过传入的参数来判别docker daemon与docker client。</p>
+
+<p>docker daemon的架构可以分为：docker server、engine、job。daemon</p>
+
+<h2 id="docker-server">docker server</h2>
+
+<p>docker server在docker架构中时专门服务于docker client的server，该server的功能时：接受并调度分发docker client发送的请求。</p>
+
+<p>在Docker的启动过程中，通过包gorilla/mux（golang的类库解析），创建了一个mux.Router，提供请求的路由功能。在Golang中，gorilla/mux是一个强大的URL路由器以及调度分发器。该mux.Router中添加了众多的路由项，每一个路由项由HTTP请求方法（PUT、POST、GET或DELETE）、URL、Handler三部分组成。</p>
+
+<p>若Docker Client通过HTTP的形式访问Docker Daemon，创建完mux.Router之后，Docker将Server的监听地址以及mux.Router作为参数，创建一个httpSrv=http.Server{}，最终执行httpSrv.Serve()为请求服务。</p>
+
+<p>在Server的服务过程中，Server在listener上接受Docker Client的访问请求，并创建一个全新的goroutine来服务该请求。在goroutine中，首先读取请求内容，然后做解析工作，接着找到相应的路由项，随后调用相应的Handler来处理该请求，最后Handler处理完请求之后回复该请求。</p>
+
+<p>需要注意的是：Docker Server的运行在Docker的启动过程中，是靠一个名为”serveapi”的job的运行来完成的。原则上，Docker Server的运行是众多job中的一个，但是为了强调Docker Server的重要性以及为后续job服务的重要特性，将该”serveapi”的job单独抽离出来分析，理解为Docker Server。</p>
+
+<h2 id="engine">engine</h2>
+
+<p>Engine是Docker架构中的运行引擎，同时也Docker运行的核心模块。它扮演Docker container存储仓库的角色，并且通过执行job的方式来操纵管理这些容器。</p>
+
+<p>在Engine数据结构的设计与实现过程中，有一个handler对象。该handler对象存储的都是关于众多特定job的handler处理访问。举例说明，Engine的handler对象中有一项为：{“create”: daemon.ContainerCreate,}，则说明当名为”create”的job在运行时，执行的是daemon.ContainerCreate的handler。</p>
+
+<h2 id="job">job</h2>
+
+<p>一个Job可以认为是Docker架构中Engine内部最基本的工作执行单元。Docker可以做的每一项工作，都可以抽象为一个job。例如：在容器内部运行一个进程，这是一个job；创建一个新的容器，这是一个job，从Internet上下载一个文档，这是一个job；包括之前在Docker Server部分说过的，创建Server服务于HTTP的API，这也是一个job，等等。</p>
+
+<p>Job的设计者，把Job设计得与Unix进程相仿。比如说：Job有一个名称，有参数，有环境变量，有标准的输入输出，有错误处理，有返回状态等。</p>
+
+<h2 id="docker-registry">docker registry</h2>
+
+<p>Docker Registry是一个存储容器镜像的仓库。而容器镜像是在容器被创建时，被加载用来初始化容器的文件架构与目录。</p>
+
+<p>在Docker的运行过程中，Docker Daemon会与Docker Registry通信，并实现搜索镜像、下载镜像、上传镜像三个功能，这三个功能对应的job名称分别为”search”，”pull” 与 “push”。</p>
+
+<p>其中，在Docker架构中，Docker可以使用公有的Docker Registry，即大家熟知的Docker Hub，如此一来，Docker获取容器镜像文件时，必须通过互联网访问Docker Hub；同时Docker也允许用户构建本地私有的Docker Registry，这样可以保证容器镜像的获取在内网完成。</p>
+
+<h2 id="graph">Graph</h2>
+
+<p>Graph在Docker架构中扮演已下载容器镜像的保管者，以及已下载容器镜像之间关系的记录者。一方面，Graph存储着本地具有版本信息的文件系统镜像，另一方面也通过GraphDB记录着所有文件系统镜像彼此之间的关系。</p>
+
+<p>其中，GraphDB是一个构建在SQLite之上的小型图数据库，实现了节点的命名以及节点之间关联关系的记录。它仅仅实现了大多数图数据库所拥有的一个小的子集，但是提供了简单的接口表示节点之间的关系。</p>
+
+<p>同时在Graph的本地目录中，关于每一个的容器镜像，具体存储的信息有：该容器镜像的元数据，容器镜像的大小信息，以及该容器镜像所代表的具体rootfs。</p>
+
+<h2 id="driver">driver</h2>
+
+<p>Driver是Docker架构中的驱动模块。通过Driver驱动，Docker可以实现对Docker容器执行环境的定制。由于Docker运行的生命周期中，并非用户所有的操作都是针对Docker容器的管理，另外还有关于Docker运行信息的获取，Graph的存储与记录等。因此，为了将Docker容器的管理从Docker Daemon内部业务逻辑中区分开来，设计了Driver层驱动来接管所有这部分请求。</p>
+
+<p>在Docker Driver的实现中，可以分为以下三类驱动：graphdriver、networkdriver和execdriver。</p>
+
+<ul>
+<li>graphdriver主要用于完成容器镜像的管理，包括存储与获取。即当用户需要下载指定的容器镜像时，graphdriver将容器镜像存储在本地的指定目录；同时当用户需要使用指定的容器镜像来创建容器的rootfs时，graphdriver从本地镜像存储目录中获取指定的容器镜像。
+在graphdriver的初始化过程之前，有4种文件系统或类文件系统在其内部注册，它们分别是aufs、btrfs、vfs和devmapper。而Docker在初始化之时，通过获取系统环境变量”DOCKER_DRIVER”来提取所使用driver的指定类型。而之后所有的graph操作，都使用该driver来执行。</li>
+<li>networkdriver的用途是完成Docker容器网络环境的配置，其中包括Docker启动时为Docker环境创建网桥；Docker容器创建时为其创建专属虚拟网卡设备；以及为Docker容器分配IP、端口并与宿主机做端口映射，设置容器防火墙策略等。networkdriver的架构如下：</li>
+<li>execdriver作为Docker容器的执行驱动，负责创建容器运行命名空间，负责容器资源使用的统计与限制，负责容器内部进程的真正运行等。在execdriver的实现过程中，原先可以使用LXC驱动调用LXC的接口，来操纵容器的配置以及生命周期，而现在execdriver默认使用native驱动，不依赖于LXC。具体体现在Daemon启动过程中加载的ExecDriverflag参数，该参数在配置文件已经被设为”native”。这可以认为是Docker在1.2版本上一个很大的改变，或者说Docker实现跨平台的一个先兆。execdriver架构如下：</li>
+</ul>
+
+<h2 id="libcontainer">libcontainer</h2>
+
+<p>libcontainer是Docker架构中一个使用Go语言设计实现的库，设计初衷是希望该库可以不依靠任何依赖，直接访问内核中与容器相关的API。</p>
+
+<p>正是由于libcontainer的存在，Docker可以直接调用libcontainer，而最终操纵容器的namespace、cgroups、apparmor、网络设备以及防火墙规则等。这一系列操作的完成都不需要依赖LXC或者其他包。libcontainer架构如下：</p>
+
+<p>另外，libcontainer提供了一整套标准的接口来满足上层对容器管理的需求。或者说，libcontainer屏蔽了Docker上层对容器的直接管理。又由于libcontainer使用Go这种跨平台的语言开发实现，且本身又可以被上层多种不同的编程语言访问，因此很难说，未来的Docker就一定会紧紧地和Linux捆绑在一起。而于此同时，Microsoft在其著名云计算平台Azure中，也添加了对Docker的支持，可见Docker的开放程度与业界的火热度。</p>
+
+<p>暂不谈Docker，由于libcontainer的功能以及其本身与系统的松耦合特性，很有可能会在其他以容器为原型的平台出现，同时也很有可能催生出云计算领域全新的项目。</p>
+
+<h2 id="docker-container">docker container</h2>
+
+<p>Docker container（Docker容器）是Docker架构中服务交付的最终体现形式，Docker按照用户的需求与指令，订制相应的Docker容器。</p>
+
+<p>用户通过指定容器镜像，使得Docker容器可以自定义rootfs等文件系统； 用户通过指定计算资源的配额，使得Docker容器使用指定的计算资源； 用户通过配置网络及其安全策略，使得Docker容器拥有独立且安全的网络环境； 用户通过指定运行的命令，使得Docker容器执行指定的工作。</p>
+
+<h1 id="原理">原理</h1>
+
+<h2 id="docker引擎原理">docker引擎原理</h2>
+
+<p>docker在版本0.9之前是以lxc（linux container）为基础的，0.9以后又引入了自己开发的libcontainer，试图设计出更加通用的容器化技术。</p>
+
+<p>docker采用c/s架构，服务端默认在后台运行，进行容器的创建等相关操作，客户端就是我们调用的命令行操作，每次客户端运行完就会退出等待再次调用，客户端和服务端是通过socket进行通信的，默认是unix:///var/run/docker.sock,可以通过-H参数修改端口。</p>
+
+<p>docker是一种轻量级的操作系统虚拟化方案，基于LXC，相对于传统的vm，它只虚拟来操作系统而没有虚拟内核，基于docker engine共享内核，即虚拟出运行库即可运行app，而传统的vm都是虚拟出完整的内核和运行库文件的操作系统。即虚拟出运行库即可运行app，而传统的vm都是虚拟出完整的内核和运行库文件的操作系统。</p>
+
+<p>docker都是独立的系统，是对操作系统的一种虚拟化。所以需要对其内核，文件系统，网络，PID，UID，IPC，内存，硬盘，cpu进行限制隔离，我们就是通过命名空间namespace，控制组cgroup，联合文件系统UFS，虚拟网络来完成的隔离独立运行。</p>
+
+<p><img src="/media/cloud/docker/docker3" alt="" /></p>
+
+<h3 id="namespace">namespace</h3>
+
+<p>Linux内核实现namespace的主要目的就是为了实现轻量级虚拟化（容器）服务。在同一个namespace下的进程可以感知彼此的变化，而对外界的进程一无所知。这样就可以让容器中的进程产生错觉，仿佛自己置身于一个独立的系统环境中，以此达到独立和隔离的目的。</p>
+
+<p>命名空间提供对于某个进程的一种“视图”，可以将其它命名空间的东西隐藏，从而为该进程提供它自己独立运行的环境。这使得进程之间互相不可见，也不可相互影响,命名空间包括如下：</p>
+
+<pre><code>IPC：隔离System V IPC和POSIX消息队列。
+Network：隔离网络资源。
+Mount：隔离文件系统挂载点。每个容器能看到不同的文件系统层次结构。
+PID：隔离进程ID。
+UTS：隔离主机名和域名。
+User：隔离用户ID和组ID。
+</code></pre>
+
+<p>Docker 引擎在 Linux 上使用以下 namesspaces：</p>
+
+<pre><code>pid namespace：进程隔离（PID: Process ID）
+net namespace：管理网络接口（NET: Networking）
+ipc namespace：管理访问 IPC 资源（IPC: InterProcess Communication）
+mnt namespace：管理文件系统挂载点（MNT: Mount）
+uts namespace：隔离内核和版本标识符（UTS: Unix Timesharing System）
+</code></pre>
+
+<h3 id="cgroup">cgroup</h3>
+
+<p>Linux 上的 Docker 引擎依赖的另外一项技术叫 control groups （ cgroups ）</p>
+
+<p>cgroup和namespace类似，也是将进程进行分组，但它的目的和namespace不一样，namespace是为了隔离进程组之间的资源，而cgroup是为了对一组进程进行统一的资源监控和限制。</p>
+
+<p>用于限制和隔离一组进程对系统资源的使用，也就是做资源QoS，这些资源主要包括CPU、内存、block I/O和网络带宽。资源限制的意思就是如设定应用运行时使用内存的上限，一旦超过这个配额就发出OOM（Out of Memory）。</p>
+
+<p>Cgroups提供了以下四大功能:</p>
+
+<ul>
+<li>资源限制（Resource Limitation）：cgroups可以对进程组使用的资源总额进行限制。</li>
+<li>优先级分配（Prioritization）：通过分配的CPU时间片数量及硬盘IO带宽大小，实际上就相当于控制了进程运行的优先级。</li>
+<li>资源统计（Accounting）： cgroups可以统计系统的资源使用量，如CPU使用时长、内存用量等等，这个功能非常适用于计费。</li>
+<li>进程控制（Control）：cgroups可以对进程组执行挂起、恢复等操作。</li>
+</ul>
+
+<p>Cgroups的子系统可以通过查看文件系统目录/sys/fs/cgroup/来查看</p>
+
+<pre><code># ls /sys/fs/cgroup/
+blkio/            cpuacct/          cpuset/           freezer/          memory/           net_cls,net_prio/ perf_event/       rdma/
+cpu/              cpu,cpuacct/      devices/          hugetlb/          net_cls/          net_prio/         pids/             systemd/
+</code></pre>
+
+<p>我们可以看出移动有如下子系统</p>
+
+<pre><code>devices：设备权限控制。
+cpuset：分配指定的CPU和内存节点。
+cpu：控制CPU占用率。
+    CPU资源的控制也有两种策略，一种是完全公平调度 （CFS：Completely Fair Scheduler）策略，提供了限额和按比例分配两种方式进行资源控制；另一种是实时调度（Real-Time Scheduler）策略，针对实时进程按周期分配固定的运行时间。
+cpuacct：统计CPU使用情况。
+memory：限制内存的使用上限。
+    memory.limit_bytes：强制限制最大内存使用量，单位有k、m、g三种，填-1则代表无限制。
+    memory.usage_bytes：报​​​告​​​该​​​ cgroup中​​​进​​​程​​​使​​​用​​​的​​​当​​​前​​​总​​​内​​​存​​​用​​​量（以字节为单位）。
+    memory.max_usage_bytes：报​​​告​​​该​​​ cgroup 中​​​进​​​程​​​使​​​用​​​的​​​最​​​大​​​内​​​存​​​用​​​量。
+freezer：冻结（暂停）Cgroup中的进程。
+net_cls：配合tc（traffic controller）限制网络带宽。
+net_prio：设置进程的网络流量优先级。
+huge_tlb：限制HugeTLB的使用。
+perf_event：允许Perf工具基于Cgroup分组做性能监测。
+</code></pre>
+
+<h3 id="rootfs">rootfs</h3>
+
+<p>Linux 和 Unix 操作系统可以通过 chroot 系统调用将子目录变成根目录，达到视图级别的隔离，进程在 chroot 的帮助下可以具有独立的文件系统，对于这样的文件系统进行增删改查不会影响到其他进程。</p>
+
+<h2 id="images">images</h2>
+
+<p>容器镜像，是容器分发的载体，很多时候讲容器镜像比作成集装箱，镜像里面包含了应用以及应用运行所需要的依赖，容器镜像采用分层存储，最底层是bootfs/rootfs, bootfs是最底层，类似于linux的引导文件系统，rootfs是基础镜像，比如这里基础镜像是ubuntu:15.04的系统，之后再基础镜像的基础上去做修改，比如增加应用bin文件，以及对环境变量的设置，每种改动最后在镜像中的表现是依次往上进行叠加的image layer。每一层是只读的，</p>
+
+<p>镜像文件的存储也是采用分层存储，比如多个镜像中存在某一层的内容是相同，那么只会存储一份，极大的节省了存储的成本。如下</p>
+
+<p><img src="/media/cloud/docker/image.png" alt="" /></p>
+
+<p>容器运行的时候会加载镜像中的文件系统，利用联合挂载（union mount）技术在已经有的只读文件系统中再挂载一个读写层,容器运行中的对文件系统的改动都会写到该层中，下面的只读层是保持不变，采用了COPY-ON-Writer。当容器删掉之后，这个可读写的层也会消失。</p>
+
+<p><img src="/media/cloud/docker/container.png" alt="" /></p>
+
+<h2 id="docker网络原理">docker网络原理</h2>
+
+<p>详细说明在<a href="/post/cloud/paas/base/docker/docker-network/">docker网络</a>。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/docker/docker-principle/">https://kingjcy.github.io/post/cloud/paas/base/docker/docker-principle/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/docker/">
+                            <i class="fa fa-tags"></i>
+                            docker
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/container/">
+                            <i class="fa fa-tags"></i>
+                            container
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/principle/">
+                            <i class="fa fa-tags"></i>
+                            principle
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker/">云计算容器系列---- Docker</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年02月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/paas/">云计算系列---- PaaS</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-principle/">云计算K8s系列---- K8s Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/jenkins/">云计算CDCI系列---- jenkins</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年09月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/harbor/">云计算CDCI系列---- harbor</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月23日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-tutorial/">云计算K8s系列---- K8s Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/helm/">云计算CDCI系列---- helm</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月11日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/prometheus-principle/">监控metrics系列---- Prometheus Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年05月13日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/architecture/count/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/distributed/distributed-event/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#架构">架构</a>
+<ul>
+<li><a href="#docker-client">docker client</a></li>
+<li><a href="#docker-daemon">docker daemon</a></li>
+<li><a href="#docker-server">docker server</a></li>
+<li><a href="#engine">engine</a></li>
+<li><a href="#job">job</a></li>
+<li><a href="#docker-registry">docker registry</a></li>
+<li><a href="#graph">Graph</a></li>
+<li><a href="#driver">driver</a></li>
+<li><a href="#libcontainer">libcontainer</a></li>
+<li><a href="#docker-container">docker container</a></li>
+</ul></li>
+<li><a href="#原理">原理</a>
+<ul>
+<li><a href="#docker引擎原理">docker引擎原理</a>
+<ul>
+<li><a href="#namespace">namespace</a></li>
+<li><a href="#cgroup">cgroup</a></li>
+<li><a href="#rootfs">rootfs</a></li>
+</ul></li>
+<li><a href="#images">images</a></li>
+<li><a href="#docker网络原理">docker网络原理</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

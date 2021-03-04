@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Harbor是由VMware公司开源的企业级的Docker Registry管理项目，它包括权限管理(RBAC)、LDAP、日志审核、管理界面、自我注册、镜像复制和中文支持等功能。harbor项目是由VMware中国研发的团队负责开发，所以对国内非常友好。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算CDCI系列---- harbor - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算CDCI系列---- harbor
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年06月23日 
+                </div>
+                <h1 class="post-title">云计算CDCI系列---- harbor</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Harbor是由VMware公司开源的企业级的Docker Registry管理项目，它包括权限管理(RBAC)、LDAP、日志审核、管理界面、自我注册、镜像复制和中文支持等功能。harbor项目是由VMware中国研发的团队负责开发，所以对国内非常友好。</p>
+
+<h1 id="使用">使用</h1>
+
+<h2 id="部署">部署</h2>
+
+<p>安装Harbor，需要提前安装docker，和docker-compose，这边就不详细叙述了。当然这是单独部署harbor，也可以部署在k8s中，也可以使用<a href="https://github.com/goharbor/harbor-helm">helm部署</a>到k8s中，都是差不多的。</p>
+
+<p>1、下载installer</p>
+
+<p>其实就是去harbor的github的release上下载一个版本：<a href="https://github.com/goharbor/harbor/releases">https://github.com/goharbor/harbor/releases</a></p>
+
+<pre><code>wget 'https://storage.googleapis.com/harbor-releases/release-1.8.0/harbor-offline-installer-v1.8.4-rc1.tgz' .
+tar -zxvf harbor-offline-installer-v1.8.4-rc1.tgz
+</code></pre>
+
+<p>2、修改配置</p>
+
+<p>下载下来之后解压缩，目录下会有harbor.conf，就是Harbor的配置文件了，修改hostname,harbor_admin_password。</p>
+
+<pre><code>#harbor.yml
+cat harbor.yml |grep -v '#' |grep -v '^$'
+hostname: registry.test.myop.com
+http:
+  port: 80
+harbor_admin_password: Harbor12345
+database:
+  password: root123
+data_volume: /data1/harbor
+clair:
+  updaters_interval: 12
+  http_proxy:
+  https_proxy:
+  no_proxy: 127.0.0.1,localhost,core,registry
+jobservice:
+  max_job_workers: 10
+chart:
+  absolute_url: disabled
+log:
+  level: info
+  rotate_count: 50
+  rotate_size: 200M
+  location: /var/log/harbor
+_version: 1.8.0
+
+#修改docker-compose.yml, 把 ports改为5000.
+vim docker-compose.yml,
+   dns_search:
+   ports:
+      - 5000:5000
+</code></pre>
+
+<p>配置文件详解</p>
+
+<ul>
+<li><p>主要参数</p>
+
+<pre><code>1、hostname：目标主机的主机名，用于访问UI和注册表服务。它应该是目标计算机的IP地址或完全限定域名（FQDN），例如192.168.1.10或reg.yourdomain.com。不要使用localhost或127.0.0.1用于主机名 - 注册表服务需要由外部客户端访问！
+2、ui_url_protocol：（http或https。默认为http）用于访问UI和令牌/通知服务的协议。默认情况下，这是http。要设置https协议，如果启用了认证，则此参数必须为https。
+3、db_password：用于db_auth的MySQL数据库的根密码。更改此密码以用于任何生产使用！
+4、max_job_workers：（缺省值为3）作业服务中的最大复制worker数。对于每个图像复制作业，工作程序将存储库的所有标记同步到远程目标。增加此数量允许系统中更多的并发复制作业。但是，由于每个工人消耗一定量的网络/ CPU / IO资源，请根据主机的硬件资源仔细选择此属性的值。
+5、customize_crt：（开启或关闭，默认为开启），如果此属性开启，在准备脚本创建注册表的令牌生成/验证私钥和根证书。当外部源提供密钥和根证书时，将此属性设置为off。以下属性：crt_country，crt_state，crt_location，crt_organization，crt_organizationalunit，crt_commonname，crt_email用作生成密钥的参数。当密钥和根证书由外部源提供时，将此属性设置为off。
+6、ssl_cert：SSL证书的路径，仅在协议设置为https时应用。
+7、ssl_cert_key：SSL密钥的路径，仅在协议设置为https时应用。
+8、secretkey_path：用于加密或解密复制策略中远程注册表密码的密钥路径。
+9、log_rotate_count：日志文件在被删除之前会被轮询log_rotate_count次数。如果count为0，则删除旧版本而不是轮询。
+10、log_rotate_size：仅当日志文件大于log_rotate_size字节时才会轮换日志文件。如果大小后跟k，则大小以千字节为单位。如果使用M，则大小以兆字节为单位，如果使用G，则大小为千兆字节。
+11、harbour_admin_password：管理员的初始密码。此密码仅在harbor首次发布时生效。之后，将忽略此设置，并且应在UI中设置管理员的密码。请注意，默认用户名/密码为admin / Harbor12345。
+</code></pre></li>
+
+<li><p>可选参数</p>
+
+<pre><code>1、电子邮件设置：Harbor需要这些参数才能向用户发送“密码重置”电子邮件，并且只有在需要该功能时才需要。还有，千万注意，在默认情况下SSL连接是没有启用-如果你的SMTP服务器需要SSL，但不支持STARTTLS，那么你应该通过设置启用SSL email_ssl = TRUE。
+    email_server = smtp.mydomain.com
+    email_server_port = 25
+    email_username = sample_admin@mydomain.com
+    email_password = abc
+    email_from = admin \&lt;sample_admin@mydomain.com\&gt;
+    email_ssl = false
+
+2、auth_mode：使用的认证类型。默认情况下，它是db_auth，即凭据存储在数据库中。对于LDAP认证，请将其设置为ldap_auth。
+    ldap_url：LDAP端点URL（例如ldaps://ldap.mydomain.com）。 仅当auth_mode设置为ldap_auth时使用。
+    ldap_searchdn：具有搜索LDAP / AD服务器（例如uid=admin,ou=people,dc=mydomain,dc=com）的权限的用户的DN 。
+    ldap_search_pwd：由指定的用户的密码ldap_searchdn。
+    ldap_basedn：查找用户的基本DN，例如ou=people,dc=mydomain,dc=com。 仅当auth_mode设置为ldap_auth时使用。
+    ldap_filter：用于查找用户的搜索过滤器，例如(objectClass=person)。
+    ldap_uid：用于在LDAP搜索期间匹配用户的属性，可以是uid，cn，电子邮件或其他属性。
+    ldap_scope：用于搜索用户的范围，1-LDAP_SCOPE_BASE，2-LDAP_SCOPE_ONELEVEL，3-LDAP_SCOPE_SUBTREE。默认值为3。
+3、self_registration：（on或off。默认为on）启用/禁用用户注册自己的能力。禁用时，新用户只能由管理员用户创建，只有管理员用户才能在Harbor中创建新用户。 注意：当auth_mode设置为ldap_auth时，将始终禁用自注册功能，并且将忽略此标志。
+4、use_compressed_js：（on或off。默认为on）对于生产使用，将此标志设置为on。在开发模式下，将其设置为off，以便可以单独修改js文件。
+5、token_expiration：令牌服务创建的令牌的过期时间（以分钟为单位），默认为30分钟。
+6、verify_remote_cert：（on或off。默认为on）此标志确定当Harbor与远程注册表实例通信时是否验证SSL / TLS证书。将此属性设置为关闭将绕过SSL / TLS验证，这通常在远程实例具有自签名或不受信任的证书时使用。
+</code></pre></li>
+
+<li><p>后端存储调整</p>
+
+<p>主要在common/templates/registry/config.yml文件，这块其实就是去改registry的配置文件。改完之后prepare一下，然后docker-compse up -d就可以了。</p></li>
+</ul>
+
+<p>3、安装</p>
+
+<p>直接执行安装脚本就行</p>
+
+<pre><code>#执行安装脚本
+sh ./install.sh
+[Step 0]: checking installation environment ...
+Note: docker version: 18.06.1
+Note: docker-compose version: 1.24.1
+
+[Step 1]: loading Harbor images ...
+b80136ee24a4: Loading layer [==================================================&gt;]  34.25MB/34.25MB
+
+[Step 2]: preparing environment ...
+prepare base dir is set to /data1/software/harbor
+Generated configuration file: /config/log/logrotate.conf
+Generated configuration file: /config/nginx/nginx.conf
+Generated configuration file: /config/core/env
+Generated configuration file: /config/core/app.conf
+Generated configuration file: /config/registry/config.yml
+Generated configuration file: /config/registryctl/env
+Generated configuration file: /config/db/env
+Generated configuration file: /config/jobservice/env
+Generated configuration file: /config/jobservice/config.yml
+Generated and saved secret to file: /secret/keys/secretkey
+Generated certificate, key file: /secret/core/private_key.pem, cert file: /secret/registry/root.crt
+Generated configuration file: /compose_location/docker-compose.yml
+Clean up the input dir
+
+
+[Step 3]: starting Harbor ...
+Creating network &quot;harbor_harbor&quot; with the default driver
+Creating harbor-log ... done
+Creating redis       ... done
+Creating harbor-db   ... done
+Creating registry    ... done
+Creating registryctl ... done
+Creating harbor-core ... done
+Creating harbor-jobservice ... done
+Creating harbor-portal     ... done
+Creating nginx             ... done
+</code></pre>
+
+<p>安装启动后可以查看相关组件的运行情况</p>
+
+<pre><code># docker ps
+CONTAINER ID        IMAGE                                  COMMAND                  CREATED             STATUS                            PORTS                                                              NAMES
+248ae75cf72b        vmware/nginx-photon:v1.4.0             &quot;nginx -g 'daemon of…&quot;   4 seconds ago       Up 3 seconds                      0.0.0.0:80-&gt;80/tcp, 0.0.0.0:443-&gt;443/tcp, 0.0.0.0:4443-&gt;4443/tcp   nginx
+2f4278759096        vmware/harbor-jobservice:v1.4.0        &quot;/harbor/start.sh&quot;       4 seconds ago       Up 4 seconds (health: starting)                                                                      harbor-jobservice
+5977ecfd082b        vmware/harbor-ui:v1.4.0                &quot;/harbor/start.sh&quot;       5 seconds ago       Up 4 seconds (health: starting)                                                                      harbor-ui
+ff6fc31844a9        vmware/harbor-db:v1.4.0                &quot;/usr/local/bin/dock…&quot;   5 seconds ago       Up 3 seconds (health: starting)   3306/tcp                                                           harbor-db
+2ed6ff381ab9        vmware/harbor-adminserver:v1.4.0       &quot;/harbor/start.sh&quot;       5 seconds ago       Up 4 seconds (health: starting)                                                                      harbor-adminserver
+d3e1e93bce1b        vmware/registry-photon:v2.6.2-v1.4.0   &quot;/entrypoint.sh serv…&quot;   5 seconds ago       Up 4 seconds (health: starting)   5000/tcp                                                           registry
+096310feb030        vmware/harbor-log:v1.4.0               &quot;/bin/sh -c /usr/loc…&quot;   6 seconds ago       Up 5 seconds (health: starting)   127.0.0.1:1514-&gt;10514/tcp                                          harbor-log
+</code></pre>
+
+<p>4、测试访问</p>
+
+<p>安装完毕后可以测试访问页面： registry.test.myop.com 账号默认是admin，密码默认Harbor12345，这时候就能通过harbor的基本界面进行操作了。</p>
+
+<h2 id="基本使用">基本使用</h2>
+
+<p>1、启停harbor</p>
+
+<pre><code>$ sudo docker-compose down -v
+$ vim harbor.yml
+$ sudo prepare
+$ sudo docker-compose up -d
+</code></pre>
+
+<p>这个是docker-compose中的命令，k8s中一样使用kubectl或者helm就可以了。</p>
+
+<p>2、https配置</p>
+
+<ul>
+<li><p>修改配置文件sudo vim harbor.cfg</p>
+
+<p>将hostname更改为xxxxxx.com,ui_url_protocol更改为https方式。</p>
+
+<p>将ssl_cert以及ssl_cert_key的名字更改为你要生成证书的名字。</p></li>
+
+<li><p>生成证书</p>
+
+<p>官方文档有Harbor生成证书的说明，直接照做就好。</p>
+
+<pre><code>生成CA证书
+ openssl req \
+    -newkey rsa:4096 -nodes -sha256 -keyout ca.key \
+    -x509 -days 365 -out ca.crt
+生成证书签名
+openssl req \
+    -newkey rsa:4096 -nodes -sha256 -keyout yourdomain.com.key \
+    -out yourdomain.com.csr
+FQDN方式生成注册表主机的证书
+openssl x509 -req -days 365 -in yourdomain.com.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out yourdomain.com.crt
+</code></pre>
+
+<p>以上yourdomain.com替换为要使用的FQDN必须和harbor中的hostname以及ssl_cert配置相同。</p></li>
+
+<li><p>证书配置以及安装</p>
+
+<p>获取yourdomain.com.crt和yourdomain.com.key文件后，可以将它们放入如下目录/root/cert/（我将放在/data/cert目录下）：</p>
+
+<pre><code>cp yourdomain.com.crt /data/cert/
+cp yourdomain.com.key /data/cert/
+</code></pre>
+
+<p>为Harbor生成配置文件：</p>
+
+<pre><code>sudo ./prepare
+</code></pre>
+
+<p>最后重启Harbor：</p>
+
+<pre><code>docker-compose up -d
+</code></pre></li>
+</ul>
+
+<p>3、登陆出错</p>
+
+<p>Harbor是搭建完成了，在我们上传项目时可能会出现一些问题,在另外一个服务器(client)登录harbor,会出错!</p>
+
+<pre><code>$docker login  registry.test.myop.com
+Error response from daemon: Get https://registry.test.myop.com/v2/: dial tcp registry.test.myop.com:443: connect: connection refused
+</code></pre>
+
+<p>这是因为docker1.3.2版本开始默认docker registry使用的是https，我们设置Harbor默认http方式，所以当执行用docker login、pull、push等命令操作非https的docker regsitry的时就会报错。</p>
+
+<p>解决方法</p>
+
+<ul>
+<li><p>编辑harbor及client机器的docker配置文件/etc/docker/daemon.json</p>
+
+<pre><code>vim /etc/docker/daemon.json
+{
+ &quot;insecure-registries&quot;: [
+ &quot;harbor_ip or harbor_domain&quot;
+ ]
+}
+</code></pre></li>
+
+<li><p>重启docker</p>
+
+<pre><code>#reload docker
+systemctl daemon-reload
+#docker ps |grep -v CONTAINER |awk '{print $1}'&gt;docker_online.txt
+#cat docker_online.txt  |while read line; do echo &quot;$line&quot;; docker start $line; done;
+#systemctl start docker #服务会停止,使用reload较好。
+systemctl reload docker
+systemctl status docker.service -l
+</code></pre></li>
+
+<li><p>登录仓库</p>
+
+<pre><code>docker login registry.test.myop.com
+Username: admin
+Password:
+WARNING! Your password will be stored unencrypted in /root/.docker/config.json.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+</code></pre></li>
+</ul>
+
+<p>4、镜像管理</p>
+
+<ul>
+<li><p>配置http镜像仓库可信任</p>
+
+<pre><code>vi /etc/docker/daemon.json
+{&quot;insecure-registries&quot;:[&quot;registry.test.myop.com&quot;]}
+systemctl restart docker
+</code></pre></li>
+
+<li><p>打标签</p>
+
+<pre><code>docker tag centos:6 registry.test.myop.com/library/centos:6
+</code></pre></li>
+
+<li><p>上传</p>
+
+<pre><code>docker push registry.test.myop.com/library/centos:6
+</code></pre></li>
+
+<li><p>下载</p>
+
+<pre><code>docker pull registry.test.myop.com/library/centos:6
+</code></pre></li>
+</ul>
+
+<p>示例</p>
+
+<pre><code>#推送之前先登录Harbor
+docker login docker login registry.test.myop.com
+admin
+Harbor12345
+提示success登录成功
+
+查看自己有哪些镜像;docker images
+把需要上传到Harbor的镜像运行如下命令就可以了
+#镜像打标签
+docker tag 镜像名:标签 私服地址/仓库项目名/镜像名:标签
+
+#推送到私服
+docker push  私服地址/仓库项目名/镜像名：标签
+
+#从私服拉取镜像
+docker pull 私服地址/仓库项目名/镜像名：标签
+</code></pre>
+
+<p>5、用户账户</p>
+
+<p>Harbor支持两种身份验证方式：</p>
+
+<ul>
+<li><p>Database(db_auth)： 这种情况下，所有用户被存放在一个本地数据库</p>
+
+<p>当注册或添加一个新的用户到Harbor中时，Harbor系统中的用户名、email必须是唯一的。密码至少要有8个字符长度，并且至少要包含一个大写字母(uppercase letter)、一个小写字母(lowercase letter)以及一个数字(numeric character)。</p></li>
+
+<li><p>LDAP/Active Directory(ldap_auth): 在这种认证模式下，用户的credentials都被存放在外部的LDAP或AD服务器中，用户在那边完成认证后可以直接登录到Harbor系统。</p>
+
+<p>当一个LDAP/AD用户通过username和password的方式登录进系统时，Harbor会用LDAP Search DN及LDAP Search Password绑定LDAP/AD服务器（请参看installation guide)。假如成功的话，Harbor会在LDAP的LDAP Base DN目录及其子目录来查询该用户。通过LDAP UID指定的一些属性(比如: uid、cn)会与username一起共同来匹配一个用户。假如被成功匹配，用户的密码会通过一个发送到LDAP/AD服务器的bind request所验证。假如LDAP/AD服务器使用自签名证书(self-signed certificate)或者不受信任的证书的话，请不要检查LDAP Verify Cert</p></li>
+</ul>
+
+<p>6、项目管理</p>
+
+<p>Harbor中的一个工程包含了一个应用程序所需要的所有repositories。在工程创建之前，并不允许推送镜像到Harbor中。Harbor对于project采用基于角色的访问控制。在Harbor中projects有两种类型：</p>
+
+<ul>
+<li>Public: 所有的用户都具有读取public project的权限， 其主要是为了方便你分享一些repositories</li>
+<li>Private: 一个私有project只能被特定用户以适当的权限进行访问</li>
+</ul>
+
+<p>在登录之后，你就可以创建一个工程(project)。默认情况下，创建的工程都是私有的，你可以通过在创建时选中Access Level复选框来使创建的工程变为public的。</p>
+
+<p>在项目中，你可以通过导航标签Logs选项卡来查看所有的日志，可以使用Configuration选项卡设置工程相关属性，可以使用member来新增和删除项目成员。</p>
+
+<p>7、权限</p>
+
+<p>Harbor基于角色的访问控制，与project关联的角色简单地分为Guest/Developer/Admin三类，角色/project/镜像三者之间进行关联，不同角色的权限不同，如下图</p>
+
+<p><img src="/media/cloud/harbor/harbor" alt="" /></p>
+
+<p>权限说明</p>
+
+<pre><code>角色  权限说明
+Guest   对于指定项目拥有只读权限
+Developer   对于指定项目拥有读写权限
+ProjectAdmin    除了读写权限，同时拥有用户管理/镜像扫描等管理权限
+</code></pre>
+
+<p>我们可以到数据库中看一下角色管理，Harbor的数据库的信息非常简单，从Access表中可以看到其将访问权限进行地划分</p>
+
+<pre><code>MariaDB [registry]&gt; select * from access;
++-----------+-------------+-------------------------------+
+| access_id | access_code | comment                       |
++-----------+-------------+-------------------------------+
+|         1 | M           | Management access for project |
+|         2 | R           | Read access for project       |
+|         3 | W           | Write access for project      |
+|         4 | D           | Delete access for project     |
+|         5 | S           | Search access for project     |
++-----------+-------------+-------------------------------+
+5 rows in set (0.00 sec)
+</code></pre>
+
+<p>项目级别的角色目前的5种细粒度的访问权限分别为：M/R/W/D/S</p>
+
+<pre><code>访问权限    说明
+M   管理操作的权限
+R   读操作的权限
+W   写操作的权限
+D   删除访问权限的权限
+R   查询权限
+</code></pre>
+
+<p>我们再来看项目权限和角色的关联</p>
+
+<pre><code>MariaDB [registry]&gt; select * from role;
++---------+-----------+-----------+--------------+
+| role_id | role_mask | role_code | name         |
++---------+-----------+-----------+--------------+
+|       1 |         0 | MDRWS     | projectAdmin |
+|       2 |         0 | RWS       | developer    |
+|       3 |         0 | RS        | guest        |
++---------+-----------+-----------+--------------+
+3 rows in set (0.00 sec)
+</code></pre>
+
+<p>很明显的就能看出对应的角色的权限，除此之外，还有两种系统级别的角色，在harbor创建的时候就被创建出来了。</p>
+
+<pre><code>角色  权限说明
+SysAdmin    具有最多的权限，除了以上提及的权限，可以跨项目操作，查询所有项目，设定某个用户作为管理员以及扫描策略等
+Anonymous:  没有登录的用户被视作匿名用户。匿名用户对private的项目不具访问权限，对public的项目具有只读权限
+</code></pre>
+
+<p>6、镜像复制</p>
+
+<p>镜像复制被用于从一个Harbor实例向另一个Harbor实例复制repositories。，Harnor镜像复制可在不同的数据中心、不同的运行环境之间同步镜像，并提供友好的管理界面，大大简化了实际运维中的镜像管理工作.</p>
+
+<p>Harbor仍然以“项目”为中心， 通过对项目配置“复制策略”，标明需要复制的项目以及镜像。管理员在复制策略中指明目标实例，即复制的“目的地”，并对它的地址和连接时使用的用户名密码进行设置。当复制策略被激活时，源项目下的所有镜像，都会被复制到目标实例；此外，当源项目下的镜像被添加或删除（push或delete), 只要策略还在激活状态，镜像的变化都会同步到目标实例上去， 如下图所示：</p>
+
+<p><img src="/media/cloud/harbor/harbor1" alt="" /></p>
+
+<p>在较大的容器集群中，往往需要多个Registry服务器做负载均衡，可以采用主从发布模式，镜像只需要发布一次，就可以推送到多个Registry实例中。同时还支持双主复制和层次型的多级镜像发布，如下图所示：</p>
+
+<p><img src="/media/cloud/harbor/harbor2" alt="" /></p>
+
+<p>具体的搭建和使用这边就不多说了。</p>
+
+<h1 id="架构">架构</h1>
+
+<p><img src="/media/cloud/harbor/harbor3" alt="" /></p>
+
+<p>从架构图中可以看出，Harbor由6个大的模块所组成：</p>
+
+<ul>
+<li>Proxy: Harbor的registry、UI、token services等组件，都处在一个反向代理后边。该代理将来自浏览器、docker clients的请求转发到后端服务上。</li>
+<li>Registry: 负责存储Docker镜像，以及处理Docker push/pull请求。因为Harbor强制要求对镜像的访问做权限控制， 在每一次push/pull请求时，Registry会强制要求客户端从token service那里获得一个有效的token。</li>
+<li>Core services: Harbor的核心功能，主要包括如下3个服务:
+
+<ul>
+<li>UI: 作为Registry Webhook, 以图像用户界面的方式辅助用户管理镜像。</li>
+<li>WebHook是在registry中配置的一种机制， 当registry中镜像发生改变时，就可以通知到Harbor的webhook endpoint。Harbor使用webhook来更新日志、初始化同步job等。</li>
+<li>Token service会根据该用户在一个工程中的角色，为每一次的push/pull请求分配对应的token。假如相应的请求并没有包含token的话，registry会将该请求重定向到token service。</li>
+</ul></li>
+<li>Database 用于存放工程元数据、用户数据、角色数据、同步策略以及镜像元数据。</li>
+<li>Job services: 主要用于镜像复制，本地镜像可以被同步到远程Harbor实例上。</li>
+<li>Log collector: 负责收集其他模块的日志到一个地方</li>
+</ul>
+
+<p>这里我们与运行的7个容器对比，多了一个harbor-adminserver主要是作为一个后端的配置数据管理，并没有太多的其他功能。harbor-ui所要操作的所有数据都通过harbor-adminserver这样一个数据配置管理中心来完成。</p>
+
+<h2 id="其他组件">其他组件</h2>
+
+<p>harbor的发展，有着很多其他的组件逐渐的成熟被需要，所以很多组件也被加入到了harbor生态中。</p>
+
+<p><img src="/media/cloud/harbor/harbor7" alt="" /></p>
+
+<h3 id="clair">clair</h3>
+
+<p>harbor仓库中的镜像扫描这个功能，看似很高大上，其实等你了解了它的底层原理与流程，你就会发现就是做了那么一件事而已，用通俗的一句话概括，就是找到每个镜像文件系统中已经安装的软件包与版本，然后跟官方系统公布的信息比对，官方已经给出了在哪个系统版本上哪个软件版本有哪些漏洞，比如Debian 7系统上，nginx 1.12.1有哪些CVE漏洞，通过对逐个安装的软件包比对，就能知道当前这个镜像一共有多少CVE。</p>
+
+<p>镜像就是由许多Layer层组成的文件系统，重要的是每个镜像有一个manifest，这个东西跟springboot中的一个概念，就是文件清单的意思。一个镜像是由许多Layer组成，总需要这个manifest文件来记录下到底由哪几个层联合组成的。要扫描分析一个镜像，首先你就必须获取到这个镜像的manifest文件，通过manifest文件获取到镜像所有的Layer的地址digest，digest在docker镜像存储系统中代表的是一个地址，类似操作系统中的一个内存地址概念，通过这个地址，可以找到文件的内容，这种可寻址的设计是v2版本的重大改变。在docker hub储存系统中，所有文件都是有地址的，这个digest就是由某种高效的sha算法通过对文件内容计算出来的。</p>
+
+<p>clair是 coreos 开源的容器漏洞扫描工具，在容器逐渐普及的今天，容器镜像安全问题日益严重。clair 是目前少数的开源安全扫描工具，主要提供OS（centos，debian，ubuntu等）的软件包脆弱性扫描。clair的可以单机部署也可以部署到k8s上，可以与现有的registry集成。harbor 很好的整合了 clair ，通过简单的UI就可以对上传的镜像扫描，还可以通过每天的定时扫描对所有镜像进行统一扫描，架构如下：</p>
+
+<p><img src="/media/cloud/harbor/harbor6" alt="" /></p>
+
+<p>Clair主要包括以下模块：</p>
+
+<pre><code>获取器（Fetcher）- 从公共源收集漏洞数据
+检测器（Detector）- 指出容器镜像中包含的Feature
+容器格式器（Image Format）- Clair已知的容器镜像格式，包括Docker，ACI
+通知钩子（Notification Hook）- 当新的漏洞被发现时或者已经存在的漏洞发生改变时通知用户/机器
+数据库（Databases）- 存储容器中各个层以及漏洞
+Worker - 每个Post Layer都会启动一个worker进行Layer Detect
+</code></pre>
+
+<p>具体的部署官方也有，主要是用官方提供的镜像进行操作，目前也在发展中，可以集成到harbor中用启动参数进行启动，这边不多说。</p>
+
+<p>我们主要讲一下他的工作流程</p>
+
+<pre><code>Clair定期从配置的源获取漏洞元数据然后存进数据库。
+客户端使用Clair API处理镜像，获取镜像的特征并存进数据库。
+客户端使用Clair API从数据库查询特定镜像的漏洞情况，为每个请求关联漏洞和特征，避免需要重新扫描镜像。
+当更新漏洞元数据时，将会有系统通知产生。另外，还有webhook用于配置将受影响的镜像记录起来或者拦截其部署。
+</code></pre>
+
+<p>具体针对镜像的校验过程</p>
+
+<pre><code>1.UI向Job发起镜像扫描请求，参数中包含了仓库名称以及tag
+2.Job收到请求之后，向registry发起一个Head请求(/v2/nginx/manifest/v1.12.1)，判断当前镜像的manifest是否存在，取出当前manifest的digest，这个digest是存放在响应头中的Docker-Content-Digest。
+3.Job把第2步获取到的digest以及仓库名、tag作为一条记录插入job表中，job的状态为pending。
+    这个时候Job系统则会新建一个扫描任务的job进行调度，这里则涉及到一个状态机处理流程。
+4.Job系统通过manifest文件获取镜像的所有Layer digest，针对每一层，封装一个ClairLayer参数对象，然后根据层的数量，循环请求Clair系统，ClairLayer参数结构如下：
+    Name:    sha256:7d99455a045a6c89c0dbee6e1fe659eb83bd3a19e171606bc0fd10eb0e34a7dc
+    Headers: tokenHeader,
+    Format:  &quot;Docker&quot;,
+    Path:    http://registry:5000/v2/nginx/blobs/7d99455a045a6c89c0dbee6e1fe659eb83bd3a19e171606bc0fd10eb0e34a7dc
+    ParentName: a55bba68cd4925f13c34562c891c8c0b5d446c7e3d65bf06a360e81b993902e1
+5.Clair系统收到请求之后，根据ParentName首先校验父Layer是否存在，不存在则报错。
+</code></pre>
+
+<p><img src="/media/cloud/harbor/clair" alt="" /></p>
+
+<p>我们正常除了给容器做镜像扫描，还会将Clair可以集成到CI/CD管道中，如此一来当生成镜像时，将镜像推送到仓库之后触发Clair扫描该镜像的请求。 集成思路如下：</p>
+
+<pre><code>用户推送镜像到容器仓库，仓库根据设置的黑白名单选择是否调用Clair进行扫描
+一旦触发Clair扫描，则等待扫描结果返回，然后通知用户
+如果发现漏洞，则CI也同时阻止CD流程启动，否则CD流程开启
+</code></pre>
+
+<p><img src="/media/cloud/harbor/clair1" alt="" />
+<img src="/media/cloud/harbor/clair2" alt="" /></p>
+
+<p>目前Docker Hub上的镜像上大部分都是存在漏洞的，所以安全扫描还是很有必要的。</p>
+
+<h3 id="notary">Notary</h3>
+
+<p>Notary是一套docker镜像的签名工具， 用来保证镜像在pull，push和传输工程中的一致性和完整性。避免中间人攻击，避免非法的镜像更新和运行。</p>
+
+<p>可以看见只有认证的签名的镜像才能进行pull，push，从而保证仓库的安全。具体可以查看<a href="https://github.com/theupdateframework/notary">官网</a>。</p>
+
+<h2 id="高可用">高可用</h2>
+
+<p>目前有两种主流的方案来解决这个问题：</p>
+
+<pre><code>双主复制
+多harbor实例共享后端存储
+</code></pre>
+
+<h3 id="双主复制">双主复制</h3>
+
+<p>1、主从同步</p>
+
+<p>主从复制的原理我们已经在上面讲过了，harbor官方默认提供主从复制的方案来解决镜像同步问题，通过复制的方式，我们可以实时将测试环境harbor仓库的镜像同步到生产环境harbor，类似于如下流程：</p>
+
+<p><img src="/media/cloud/harbor/harbor8" alt="" /></p>
+
+<p>在实际生产运维的中，往往需要把镜像发布到几十或上百台集群节点上。这时，单个Registry已经无法满足大量节点的下载需求，因此要配置多个Registry实例做负载均衡。手工维护多个Registry实例上的镜像，将是十分繁琐的事情。Harbor可以支持一主多从的镜像发布模式，可以解决大规模镜像发布的难题：</p>
+
+<p><img src="/media/cloud/harbor/harbor9" alt="" /></p>
+
+<p>只要往一台Registry上发布，镜像就像“仙女散花”般地同步到多个Registry中，高效可靠。</p>
+
+<p>如果是地域分布较广的集群，还可以采用层次型发布方式，如从集团总部同步到省公司，从省公司再同步到市公司：</p>
+
+<p><img src="/media/cloud/harbor/harbor10" alt="" /></p>
+
+<p>然而单靠主从同步，仍然解决不了harbor主节点的单点问题。</p>
+
+<p>2、双主复制</p>
+
+<p>所谓的双主复制其实就是复用主从同步实现两个harbor节点之间的双向同步，来保证数据的一致性，然后在两台harbor前端顶一个负载均衡器将进来的请求分流到不同的实例中去，只要有一个实例中有了新的镜像，就是自动的同步复制到另外的的实例中去，这样实现了负载均衡，也避免了单点故障，在一定程度上实现了Harbor的高可用性：</p>
+
+<p><img src="/media/cloud/harbor/harbor11" alt="" /></p>
+
+<p>这个方案有一个问题就是有可能两个Harbor实例中的数据不一致。假设如果一个实例A挂掉了，这个时候有新的镜像进来，那么新的镜像就会在另外一个实例B中，后面即使恢复了挂掉的A实例，Harbor实例B也不会自动去同步镜像，这样只能手动的先关掉Harbor实例B的复制策略，然后再开启复制策略，才能让实例B数据同步，让两个实例的数据一致。</p>
+
+<p>根据我的使用经验，在实际生产使用中，主从复制十分的不靠谱。所以一般企业都是会使用下面这种方案。</p>
+
+<h3 id="多harbor实例共享后端存储">多harbor实例共享后端存储</h3>
+
+<p>共享后端存储算是一种比较标准的方案，就是多个Harbor实例共享同一个后端存储，任何一个实例持久化到存储的镜像，都可被其他实例中读取。通过前置LB进来的请求，可以分流到不同的实例中去处理，这样就实现了负载均衡，也避免了单点故障：</p>
+
+<p><img src="/media/cloud/harbor/harbor12" alt="" /></p>
+
+<p>这个方案在实际生产环境中部署需要考虑三个问题：</p>
+
+<pre><code>1、共享存储的选取，Harbor的后端存储目前支持AWS S3、Openstack Swift, Ceph等，在我们的测试环境里，都可以直接使用nfs
+2、Session在不同的实例上共享，这个现在其实已经不是问题了，在最新的harbor中，默认session会存放在redis中，我们只需要将redis独立出来即可。可以通过redis sentinel或者redis cluster等方式来保证redis的可用性。在我们的实验环境里，仍然使用单台redis
+3、Harbor多实例数据库问题，这个也只需要将harbor中的数据库拆出来独立部署即可。让多实例共用一个外部数据库，数据库的高可用也可以通过数据库的高可用方案保证。
+</code></pre>
+
+<h1 id="api">API</h1>
+
+<p>Harbor 提供了一些列 API 用于镜像仓库的管理，完整的 API 文档可以查看 Harbor 的 Swagger文件：<a href="https://raw.githubusercontent.com/goharbor/harbor/master/docs/swagger.yaml">https://raw.githubusercontent.com/goharbor/harbor/master/docs/swagger.yaml</a>  可以通过 Swagger 工具 <a href="https://editor.swagger.io/">https://editor.swagger.io/</a> 在线查看，将上述文件内容黏贴进改工具的编辑框中即可。这边就不详细说明了，开发的时候直接查询就好。</p>
+
+<h1 id="原理">原理</h1>
+
+<h2 id="登陆">登陆</h2>
+
+<p>在我们使用docker login harborip之后，Docker Client会发送一个HTTP GET请求到192.168.1.10/v2/地址处，Harbor的不同容器组件将会按照如下步骤进行处理：</p>
+
+<p><img src="/media/cloud/harbor/harbor4" alt="" /></p>
+
+<p>1、首先，该请求将会被监听在80端口上的代理容器所接收到。容器中的Nginx将会把该请求转发给后端的Registry容器</p>
+
+<p>2、由于registry容器已经被配置为基于token的认证，因此其会返回一个401错误码，用于通知docker客户端从一个指定的URL处获得一个有效的token。在Harbor中，该URL会指向Core service中的token service。</p>
+
+<p>3、当Docker Client接收到这个错误码，其就会发送一个请求到token service URL，会根据HTTP基本认证协议在请求头中内嵌username和password相关信息</p>
+
+<p>4、在该请求被发送到代理的80端口上后，Nginx会根据预先所配置的规则将请求转发到UI容器上。UI容器中的token service接收到该请求之后，其就会对该请求进行解码然后获得相应的用户名及密码</p>
+
+<p>5、在成功获得用户名及密码之后，token Service就会检查mysql数据库以完成用户的认证。当token service被配置为LDAP/AD认证的时候，其就会通过外部的LDAP/AD服务来完成认证。在成功认证之后，token Service就会返回一个认证成功的http code， Http body部分会返回一个通过private key所产生的token</p>
+
+<p>到这里为止，Docker login就处理完成。Docker client会将步骤&copy;所产生的username及password编码后保存到一个隐藏的文件中</p>
+
+<h2 id="上传">上传</h2>
+
+<p><img src="/media/cloud/harbor/harbor5" alt="" /></p>
+
+<p>省略nginx转发，直接展示组件之间的交互</p>
+
+<p>1、首先，docker client执行类似登录时的流程发送一个请求到registry，然后返回一个token service的URL</p>
+
+<p>2、然后，docker client通过提供一些额外的信息与ui/token交互以获得push镜像library/hello-world的token</p>
+
+<p>3、在成功获得来自Nginx转发的请求之后，Token Service查询数据库以寻找用户推送镜像的角色及权限。假如用户有相应的权限，token service就会编码相应的push操作信息，并用一个private key进行签名。然后返回一个token给Docker client</p>
+
+<p>4、在docker client获得token之后，其就会发送一个push请求到registry，在该push请求的头中包含有上面返回的token信息。一旦registry收到了该请求，其就会使用public key来解码该token，然后再校验其内容。该public key对应于token service处的private key。假如registry发现该token有效，则会开启镜像的传输流程。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/cdci/harbor/">https://kingjcy.github.io/post/cloud/paas/cdci/harbor/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/harbor/">
+                            <i class="fa fa-tags"></i>
+                            harbor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cdci/">
+                            <i class="fa fa-tags"></i>
+                            CDCI
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/monitor-scheme/k8s-base/">监控metrics系列---- K8s监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月12日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-principle/">云计算容器系列---- Docker Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker/">云计算容器系列---- Docker</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年02月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/paas/">云计算系列---- PaaS</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-principle/">云计算K8s系列---- K8s Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/jenkins/">云计算CDCI系列---- jenkins</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年09月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-tutorial/">云计算K8s系列---- K8s Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/helm/">云计算CDCI系列---- helm</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月11日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/exporter/blackbox_exporter/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/cache/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#使用">使用</a>
+<ul>
+<li><a href="#部署">部署</a></li>
+<li><a href="#基本使用">基本使用</a></li>
+</ul></li>
+<li><a href="#架构">架构</a>
+<ul>
+<li><a href="#其他组件">其他组件</a>
+<ul>
+<li><a href="#clair">clair</a></li>
+<li><a href="#notary">Notary</a></li>
+</ul></li>
+<li><a href="#高可用">高可用</a>
+<ul>
+<li><a href="#双主复制">双主复制</a></li>
+<li><a href="#多harbor实例共享后端存储">多harbor实例共享后端存储</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#api">API</a></li>
+<li><a href="#原理">原理</a>
+<ul>
+<li><a href="#登陆">登陆</a></li>
+<li><a href="#上传">上传</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

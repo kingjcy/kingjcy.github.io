@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Helm 是 Deis (https://deis.com/) 开发的一个用于 kubernetes 的包管理器。每个包称为一个 Chart，一个 Chart 是一个目录（一般情况下会将目录进行打包压缩，形成 name-version.tgz 格式的单一文件，方便传输和存储),可以将 Helm 看作 Kubernetes 下的 apt-get/yum。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算CDCI系列---- helm - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算CDCI系列---- helm
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年07月11日 
+                </div>
+                <h1 class="post-title">云计算CDCI系列---- helm</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Helm 是 Deis (<a href="https://deis.com/">https://deis.com/</a>) 开发的一个用于 kubernetes 的包管理器。每个包称为一个 Chart，一个 Chart 是一个目录（一般情况下会将目录进行打包压缩，形成 name-version.tgz 格式的单一文件，方便传输和存储),可以将 Helm 看作 Kubernetes 下的 apt-get/yum。</p>
+
+<h1 id="基本概念">基本概念</h1>
+
+<h2 id="chart">chart</h2>
+
+<p>chart 是描述相关的一组 Kubernetes 资源的文件集合。 chart 通过创建为特定目录树的文件，将它们打包到版本化的压缩包，然后进行部署。</p>
+
+<ul>
+<li>Chart.yaml 是必须的，它记录了 chart 的一些信息: chart 版本和名字等</li>
+<li>templates 下是 kubernetes资源的模板
+
+<ul>
+<li>NOTES.txt 说明文件,helm install之后展示给用户看的内容</li>
+<li>deployment.yaml 创建k8s资源的yaml文件</li>
+<li>_helpers.tpl: 下划线开头的文件,可以被其他模板引用.</li>
+</ul></li>
+<li>values.yaml 存放了模板 中的变量的值</li>
+<li>charts: 依赖其他包的charts文件</li>
+<li>requirements.yaml: 依赖的charts</li>
+<li>README.md: 开发人员自己阅读的文件</li>
+</ul>
+
+<p>一个最小的chart目录,只需要包含一个Chart.yaml,和templates目录下一个k8s资源文件</p>
+
+<p><img src="/media/cloud/helm/chart1" alt="" /></p>
+
+<h2 id="release">Release</h2>
+
+<p>Release表示在 Kubernetes 集群上运行的 Chart 的一个实例。在同一个集群上，一个 Chart 可以安装很多次。每次安装都会创建一个新的 release。例如一个 MySQL Chart，如果想在服务器上运行两个数据库，就可以把这个 Chart 安装两次。每次安装都会生成自己的 Release，会有自己的 Release 名称。</p>
+
+<h2 id="repository">Repository</h2>
+
+<p>Repository用于发布和存储 Chart 的存储库。</p>
+
+<h2 id="helm">helm</h2>
+
+<p>helm就是一个命令行下客户端工具，主要用于kubernetes应用chart的创建/打包/发布已经创建和管理和远程Chart仓库。</p>
+
+<h2 id="tiller">Tiller</h2>
+
+<p>Tiller就是helm的服务端，部署于kubernetes内，Tiller接受helm的请求，并根据chart生成kubernetes部署文件（helm称为release），然后提交给 Kubernetes 创建应用。Tiller 还提供了 Release 的升级、删除、回滚等一系列功能。</p>
+
+<h1 id="架构">架构</h1>
+
+<p><img src="/media/cloud/helm/helm" alt="" /></p>
+
+<h2 id="chart-install-过程">Chart Install 过程</h2>
+
+<ul>
+<li>Helm从指定的目录或者tgz文件中解析出Chart结构信息</li>
+<li>Helm将指定的Chart结构和Values信息通过gRPC传递给Tiller</li>
+<li>Tiller根据Chart和Values生成一个Release</li>
+<li>Tiller将Release发送给Kubernetes运行。</li>
+</ul>
+
+<h2 id="chart-update过程">Chart Update过程</h2>
+
+<ul>
+<li>Helm从指定的目录或者tgz文件中解析出Chart结构信息</li>
+<li>Helm将要更新的Release的名称和Chart结构，Values信息传递给Tiller</li>
+<li>Tiller生成Release并更新指定名称的Release的History</li>
+<li>Tiller将Release发送给Kubernetes运行</li>
+</ul>
+
+<h2 id="chart-rollback过程">Chart Rollback过程</h2>
+
+<ul>
+<li>helm将会滚的release名称传递给tiller</li>
+<li>tiller根据release名称查找history</li>
+<li>tiller从history中获取到上一个release</li>
+<li>tiller将上一个release发送给kubernetes用于替换当前release</li>
+</ul>
+
+<p>我们可以简单的看一下基本的交互：</p>
+
+<p><img src="/media/cloud/helm/helm1" alt="" /></p>
+
+<h1 id="安装和使用">安装和使用</h1>
+
+<h2 id="安装">安装</h2>
+
+<p>client 管理 charts，可在本地运行，一般运行在CI/CD Server上。而 server （tiller）运行在Kubernetes集群上，管理chart安装的release。</p>
+
+<blockquote>
+<p>客户端安装</p>
+</blockquote>
+
+<p>到 Helm Release 下载二进制文件,根据使用 的操作系统不同下载不同的版本，这里以 Linux上V2.15.1 为例，解压后将可执行文件 helm 拷贝至 usr/local/ bin 目录下即可， 这样 Helm 客户端就在这台机器上安装完了。</p>
+
+<pre><code># 在helm客户端主机上，一般为master主机
+wget https://get.helm.sh/helm-v2.14.2-linux-amd64.tar.gz
+tar xf helm-v2.14.2-linux-amd64.tar.gz
+mv helm /usr/local/bin/
+helm version
+</code></pre>
+
+<blockquote>
+<p>服务端安装</p>
+</blockquote>
+
+<p>服务端安装就是Tiller服务的安装，我们需要将Tiller服务安装在k8s集群中，来监听来自 Helm client 的请求，安装 chart 到 Kubernetes 集群，并跟踪随后的发布通过与 Kubernetes 交互升级或卸载 chart。</p>
+
+<p>需要创建helm相关的角色，我们来看一下对应的资源配置清单clusterrole.yaml</p>
+
+<pre><code>apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: &quot;true&quot;
+  labels:
+    kubernetes.io/bootstrapping: rbac-defaults
+  name: cluster-admin
+rules:
+- apiGroups:
+  - '*'
+  resources:
+  - '*'
+  verbs:
+  - '*'
+- nonResourceURLs:
+  - '*'
+  verbs:
+  - '*'
+</code></pre>
+
+<p>创建ClusterRole</p>
+
+<pre><code>$ kubectl create -f clusterrole.yaml
+</code></pre>
+
+<p>创建ServiceAccount并使用ClusterRoleBinding将其与ClusterRole关联</p>
+
+<pre><code>$ kubectl create serviceaccount -n kube-system tiller
+$ kubectl create clusterrolebinding tiller-cluster-rule --clusterrole=cluster-admin --serviceaccount=kube-system:tiller
+</code></pre>
+
+<p>初始化Helm，其实也就是在k8s上部署tiller</p>
+
+<pre><code>$ helm init --service-account tiller --skip-refresh
+Creating /root/.helm
+Creating /root/.helm/repository
+Creating /root/.helm/repository/cache
+Creating /root/.helm/repository/local
+Creating /root/.helm/plugins
+Creating /root/.helm/starters
+Creating /root/.helm/cache/archive
+Creating /root/.helm/repository/repositories.yaml
+Adding stable repo with URL: https://kubernetes-charts.storage.googleapis.com
+Adding local repo with URL: http://127.0.0.1:8879/charts
+$HELM_HOME has been configured at /root/.helm.
+</code></pre>
+
+<p>helm init. Helm 默认会去 gcr.io 拉取 tiller 的镜像,有时镜像拉不下来，可以指定 tiller 的镜像：</p>
+
+<pre><code>helm init --tiller-image registry.cn-hangzhou.aliyuncs.com/softputer/tiller:v2.15.1
+</code></pre>
+
+<p>tiller默认被部署在k8s集群中的kube-system这个namespace下。</p>
+
+<pre><code>kubectl get pod -n kube-system -l app=helm
+</code></pre>
+
+<p>再次helm version可以打印客户端和服务端的版本</p>
+
+<pre><code>helm version
+Client: &amp;version.Version{SemVer:&quot;v2.7.2&quot;, GitCommit:&quot;8478fb4fc723885b155c924d1c8c410b7a9444e6&quot;, GitTreeState:&quot;clean&quot;}
+Server: &amp;version.Version{SemVer:&quot;v2.7.2&quot;, GitCommit:&quot;8478fb4fc723885b155c924d1c8c410b7a9444e6&quot;, GitTreeState:&quot;clean&quot;}
+</code></pre>
+
+<p>到这里就安装好了。</p>
+
+<h2 id="使用">使用</h2>
+
+<blockquote>
+<p>直接创建release</p>
+</blockquote>
+
+<p>先看一个实例安装redis：下面声明了一个版本名称为my-redis,并且指定该部署将使用持久化存储，大小为15G</p>
+
+<pre><code>$ helm install --name my-redis \
+--set persistence.enabled=true,persistence.size=15Gi stable/redis
+</code></pre>
+
+<p>我们看一下安装的过程</p>
+
+<pre><code>NAME:   my-influx
+LAST DEPLOYED: Thu Mar 14 12:36:50 2019
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==&gt; v1beta1/Deployment
+NAME                   DESIRED  CURRENT  UP-TO-DATE  AVAILABLE  AGE
+my-influx-redis-slave  1        1        1           0          0s
+
+==&gt; v1beta2/StatefulSet
+NAME                    DESIRED  CURRENT  AGE
+my-influx-redis-master  1        0        0s
+
+==&gt; v1/Pod(related)
+NAME                                    READY  STATUS             RESTARTS  AGE
+my-influx-redis-slave-556f9894b7-wd5cf  0/1    ContainerCreating  0         0s
+my-influx-redis-master-0                0/1    Pending            0         0s
+
+==&gt; v1/Secret
+NAME             TYPE    DATA  AGE
+my-influx-redis  Opaque  1     0s
+
+==&gt; v1/ConfigMap
+NAME                    DATA  AGE
+my-influx-redis         3     0s
+my-influx-redis-health  3     0s
+
+==&gt; v1/Service
+NAME                    TYPE       CLUSTER-IP      EXTERNAL-IP  PORT(S)   AGE
+my-influx-redis-master  ClusterIP  10.107.184.240  &lt;none&gt;       6379/TCP  0s
+my-influx-redis-slave   ClusterIP  10.97.224.81    &lt;none&gt;       6379/TCP  0s
+
+
+NOTES:
+** Please be patient while the chart is being deployed **
+Redis can be accessed via port 6379 on the following DNS names from within your cluster:
+
+my-influx-redis-master.default.svc.cluster.local for read/write operations
+my-influx-redis-slave.default.svc.cluster.local for read-only operations
+
+
+To get your password run:
+
+    export REDIS_PASSWORD=$(kubectl get secret --namespace default my-influx-redis -o jsonpath=&quot;{.data.redis-password}&quot; | base64 --decode)
+
+To connect to your Redis server:
+
+1. Run a Redis pod that you can use as a client:
+
+   kubectl run --namespace default my-influx-redis-client --rm --tty -i --restart='Never' \
+    --env REDIS_PASSWORD=$REDIS_PASSWORD \
+   --image docker.io/bitnami/redis:4.0.13 -- bash
+
+2. Connect using the Redis CLI:
+   redis-cli -h my-influx-redis-master -a $REDIS_PASSWORD
+   redis-cli -h my-influx-redis-slave -a $REDIS_PASSWORD
+
+To connect to your database from outside the cluster execute the following commands:
+
+    kubectl port-forward --namespace default svc/my-influx-redis 6379:6379 &amp;
+    redis-cli -h 127.0.0.1 -p 6379 -a $REDIS_PASSWORD
+</code></pre>
+
+<p>查看release</p>
+
+<pre><code>$ helm ls
+NAME         REVISION    UPDATED                     STATUS      CHART          APP VERSION    NAMESPACE
+my-influx    1           Tue May 30 21:18:43 2017       DEPLOYED    redis-6.3.0    4.0.13         default
+</code></pre>
+
+<p>删除release</p>
+
+<pre><code>$ helm del  my-influx
+release &quot;my-influx&quot; deleted
+</code></pre>
+
+<blockquote>
+<p>创建chart来创建release</p>
+</blockquote>
+
+<p>Helm 提供了 create 指令建立一个 Chart 基本结构</p>
+
+<pre><code>[root@master mychart]# helm create mychart
+Creating mychart
+[root@master mychart]# ls
+mychart
+[root@master mychart]# tree mychart/
+mychart/
+├── charts
+├── Chart.yaml
+├── templates
+│   ├── deployment.yaml                     # 部署相关资源
+│   ├── _helpers.tpl                            # 模版助手
+│   ├── ingress.yaml                            # ingress资源
+│   ├── NOTES.txt                                   # chart的帮助文本，运行helm install展示给用户
+│   ├── service.yaml                            # service端点
+│   └── tests
+│       └── test-connection.yaml
+└── values.yaml
+
+3 directories, 8 files
+</code></pre>
+
+<p>在上面我们已经对具体的文件做过了说明，这边在具体描述一下</p>
+
+<ul>
+<li>charts目录中是本chart依赖的chart，当前是空的</li>
+
+<li><p>Chart.yaml这个yaml文件用于描述Chart的基本信息，如名称版本等</p>
+
+<p>$ cat Chart.yaml
+  apiVersion: v1
+  description: A Helm chart for Kubernetes
+  name: mychart
+  version: 0.1.0</p></li>
+
+<li><p>templates是Kubernetes manifest文件模板目录，模板使用chart配置的值生成Kubernetes manifest文件。模板文件使用的Go语言模板语法</p></li>
+
+<li><p>templates/NOTES.txt 纯文本文件，可在其中填写chart的使用说明</p></li>
+
+<li><p>value.yaml 是chart配置的默认值</p></li>
+</ul>
+
+<p>我们一般只要编写模版文件和对应的赋值文件，比如</p>
+
+<pre><code>rm -rf mychart/templates/*
+# 我们首先创建一个名为 mychart/templates/configmap.yaml：
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mychart-configmap
+data:
+  myvalue: &quot;Hello World&quot;
+</code></pre>
+
+<p>使用helm在Kubernetes上安装chart时，实际上是将chart的模板生成Kubernetes使用的manifest yaml文件。 在编写chart的过程中可以chart目录下使用helm install –dry-run –debug ./来验证模板和配置。</p>
+
+<pre><code>helm install --dry-run --debug ./
+[debug] Created tunnel using local port: '22635'
+
+[debug] SERVER: &quot;127.0.0.1:22635&quot;
+
+[debug] Original chart version: &quot;&quot;
+[debug] CHART PATH: /root/helm/hello-svc
+
+NAME:   foolish-zebra
+REVISION: 1
+......输出基于配置值和模板生成的yaml文件
+</code></pre>
+
+<p>当我们设置完 Chart 后，就可以通过 helm 指令打包</p>
+
+<pre><code>$ helm package example/
+example-0.1.0.tgz
+</code></pre>
+
+<p>通过helm安装</p>
+
+<pre><code>$ helm install ./example-0.1.0.tgz
+</code></pre>
+
+<p>也可以不打包，直接安装，由于创建的yaml文件在template下，tiller读取此文件，会将其发送给kubernetes。</p>
+
+<pre><code>[root@master mychart]# helm install ./mychart/
+NAME:   enervated-dolphin
+LAST DEPLOYED: Sun Jul 21 09:29:13 2019
+NAMESPACE: default
+STATUS: DEPLOYED
+
+RESOURCES:
+==&gt; v1/ConfigMap
+NAME               DATA  AGE
+mychart-configmap  1     0s
+
+[root@master mychart]# kubectl get cm mychart-configmap
+NAME                DATA   AGE
+mychart-configmap   1      2m6s
+[root@master mychart]# kubectl describe cm mychart-configmap
+Name:         mychart-configmap
+Namespace:    default
+Labels:       &lt;none&gt;
+Annotations:  &lt;none&gt;
+
+Data
+====
+myvalue:
+----
+this is my chart configmap
+Events:  &lt;none&gt;
+
+
+[root@master mychart]# helm get manifest enervated-dolphin
+
+---
+# Source: mychart/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mychart-configmap
+data:
+  myvalue: &quot;this is my chart configmap&quot;
+</code></pre>
+
+<p>查看release</p>
+
+<pre><code>helm list
+NAME            REVISION        UPDATED                         STATUS                      CHART           NAMESPACE
+enervated-dolphin   1               Thu Dec 21 22:04:19 2017        DEPLOYED        enervated-dolphin-0.1.0 default
+</code></pre>
+
+<p>删除release</p>
+
+<pre><code>helm delete enervated-dolphin
+release &quot;enervated-dolphin&quot; deleted
+</code></pre>
+
+<blockquote>
+<p>添加模板调用</p>
+</blockquote>
+
+<p>一、内置对象</p>
+
+<p>1、release</p>
+
+<p>修改下之前的configmap为如下内容</p>
+
+<pre><code>apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{.Release.Name}}-configmap
+data:
+  myvalue: &quot;Hello World&quot;
+</code></pre>
+
+<p>模板指令 {{.Release.Name}} 将 release 名称注入模板。也就是将上面的enervated-dolphin的release的名称赋值给当前的{{.Release.Name}}</p>
+
+<p>Release 是可以在模板中访问的顶级对象之一。</p>
+
+<pre><code>Release：这个对象描述了 release 本身。它里面有几个对象：
+Release.Name：release 名称
+Release.Time：release 的时间
+Release.Namespace：release 的 namespace（如果清单未覆盖）
+Release.Service：release 服务的名称（始终是 Tiller）。
+Release.Revision：此 release 的修订版本号。它从 1 开始，每 helm upgrade 一次增加一个。
+Release.IsUpgrade：如果当前操作是升级或回滚，则将其设置为 true。
+Release.IsInstall：如果当前操作是安装，则设置为 true。
+</code></pre>
+
+<p>2、value</p>
+
+<p>Helm 模板提供的内置对象。四个内置对象之一是 Values。该对象提供对传入 chart 的值的访问。其内容来自四个来源：</p>
+
+<ul>
+<li>chart 中的 values.yaml 文件</li>
+<li>如果这是一个子 chart，来自父 chart 的 values.yaml 文件</li>
+<li>value 文件通过 helm install 或 helm upgrade 的 - f 标志传入文件（helm install -f myvals.yaml ./mychart）</li>
+<li>通过 &ndash;set（例如 helm install &ndash;set foo=bar ./mychart）</li>
+</ul>
+
+<p>修改对应的yaml文件</p>
+
+<pre><code># 编辑values.yaml
+domain: anchnet.com
+
+# 在模版中引用
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{.Release.Name}}-configmap
+data:
+  myvalue: &quot;Hello World&quot;
+  domain: {{.Values.domain}}
+</code></pre>
+
+<p>注意我们在最后一行 {{ .Values.domain}} 获取 domain` 的值。还可以使用上面其他的几种方法来实现。</p>
+
+<p>3、chart</p>
+
+<p>Chart.yaml 文件的内容。任何数据 Chart.yaml 将在这里访问。例如 {{.Chart.Name}}-{{.Chart.Version}} 将打印出来 mychart-0.1.0。</p>
+
+<p>二、模版函数和管道</p>
+
+<p>1、模版函数</p>
+
+<p>修改配置文件</p>
+
+<pre><code>apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{.Release.Name}}-configmap
+data:
+  myvalue: &quot;Hello World&quot;
+  drink: {{quote .Values.favorite.drink}}
+  food: {{quote .Values.favorite.food}}
+</code></pre>
+
+<p>模板函数遵循语法 functionName arg1 arg2&hellip;。在上面的代码片段中，quote .Values.favorite.drink 调用 quote 函数并将一个参数传递给它。</p>
+
+<p>2、管道</p>
+
+<p>修改配置文件</p>
+
+<pre><code>apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{.Release.Name}}-configmap
+data:
+  myvalue: &quot;Hello World&quot;
+  drink: {{.Values.favorite.drink | quote}}
+  food: {{.Values.favorite.food | quote}}
+</code></pre>
+
+<p>没有调用 quote ARGUMENT，我们调换了顺序。我们使用管道（|）将 “参数” 发送给函数：.Values.favorite.drink | quote。</p>
+
+<p>三、模版语法</p>
+
+<p>1、使用 default 函数</p>
+
+<pre><code>drink: {{.Values.favorite.drink | default &quot;tea&quot; | quote}}
+</code></pre>
+
+<p>2、运算符函数</p>
+
+<p>对于模板，运算符（eq，ne，lt，gt，and，or 等等）都是已实现的功能。在管道中，运算符可以用圆括号（( 和 )）分组。</p>
+
+<p>3、流程控制</p>
+
+<p>Helm 的模板语言提供了以下控制结构：</p>
+
+<ul>
+<li>if/else 用于创建条件块</li>
+<li>with 指定范围</li>
+<li>range，它提供了一个 “for each” 风格的循环</li>
+</ul>
+
+<p>除此之外，它还提供了一些声明和使用命名模板段的操作：</p>
+
+<ul>
+<li>define 在模板中声明一个新的命名模板</li>
+<li>template 导入一个命名模板</li>
+<li>block 声明了一种特殊的可填写模板区域</li>
+</ul>
+
+<blockquote>
+<p>总计</p>
+</blockquote>
+
+<p>其实说到底模版就是go模版的语法和使用功能。</p>
+
+<blockquote>
+<p>基础命令</p>
+</blockquote>
+
+<p><a href="http://hub.kubeapps.com/">http://hub.kubeapps.com/</a></p>
+
+<pre><code>completion  # 为指定的shell生成自动完成脚本（bash或zsh）
+create      # 创建一个具有给定名称的新 chart
+delete      # 从 Kubernetes 删除指定名称的 release
+dependency  # 管理 chart 的依赖关系
+fetch       # 从存储库下载 chart 并（可选）将其解压缩到本地目录中
+get         # 下载一个命名 release
+help        # 列出所有帮助信息
+history     # 获取 release 历史
+home        # 显示 HELM_HOME 的位置
+init        # 在客户端和服务器上初始化Helm
+inspect     # 检查 chart 详细信息
+install     # 安装 chart 存档
+lint        # 对 chart 进行语法检查
+list        # releases 列表
+package     # 将 chart 目录打包成 chart 档案
+plugin      # 添加列表或删除 helm 插件
+repo        # 添加列表删除更新和索引 chart 存储库
+reset       # 从集群中卸载 Tiller
+rollback    # 将版本回滚到以前的版本
+search      # 在 chart 存储库中搜索关键字
+serve       # 启动本地http网络服务器
+status      # 显示指定 release 的状态
+template    # 本地渲染模板
+test        # 测试一个 release
+upgrade     # 升级一个 release
+verify      # 验证给定路径上的 chart 是否已签名且有效
+version     # 打印客户端/服务器版本信息
+dep         # 分析 Chart 并下载依赖
+</code></pre>
+
+<blockquote>
+<p>仓库</p>
+</blockquote>
+
+<p>将制作好的charts包可以上传至helm仓库，可以放在自己的自建私有仓库，流入：kubeapps/Monocular/minior等，可以利用helm命令一键安装。</p>
+
+<p>上传至公有云公共仓库，例如国内的阿里目前创建的Apphub等，在现今的云原生生态当中，已经有很多成熟的开源软件被制作成了 Helm Charts，使得用户可以非常方便地下载和使用，比如 Nginx，Apache、Elasticsearch、Redis 等等。不过，在开放云原生应用中心 App hub（Helm Charts 中国站) 发布之前，国内用户一直都很难直接下载使用这些 Charts。而现在，AppHub 不仅为国内用户实时同步了官方 Helm Hub 里的所有应用，还自动替换了这些 Charts 里所有不可访问的镜像 URL（比如 gcr.io, quay.io 等），终于使得国内开发者通过 helm install “一键安装”应用成为了可能。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/cdci/helm/">https://kingjcy.github.io/post/cloud/paas/cdci/helm/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cdci/">
+                            <i class="fa fa-tags"></i>
+                            CDCI
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/helm/">
+                            <i class="fa fa-tags"></i>
+                            helm
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/monitor-scheme/k8s-base/">监控metrics系列---- K8s监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月12日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-principle/">云计算容器系列---- Docker Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker/">云计算容器系列---- Docker</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年02月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/paas/">云计算系列---- PaaS</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-principle/">云计算K8s系列---- K8s Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/jenkins/">云计算CDCI系列---- jenkins</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年09月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/cdci/harbor/">云计算CDCI系列---- harbor</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月23日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-tutorial/">云计算K8s系列---- K8s Tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年04月04日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/metrics/prometheus/cluster/thanos/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/exporter/mysqld-exporter/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本概念">基本概念</a>
+<ul>
+<li><a href="#chart">chart</a></li>
+<li><a href="#release">Release</a></li>
+<li><a href="#repository">Repository</a></li>
+<li><a href="#helm">helm</a></li>
+<li><a href="#tiller">Tiller</a></li>
+</ul></li>
+<li><a href="#架构">架构</a>
+<ul>
+<li><a href="#chart-install-过程">Chart Install 过程</a></li>
+<li><a href="#chart-update过程">Chart Update过程</a></li>
+<li><a href="#chart-rollback过程">Chart Rollback过程</a></li>
+</ul></li>
+<li><a href="#安装和使用">安装和使用</a>
+<ul>
+<li><a href="#安装">安装</a></li>
+<li><a href="#使用">使用</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
