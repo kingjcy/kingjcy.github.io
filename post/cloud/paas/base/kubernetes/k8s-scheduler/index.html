@@ -1,0 +1,1610 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="kube-scheduler是 kubernetes 系统的核心组件之一，主要负责整个集群资源的调度功能，根据特定的调度算法和策略，将 Pod 调度到最优的工作节点上面去，从而更加合理、更加充分的利用集群的资源。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s组件系列（二）---- K8s scheduler 详解 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s组件系列（二）---- K8s scheduler 详解
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年09月24日 
+                </div>
+                <h1 class="post-title">云计算K8s组件系列（二）---- K8s scheduler 详解</h1>
+            </header>
+
+            <div class="post-content">
+                <p>kube-scheduler是 kubernetes 系统的核心组件之一，主要负责整个集群资源的调度功能，根据特定的调度算法和策略，将 Pod 调度到最优的工作节点上面去，从而更加合理、更加充分的利用集群的资源。</p>
+
+<h1 id="部署使用">部署使用</h1>
+
+<h2 id="物理部署">物理部署</h2>
+
+<p>直接使用二进制文件启动就可以</p>
+
+<pre><code>kube-scheduler [flags]
+</code></pre>
+
+<p>比如</p>
+
+<pre><code> /usr/bin/kube-scheduler --logtostderr=true --v=4 --master=http://10.243.129.252:8080 --address=0.0.0.0 --master=http://10.243.129.252:8080 --leader-elect=true --v=5 --log-dir=/k8s_log/kubernetes --use-legacy-policy-config=true --policy-config-file=/etc/kubernetes/scheduler-policy.config
+</code></pre>
+
+<p>flags有很多，具体使用的时候可以查看<a href="https://kubernetes.io/zh/docs/reference/command-line-tools-reference/kube-scheduler/">官网</a>。</p>
+
+<p>这边简单的说几个常用的</p>
+
+<pre><code>//配置文件
+--config=/etc/kubernetes/config/kube-scheduler.yaml
+//策略文件
+--use-legacy-policy-config=true
+--policy-config-file=/etc/kubernetes/scheduler-policy.config
+</code></pre>
+
+<h2 id="配置文件">配置文件</h2>
+
+<p>根据上面参数配置配置文件，我们来看看配置文件内容</p>
+
+<pre><code>cat /etc/kubernetes/config/kube-scheduler.yaml
+apiVersion: kubescheduler.config.k8s.io/v1alpha1
+kind: KubeSchedulerConfiguration
+schedulerName: my-kube-scheduler
+algorithmSource:
+  policy:
+    configMap:
+      namespace: kube-system
+      name: my-scheduler-policy
+leaderElection:
+  leaderElect: false
+  lockObjectName: my-kube-scheduler
+  lockObjectNamespace: kube-system
+</code></pre>
+
+<p>配置文件应该包含一个 KubeSchedulerConfiguration 对象，yaml文件指定了调度器的一些参数，包括leader选举，调度算法策略的选择（可以是configmaps，也可以是具体的json或者yaml文件），以及指定调度器的名称为my-kube-scheduler。</p>
+
+<p>这边我们还需要了解一下配置文件中指定的策略问题，也可以直接使用启动参数进行配置&ndash;use-legacy-policy-config=true &ndash;policy-config-file=/etc/kubernetes/scheduler-policy.config，这个是scheduler运行的关键。</p>
+
+<pre><code># cat /etc/kubernetes/scheduler-policy.config
+{
+&quot;kind&quot; : &quot;Policy&quot;,
+&quot;apiVersion&quot; : &quot;v1&quot;,
+&quot;predicates&quot; : [
+    {&quot;name&quot; : &quot;CheckNodeUnschedulable&quot;},
+    {&quot;name&quot; : &quot;GeneralPredicates&quot;},
+    {&quot;name&quot; : &quot;NoDiskConflict&quot;},
+    {&quot;name&quot; : &quot;PodToleratesNodeTaints&quot;},
+    {&quot;name&quot; : &quot;LimitSRIOVQuantity&quot;},
+    {&quot;name&quot; : &quot;Reschedule&quot;},
+    {&quot;name&quot; : &quot;Mutex&quot;},
+    {&quot;name&quot; : &quot;AppLimit&quot;},
+    {&quot;name&quot; : &quot;HAschedule&quot;},
+    {&quot;name&quot; : &quot;CheckVolumeBinding&quot;},
+    {&quot;name&quot; : &quot;MaxOssBucketCount&quot;},
+    {&quot;name&quot; : &quot;MaxCSIVolumeCountPred&quot;},
+    {&quot;name&quot; : &quot;MatchInterPodAffinity&quot;}
+    ],
+&quot;priorities&quot; : [
+    {&quot;name&quot; : &quot;AppLimitPriority&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;AppServiceSpreadPriority&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;BalancedResourceAllocation&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;DiskIOPSPriority&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;GpuBinpackPriority&quot;, &quot;weight&quot; : 20},
+    {&quot;name&quot; : &quot;HAschedulerPriority&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;ImageLocalityPriority&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;InterPodAffinityPriority&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;NetworkBandwidthPriority&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;NodeAffinityPriority&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;ReschedulePriority&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;SelectorSpreadPriority&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;LeastRequestedPriority&quot;, &quot;weight&quot; : 1},
+    {&quot;name&quot; : &quot;TaintTolerationPriority&quot;, &quot;weight&quot; : 1}
+    ]
+}
+</code></pre>
+
+<p>可以看到配置预选和优选策略，也是调度的算法，默认有一个启动配置，可以根据需要进行修改和扩展。</p>
+
+<h2 id="容器部署">容器部署</h2>
+
+<p>1、创建kube-scheduler的配置文件和策略文件的configmap</p>
+
+<pre><code>apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-scheduler-config
+  namespace: kube-system
+data:
+  config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1alpha1
+    kind: KubeSchedulerConfiguration
+    schedulerName: my-kube-scheduler
+    algorithmSource:
+      policy:
+        configMap:
+          namespace: kube-system
+          name: my-scheduler-policy
+    leaderElection:
+      leaderElect: false
+      lockObjectName: my-kube-scheduler
+      lockObjectNamespace: kube-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-scheduler-policy
+  namespace: kube-system
+data:
+ policy.cfg : |
+  {
+    &quot;kind&quot; : &quot;Policy&quot;,
+    &quot;apiVersion&quot; : &quot;v1&quot;,
+    &quot;predicates&quot; : [
+      {&quot;name&quot; : &quot;PodFitsHostPorts&quot;},
+      {&quot;name&quot; : &quot;PodFitsResources&quot;},
+      {&quot;name&quot; : &quot;NoDiskConflict&quot;},
+      {&quot;name&quot; : &quot;MatchNodeSelector&quot;},
+      {&quot;name&quot; : &quot;HostName&quot;}
+    ],
+    &quot;priorities&quot; : [
+      {&quot;name&quot; : &quot;LeastRequestedPriority&quot;, &quot;weight&quot; : 1},
+      {&quot;name&quot; : &quot;BalancedResourceAllocation&quot;, &quot;weight&quot; : 1},
+      {&quot;name&quot; : &quot;ServiceSpreadingPriority&quot;, &quot;weight&quot; : 1},
+      {&quot;name&quot; : &quot;EqualPriority&quot;, &quot;weight&quot; : 1}
+    ],
+    &quot;extenders&quot; : [{
+      &quot;urlPrefix&quot;: &quot;http://10.168.107.12:80/scheduler&quot;,
+      &quot;filterVerb&quot;: &quot;predicates/always_true&quot;,
+      &quot;prioritizeVerb&quot;: &quot;priorities/zero_score&quot;,
+      &quot;preemptVerb&quot;: &quot;preemption&quot;,
+      &quot;bindVerb&quot;: &quot;&quot;,
+      &quot;weight&quot;: 1,
+      &quot;enableHttps&quot;: false,
+      &quot;nodeCacheCapable&quot;: false
+    }],
+    &quot;hardPodAffinitySymmetricWeight&quot; : 10
+  }
+</code></pre>
+
+<p>创建一个名为my-scheduler-config的configmaps，该配置文件应该包含一个 KubeSchedulerConfiguration 对象，data下的config.yaml文件指定了调度器的一些参数，包括leader选举，调度算法策略的选择（指定另一个configmaps），以及指定调度器的名称为my-kube-scheduler。</p>
+
+<p>相应的创建一个my-scheduler-policy的configmaps，里面指定了选择哪些预选、优选策略，以及外部扩展调度程序的urlPrefix、扩展预选URI、扩展优选URI、扩展pod优先级抢占URI、扩展bind URI、扩展优选算法的权重等，可以根据需求进行调整。</p>
+
+<p>2、yaml文件中将configmaps：my-scheduler-config以文件的形式挂载到容器内/my-scheduler目录下，并在启动参数中指定&ndash;config=/my-scheduler/config.yaml，启动kube-scheduler。</p>
+
+<h2 id="高可用">高可用</h2>
+
+<p>k8s中kube-scheuler的高可用是通过leaderElection实现的，一般三个master，哪一个先起来就是leader, 虽然两台机器上都安装了scheduler, 但是只有leader提供服务, 另外两个上面的scheduler是处于等待状态, 并没有真正运行自己的逻辑。</p>
+
+<p>当leader异常后，其他的scheduler服务就会成为leaeder，继续提供服务。</p>
+
+<p>当我们部署多个调度器的时候，每个调度器都会各自调度属于自己的pod。</p>
+
+<h1 id="调度流程">调度流程</h1>
+
+<p><img src="/media/cloud/k8s/scheduler" alt="" /></p>
+
+<p>核心：待调度的pod列表、可有的合适的node列表、调度算法和策略。</p>
+
+<p>1、首先，客户端通过 API Server 的 REST API 或者 kubectl 工具创建 Pod 资源</p>
+
+<p>2、API Server 收到用户请求后，存储相关数据到 etcd 数据库中</p>
+
+<p>3、watch apiserver，将 spec.nodeName 为空的 Pod 放入调度器内部的调度队列中</p>
+
+<p>4、调度器监听 API Server 查看为调度(bind)的 Pod 列表，循环遍历地为每个 Pod 尝试分配节点</p>
+
+<ul>
+<li>从调度队列中 Pop 出一个 Pod，开始一个标准的调度周期</li>
+<li>预选阶段(Predicates)，过滤节点，调度器用一组规则过滤掉不符合要求的 Node 节点，比如 Pod 设置了资源的 request，那么可用资源比 Pod 需要的资源少的主机显然就会被过滤掉</li>
+<li>优选阶段(Priorities)，为节点的优先级打分，将上一阶段过滤出来的 Node 列表进行打分，调度器会考虑一些整体的优化策略，比如把 Deployment 控制的多个 Pod 副本分布到不同的主机上，使用最低负载的主机等等策略</li>
+</ul>
+
+<p>4、经过上面的阶段过滤后选择打分最高的 Node 节点和 Pod 进行 binding 操作，然后将结果存储到 etcd 中</p>
+
+<p>5、最后被选择出来的 Node 节点对应的 kubelet 去执行创建 Pod 的相关操作</p>
+
+<h2 id="优先级调度">优先级调度</h2>
+
+<p>Pod 的优先级，高优先级的 Pod 会优先被调度，或者在资源不足低情况牺牲低优先级的 Pod，以便于重要的 Pod 能够得到资源部署。</p>
+
+<p>要定义 Pod 优先级，就需要先定义PriorityClass对象，该对象没有 Namespace 的限制：</p>
+
+<pre><code>apiVersion: v1
+kind: PriorityClass
+metadata:
+  name: high-priority
+value: 1000000
+globalDefault: false
+description: &quot;This priority class should be used for XYZ service pods only.&quot;
+</code></pre>
+
+<p>其中：</p>
+
+<pre><code>value为 32 位整数的优先级，该值越大，优先级越高
+globalDefault用于未配置 PriorityClassName 的 Pod，整个集群中应该只有一个PriorityClass将其设置为 true
+</code></pre>
+
+<p>然后通过在 Pod 的spec.priorityClassName中指定已定义的PriorityClass名称即可：</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+    imagePullPolicy: IfNotPresent
+  priorityClassName: high-priority
+</code></pre>
+
+<p>另外一个值得注意的是当节点没有足够的资源供调度器调度 Pod，导致 Pod 处于 pending 时，抢占（preemption）逻辑就会被触发。Preemption会尝试从一个节点删除低优先级的 Pod，从而释放资源使高优先级的 Pod 得到节点资源进行部署。</p>
+
+<h2 id="预选策略">预选策略</h2>
+
+<p>我们在部署应用的时候，如果发现有 Pod 一直处于 Pending 状态，那么就是没有满足调度条件的节点，这个时候可以去检查下节点资源是否可用。</p>
+
+<h3 id="nodiskconflict-磁盘冲突">NoDiskconflict：磁盘冲突</h3>
+
+<p>判断备选pod的gcePersistentDisk或者AWSElasticBlockStore和备选的节点中已存在的pod是否存在冲突具体检测过程如下：</p>
+
+<ul>
+<li>首先，读取备选pod的所有的volume信息，对每一个volume执行一下步骤的冲突检测</li>
+<li>如果该volume是gcePersistentDisk，则将volume和备选节点上的所有pod的每个volume进行比较，如果发现相同的gcePersistentDisk，则返回false，表明磁盘冲突，检测结束，反馈给调度器该备选节点不合适作为备选的pod，如果volume是AWSElasticBlockStore，则将volume和备选节点上的所有pod的每个volume进行比较，如果发现相同的AWSElasticBlockStore，则返回false，表明磁盘冲突，检测结束，反馈给调度器该备选节点不合适作为备选的pod</li>
+<li>最终，检查备选pod的所有的volume均为发现冲突，则返回true，表明不存在磁盘冲突，反馈给调度器该备选节点合适备选pod</li>
+</ul>
+
+<h3 id="podfistresources-资源要求">podFistResources：资源要求</h3>
+
+<p>判断备选节点资源是否满足备选pod的需求，检测过程如下：</p>
+
+<ul>
+<li>计算备选pod和节点中已存在的pod的所有容器的需求资源（CPU 和内存）的总和</li>
+<li>获得备选节点的状态信息，其中包括节点的资源信息</li>
+<li>如果备选pod和节点中已存在pod的所有容器的需求资源（CPU和内存）的总和超出了备选节点拥有的资源，则返回false，表明备选节点不适合备选pod，否则返回true,表明备选节点适合备选pod</li>
+</ul>
+
+<h3 id="podselectormatches-标签匹配">PodSelectorMatches：标签匹配</h3>
+
+<p>判断备选节点是否包含备选pod的标签选择器指定的标签：</p>
+
+<ul>
+<li>如果pod没有指定spec.nodeSelector标签选择器，则返回true</li>
+<li>如果获得备选节点的标签信息，判断节点是否包含备选pod的标签选择器所指的标签，如果包含返回true，不包含返回false</li>
+</ul>
+
+<h3 id="podfitshost">PodFitsHost</h3>
+
+<p>判断备选pod的spec.nodeName域所指定的节点名称和备选节点的名称是否一致，如果一致返回true，否则返回false。</p>
+
+<h3 id="podfitsports">PodFitsPorts</h3>
+
+<p>判断备选pod所用的端口列表汇中的端口是否在备选节点中被占用，如果被占用，则返回false，否则返回true。</p>
+
+<h3 id="podfitshostports">PodFitsHostPorts</h3>
+
+<p>节点上已经使用的 port 是否和 Pod 申请的 port 冲突</p>
+
+<h3 id="其他">其他</h3>
+
+<p>Predicates过滤有一系列的算法可以使用，上面就是简单的列举几个，还有很多，比如如下等等</p>
+
+<pre><code>CheckNodeDiskPressure：检查节点磁盘空间是否符合要求
+CheckNodeMemoryPressure：检查节点内存是否够用
+</code></pre>
+
+<p>更多更详细的我们可以查看源码文件：k8s.io/kubernetes/pkg/scheduler/algorithm/predicates/predicates.go。</p>
+
+<h2 id="优选策略">优选策略</h2>
+
+<h3 id="leastrequestedpriority">leastRequestedPriority</h3>
+
+<p>该策略用于从备选节点列表中选出资源消耗最小的节点：</p>
+
+<ul>
+<li>计算出所有备选节点上运行的pod和备选pod的CPU占用量</li>
+<li>计算出所有备选节点上运行的pod和备选pod的memory占用量</li>
+<li>根据特定的算法，计算每个节点的得分</li>
+</ul>
+
+<h3 id="calculatenodelabelpriority">CalculateNodeLabelPriority</h3>
+
+<p>如果用户在配置中指定了该策略，则scheduler会通过registerCustomPriorityFunction方法注册该策略。该策略用于判断策略列出的标签在备选节点中存在时，是否选择该备选节点。如果备选节点的标签在优选策略的标签列表中且优选策略的presence值为true，或者备选节点的标签不在优选策略的标签列表中且优选策略的presence值为false，则备选节点score=10，否则等于0。</p>
+
+<h3 id="balancedresourceallocation">BalancedResourceAllocation</h3>
+
+<p>该优选策略用于从备选节点列表中选出各项资源使用率最均衡的节点：</p>
+
+<ul>
+<li>计算出所有备选节点上运行的pod和备选pod的CPU占用量</li>
+<li>计算出所有备选节点上运行的pod和备选pod的memory占用量</li>
+<li>根据特定的算法，计算每个节点的得分</li>
+</ul>
+
+<h3 id="其他-1">其他</h3>
+
+<p>还有很多其他的策略，比如如下等等</p>
+
+<pre><code>SelectorSpreadPriority：为了更好的高可用，对同属于一个 Deployment 或者 RC 下面的多个 Pod 副本，尽量调度到多个不同的节点上，当一个 Pod 被调度的时候，会先去查找该 Pod 对应的 controller，然后查看该 controller 下面的已存在的 Pod，运行 Pod 越少的节点权重越高
+ImageLocalityPriority：就是如果在某个节点上已经有要使用的镜像节点了，镜像总大小值越大，权重就越高
+NodeAffinityPriority：这个就是根据节点的亲和性来计算一个权重值，后面我们会详细讲解亲和性的使用方法
+</code></pre>
+
+<p>同样我们可以查看源码文件：k8s.io/kubernetes/pkg/scheduler/algorithm/priorities/ 了解更多信息。每一个优先级函数会返回一个0-10的分数，分数越高表示节点越优，同时每一个函数也会对应一个表示权重的值。最终主机的得分用以下公式计算得出：</p>
+
+<pre><code>finalScoreNode = (weight1 * priorityFunc1) + (weight2 * priorityFunc2) + … + (weightn * priorityFuncn)
+</code></pre>
+
+<p>priority functions 集合中的每一个函数都有一个权重 (weight)，最终的值为 weight 和 priority functions 的乘积，而一个节点的 weight 就是所有 priority functions 结果的加和</p>
+
+<h2 id="使用">使用</h2>
+
+<p>在我们实际使用中，有着很多的使用的地方，比如指定node，屏蔽node。</p>
+
+<h3 id="指定-node-节点调度">指定 Node 节点调度</h3>
+
+<p>有三种方式指定 Pod 只运行在指定的 Node 节点上</p>
+
+<ul>
+<li>nodeSelector：只调度到匹配指定 label 的 Node 上</li>
+<li>nodeAffinity：功能更丰富的 Node 选择器，比如支持集合操作</li>
+<li>podAffinity：调度到满足条件的 Pod 所在的 Node 上</li>
+</ul>
+
+<p>1、nodeSelector</p>
+
+<p>首先给 Node 打上标签</p>
+
+<pre><code>kubectl label nodes node-01 disktype=ssd
+</code></pre>
+
+<p>然后在 daemonset 中指定 nodeSelector 为 disktype=ssd：</p>
+
+<pre><code>spec:
+  nodeSelector:
+    disktype: ssd
+</code></pre>
+
+<p>根据默认调度器的PodSelectorMatches策略选出合适的节点，然后打分进行分配。</p>
+
+<p>2、nodeAffinity</p>
+
+<p>nodeAffinity 目前支持两种：requiredDuringSchedulingIgnoredDuringExecution 和 preferredDuringSchedulingIgnoredDuringExecution，分别代表必须满足条件和优选条件。比如下面的例子代表调度到包含标签 kubernetes.io/e2e-az-name 并且值为 e2e-az1 或 e2e-az2 的 Node 上，并且优选还带有标签 another-node-label-key=another-node-label-value 的 Node。</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: with-node-affinity
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: kubernetes.io/e2e-az-name
+            operator: In
+            values:
+            - e2e-az1
+            - e2e-az2
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 1
+        preference:
+          matchExpressions:
+          - key: another-node-label-key
+            operator: In
+            values:
+            - another-node-label-value
+  containers:
+  - name: with-node-affinity
+    image: gcr.io/google_containers/pause:2.0
+</code></pre>
+
+<p>3、podAffinity</p>
+
+<p>podAffinity 基于 Pod 的标签来选择 Node，仅调度到满足条件 Pod 所在的 Node 上，支持 podAffinity 和 podAntiAffinity。这个功能比较绕，以下面的例子为例：</p>
+
+<p>如果一个 “Node 所在 Zone 中包含至少一个带有 security=S1 标签且运行中的 Pod”，那么可以调度到该 Node</p>
+
+<p>不调度到 “包含至少一个带有 security=S2 标签且运行中 Pod” 的 Node 上</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: with-pod-affinity
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: security
+            operator: In
+            values:
+            - S1
+        topologyKey: failure-domain.beta.kubernetes.io/zone
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: security
+              operator: In
+              values:
+              - S2
+          topologyKey: kubernetes.io/hostname
+  containers:
+  - name: with-pod-affinity
+    image: gcr.io/google_containers/pause:2.0
+</code></pre>
+
+<p>可以看出基本上都是根据label进行调度选择。</p>
+
+<h3 id="屏蔽-node-节点调度">屏蔽 Node 节点调度</h3>
+
+<p>Taints 和 tolerations 用于保证 Pod 不被调度到不合适的 Node 上，其中 Taint 应用于 Node 上，而 toleration 则应用于 Pod 上。</p>
+
+<p>目前支持的 taint 类型</p>
+
+<ul>
+<li>NoSchedule：新的 Pod 不调度到该 Node 上，不影响正在运行的 Pod</li>
+<li>PreferNoSchedule：soft 版的 NoSchedule，尽量不调度到该 Node 上</li>
+<li>NoExecute：新的 Pod 不调度到该 Node 上，并且删除（evict）已在运行的 Pod。Pod 可以增加一个时间（tolerationSeconds），</li>
+</ul>
+
+<p>然而，当 Pod 的 Tolerations 匹配 Node 的所有 Taints 的时候可以调度到该 Node 上；当 Pod 是已经运行的时候，也不会被删除（evicted）。另外对于 NoExecute，如果 Pod 增加了一个 tolerationSeconds，则会在该时间之后才删除 Pod。</p>
+
+<p>比如，假设 node1 上应用以下几个 taint</p>
+
+<pre><code>kubectl taint nodes node1 key1=value1:NoSchedule
+kubectl taint nodes node1 key1=value1:NoExecute
+kubectl taint nodes node1 key2=value2:NoSchedule
+</code></pre>
+
+<p>下面的这个 Pod 由于没有 toleratekey2=value2:NoSchedule 无法调度到 node1 上</p>
+
+<pre><code>tolerations:
+- key: &quot;key1&quot;
+  operator: &quot;Equal&quot;
+  value: &quot;value1&quot;
+  effect: &quot;NoSchedule&quot;
+- key: &quot;key1&quot;
+  operator: &quot;Equal&quot;
+  value: &quot;value1&quot;
+  effect: &quot;NoExecute&quot;
+</code></pre>
+
+<p>而正在运行且带有 tolerationSeconds 的 Pod 则会在 600s 之后删除</p>
+
+<pre><code>tolerations:
+- key: &quot;key1&quot;
+  operator: &quot;Equal&quot;
+  value: &quot;value1&quot;
+  effect: &quot;NoSchedule&quot;
+- key: &quot;key1&quot;
+  operator: &quot;Equal&quot;
+  value: &quot;value1&quot;
+  effect: &quot;NoExecute&quot;
+  tolerationSeconds: 600
+- key: &quot;key2&quot;
+  operator: &quot;Equal&quot;
+  value: &quot;value2&quot;
+  effect: &quot;NoSchedule&quot;
+</code></pre>
+
+<p>注意，DaemonSet 创建的 Pod 会自动加上对 node.alpha.kubernetes.io/unreachable 和 node.alpha.kubernetes.io/notReady 的 NoExecute Toleration，以避免它们因此被删除。</p>
+
+<h1 id="自定义调度器">自定义调度器</h1>
+
+<p>要编写一个优秀的调度器却不容易，因为要考虑的东西很多：</p>
+
+<ul>
+<li>尽可能地将 workload 平均到不同的节点，减少单个节点宕机造成的损失</li>
+<li>可扩展性。随着集群规模的增加，怎么保证调度器不会成为性能的瓶颈</li>
+<li>高可用。调度器能做组成集群，任何一个调度器出现问题，不会影响整个集群的调度</li>
+<li>灵活性。不同的用户有不同的调度需求，一个优秀的调度器还要允许用户能配置不同的调度算法</li>
+<li>资源合理和高效利用。调度器应该尽可能地提高集群的资源利用率，防止资源的浪费</li>
+</ul>
+
+<p>一般来说，我们有4种扩展 Kubernetes 调度器的方法。</p>
+
+<ul>
+<li>直接 clone 官方的 kube-scheduler 源代码，在合适的位置直接修改代码，然后重新编译运行修改后的程序，当然这种方法是最不建议使用的，也不实用，因为需要花费大量额外的精力来和上游的调度程序更改保持一致。</li>
+<li>和默认的调度程序一起运行独立的调度程序，默认的调度器和我们自定义的调度器可以通过 Pod 的 spec.schedulerName 来覆盖各自的 Pod，默认是使用 default 默认的调度器，但是多个调度程序共存的情况下也比较麻烦，比如当多个调度器将 Pod 调度到同一个节点的时候，可能会遇到一些问题，因为很有可能两个调度器都同时将两个 Pod 调度到同一个节点上去，但是很有可能其中一个 Pod 运行后其实资源就消耗完了，并且维护一个高质量的自定义调度程序也不是很容易的，因为我们需要全面了解默认的调度程序，整体 Kubernetes 的架构知识以及各种 Kubernetes API 对象的各种关系或限制。</li>
+<li>调度器扩展程序，这个方案目前是一个可行的方案，可以和上游调度程序兼容，所谓的调度器扩展程序其实就是一个可配置的 Webhook 而已，里面包含 过滤器 和 优先级 两个端点，分别对应调度周期中的两个主要阶段（过滤和打分）。</li>
+<li>通过调度框架（Scheduling Framework），Kubernetes v1.15 版本中引入了可插拔架构的调度框架，使得定制调度器这个任务变得更加的容易。调库框架向现有的调度器中添加了一组插件化的 API，该 API 在保持调度程序“核心”简单且易于维护的同时，使得大部分的调度功能以插件的形式存在，而且在我们现在的 v1.16 版本中上面的 调度器扩展程序 也已经被废弃了，所以以后调度框架才是自定义调度器的核心方式。</li>
+</ul>
+
+<p>这里我们可以简单介绍下后面三种方式的实现。</p>
+
+<h2 id="调度器扩展程序">调度器扩展程序</h2>
+
+<p>1、实现扩展程序</p>
+
+<p>我们直接用 golang 来实现一个简单的调度器扩展程序，当然你可以使用其他任何编程语言，如下所示：</p>
+
+<pre><code>func main() {
+    router := httprouter.New()
+    router.GET(&quot;/&quot;, Index)
+    router.POST(&quot;/filter&quot;, Filter)
+    router.POST(&quot;/prioritize&quot;, Prioritize)
+
+    log.Fatal(http.ListenAndServe(&quot;:8888&quot;, router))
+}
+</code></pre>
+
+<p>然后接下来我们需要实现 /filter 和 /prioritize 两个端点的处理程序。</p>
+
+<p>其中 Filter 这个扩展函数接收一个输入类型为 schedulerapi.ExtenderArgs 的参数，然后返回一个类型为 *schedulerapi.ExtenderFilterResult 的值。在函数中，我们可以进一步过滤输入的节点：</p>
+
+<pre><code>// filter 根据扩展程序定义的预选规则来过滤节点
+func filter(args schedulerapi.ExtenderArgs) *schedulerapi.ExtenderFilterResult {
+    var filteredNodes []v1.Node
+    failedNodes := make(schedulerapi.FailedNodesMap)
+    pod := args.Pod
+
+    for _, node := range args.Nodes.Items {
+        fits, failReasons, _ := podFitsOnNode(pod, node)
+        if fits {
+            filteredNodes = append(filteredNodes, node)
+        } else {
+            failedNodes[node.Name] = strings.Join(failReasons, &quot;,&quot;)
+        }
+    }
+
+    result := schedulerapi.ExtenderFilterResult{
+        Nodes: &amp;v1.NodeList{
+            Items: filteredNodes,
+        },
+        FailedNodes: failedNodes,
+        Error:       &quot;&quot;,
+    }
+
+    return &amp;result
+}
+</code></pre>
+
+<p>在过滤函数中，我们循环每个节点然后用我们自己实现的业务逻辑来判断是否应该批准该节点，这里我们实现比较简单，在 podFitsOnNode() 函数中我们只是简单的检查随机数是否为偶数来判断即可，如果是的话我们就认为这是一个幸运的节点，否则拒绝批准该节点。</p>
+
+<pre><code>var predicatesSorted = []string{LuckyPred}
+
+var predicatesFuncs = map[string]FitPredicate{
+    LuckyPred: LuckyPredicate,
+}
+
+type FitPredicate func(pod *v1.Pod, node v1.Node) (bool, []string, error)
+
+func podFitsOnNode(pod *v1.Pod, node v1.Node) (bool, []string, error) {
+    fits := true
+    var failReasons []string
+    for _, predicateKey := range predicatesSorted {
+        fit, failures, err := predicatesFuncs[predicateKey](pod, node)
+        if err != nil {
+            return false, nil, err
+        }
+        fits = fits &amp;&amp; fit
+        failReasons = append(failReasons, failures...)
+    }
+    return fits, failReasons, nil
+}
+
+func LuckyPredicate(pod *v1.Pod, node v1.Node) (bool, []string, error) {
+    lucky := rand.Intn(2) == 0
+    if lucky {
+        log.Printf(&quot;pod %v/%v is lucky to fit on node %v\n&quot;, pod.Name, pod.Namespace, node.Name)
+        return true, nil, nil
+    }
+    log.Printf(&quot;pod %v/%v is unlucky to fit on node %v\n&quot;, pod.Name, pod.Namespace, node.Name)
+    return false, []string{LuckyPredFailMsg}, nil
+}
+</code></pre>
+
+<p>同样的打分功能用同样的方式来实现，我们在每个节点上随机给出一个分数：</p>
+
+<pre><code>// it's webhooked to pkg/scheduler/core/generic_scheduler.go#PrioritizeNodes()
+// 这个函数输出的分数会被添加会默认的调度器
+func prioritize(args schedulerapi.ExtenderArgs) *schedulerapi.HostPriorityList {
+    pod := args.Pod
+    nodes := args.Nodes.Items
+
+    hostPriorityList := make(schedulerapi.HostPriorityList, len(nodes))
+    for i, node := range nodes {
+        score := rand.Intn(schedulerapi.MaxPriority + 1)  // 在最大优先级内随机取一个值
+        log.Printf(luckyPrioMsg, pod.Name, pod.Namespace, score)
+        hostPriorityList[i] = schedulerapi.HostPriority{
+            Host:  node.Name,
+            Score: score,
+        }
+    }
+
+    return &amp;hostPriorityList
+}
+</code></pre>
+
+<p>然后我们可以使用下面的命令来编译打包我们的应用：</p>
+
+<pre><code>$ GOOS=linux GOARCH=amd64 go build -o app
+</code></pre>
+
+<p>获得我们的扩展调度器扩展程序的二进制文件app，构建完成后，将应用 app 拷贝到 kube-scheduler 所在的节点直接运行即可，当然也可以使用pod运行，复制一个调度器的 YAML 文件然后更改下 schedulerName 来部署，这样就不会影响默认的调度器了，然后在需要使用这个测试的调度器的 Pod 上面指定 spec.schedulerName 即可。这就是第二种方法的多调度器。</p>
+
+<p>2、注册扩展程序</p>
+
+<p>我们只要在策略的配置文件中注册就可以格式是</p>
+
+<pre><code>apiVersion: v1
+kind: Policy
+extenders:
+- urlPrefix: &quot;http://127.0.0.1:8888/&quot;
+  filterVerb: &quot;filter&quot;
+  prioritizeVerb: &quot;prioritize&quot;
+  weight: 1
+  enableHttps: false
+</code></pre>
+
+<p>将其写到默认的policy文件中</p>
+
+<pre><code>{
+    &quot;kind&quot;: &quot;Policy&quot;,
+    &quot;apiVersion&quot;: &quot;v1&quot;,
+    &quot;predicates&quot;: [{
+        &quot;name&quot;: &quot;MatchNodeSelector&quot;
+    }, {
+        &quot;name&quot;: &quot;PodFitsResources&quot;
+    }, {
+        &quot;name&quot;: &quot;PodFitsHostPorts&quot;
+    },{
+        &quot;name&quot;: &quot;HostName&quot;
+    }
+    ],
+    &quot;priorities&quot;: [{
+        &quot;name&quot;: &quot;EqualPriority&quot;,
+        &quot;weight&quot;: 2
+    }, {
+        &quot;name&quot;: &quot;ImageLocalityPriority&quot;,
+        &quot;weight&quot;: 4
+    }, {
+        &quot;name&quot;: &quot;LeastRequestedPriority&quot;,
+        &quot;weight&quot;: 2
+    }, {
+        &quot;name&quot;: &quot;BalancedResourceAllocation&quot;,
+        &quot;weight&quot;: 2
+    }
+    ],
+    &quot;extenders&quot;: [{
+        &quot;urlPrefix&quot;: &quot;http://127.0.0.1:8888/prefix&quot;,
+        &quot;filterVerb&quot;: &quot;filter&quot;,
+        &quot;prioritizeVerb&quot;: &quot;prioritize&quot;,
+        &quot;weight&quot;: 1,
+        &quot;bindVerb&quot;: &quot;bind&quot;,
+        &quot;enableHttps&quot;: false
+    }]
+}
+</code></pre>
+
+<p>然后启动kube-scheduler就行。这时候我们在调度的是时候，是重上到下，这样在过滤和打分阶段结束后，可以将结果分别传递给该扩展程序的端点，可以进一步过滤并确定优先级，以适应我们的特定业务需求。同一个调度器就是这样，多个调度器时候，每一个调度器都是这么个重下倒下过滤调度的流程。</p>
+
+<p>3、验证</p>
+
+<p>现在我们来运行一个 Deployment 查看其工作原理，我们准备一个包含20个副本的部署 Yaml：(test-scheduler.yaml)</p>
+
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pause
+spec:
+  replicas: 20
+  selector:
+    matchLabels:
+      app: pause
+  template:
+    metadata:
+      labels:
+        app: pause
+    spec:
+      containers:
+      - name: pause
+        image: gcr.azk8s.cn/google_containers/pause:3.1
+</code></pre>
+
+<p>直接创建上面的资源对象：</p>
+
+<pre><code>$ kuectl apply -f test-scheduler.yaml
+deployment.apps/pause created
+</code></pre>
+
+<p>这个时候我们去查看下我们编写的调度器扩展程序日志：</p>
+
+<pre><code>$ ./app
+......
+2020/01/03 12:27:29 pod pause-58584fbc95-bwn7t/default is unlucky to fit on node ydzs-node1
+2020/01/03 12:27:29 pod pause-58584fbc95-bwn7t/default is lucky to get score 7
+2020/01/03 12:27:29 pod pause-58584fbc95-bwn7t/default is lucky to get score 9
+2020/01/03 12:27:29 pod pause-58584fbc95-86w92/default is unlucky to fit on node ydzs-node3
+2020/01/03 12:27:29 pod pause-58584fbc95-86w92/default is unlucky to fit on node ydzs-node4
+2020/01/03 12:27:29 pod pause-58584fbc95-86w92/default is lucky to fit on node ydzs-node1
+2020/01/03 12:27:29 pod pause-58584fbc95-86w92/default is lucky to fit on node ydzs-node2
+2020/01/03 12:27:29 pod pause-58584fbc95-86w92/default is lucky to get score 4
+2020/01/03 12:27:29 pod pause-58584fbc95-86w92/default is lucky to get score 8
+......
+</code></pre>
+
+<p>我们可以看到 Pod 调度的过程，另外默认调度程序会定期重试失败的 Pod，因此它们将一次又一次地重新传递到我们的调度扩展程序上，我们的逻辑是检查随机数是否为偶数，所以最终所有 Pod 都将处于运行状态。</p>
+
+<p>调度器扩展程序可能是在一些情况下可以满足我们的需求，但是他仍然有一些限制和缺点：</p>
+
+<ul>
+<li>通信成本：数据在默认调度程序和调度器扩展程序之间以 http（s）传输，在执行序列化和反序列化的时候有一定成本</li>
+<li>有限的扩展点：扩展程序只能在某些阶段的末尾参与，例如“ Filter”和“ Prioritize”，它们不能在任何阶段的开始或中间被调用</li>
+<li>减法优于加法：与默认调度程序传递的节点候选列表相比，我们可能有一些需求需要添加新的候选节点列表，但这是比较冒险的操作，因为不能保证新节点可以通过其他要求，所以，调度器扩展程序最好执行“减法”（进一步过滤），而不是“加法”（添加节点）</li>
+<li>缓存共享：上面只是一个简单的测试示例，但在真实的项目中，我们是需要通过查看整个集群的状态来做出调度决策的，默认调度程序可以很好地调度决策，但是无法共享其缓存，这意味着我们必须构建和维护自己的缓存</li>
+</ul>
+
+<p>由于这些局限性，Kubernetes 调度小组就提出了上面第四种方法来进行更好的扩展，也就是调度框架（Scheduler Framework），它基本上可以解决我们遇到的所有难题，现在也已经成官方推荐的扩展方式，所以这将是以后扩展调度器的最主流的方式。</p>
+
+<h2 id="多调度器">多调度器</h2>
+
+<p>上面我们已经开发了一个调度器，我们只要将对应的二进制文件制作成镜像，然后运行在k8s上，并将这个调度器命一个名，比如my-scheduler，给后来的pod进行指定。当然可以参考<a href="https://kubernetes.io/zh/docs/tasks/administer-cluster/configure-multiple-schedulers/">官方文档</a>。</p>
+
+<p>在整个集群中还可以同时运行多个调度器实例，通过podSpec.schedulerName 来选择使用哪一个调度器（默认使用内置的调度器）。</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  schedulerName: my-scheduler  # 选择使用自定义调度器 my-scheduler
+  containers:
+  - name: nginx
+    image: nginx:1.10
+</code></pre>
+
+<h2 id="调度框架">调度框架</h2>
+
+<p>Scheduler Framework 将 Pod 的调度过程分为两步：调度和绑定。</p>
+
+<p>调度是为 Pod 选择一个合适的节点，而绑定则是将调度结果提交给集群。调度是顺序执行的，绑定并发执行。无论是在调度还是绑定过程中，如果发生错误或者判断 Pod 不可调度，那么 Pod 就会被重新放回调度队列，等待重新调度。</p>
+
+<p>调度框架定义了一组扩展点，用户可以实现扩展点定义的接口来定义自己的调度逻辑，并将扩展注册到扩展点上，调度框架在执行调度工作流时，遇到对应的扩展点时，将调用用户注册的扩展。调度框架在预留扩展点时，都是有特定的目的，有些扩展点上的扩展可以改变调度程序的决策方法，有些扩展点上的扩展只是发送一个通知。</p>
+
+<p>下图展示了调度框架中的调度上下文及其中的扩展点，一个扩展可以注册多个扩展点，以便可以执行更复杂的有状态的任务。</p>
+
+<p><img src="/media/cloud/k8s/scheduler1" alt="" /></p>
+
+<p>做一个简单的说明</p>
+
+<ul>
+<li>QueueSort 扩展用于对 Pod 的待调度队列进行排序，以决定先调度哪个 Pod，QueueSort 扩展本质上只需要实现一个方法 Less(Pod1, Pod2) 用于比较两个 Pod 谁更优先获得调度即可，同一时间点只能有一个 QueueSort 插件生效。</li>
+<li>Pre-filter 扩展用于对 Pod 的信息进行预处理，或者检查一些集群或 Pod 必须满足的前提条件，如果 pre-filter 返回了 error，则调度过程终止。</li>
+<li>Filter 扩展用于排除那些不能运行该 Pod 的节点，对于每一个节点，调度器将按顺序执行 filter 扩展；如果任何一个 filter 将节点标记为不可选，则余下的 filter 扩展将不会被执行。调度器可以同时对多个节点执行 filter 扩展。</li>
+<li>Post-filter 是一个通知类型的扩展点，调用该扩展的参数是 filter 阶段结束后被筛选为可选节点的节点列表，可以在扩展中使用这些信息更新内部状态，或者产生日志或 metrics 信息。</li>
+<li>Scoring 扩展用于为所有可选节点进行打分，调度器将针对每一个节点调用 Soring 扩展，评分结果是一个范围内的整数。在 normalize scoring 阶段，调度器将会把每个 scoring 扩展对具体某个节点的评分结果和该扩展的权重合并起来，作为最终评分结果。</li>
+<li>Normalize scoring 扩展在调度器对节点进行最终排序之前修改每个节点的评分结果，注册到该扩展点的扩展在被调用时，将获得同一个插件中的 scoring 扩展的评分结果作为参数，调度框架每执行一次调度，都将调用所有插件中的一个 normalize scoring 扩展一次。</li>
+<li>Reserve 是一个通知性质的扩展点，有状态的插件可以使用该扩展点来获得节点上为 Pod 预留的资源，该事件发生在调度器将 Pod 绑定到节点之前，目的是避免调度器在等待 Pod 与节点绑定的过程中调度新的 Pod 到节点上时，发生实际使用资源超出可用资源的情况。（因为绑定 Pod 到节点上是异步发生的）。这是调度过程的最后一个步骤，Pod 进入 reserved 状态以后，要么在绑定失败时触发 Unreserve 扩展，要么在绑定成功时，由 Post-bind 扩展结束绑定过程。</li>
+<li>Permit 扩展用于阻止或者延迟 Pod 与节点的绑定。Permit 扩展可以做下面三件事中的一项：
+
+<ul>
+<li>approve（批准）：当所有的 permit 扩展都 approve 了 Pod 与节点的绑定，调度器将继续执行绑定过程</li>
+<li>deny（拒绝）：如果任何一个 permit 扩展 deny 了 Pod 与节点的绑定，Pod 将被放回到待调度队列，此时将触发 Unreserve 扩展</li>
+<li>wait（等待）：如果一个 permit 扩展返回了 wait，则 Pod 将保持在 permit 阶段，直到被其他扩展 approve，如果超时事件发生，wait 状态变成 deny，Pod 将被放回到待调度队列，此时将触发 Unreserve 扩展</li>
+</ul></li>
+<li>Pre-bind 扩展用于在 Pod 绑定之前执行某些逻辑。例如，pre-bind 扩展可以将一个基于网络的数据卷挂载到节点上，以便 Pod 可以使用。如果任何一个 pre-bind 扩展返回错误，Pod 将被放回到待调度队列，此时将触发 Unreserve 扩展。</li>
+<li>Bind 扩展用于将 Pod 绑定到节点上：
+
+<ul>
+<li>只有所有的 pre-bind 扩展都成功执行了，bind 扩展才会执行</li>
+<li>调度框架按照 bind 扩展注册的顺序逐个调用 bind 扩展</li>
+<li>具体某个 bind 扩展可以选择处理或者不处理该 Pod</li>
+<li>如果某个 bind 扩展处理了该 Pod 与节点的绑定，余下的 bind 扩展将被忽略</li>
+</ul></li>
+<li>Post-bind 是一个通知性质的扩展：
+
+<ul>
+<li>Post-bind 扩展在 Pod 成功绑定到节点上之后被动调用</li>
+<li>Post-bind 扩展是绑定过程的最后一个步骤，可以用来执行资源清理的动作</li>
+</ul></li>
+<li>Unreserve 是一个通知性质的扩展，如果为 Pod 预留了资源，Pod 又在被绑定过程中被拒绝绑定，则 unreserve 扩展将被调用。Unreserve 扩展应该释放已经为 Pod 预留的节点上的计算资源。在一个插件中，reserve 扩展和 unreserve 扩展应该成对出现。</li>
+</ul>
+
+<p>一个 Plugin 可以实现多个扩展点。即在一个 Plugin 中既可以实现 Filter，又可以实现 Scoring，也可以再实现 Pre-Bind，看具体需求和场景，避免了一个需求实现多个 Plugin 的情况。</p>
+
+<p>如果我们要实现自己的插件，必须向调度框架注册插件并完成配置，另外还必须实现扩展点接口，对应的扩展点接口我们可以在源码 pkg/scheduler/framework/v1alpha1/interface.go 文件中找到，如下所示：</p>
+
+<pre><code>// Plugin is the parent type for all the scheduling framework plugins.
+type Plugin interface {
+    Name() string
+}
+
+type QueueSortPlugin interface {
+    Plugin
+    Less(*PodInfo, *PodInfo) bool
+}
+
+// PreFilterPlugin is an interface that must be implemented by &quot;prefilter&quot; plugins.
+// These plugins are called at the beginning of the scheduling cycle.
+type PreFilterPlugin interface {
+    Plugin
+    PreFilter(pc *PluginContext, p *v1.Pod) *Status
+}
+
+// FilterPlugin is an interface for Filter plugins. These plugins are called at the
+// filter extension point for filtering out hosts that cannot run a pod.
+// This concept used to be called 'predicate' in the original scheduler.
+// These plugins should return &quot;Success&quot;, &quot;Unschedulable&quot; or &quot;Error&quot; in Status.code.
+// However, the scheduler accepts other valid codes as well.
+// Anything other than &quot;Success&quot; will lead to exclusion of the given host from
+// running the pod.
+type FilterPlugin interface {
+    Plugin
+    Filter(pc *PluginContext, pod *v1.Pod, nodeName string) *Status
+}
+
+// PostFilterPlugin is an interface for Post-filter plugin. Post-filter is an
+// informational extension point. Plugins will be called with a list of nodes
+// that passed the filtering phase. A plugin may use this data to update internal
+// state or to generate logs/metrics.
+type PostFilterPlugin interface {
+    Plugin
+    PostFilter(pc *PluginContext, pod *v1.Pod, nodes []*v1.Node, filteredNodesStatuses NodeToStatusMap) *Status
+}
+
+// ScorePlugin is an interface that must be implemented by &quot;score&quot; plugins to rank
+// nodes that passed the filtering phase.
+type ScorePlugin interface {
+    Plugin
+    Score(pc *PluginContext, p *v1.Pod, nodeName string) (int, *Status)
+}
+
+// ScoreWithNormalizePlugin is an interface that must be implemented by &quot;score&quot;
+// plugins that also need to normalize the node scoring results produced by the same
+// plugin's &quot;Score&quot; method.
+type ScoreWithNormalizePlugin interface {
+    ScorePlugin
+    NormalizeScore(pc *PluginContext, p *v1.Pod, scores NodeScoreList) *Status
+}
+
+// ReservePlugin is an interface for Reserve plugins. These plugins are called
+// at the reservation point. These are meant to update the state of the plugin.
+// This concept used to be called 'assume' in the original scheduler.
+// These plugins should return only Success or Error in Status.code. However,
+// the scheduler accepts other valid codes as well. Anything other than Success
+// will lead to rejection of the pod.
+type ReservePlugin interface {
+    Plugin
+    Reserve(pc *PluginContext, p *v1.Pod, nodeName string) *Status
+}
+
+// PreBindPlugin is an interface that must be implemented by &quot;prebind&quot; plugins.
+// These plugins are called before a pod being scheduled.
+type PreBindPlugin interface {
+    Plugin
+    PreBind(pc *PluginContext, p *v1.Pod, nodeName string) *Status
+}
+
+// PostBindPlugin is an interface that must be implemented by &quot;postbind&quot; plugins.
+// These plugins are called after a pod is successfully bound to a node.
+type PostBindPlugin interface {
+    Plugin
+    PostBind(pc *PluginContext, p *v1.Pod, nodeName string)
+}
+
+// UnreservePlugin is an interface for Unreserve plugins. This is an informational
+// extension point. If a pod was reserved and then rejected in a later phase, then
+// un-reserve plugins will be notified. Un-reserve plugins should clean up state
+// associated with the reserved Pod.
+type UnreservePlugin interface {
+    Plugin
+    Unreserve(pc *PluginContext, p *v1.Pod, nodeName string)
+}
+
+// PermitPlugin is an interface that must be implemented by &quot;permit&quot; plugins.
+// These plugins are called before a pod is bound to a node.
+type PermitPlugin interface {
+    Plugin
+    Permit(pc *PluginContext, p *v1.Pod, nodeName string) (*Status, time.Duration)
+}
+
+// BindPlugin is an interface that must be implemented by &quot;bind&quot; plugins. Bind
+// plugins are used to bind a pod to a Node.
+type BindPlugin interface {
+    Plugin
+    Bind(pc *PluginContext, p *v1.Pod, nodeName string) *Status
+}
+</code></pre>
+
+<p>我们要实现对应的插件只要实现上面对应的插件接口，也可以在一个进程中实现那多个插件。</p>
+
+<p>对于调度框架插件的启用或者禁用，我们同样可以使用上面的 KubeSchedulerConfiguration 资源对象来进行配置。下面的例子中的配置启用了一个实现了 reserve 和 preBind 扩展点的插件，并且禁用了另外一个插件，同时为插件 foo 提供了一些配置信息：</p>
+
+<pre><code>apiVersion: kubescheduler.config.k8s.io/v1alpha1
+kind: KubeSchedulerConfiguration
+
+...
+
+plugins:
+  reserve:
+    enabled:
+    - name: foo
+    - name: bar
+    disabled:
+    - name: baz
+  preBind:
+    enabled:
+    - name: foo
+    disabled:
+    - name: baz
+
+pluginConfig:
+- name: foo
+  args: &gt;
+    foo插件可以解析的任意内容
+</code></pre>
+
+<p>扩展的调用顺序如下：</p>
+
+<ul>
+<li>如果某个扩展点没有配置对应的扩展，调度框架将使用默认插件中的扩展</li>
+<li>如果为某个扩展点配置且激活了扩展，则调度框架将先调用默认插件的扩展，再调用配置中的扩展</li>
+<li>默认插件的扩展始终被最先调用，然后按照 KubeSchedulerConfiguration 中扩展的激活 enabled 顺序逐个调用扩展点的扩展</li>
+<li>可以先禁用默认插件的扩展，然后在 enabled 列表中的某个位置激活默认插件的扩展，这种做法可以改变默认插件的扩展被调用时的顺序</li>
+</ul>
+
+<p>假设默认插件 foo 实现了 reserve 扩展点，此时我们要添加一个插件 bar，想要在 foo 之前被调用，则应该先禁用 foo 再按照 bar foo 的顺序激活。示例配置如下所示：</p>
+
+<pre><code>apiVersion: kubescheduler.config.k8s.io/v1alpha1
+kind: KubeSchedulerConfiguration
+
+...
+
+plugins:
+  reserve:
+    enabled:
+    - name: bar
+    - name: foo
+    disabled:
+    - name: foo
+</code></pre>
+
+<p>在源码目录 pkg/scheduler/framework/plugins/examples 中有几个示范插件，我们可以参照其实现方式。</p>
+
+<h3 id="简单实现一个调度扩展插件">简单实现一个调度扩展插件</h3>
+
+<blockquote>
+<p>注册</p>
+</blockquote>
+
+<p>其实要实现一个调度框架的插件，并不难，我们只要实现对应的扩展点，然后将插件注册到调度器中即可，我们来看一下注册：</p>
+
+<pre><code>func main() {
+    rand.Seed(time.Now().UTC().UnixNano())
+
+    command := app.NewSchedulerCommand(
+        app.WithPlugin(sample.Name, sample.New),
+    )
+
+    logs.InitLogs()
+    defer logs.FlushLogs()
+
+    if err := command.Execute(); err != nil {
+        _, _ = fmt.Fprintf(os.Stderr, &quot;%v\n&quot;, err)
+        os.Exit(1)
+    }
+
+}
+</code></pre>
+
+<p>其中 app.WithPlugin(sample.Name, sample.New) 就是注册一个名为sample.Name的插件，接下来就是我们接下来要实现的插件，从 WithPlugin 函数的参数也可以看出我们这里的 sample.New 必须是一个 framework.PluginFactory 类型的值，而 PluginFactory 的定义就是一个函数：</p>
+
+<pre><code>type PluginFactory = func(configuration *runtime.Unknown, f FrameworkHandle) (Plugin, error)
+</code></pre>
+
+<p>我们简单看一下 WithPlugin 的函数</p>
+
+<pre><code>// WithPlugin creates an Option based on plugin name and factory.
+func WithPlugin(name string, factory framework.PluginFactory) Option {
+    return func(registry framework.Registry) error {
+        return registry.Register(name, factory)
+    }
+}
+</code></pre>
+
+<p>创建的就是Option 的列表</p>
+
+<pre><code>// Option configures a framework.Registry.
+type Option func(framework.Registry) error
+</code></pre>
+
+<p>然后给NewSchedulerCommand调用，也就是main函数中的调用的。</p>
+
+<blockquote>
+<p>实现</p>
+</blockquote>
+
+<p>所以 sample.New 实际上就是上面的这个函数，在这个函数中我们可以获取到插件中的一些数据然后进行逻辑处理即可，插件实现如下所示，我们这里只是简单获取下数据打印日志，如果你有实际需求的可以根据获取的数据就行处理即可，我们这里只是实现了 PreFilter、Filter、PreBind 三个扩展点，其他的可以用同样的方式来扩展即可：</p>
+
+<pre><code>// 插件名称
+const Name = &quot;sample-plugin&quot;
+
+type Args struct {
+    FavoriteColor  string `json:&quot;favorite_color,omitempty&quot;`
+    FavoriteNumber int    `json:&quot;favorite_number,omitempty&quot;`
+    ThanksTo       string `json:&quot;thanks_to,omitempty&quot;`
+}
+
+type Sample struct {
+    args   *Args
+    handle framework.FrameworkHandle
+}
+
+func (s *Sample) Name() string {
+    return Name
+}
+
+func (s *Sample) PreFilter(pc *framework.PluginContext, pod *v1.Pod) *framework.Status {
+    klog.V(3).Infof(&quot;prefilter pod: %v&quot;, pod.Name)
+    return framework.NewStatus(framework.Success, &quot;&quot;)
+}
+
+func (s *Sample) Filter(pc *framework.PluginContext, pod *v1.Pod, nodeName string) *framework.Status {
+    klog.V(3).Infof(&quot;filter pod: %v, node: %v&quot;, pod.Name, nodeName)
+    return framework.NewStatus(framework.Success, &quot;&quot;)
+}
+
+func (s *Sample) PreBind(pc *framework.PluginContext, pod *v1.Pod, nodeName string) *framework.Status {
+    if nodeInfo, ok := s.handle.NodeInfoSnapshot().NodeInfoMap[nodeName]; !ok {
+        return framework.NewStatus(framework.Error, fmt.Sprintf(&quot;prebind get node info error: %+v&quot;, nodeName))
+    } else {
+        klog.V(3).Infof(&quot;prebind node info: %+v&quot;, nodeInfo.Node())
+        return framework.NewStatus(framework.Success, &quot;&quot;)
+    }
+}
+
+//type PluginFactory = func(configuration *runtime.Unknown, f FrameworkHandle) (Plugin, error)
+func New(configuration *runtime.Unknown, f framework.FrameworkHandle) (framework.Plugin, error) {
+    args := &amp;Args{}
+    if err := framework.DecodeInto(configuration, args); err != nil {
+        return nil, err
+    }
+    klog.V(3).Infof(&quot;get plugin config args: %+v&quot;, args)
+    return &amp;Sample{
+        args: args,
+        handle: f,
+    }, nil
+}
+</code></pre>
+
+<p>完整代码可以前往仓库 <a href="https://github.com/cnych/sample-scheduler-framework">https://github.com/cnych/sample-scheduler-framework</a> 获取。</p>
+
+<blockquote>
+<p>打包运行</p>
+</blockquote>
+
+<p>实现完成后，编译打包成镜像即可，然后我们就可以当成普通的应用用一个 Deployment 控制器来部署即可，由于我们需要去获取集群中的一些资源对象，所以当然需要申请 RBAC 权限，然后同样通过 &ndash;config 参数来配置我们的调度器，同样还是使用一个 KubeSchedulerConfiguration 资源对象配置，可以通过 plugins 来启用或者禁用我们实现的插件，也可以通过 pluginConfig 来传递一些参数值给插件：</p>
+
+<pre><code>kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: sample-scheduler-clusterrole
+rules:
+  - apiGroups:
+      - &quot;&quot;
+    resources:
+      - endpoints
+      - events
+    verbs:
+      - create
+      - get
+      - update
+  - apiGroups:
+      - &quot;&quot;
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - &quot;&quot;
+    resources:
+      - pods
+    verbs:
+      - delete
+      - get
+      - list
+      - watch
+      - update
+  - apiGroups:
+      - &quot;&quot;
+    resources:
+      - bindings
+      - pods/binding
+    verbs:
+      - create
+  - apiGroups:
+      - &quot;&quot;
+    resources:
+      - pods/status
+    verbs:
+      - patch
+      - update
+  - apiGroups:
+      - &quot;&quot;
+    resources:
+      - replicationcontrollers
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+      - extensions
+    resources:
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - &quot;&quot;
+    resources:
+      - persistentvolumeclaims
+      - persistentvolumes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - &quot;&quot;
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - &quot;storage.k8s.io&quot;
+    resources:
+      - storageclasses
+      - csinodes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - &quot;coordination.k8s.io&quot;
+    resources:
+      - leases
+    verbs:
+      - create
+      - get
+      - list
+      - update
+  - apiGroups:
+      - &quot;events.k8s.io&quot;
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+      - update
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sample-scheduler-sa
+  namespace: kube-system
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: sample-scheduler-clusterrolebinding
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sample-scheduler-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: sample-scheduler-sa
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scheduler-config
+  namespace: kube-system
+data:
+  scheduler-config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1alpha1
+    kind: KubeSchedulerConfiguration
+    schedulerName: sample-scheduler
+    leaderElection:
+      leaderElect: true
+      lockObjectName: sample-scheduler
+      lockObjectNamespace: kube-system
+    plugins:
+      preFilter:
+        enabled:
+        - name: &quot;sample-plugin&quot;
+      filter:
+        enabled:
+        - name: &quot;sample-plugin&quot;
+      preBind:
+        enabled:
+        - name: &quot;sample-plugin&quot;
+    pluginConfig:
+    - name: &quot;sample-plugin&quot;
+      args:
+        favorite_color: &quot;#326CE5&quot;
+        favorite_number: 7
+        thanks_to: &quot;thockin&quot;
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-scheduler
+  namespace: kube-system
+  labels:
+    component: sample-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: sample-scheduler
+  template:
+    metadata:
+      labels:
+        component: sample-scheduler
+    spec:
+      serviceAccount: sample-scheduler-sa
+      priorityClassName: system-cluster-critical
+      volumes:
+        - name: scheduler-config
+          configMap:
+            name: scheduler-config
+      containers:
+        - name: scheduler-ctrl
+          image: cnych/sample-scheduler:v0.1.6
+          imagePullPolicy: IfNotPresent
+          args:
+            - sample-scheduler-framework
+            - --config=/etc/kubernetes/scheduler-config.yaml
+            - --v=3
+          resources:
+            requests:
+              cpu: &quot;50m&quot;
+          volumeMounts:
+            - name: scheduler-config
+              mountPath: /etc/kubernetes
+</code></pre>
+
+<p>直接部署上面的资源对象即可，这样我们就部署了一个名为 sample-scheduler 的调度器了。</p>
+
+<blockquote>
+<p>测试</p>
+</blockquote>
+
+<p>接下来我们可以部署一个应用来使用这个调度器进行调度：</p>
+
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-scheduler
+  template:
+    metadata:
+      labels:
+        app: test-scheduler
+    spec:
+      schedulerName: sample-scheduler
+      containers:
+      - image: nginx
+        imagePullPolicy: IfNotPresent
+        name: nginx
+        ports:
+        - containerPort: 80
+</code></pre>
+
+<p>这里需要注意的是我们现在手动指定了一个 schedulerName 的字段，将其设置成上面我们自定义的调度器名称 sample-scheduler。</p>
+
+<p>我们直接创建这个资源对象，创建完成后查看我们自定义调度器的日志信息：</p>
+
+<pre><code>$ kubectl get pods -n kube-system -l component=sample-scheduler
+NAME                               READY   STATUS    RESTARTS   AGE
+sample-scheduler-7c469787f-rwhhd   1/1     Running   0          13m
+$ kubectl logs -f sample-scheduler-7c469787f-rwhhd -n kube-system
+I0104 08:24:22.087881       1 scheduler.go:530] Attempting to schedule pod: default/test-scheduler-6d779d9465-rq2bb
+I0104 08:24:22.087992       1 plugins.go:23] prefilter pod: test-scheduler-6d779d9465-rq2bb
+I0104 08:24:22.088657       1 plugins.go:28] filter pod: test-scheduler-6d779d9465-rq2bb, node: ydzs-node1
+I0104 08:24:22.088797       1 plugins.go:28] filter pod: test-scheduler-6d779d9465-rq2bb, node: ydzs-node2
+I0104 08:24:22.088871       1 plugins.go:28] filter pod: test-scheduler-6d779d9465-rq2bb, node: ydzs-node3
+I0104 08:24:22.088946       1 plugins.go:28] filter pod: test-scheduler-6d779d9465-rq2bb, node: ydzs-node4
+I0104 08:24:22.088992       1 plugins.go:28] filter pod: test-scheduler-6d779d9465-rq2bb, node: ydzs-master
+I0104 08:24:22.090653       1 plugins.go:36] prebind node info: &amp;Node{ObjectMeta:{ydzs-node3   /api/v1/nodes/ydzs-node3 1ff6e228-4d98-4737-b6d3-30a5d55ccdc2 15466372 0 2019-11-10 09:05:09 +0000 UTC &lt;nil&gt; &lt;nil&gt; ......}
+I0104 08:24:22.091761       1 factory.go:610] Attempting to bind test-scheduler-6d779d9465-rq2bb to ydzs-node3
+I0104 08:24:22.104994       1 scheduler.go:667] pod default/test-scheduler-6d779d9465-rq2bb is bound successfully on node &quot;ydzs-node3&quot;, 5 nodes evaluated, 4 nodes were found feasible. Bound node resource: &quot;Capacity: CPU&lt;4&gt;|Memory&lt;8008820Ki&gt;|Pods&lt;110&gt;|StorageEphemeral&lt;17921Mi&gt;; Allocatable: CPU&lt;4&gt;|Memory&lt;7906420Ki&gt;|Pods&lt;110&gt;|StorageEphemeral&lt;16912377419&gt;.&quot;.
+可以看到当我们创建完 Pod 后，在我们自定义的调度器中就出现了对应的日志，并且在我们定义的扩展点上面都出现了对应的日志，证明我们的示例成功了，也可以通过查看 Pod 的 schedulerName 来验证：
+
+$ kubectl get pods
+NAME                                      READY   STATUS    RESTARTS   AGE
+test-scheduler-6d779d9465-rq2bb           1/1     Running   0          22m
+$ kubectl get pod test-scheduler-6d779d9465-rq2bb -o yaml
+......
+restartPolicy: Always
+schedulerName: sample-scheduler
+securityContext: {}
+serviceAccount: default
+......
+</code></pre>
+
+<p>在最新的 Kubernetes v1.17 版本中，Scheduler Framework 内置的预选和优选函数已经全部插件化，所以要扩展调度器我们应该掌握并理解调度框架这种方式。所以以后调度框架是必然的趋势，我们所要做的工作就是将我们开发的调度器或扩展程序移植到我们对应的调度框架中去。</p>
+
+<h1 id="代码">代码</h1>
+
+<p>kubernetes 调度器的源码位于 kubernetes/pkg/scheduler 中，大体的代码目录结构如下所示：(不同的版本目录结构可能不太一样)</p>
+
+<pre><code>kubernetes/pkg/scheduler
+-- scheduler.go         //调度相关的具体实现
+|-- algorithm
+|   |-- predicates      //节点筛选策略
+|   |-- priorities      //节点打分策略
+|-- algorithmprovider
+|   |-- defaults         //定义默认的调度器
+</code></pre>
+
+<p>其中 Scheduler 创建和运行的核心程序，对应的代码在 pkg/scheduler/scheduler.go，如果要查看kube-scheduler的入口程序，对应的代码在 cmd/kube-scheduler/scheduler.go。主要调度就是上面的流程。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-scheduler/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-scheduler/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/scheduler/">
+                            <i class="fa fa-tags"></i>
+                            scheduler
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-istio/">云计算K8s系列---- istio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/enterprise-architecture/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#部署使用">部署使用</a>
+<ul>
+<li><a href="#物理部署">物理部署</a></li>
+<li><a href="#配置文件">配置文件</a></li>
+<li><a href="#容器部署">容器部署</a></li>
+<li><a href="#高可用">高可用</a></li>
+</ul></li>
+<li><a href="#调度流程">调度流程</a>
+<ul>
+<li><a href="#优先级调度">优先级调度</a></li>
+<li><a href="#预选策略">预选策略</a>
+<ul>
+<li><a href="#nodiskconflict-磁盘冲突">NoDiskconflict：磁盘冲突</a></li>
+<li><a href="#podfistresources-资源要求">podFistResources：资源要求</a></li>
+<li><a href="#podselectormatches-标签匹配">PodSelectorMatches：标签匹配</a></li>
+<li><a href="#podfitshost">PodFitsHost</a></li>
+<li><a href="#podfitsports">PodFitsPorts</a></li>
+<li><a href="#podfitshostports">PodFitsHostPorts</a></li>
+<li><a href="#其他">其他</a></li>
+</ul></li>
+<li><a href="#优选策略">优选策略</a>
+<ul>
+<li><a href="#leastrequestedpriority">leastRequestedPriority</a></li>
+<li><a href="#calculatenodelabelpriority">CalculateNodeLabelPriority</a></li>
+<li><a href="#balancedresourceallocation">BalancedResourceAllocation</a></li>
+<li><a href="#其他-1">其他</a></li>
+</ul></li>
+<li><a href="#使用">使用</a>
+<ul>
+<li><a href="#指定-node-节点调度">指定 Node 节点调度</a></li>
+<li><a href="#屏蔽-node-节点调度">屏蔽 Node 节点调度</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#自定义调度器">自定义调度器</a>
+<ul>
+<li><a href="#调度器扩展程序">调度器扩展程序</a></li>
+<li><a href="#多调度器">多调度器</a></li>
+<li><a href="#调度框架">调度框架</a>
+<ul>
+<li><a href="#简单实现一个调度扩展插件">简单实现一个调度扩展插件</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#代码">代码</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

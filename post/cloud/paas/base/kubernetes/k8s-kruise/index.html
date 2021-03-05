@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="OpenKruise 是阿里云开源的大规模应用自动化管理引擎，在功能上对标了 Kubernetes 原生的 Deployment / StatefulSet 等控制器，但 OpenKruise 提供了更多的增强功能如：优雅原地升级、发布优先级/打散策略、多可用区workload抽象管理、统一 sidecar 容器注入管理等，都是经历了阿里巴巴超大规模应用场景打磨出的核心能力。这些 feature 帮助我们应对更加多样化的部署环境和需求、为集群维护者和应用开发者带来更加灵活的部署发布组合策略。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s系列---- kruise - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s系列---- kruise
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2021年01月17日 
+                </div>
+                <h1 class="post-title">云计算K8s系列---- kruise</h1>
+            </header>
+
+            <div class="post-content">
+                <p>OpenKruise 是阿里云开源的大规模应用自动化管理引擎，在功能上对标了 Kubernetes 原生的 Deployment / StatefulSet 等控制器，但 OpenKruise 提供了更多的增强功能如：优雅原地升级、发布优先级/打散策略、多可用区workload抽象管理、统一 sidecar 容器注入管理等，都是经历了阿里巴巴超大规模应用场景打磨出的核心能力。这些 feature 帮助我们应对更加多样化的部署环境和需求、为集群维护者和应用开发者带来更加灵活的部署发布组合策略。</p>
+
+<h1 id="crd">CRD</h1>
+
+<p>Kruise 是 cruise的谐音，&rsquo;k&rsquo; for Kubernetes. 字面意义巡航，豪华游艇。寓意Kubernetes上应用的自动巡航，满载阿里巴巴多年应用部署管理经验。</p>
+
+<p>Kruise 提供了以下 5 个 workload 控制器：</p>
+
+<ul>
+<li>CloneSet: 提供了更加高效、确定可控的应用管理和部署能力，支持优雅原地升级、指定删除、发布顺序可配置、并行/灰度发布等丰富的策略，可以满足更多样化的应用场景。</li>
+<li>Advanced StatefulSet: 基于原生 StatefulSet 之上的增强版本，默认行为与原生完全一致，在此之外提供了原地升级、并行发布（最大不可用）、发布暂停等功能。</li>
+<li>SidecarSet: 对 sidecar 容器做统一管理，在满足 selector 条件的 Pod 中注入指定的 sidecar 容器。</li>
+<li>UnitedDeployment: 通过多个 subset workload 将应用部署到多个可用区。</li>
+<li>BroadcastJob: 配置一个 job，在集群中所有满足条件的 Node 上都跑一个 Pod 任务。</li>
+</ul>
+
+<h1 id="安装">安装</h1>
+
+<h2 id="前置检查">前置检查</h2>
+
+<p>使用 Kruise 需要在 kube-apiserver 启用一些 feature-gate 比如 MutatingAdmissionWebhook、ValidatingAdmissionWebhook （K8s 1.12以上默认开启）。 如果你的 K8s 版本低于 1.12，需要先执行以下命令来验证是否支持：</p>
+
+<pre><code>sh -c &quot;$(curl -fsSL https://raw.githubusercontent.com/openkruise/kruise/master/scripts/check_for_installation.sh)&quot;（源文件在代码的scripts目录下）
+</code></pre>
+
+<h2 id="helm安装">helm安装</h2>
+
+<p>推荐使用 helm v3 安装 Kruise，helm 是一个简单的命令行工具可以从<a href="/post/cloud/paas/CDCI/helm">这里</a>了解。</p>
+
+<pre><code>helm install kruise https://github.com/openkruise/kruise/releases/download/v0.5.0/kruise-chart.tgz
+</code></pre>
+
+<p>注意直接安装 chart 会使用默认的 template values，你也可以根据你的集群情况指定一些特殊配置，比如修改 resources 限制或者只启用某些特定的控制器能力。</p>
+
+<h2 id="yaml安装">yaml安装</h2>
+
+<pre><code># Install CRDs（源文件在代码的config目录下）
+kubectl apply -f https://raw.githubusercontent.com/kruiseio/kruise/master/config/crds/apps_v1alpha1_broadcastjob.yaml
+kubectl apply -f https://raw.githubusercontent.com/kruiseio/kruise/master/config/crds/apps_v1alpha1_sidecarset.yaml
+kubectl apply -f https://raw.githubusercontent.com/kruiseio/kruise/master/config/crds/apps_v1alpha1_statefulset.yaml
+kubectl apply -f https://raw.githubusercontent.com/kruiseio/kruise/master/config/crds/apps_v1alpha1_uniteddeployment.yaml
+kubectl apply -f https://raw.githubusercontent.com/kruiseio/kruise/master/config/crds/apps_v1alpha1_cloneset.yaml
+
+# Install kruise-controller-manager
+kubectl apply -f https://raw.githubusercontent.com/kruiseio/kruise/master/config/manager/all_in_one.yaml
+</code></pre>
+
+<p>注意 all_in_one.yaml 中包含的 Kruise-manager 镜像是每天周期性从 master 分支打出来的，无法保证功能的稳定性。 所以你可以通过 YAML 部署到测试集群做验证，但不推荐在生产环境使用。</p>
+
+<h2 id="部分安装">部分安装</h2>
+
+<p>如果你只需要使用某些 Kruise 中的控制器并关闭其他的控制器，你可以做以下两个方式或同时做：</p>
+
+<pre><code>1、只安装你需要使用的 CRD。
+
+2、在 kruise-manager 容器中设置 CUSTOM_RESOURCE_ENABLE 环境变量，配置需要启用的功能，比如 CUSTOM_RESOURCE_ENABLE=CloneSet,StatefulSet。
+</code></pre>
+
+<p>如果使用 helm chart 安装，可以通过以下参数来生效这个配置：</p>
+
+<pre><code>helm install kruise https://github.com/openkruise/kruise/releases/download/v0.5.0/kruise-chart.tgz --set manager.custom_resou
+</code></pre>
+
+<h1 id="卸载">卸载</h1>
+
+<p>卸载会导致所有 Kruise 下的资源都会删除掉，包括 webhook configurations, services, namespace, CRDs, CR instances 以及所有 Kruise workload 下的 Pod。 请务必谨慎操作！</p>
+
+<p>卸载使用 helm chart 安装的 Kruise：</p>
+
+<pre><code>helm uninstall kruise
+</code></pre>
+
+<p>卸载使用 YAML files 安装的 Kruise:</p>
+
+<pre><code>sh -c &quot;$(curl -fsSL https://raw.githubusercontent.com/kruiseio/kruise/master/scripts/uninstall.sh)&quot;
+</code></pre>
+
+<h1 id="使用">使用</h1>
+
+<h2 id="cloneset">cloneset</h2>
+
+<p>使用cloneset来创建Guestbook应用</p>
+
+<p>1、安装redis</p>
+
+<pre><code># install Redis by CloneSet
+$ kubectl apply -f https://raw.githubusercontent.com/kruiseio/kruise/master/docs/tutorial/v1/cloneset-redis.yaml
+service/redis-master created
+service/redis-slave created
+cloneset.apps.kruise.io/redis-master created
+cloneset.apps.kruise.io/redis-slave created
+</code></pre>
+
+<p>2、安装Guestbook</p>
+
+<pre><code># install Guestbook by CloneSet
+$ kubectl apply -f https://raw.githubusercontent.com/kruiseio/kruise/master/docs/tutorial/v1/cloneset-guestbook.yaml
+service/guestbook-clone-svc created
+cloneset.apps.kruise.io/guestbook-clone created
+</code></pre>
+
+<p>3、查看创建的cloneset</p>
+
+<pre><code>MacBook-Pro:yaml chunyinjiang$ kubectl get pod
+NAME                    READY   STATUS    RESTARTS   AGE
+guestbook-clone-2rrv5   1/1     Running   0          17s
+guestbook-clone-6dwl2   1/1     Running   0          17s
+guestbook-clone-c2hhc   1/1     Running   0          17s
+guestbook-clone-cbp59   1/1     Running   0          17s
+guestbook-clone-dncmh   1/1     Running   0          17s
+guestbook-clone-hl9jk   1/1     Running   0          17s
+guestbook-clone-j94s9   1/1     Running   0          16s
+guestbook-clone-k9j5g   1/1     Running   0          16s
+guestbook-clone-nvst8   1/1     Running   0          16s
+guestbook-clone-p9k65   1/1     Running   0          16s
+guestbook-clone-p9tf8   1/1     Running   0          16s
+guestbook-clone-q9dvt   1/1     Running   0          16s
+guestbook-clone-qfbx6   1/1     Running   0          16s
+guestbook-clone-rvjww   1/1     Running   0          16s
+guestbook-clone-w675b   1/1     Running   0          16s
+guestbook-clone-whgf4   1/1     Running   0          16s
+guestbook-clone-x7gg7   1/1     Running   0          16s
+guestbook-clone-xrg9p   1/1     Running   0          16s
+guestbook-clone-xxwmn   1/1     Running   0          16s
+guestbook-clone-xzxw9   1/1     Running   0          16s
+redis-master-fq8vp      1/1     Running   0          5m9s
+redis-slave-srgsc       1/1     Running   0          5m9s
+redis-slave-vglqg       1/1     Running   0          5m9s
+
+
+MacBook-Pro:yaml chunyinjiang$ kubectl get clonesets.apps.kruise.io
+NAME              DESIRED   UPDATED   UPDATED_READY   READY   TOTAL   AGE
+guestbook-clone   20        20        20              20      20      82s
+redis-master      1         1         1               1       1       12m
+redis-slave       2         2         2               2       2       12m
+
+MacBook-Pro:yaml chunyinjiang$ kubectl get svc
+NAME                  TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)                         AGE
+guestbook-clone-svc   LoadBalancer   10.103.56.2    &lt;pending&gt;     3000:31496/TCP,4000:32724/TCP   118s
+kubernetes            ClusterIP      10.96.0.1      &lt;none&gt;        443/TCP                         7d6h
+redis-master          ClusterIP      10.103.204.4   &lt;none&gt;        6379/TCP                        13m
+redis-slave           ClusterIP      10.105.86.31   &lt;none&gt;        6379/TCP                        13m
+</code></pre>
+
+<p>5、扩容</p>
+
+<pre><code>$ kubectl scale --replicas=25 clone guestbook-clone
+cloneset.apps.kruise.io/guestbook-clone scaled
+</code></pre>
+
+<p>6、指定pod缩容</p>
+
+<pre><code>kubectl edit clonesets.apps.kruise.io guestbook-clone
+spec:
+  replicas: 22
+  scaleStrategy:
+    podsToDelete:
+    - guestbook-clone-k9796
+    - guestbook-clone-nkn52
+    - guestbook-clone-w9qgl
+</code></pre>
+
+<p>7、灰度升级</p>
+
+<pre><code>spec:
+  # ...
+  template:
+    spec:
+      containers:
+      - name: guestbook
+        image: openkruise/guestbook:v2
+      # ...
+  updateStrategy:
+    partition: 15
+</code></pre>
+
+<p>8、实际场景</p>
+
+<p>目前有openkruise/guestbook:v1的pod为10个。</p>
+
+<pre><code>MacBook-Pro:iamges chunyinjiang$ kubectl get clonesets.apps.kruise.io guestbook-clone
+NAME              DESIRED   UPDATED   UPDATED_READY   READY   TOTAL   AGE
+guestbook-clone   10        10        10              10      10      23h
+MacBook-Pro:iamges chunyinjiang$ kubectl get pods -o jsonpath=&quot;{.items[*].spec.containers[*].image}&quot;| tr -s '[[:space:]]' '\n' |sort |uniq -c | grep  openkruise
+  10 openkruise/guestbook:v1
+</code></pre>
+
+<p>需要想其中五个升级为版本v2。</p>
+
+<pre><code>MacBook-Pro:iamges chunyinjiang$ kubectl edit clonesets.apps.kruise.io guestbook-clone
+
+    spec:
+      containers:
+      - image: openkruise/guestbook:v2
+        imagePullPolicy: IfNotPresent
+        name: guestbook
+        ports:
+        - containerPort: 3000
+          name: http-server
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+  updateStrategy:
+    inPlaceUpdateStrategy: {}
+    maxSurge: 0
+    maxUnavailable: 3
+    partition: 5
+    type: InPlaceIfPossible
+
+MacBook-Pro:iamges chunyinjiang$ kubectl edit clonesets.apps.kruise.io guestbook-clone
+cloneset.apps.kruise.io/guestbook-clone edited
+</code></pre>
+
+<p>查看</p>
+
+<pre><code>MacBook-Pro:iamges chunyinjiang$ kubectl get clonesets.apps.kruise.io guestbook-clone
+NAME              DESIRED   UPDATED   UPDATED_READY   READY   TOTAL   AGE
+guestbook-clone   10        5         5               10      10      23h
+MacBook-Pro:iamges chunyinjiang$ kubectl get pods -o jsonpath=&quot;{.items[*].spec.containers[*].image}&quot;| tr -s '[[:space:]]' '\n' |sort |uniq -c | grep  openkruise
+   5 openkruise/guestbook:v1
+   5 openkruise/guestbook:v2
+</code></pre>
+
+<p>现在又需要给v1版本和v2版本同时扩容，每个新增5个</p>
+
+<p>先在v2版本的情况下直接将replicas重10改成15，应该会新增5个v2的版本</p>
+
+<pre><code>spec:
+  replicas: 15
+
+MacBook-Pro:iamges chunyinjiang$ kubectl edit clonesets.apps.kruise.io guestbook-clone
+cloneset.apps.kruise.io/guestbook-clone edited
+</code></pre>
+
+<p>查看</p>
+
+<pre><code>MacBook-Pro:iamges chunyinjiang$ kubectl get clonesets.apps.kruise.io guestbook-clone
+NAME              DESIRED   UPDATED   UPDATED_READY   READY   TOTAL   AGE
+guestbook-clone   15        10        10              15      15      23h
+MacBook-Pro:iamges chunyinjiang$ kubectl get pods -o jsonpath=&quot;{.items[*].spec.containers[*].image}&quot;| tr -s '[[:space:]]' '\n' |sort |uniq -c | grep  openkruise
+   5 openkruise/guestbook:v1
+  10 openkruise/guestbook:v2
+</code></pre>
+
+<p>然后给版本切换到v1，同时要修改对应的partion到10，才能不更新</p>
+
+<pre><code>MacBook-Pro:iamges chunyinjiang$ kubectl get pods -o jsonpath=&quot;{.items[*].spec.containers[*].image}&quot;| tr -s '[[:space:]]' '\n' |sort |uniq -c | grep  openkruise
+   5 openkruise/guestbook:v1
+  10 openkruise/guestbook:v2
+</code></pre>
+
+<p>然后在v2版本的情况下直接将replicas重15改成20，应该会新增5个v1的版本</p>
+
+<pre><code>MacBook-Pro:iamges chunyinjiang$ kubectl get pods -o jsonpath=&quot;{.items[*].spec.containers[*].image}&quot;| tr -s '[[:space:]]' '\n' |sort |uniq -c | grep  openkruise
+  10 openkruise/guestbook:v1
+  10 openkruise/guestbook:v2
+</code></pre>
+
+<p>下面根据升级情况来设置v1和v2版本。</p>
+
+<h3 id="cloneset对比deployment">cloneset对比deployment</h3>
+
+<p>cloneset可以说是deployment的增强版本。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-kruise/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-kruise/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/kruise/">
+                            <i class="fa fa-tags"></i>
+                            kruise
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-istio/">云计算K8s系列---- istio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">云计算K8s组件系列（二）---- K8s scheduler 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月24日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#crd">CRD</a></li>
+<li><a href="#安装">安装</a>
+<ul>
+<li><a href="#前置检查">前置检查</a></li>
+<li><a href="#helm安装">helm安装</a></li>
+<li><a href="#yaml安装">yaml安装</a></li>
+<li><a href="#部分安装">部分安装</a></li>
+</ul></li>
+<li><a href="#卸载">卸载</a></li>
+<li><a href="#使用">使用</a>
+<ul>
+<li><a href="#cloneset">cloneset</a>
+<ul>
+<li><a href="#cloneset对比deployment">cloneset对比deployment</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

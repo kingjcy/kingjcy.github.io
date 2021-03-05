@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="CNI（Container Network Interface）是 CNCF 旗下的一个项目，最早是由CoreOS发起的容器网络规范，由一组用于配置 Linux 容器的网络接口的规范和库组成，同时还包含了一些插件。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s系列---- 网络CNI - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s系列---- 网络CNI
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2021年01月17日 
+                </div>
+                <h1 class="post-title">云计算K8s系列---- 网络CNI</h1>
+            </header>
+
+            <div class="post-content">
+                <p>CNI（Container Network Interface）是 CNCF 旗下的一个项目，最早是由CoreOS发起的容器网络规范，由一组用于配置 Linux 容器的网络接口的规范和库组成，同时还包含了一些插件。</p>
+
+<h1 id="基本概念">基本概念</h1>
+
+<p>官方的CNI项目主要是接口的定义和实现，以及基本操作的注册集成，我们如果需要实现自己的插件，我们就要实现这个操作的注册（CNI项目提供）与逻辑实现即可，对应的官方也有实现，也就是CNI-plugin项目，很多第三方库也是和自研的一样实现了CNI规范的插件，当然在这些实现中也可以集成基本网络方案。其实CNI就是一个框架，对kubelet实现基本接口，对后端的CNI插件实现基本的操作逻辑，至于接口和操作的转化和执行，交互的内容都已经做了很好的封装。</p>
+
+<p>其基本思想为：Container Runtime在创建容器时，先创建好network namespace，然后调用CNI插件为这个netns配置网络，其后再启动容器内的进程。</p>
+
+<p>CNI目前已经发布到了0.4.0版本，实现了ADD，DEL，CHECK，VERSION四个基本操作，我们开发也就是需要实现这个操作的逻辑。</p>
+
+<blockquote>
+<p>为什么会有CNI？</p>
+</blockquote>
+
+<p>各种各样的容器网络解决方案包括新的解决方案层出不穷。如果每出现一个新的解决方案，我们都需要进行两者的适配，那么工作量必然是巨大的，而且也是重复和不必要的。事实上，我们只要提供一个标准的接口，更准确的说是一种协议，就能完美地解决上述问题。一旦有新的网络方案出现时，只要它能满足这个标准的协议，那么它就能为同样满足该协议的所有容器平台提供网络功能，而CNI正是这样的标准接口协议。</p>
+
+<h1 id="基本使用">基本使用</h1>
+
+<h2 id="环境变量">环境变量</h2>
+
+<p>运行cni的二进制文件的启动参数是通过下面的环境变量进行传递的</p>
+
+<ul>
+<li>CNI_PATH          cni二进制文件的路径，可以配置多个，在linux环境下使用&rdquo;:&ldquo;分割</li>
+<li>CNI_ARGS          cni二进制文件的启动参数，以&rdquo;FOO=BAR;ABC=123&rdquo;配置</li>
+<li>CNI_IFNAME        接口名</li>
+<li>CNI_COMMAND       操作类型，目前有ADD，DEL，CHECK，VERSION</li>
+<li>CNI_CONTAINERID   容器ID</li>
+<li>CNI_NETNS         网络命名空间的文件路径</li>
+</ul>
+
+<p>不同的操作，需要的参数不一样，可以在CNI的getCmdArgsFromEnv函数中查看，总结如下</p>
+
+<table>
+<thead>
+<tr>
+<th>CMD\OPT</th>
+<th>CNI_COMMAND</th>
+<th>CNI_ARGS</th>
+<th>CNI_IFNAME</th>
+<th>CNI_PATH</th>
+<th>CNI_CONTAINERID</th>
+<th>CNI_NETNS</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>ADD</td>
+<td>true</td>
+<td>false</td>
+<td>true</td>
+<td>true</td>
+<td>true</td>
+<td>true</td>
+</tr>
+
+<tr>
+<td>DEL</td>
+<td>true</td>
+<td>false</td>
+<td>true</td>
+<td>true</td>
+<td>true</td>
+<td>false</td>
+</tr>
+
+<tr>
+<td>CHECK</td>
+<td>true</td>
+<td>false</td>
+<td>true</td>
+<td>true</td>
+<td>true</td>
+<td>true</td>
+</tr>
+
+<tr>
+<td>VERSION</td>
+<td>true</td>
+<td>false</td>
+<td>true</td>
+<td>true</td>
+<td>true</td>
+<td>true</td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="启动">启动</h2>
+
+<p>直接使用上面的环境变量加二进制文件就可以启动，官方提供来一个工具CNItool可以模拟运行，只有一个go文件直接编译就可以得到工具cnitool</p>
+
+<p>先新建一个network namespace：testing</p>
+
+<pre><code>sudo ip netns add testing
+</code></pre>
+
+<p>然后新建一个网络配置文件</p>
+
+<pre><code>$ mkdir -p /etc/cni/net.d
+
+$ cat &gt;/etc/cni/net.d/10-mynet.conflist &lt;&lt;EOF
+{
+        &quot;cniVersion&quot;: &quot;0.3.0&quot;,
+        &quot;name&quot;: &quot;mynet&quot;,
+        &quot;plugins&quot;: [
+          {
+                &quot;type&quot;: &quot;bridge&quot;,
+                &quot;bridge&quot;: &quot;cni0&quot;,
+                &quot;isGateway&quot;: true,
+                &quot;ipMasq&quot;: true,
+                &quot;ipam&quot;: {
+                        &quot;type&quot;: &quot;host-local&quot;,
+                        &quot;subnet&quot;: &quot;10.22.0.0/16&quot;,
+                        &quot;routes&quot;: [
+                                { &quot;dst&quot;: &quot;0.0.0.0/0&quot; }
+                        ]
+                }
+          }
+        ]
+}
+EOF
+</code></pre>
+
+<p>然后使用cnitool将这个网络增加到testing中，使用plugins的bridge插件，所以指定CNI_PATH环境变量</p>
+
+<pre><code>CNI_PATH=$GOPATH/src/github.com/containernetworking/plugins/bin ./cnitool add mynet /var/run/netns/ns
+</code></pre>
+
+<p>其他的环境变量其实都是在cni代码中转化了，其实可以都像CNI_PATH这样来启动插件。</p>
+
+<h1 id="kubelet使用">kubelet使用</h1>
+
+<blockquote>
+<p>安装配置</p>
+</blockquote>
+
+<p>K8s 通过 CNI 配置文件来决定使用什么 CNI插件，基本的使用方法为：</p>
+
+<ul>
+<li>首先在每个结点上配置 CNI 配置文件(/etc/cni/net.d/xxnet.conf)，其中 xxnet.conf 是某一个网络配置文件的名称；配置文件内容</li>
+<li>安装 CNI 配置文件中所对应的二进制插件（就是我们实现的CNI操作的插件，可以是官方维护的，也可以是第三方，也可以是自研的），就是将插件的二进制文件放在/opt/cni/bin/目录下；</li>
+<li>在这个节点上创建 Pod 之后，Kubelet 就会根据 CNI 配置文件执行前两步所安装的 CNI 插件；</li>
+<li>上步执行完之后，Pod 的网络就配置完成了。</li>
+</ul>
+
+<blockquote>
+<p>流程详解</p>
+</blockquote>
+
+<p>具体的流程如下图所示：</p>
+
+<p><img src="/media/cloud/k8s/cni" alt="" /></p>
+
+<p>在集群里面创建一个 Pod 的时候，首先会通过 apiserver 将 Pod 的配置写入。apiserver 的一些管控组件（比如 Scheduler）会调度到某个具体的节点上去。Kubelet 监听到这个 Pod 的创建之后，会在本地进行一些创建的操作。kubelet 先创建pause容器生成network namespace，执行到创建网络这一步骤时，它首先会读取刚才我们所说的配置目录中的配置文件，配置文件里面会声明所使用的是哪一个插件，然后去执行具体的 CNI 插件的二进制文件，再由 CNI 插件进入 Pod 的pause 容器网络空间去配置 Pod 的网络，pod 中其他的容器都使用 pause 容器的网络。配置完成之后，Kuberlet 也就完成了整个 Pod 的创建过程，这个 Pod 就在线了。</p>
+
+<p>使用 CNI 插件比较简单，因为很多 CNI 插件都已提供了一键安装的能力。以我们常用的 Flannel 为例，如下图所示：只需要我们使用 kubectl apply Flannel 的一个 Deploying 模板，它就能自动地将配置、二进制文件安装到每一个节点上去。</p>
+
+<blockquote>
+<p>配置详解</p>
+</blockquote>
+
+<p>CNI的配置文件</p>
+
+<pre><code>cat &gt; mybridge.conf &lt;&lt;&quot;EOF&quot;
+{
+    &quot;cniVersion&quot;: &quot;0.4.0&quot;,
+    &quot;name&quot;: &quot;mybridge&quot;,
+    &quot;type&quot;: &quot;bridge&quot;,
+    &quot;bridge&quot;: &quot;cni_bridge0&quot;,
+    &quot;isGateway&quot;: true,
+    &quot;ipMasq&quot;: true,
+    &quot;hairpinMode&quot;:true,
+    &quot;ipam&quot;: {
+        &quot;type&quot;: &quot;host-local&quot;,
+        &quot;subnet&quot;: &quot;10.15.20.0/24&quot;,
+        &quot;routes&quot;: [
+            { &quot;dst&quot;: &quot;0.0.0.0/0&quot; },
+            { &quot;dst&quot;: &quot;1.1.1.1/32&quot;, &quot;gw&quot;:&quot;10.15.20.1&quot;}
+        ]
+    }
+}
+EOF
+</code></pre>
+
+<p>其中：</p>
+
+<ul>
+<li>cniVersion： CNI规范的版本</li>
+<li>name： 这个网络的名字叫mybridge</li>
+<li>type：使用brige插件</li>
+<li>isGateway：如果是true，为网桥分配ip地址，以便连接到它的容器可以将其作为网关</li>
+<li>ipMasq：在插件支持的情况的，设置ip伪装。当宿主机充当的网关无法路由到分配给容器的IP子网的网关的时候，这个参数是必须有的。</li>
+<li>ipam：
+
+<ul>
+<li>type：IPAM可执行文件的名字</li>
+<li>subnet：要分配给容器的子网</li>
+<li>routes
+
+<ul>
+<li>dst： 目的子网</li>
+<li>gw：到达目的地址的下一跳ip地址，如果不指定则为默认网关</li>
+</ul></li>
+</ul></li>
+<li>hairpinMode: 让网络设备能够让数据包从一个端口发进来一个端口发出去</li>
+</ul>
+
+<h1 id="各种插件">各种插件</h1>
+
+<p>CNI可以支持很多类型的插件，CNI本也只是做网络的增删改查的基本操作，也就是实现了CNI的基本接口，当然也可以在这些接口里面实现组件的原来网络方案，也可以调用实现网络的组件，可以说是基于组件之上，我们也说过一些组件。</p>
+
+<p>我们来看一下CNI实现有哪些，如下图</p>
+
+<p><img src="/media/cloud/k8s/cni2.png" alt="" /></p>
+
+<p>官方单独开辟了一个<a href="https://github.com/containernetworking/plugins">repo</a>来表示官方实现的插件类型.</p>
+
+<ul>
+<li>CNI社区
+
+<ul>
+<li>Main插件：用来创建具体的网络设备的二进制文件，包括：
+
+<ul>
+<li>bridge： 在宿主机上创建网桥然后通过veth pair的方式连接到容器</li>
+<li>macvlan：虚拟出多个macvtap，每个macvtap都有不同的mac地址</li>
+<li>ipvlan：和macvlan相似，也是通过一个主机接口虚拟出多个虚拟网络接口，不同的是ipvlan虚拟出来的是共享MAC地址，ip地址不同</li>
+<li>loopback： lo设备（将回环接口设置成up）</li>
+<li>ptp： Veth Pair设备</li>
+<li>vlan： 分配vlan设备</li>
+<li>host-device： 移动宿主上已经存在的设备到容器中</li>
+</ul></li>
+<li>IPAM(IP Address Management)插件: 负责分配IP地址
+
+<ul>
+<li>dhcp： 宿主机上运行的守护进程，代表容器发出DHCP请求</li>
+<li>host-local： 使用提前分配好的IP地址段来分配</li>
+<li>static：用于为容器分配静态的IP地址，主要是调试使用</li>
+</ul></li>
+<li>Meta插件： 由CNI社区维护的内部插件
+
+<ul>
+<li>flannel: 专门为Flannel项目提供的插件</li>
+<li>tuning：通过sysctl调整网络设备参数的二进制文件</li>
+<li>portmap：通过iptables配置端口映射的二进制文件</li>
+<li>bandwidth：使用 Token Bucket Filter (TBF)来进行限流的二进制文件</li>
+<li>firewall：通过iptables或者firewalled添加规则控制容器的进出流量</li>
+</ul></li>
+</ul></li>
+<li>3rd party plugins
+
+<ul>
+<li>Project Calico - a layer 3 virtual network</li>
+<li>Weave - a multi-host Docker network</li>
+<li>Contiv Networking - policy networking for various use cases</li>
+<li>SR-IOV</li>
+<li>Cilium - BPF &amp; XDP for containers</li>
+<li>Infoblox - enterprise IP address management for containers</li>
+<li>Multus - a Multi plugin</li>
+<li>Romana - Layer 3 CNI plugin supporting network policy for Kubernetes</li>
+<li>CNI-Genie - generic CNI network plugin</li>
+<li>Nuage CNI - Nuage Networks SDN plugin for network policy kubernetes support</li>
+<li>Silk - a CNI plugin designed for Cloud Foundry</li>
+<li>Linen - a CNI plugin designed for overlay networks with Open vSwitch and fit in SDN/OpenFlow network environment</li>
+<li>Vhostuser - a Dataplane network plugin - Supports OVS-DPDK &amp; VPP</li>
+<li>Amazon ECS CNI Plugins - a collection of CNI Plugins to configure containers with Amazon EC2 elastic network interfaces (ENIs)</li>
+<li>Bonding CNI - a Link aggregating plugin to address failover and high availability network</li>
+<li>ovn-kubernetes - an container network plugin built on Open vSwitch (OVS) and Open Virtual Networking (OVN) with support for both Linux and Windows</li>
+<li>Juniper Contrail / TungstenFabric - Provides overlay SDN solution, delivering multicloud networking, hybrid cloud networking, simultaneous overlay-underlay support, network policy enforcement, network isolation, service chaining and flexible load balancing</li>
+<li>Knitter - a CNI plugin supporting multiple networking for Kubernetes</li>
+<li>DANM - a CNI-compliant networking solution for TelCo workloads running on Kubernetes</li>
+<li>VMware NSX – a CNI plugin that enables automated NSX L2/L3 networking and L4/L7 Load Balancing; network isolation at the pod, node, and cluster level; and zero-trust security policy for your Kubernetes cluster.</li>
+<li>cni-route-override - a meta CNI plugin that override route information</li>
+<li>Terway - a collection of CNI Plugins based on alibaba cloud VPC/ECS network product</li>
+<li>Cisco ACI CNI - for on-prem and cloud container networking with consistent policy and security model.</li>
+<li>Kube-OVN - a CNI plugin that bases on OVN/OVS and provides advanced features like subnet, static ip, ACL, QoS, etc.</li>
+<li>Project Antrea - an Open vSwitch k8s CNI</li>
+<li>OVN4NFV-K8S-Plugin - a OVN based CNI controller plugin to provide cloud native based Service function chaining (SFC), Multiple OVN overlay networking</li>
+</ul></li>
+</ul>
+
+<p>这些插件都是直接使用项目中的编译脚本build_linux.sh就可以生成相关的二进制文件使用，当然自研的插件也一样编译成二进制文件放到上面使用的位置。</p>
+
+<blockquote>
+<p>CNI插件和组件</p>
+</blockquote>
+
+<p>CNI网络插件是通过实现CNI的操作逻辑来调用相关组件实现网络通信，是基于组件之上的，可以说是组件的一个前置，当然也可以集成组件，最终实现网络的思路都是一样的，而且是目前比较推崇的一种标准，希望各大组件都能向它靠拢。</p>
+
+<p>组件是基于不同实现思路实现的容器网络解决方案，只不过不一定通过CNI插件调用来处理网络，比如直接启动守护进程就可以完成基本操作，目前各大组件正在极力拥抱CNI。</p>
+
+<h1 id="源码解析">源码解析</h1>
+
+<h2 id="目录结构">目录结构</h2>
+
+<pre><code>├── Documentation               文档目录，存储这一些重要文档
+│   ├── cnitool.md              cni工具的说明，cni工具可以在没有docker的情况来模拟测试
+│   └── spec-upgrades.md        插件升级维护的一个简单指导
+├── SPEC.md                     插件的使用说明
+├── cnitool                     cni工具的实现
+│   ├── README.md
+│   └── cnitool.go
+├── libcni
+│   ├── api.go
+│   ├── api_test.go
+│   ├── backwards_compatibility_test.go
+│   ├── conf.go
+│   ├── conf_test.go
+│   └── libcni_suite_test.go
+├── pkg
+│   ├── invoke
+│   │   ├── args.go
+│   │   ├── args_test.go
+│   │   ├── delegate.go
+│   │   ├── delegate_test.go
+│   │   ├── exec.go
+│   │   ├── exec_test.go
+│   │   ├── fakes
+│   │   │   ├── cni_args.go
+│   │   │   ├── raw_exec.go
+│   │   │   └── version_decoder.go
+│   │   ├── find.go
+│   │   ├── find_test.go
+│   │   ├── get_version_integration_test.go
+│   │   ├── invoke_suite_test.go
+│   │   ├── os_unix.go
+│   │   ├── os_windows.go
+│   │   ├── raw_exec.go
+│   │   └── raw_exec_test.go
+│   ├── skel
+│   │   ├── skel.go
+│   │   ├── skel_suite_test.go
+│   │   └── skel_test.go
+│   ├── types
+│   │   ├── 020
+│   │   │   ├── types.go
+│   │   │   ├── types_suite_test.go
+│   │   │   └── types_test.go
+│   │   ├── 040
+│   │   │   ├── types.go
+│   │   │   ├── types_suite_test.go
+│   │   │   └── types_test.go
+│   │   ├── 100
+│   │   │   ├── types.go
+│   │   │   ├── types_suite_test.go
+│   │   │   └── types_test.go
+│   │   ├── args.go
+│   │   ├── args_test.go
+│   │   ├── create
+│   │   │   └── create.go
+│   │   ├── internal
+│   │   │   ├── convert.go
+│   │   │   └── create.go
+│   │   ├── types.go
+│   │   ├── types_suite_test.go
+│   │   └── types_test.go
+│   ├── utils
+│   │   ├── utils.go
+│   │   └── utils_test.go
+│   └── version
+│       ├── conf.go
+│       ├── conf_test.go
+│       ├── legacy_examples
+│       │   ├── example_runtime.go
+│       │   ├── examples.go
+│       │   ├── legacy_examples_suite_test.go
+│       │   └── legacy_examples_test.go
+│       ├── plugin.go
+│       ├── plugin_test.go
+│       ├── reconcile.go
+│       ├── reconcile_test.go
+│       ├── testhelpers
+│       │   ├── testhelpers.go
+│       │   ├── testhelpers_suite_test.go
+│       │   └── testhelpers_test.go
+│       ├── version.go
+│       ├── version_suite_test.go
+│       └── version_test.go
+├── plugins
+│   └── test
+│       ├── noop
+│       │   ├── debug
+│       │   │   └── debug.go
+│       │   ├── main.go
+│       │   ├── noop_suite_test.go
+│       │   └── noop_test.go
+│       └── sleep
+│           └── main.go
+├── scripts
+│   ├── docker-run.sh
+│   ├── exec-plugins.sh
+│   ├── priv-net-run.sh
+│   └── release.sh
+└── test.sh
+</code></pre>
+
+<h2 id="接口">接口</h2>
+
+<p>CNI的核心是定义了网络操作的基本接口</p>
+
+<pre><code>type CNI interface {
+    AddNetworkList(ctx context.Context, net *NetworkConfigList, rt *RuntimeConf) (types.Result, error)
+    CheckNetworkList(ctx context.Context, net *NetworkConfigList, rt *RuntimeConf) error
+    DelNetworkList(ctx context.Context, net *NetworkConfigList, rt *RuntimeConf) error
+    GetNetworkListCachedResult(net *NetworkConfigList, rt *RuntimeConf) (types.Result, error)
+    GetNetworkListCachedConfig(net *NetworkConfigList, rt *RuntimeConf) ([]byte, *RuntimeConf, error)
+
+    AddNetwork(ctx context.Context, net *NetworkConfig, rt *RuntimeConf) (types.Result, error)
+    CheckNetwork(ctx context.Context, net *NetworkConfig, rt *RuntimeConf) error
+    DelNetwork(ctx context.Context, net *NetworkConfig, rt *RuntimeConf) error
+    GetNetworkCachedResult(net *NetworkConfig, rt *RuntimeConf) (types.Result, error)
+    GetNetworkCachedConfig(net *NetworkConfig, rt *RuntimeConf) ([]byte, *RuntimeConf, error)
+
+    ValidateNetworkList(ctx context.Context, net *NetworkConfigList) ([]string, error)
+    ValidateNetwork(ctx context.Context, net *NetworkConfig) ([]string, error)
+}
+</code></pre>
+
+<p>CNI库对这些接口进行实现包装，到插件使用的时候，直接就是对应的我们的ADD，DEL，CHECK，VERSION四个基本操作，CNI库就是这样连接kubelet和CNI插件的。</p>
+
+<h2 id="kubelet">kubelet</h2>
+
+<p>我们在<a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/#pod创建中的cni网络插件">kubelet</a>中已经将对应的参数和配置调用的CNIConfig的AddNetworkList。</p>
+
+<p>我们先来看一下CNIConfig</p>
+
+<pre><code>type CNIConfig struct {
+    Path     []string
+    exec     invoke.Exec
+    cacheDir string
+}
+</code></pre>
+
+<p>调用这个实例的AddNetworkList</p>
+
+<pre><code>// AddNetworkList executes a sequence of plugins with the ADD command
+func (c *CNIConfig) AddNetworkList(ctx context.Context, list *NetworkConfigList, rt *RuntimeConf) (types.Result, error) {
+    var err error
+    var result types.Result
+    for _, net := range list.Plugins {
+        result, err = c.addNetwork(ctx, list.Name, list.CNIVersion, net, result, rt)
+        if err != nil {
+            return nil, err
+        }
+    }
+
+    if err = c.cacheAdd(result, list.Bytes, list.Name, rt); err != nil {
+        return nil, fmt.Errorf(&quot;failed to set network %q cached result: %v&quot;, list.Name, err)
+    }
+
+    return result, nil
+}
+</code></pre>
+
+<p>调用的是其还是addNetwork操作，只不过有一个list循环处理，我们还是看addNetwork</p>
+
+<pre><code>func (c *CNIConfig) addNetwork(ctx context.Context, name, cniVersion string, net *NetworkConfig, prevResult types.Result, rt *RuntimeConf) (types.Result, error) {
+    c.ensureExec()
+    pluginPath, err := c.exec.FindInPath(net.Network.Type, c.Path)
+    if err != nil {
+        return nil, err
+    }
+    if err := utils.ValidateContainerID(rt.ContainerID); err != nil {
+        return nil, err
+    }
+    if err := utils.ValidateNetworkName(name); err != nil {
+        return nil, err
+    }
+    if err := utils.ValidateInterfaceName(rt.IfName); err != nil {
+        return nil, err
+    }
+
+    newConf, err := buildOneConfig(name, cniVersion, net, prevResult, rt)
+    if err != nil {
+        return nil, err
+    }
+
+    return invoke.ExecPluginWithResult(ctx, pluginPath, newConf.Bytes, c.args(&quot;ADD&quot;, rt), c.exec)
+}
+</code></pre>
+
+<p>可以看出先找出需要执行的文件，然后执行ADD操作，这边的ADD就是后面调用CNI插件的cmd操作，我们来看一下ExecPluginWithResult</p>
+
+<pre><code>func ExecPluginWithResult(ctx context.Context, pluginPath string, netconf []byte, args CNIArgs, exec Exec) (types.Result, error) {
+    if exec == nil {
+        exec = defaultExec
+    }
+
+    stdoutBytes, err := exec.ExecPlugin(ctx, pluginPath, netconf, args.AsEnv())
+    if err != nil {
+        return nil, err
+    }
+
+    // Plugin must return result in same version as specified in netconf
+    versionDecoder := &amp;version.ConfigDecoder{}
+    confVersion, err := versionDecoder.Decode(netconf)
+    if err != nil {
+        return nil, err
+    }
+
+    return version.NewResult(confVersion, stdoutBytes)
+}
+</code></pre>
+
+<p>就是简单的执行二进制文件，将执行结果返回给kubelet。</p>
+
+<h2 id="cni插件">CNI插件</h2>
+
+<p>虽然各个CNI插件实现容器网络的方式是多种多样的，但是它们编写的套路基本是一致的。其中一定会存在三个函数：main（），cmdAdd（），cmdDel（）。这个就是CNI定义的规范，ADD，DEL，CHECK，VERSiON接口。我们就以CNI官方插件库的bridge插件为例，进一步说明CNI插件应该如何实现的。</p>
+
+<blockquote>
+<p>main函数</p>
+</blockquote>
+
+<p>1、CNI的skel.PluginMain这个函数将函数cmdAdd和cmdDel以及支持插件支持的CNI版本作为参数传递给它。</p>
+
+<pre><code>func main() {
+    skel.PluginMain(cmdAdd, cmdDel, version.All)
+}
+　　
+</code></pre>
+
+<p>2、PluginMain函数是一个包裹函数，它直接对PluginMainWithError进行调用，当有错误发生的时候，会将错误以json的形式输出到标准输出，并退出插件的执行。</p>
+
+<pre><code>func PluginMain(cmdAdd, cmdDel func(_ *CmdArgs) error, versionInfo version.PluginInfo) {
+    if e := PluginMainWithError(cmdAdd, cmdDel, versionInfo); e != nil {
+        if err := e.Print(); err != nil {
+            log.Print(&quot;Error writing error JSON to stdout: &quot;, err)
+        }
+        os.Exit(1)
+    }
+}
+　　
+</code></pre>
+
+<p>3、PluginMainWithError函数也非常简单，其实就是用环境变量，标准输入输出构造了一个dispatcher结构，再执行其中的pluginMain方法而已。</p>
+
+<pre><code>func PluginMainWithError(cmdAdd, cmdDel func(_ *CmdArgs) error, versionInfo version.PluginInfo) *types.Error {
+    return (&amp;dispatcher{
+        Getenv: os.Getenv,
+        Stdin:  os.Stdin,
+        Stdout: os.Stdout,
+        Stderr: os.Stderr,
+    }).pluginMain(cmdAdd, cmdDel, versionInfo)
+}
+　　
+</code></pre>
+
+<p>dispatcher结构如下所示：</p>
+
+<pre><code>type dispatcher struct {
+    Getenv func(string) string
+    Stdin  io.Reader
+    Stdout io.Writer
+    Stderr io.Writer
+
+    ConfVersionDecoder version.ConfigDecoder
+    VersionReconciler  version.Reconciler
+}
+</code></pre>
+
+<p>4、接着dispatcher结构的pluginMain方法执行具体的操作。该函数的操作分为如下两步：</p>
+
+<ul>
+<li>首先调用cmd, cmdArgs, err := t.getCmdArgsFromEnv()从环境变量和标准输入中解析出操作信息cmd和配置信息cmdArgs，这个cmd就是在kubelet调用的时候封装的ADD。</li>
+<li>接着根据操作信息cmd的不同，调用checkVersionAndCall()，该函数会首先从标准输入中获取配置信息中的CNI版本，再和之前main函数中指定的插件支持的CNI版本信息进行比对。如果版本匹配，则调用相应的回调函数cmdAdd或cmdDel并以cmdArgs作为参数，否则，返回错误</li>
+</ul>
+
+<p>看代码</p>
+
+<pre><code>func (t *dispatcher) pluginMain(cmdAdd, cmdDel func(_ *CmdArgs) error, versionInfo version.PluginInfo) *types.Error {
+    cmd, cmdArgs, err := t.getCmdArgsFromEnv()
+        .....
+    switch cmd {
+    case &quot;ADD&quot;:
+        err = t.checkVersionAndCall(cmdArgs, versionInfo, cmdAdd)
+    case &quot;DEL&quot;:
+                ......
+    }
+        ......
+}
+</code></pre>
+
+<p>5、下面我们来看看dispatcher的getCmdArgsFromEnv()方法是如何从环境变量和标准输入中获取配置信息的。首先来看一下cmdArgs的具体结构：</p>
+
+<pre><code>type CmdArgs struct {
+    ContainerID string
+    Netns       string
+    IfName      string
+    Args        string
+    Path        string
+    StdinData   []byte
+}
+　　
+</code></pre>
+
+<p>分析了上述结构之后，不难想象，getCmdArgsFromEnv()所做的工作就是从环境变量中提取出配置信息用以填充CmdArgs，再将容器网络的配置信息，也就是标准输入中的内容，存入StdinData字段。具体代码如下所示：</p>
+
+<pre><code>func (t *dispatcher) getCmdArgsFromEnv() (string, *CmdArgs, error) {
+    var cmd, contID, netns, ifName, args, path string
+
+    vars := []struct {
+        name      string
+        val       *string
+        reqForCmd reqForCmdEntry
+    }{
+        {
+            &quot;CNI_COMMAND&quot;,
+            &amp;cmd,
+            reqForCmdEntry{
+                &quot;ADD&quot;: true,
+                &quot;DEL&quot;: true,
+            },
+        },
+                ....
+        {
+            &quot;CNI_NETNS&quot;,
+            &amp;netns,
+            reqForCmdEntry{
+                &quot;ADD&quot;: true,
+                &quot;DEL&quot;: false,
+            },
+        },
+                ....
+    }
+
+    argsMissing := false
+    for _, v := range vars {
+        *v.val = t.Getenv(v.name)
+        if *v.val == &quot;&quot; {
+            if v.reqForCmd[cmd] || v.name == &quot;CNI_COMMAND&quot; {
+                fmt.Fprintf(t.Stderr, &quot;%v env variable missing\n&quot;, v.name)
+                argsMissing = true
+            }
+        }
+    }
+
+    if argsMissing {
+        return &quot;&quot;, nil, fmt.Errorf(&quot;required env variables missing&quot;)
+    }
+
+    stdinData, err := ioutil.ReadAll(t.Stdin)
+    if err != nil {
+        return &quot;&quot;, nil, fmt.Errorf(&quot;error reading from stdin: %v&quot;, err)
+    }
+
+    cmdArgs := &amp;CmdArgs{
+        ContainerID: contID,
+        Netns:       netns,
+        IfName:      ifName,
+        Args:        args,
+        Path:        path,
+        StdinData:   stdinData,
+    }
+    return cmd, cmdArgs, nil
+}
+　　
+</code></pre>
+
+<p>虽然getCmdArgsFromEnv()要完成的工作非常简单，但仔细分析代码之后，我们可以发现它的实现非常精巧。首先，它定义了一系列想要获取的参数，例如cmd，contID，netns等等。之后再定义了一个匿名结构的数组，匿名结构中包含了环境变量的名字，一个字符串指针（把该环境变量对应的参数赋给它，例如cmd对应CNI_COMMAND）以及一个reqForCmdEntry类型的成员reqForCmd。类型reqForCmdEntry其实是一个map，它在这里的作用是定义该环境变量是否为对应操作所必须的。例如，上文中的环境变量&rdquo;CNI_NETNS&rdquo;，对于&rdquo;ADD&rdquo;操作为true，而对于&rdquo;DEL&rdquo;操作则为false，这说明在&rdquo;ADD&rdquo;操作时，该环境变量不能为空，否则会报错，但是在&rdquo;DEL&rdquo;操作时则无所谓。最后，遍历该数组进行参数的提取即可。</p>
+
+<p>到此为止，main函数的任务完成。总的来说它做了三件事</p>
+
+<ul>
+<li>CNI版本检查。</li>
+<li>提取配置参数构建cmdArgs。</li>
+<li>调用对应的回调函数，cmdAdd或者cmdDel。</li>
+</ul>
+
+<p>下面我们以cmdAdd看看是怎么增加网络的。</p>
+
+<blockquote>
+<p>cmdAdd函数</p>
+</blockquote>
+
+<p>1、如下所示cmdAdd函数一般分为三个步骤执行：</p>
+
+<ul>
+<li>首先调用函数conf, err := loadNetConf(args.StdinData)（注：loadNetConf是插件自定义的，各个插件都不一样），从标准输入，也就是参数args.StdinData中获取容器网络配置信息</li>
+<li>接着根据具体的配置信息进行网络的配置工作，这一步就是调用相关的组件来完成相关的配置。</li>
+<li>最后，调用函数types.PrintResult(result, conf.CNIVersion)输出配置结果</li>
+</ul>
+
+<p>代码如下</p>
+
+<pre><code>func cmdAdd(args *skel.CmdArgs) error {
+    n, cniVersion, err := loadNetConf(args.StdinData)
+        ......
+        return PrintResult(result, cniVersion)
+}    　　
+</code></pre>
+
+<p>2、接着我们对loadNetConf函数进行分析。因为每个CNI插件配置容器网络的方式各有不同，因此它们所需的配置信息一般也是不同的，除了大家共有的信息被包含在types.NetConf结构中，每个插件还定义了自己所需的字段。例如，对于bridge插件，它用于存储配置信息的结构如下所示：</p>
+
+<pre><code>type NetConf struct {
+    types.NetConf
+    BrName       string `json:&quot;bridge&quot;`
+    IsGW         bool   `json:&quot;isGateway&quot;`
+    IsDefaultGW  bool   `json:&quot;isDefaultGateway&quot;`
+    ForceAddress bool   `json:&quot;forceAddress&quot;`
+    IPMasq       bool   `json:&quot;ipMasq&quot;`
+    MTU          int    `json:&quot;mtu&quot;`
+    HairpinMode  bool   `json:&quot;hairpinMode&quot;`
+    PromiscMode  bool   `json:&quot;promiscMode&quot;`
+}
+</code></pre>
+
+<p>而loadNetConf函数所做的操作也非常简单，就是调用json.Unmarshal(bytes, n)函数将配置信息从标准输入的字节流中解码到一个NetConf结构，具体代码如下：</p>
+
+<pre><code>func loadNetConf(bytes []byte) (*NetConf, string, error) {
+    n := &amp;NetConf{
+        BrName: defaultBrName,
+    }
+    if err := json.Unmarshal(bytes, n); err != nil {
+        return nil, &quot;&quot;, fmt.Errorf(&quot;failed to load netconf: %v&quot;, err)
+    }
+    return n, n.CNIVersion, nil
+}
+</code></pre>
+
+<p>3、最后，我们对配置结果的输出进行分析。由于不同的CNI版本要求的输出结果的内容是不太一样的，因此这部分内容其实是比较复杂的。下面我们就进入PrintResult函数一探究竟。</p>
+
+<pre><code>func PrintResult(result Result, version string) error {
+    newResult, err := result.GetAsVersion(version)
+    if err != nil {
+        return err
+    }
+    return newResult.Print()
+}
+</code></pre>
+
+<p>从上面的代码中我们可以看出，该函数就做了两件事，一件是调用newResult, err := result.GetAsVersion(version)，根据指定的版本信息，进行结果信息的版本转换。第二件就是调用newResult.Print()将结果信息输出到标准输出。</p>
+
+<p>事实上，Result如下所示，是一个interface类型。每个版本的CNI都是定义了自己的Result结构的，而这些结构都是满足Result接口的。</p>
+
+<pre><code>// Result is an interface that provides the result of plugin execution
+type Result interface {
+    // The highest CNI specification result verison the result supports
+    // without having to convert
+    Version() string
+
+    // Returns the result converted into the requested CNI specification
+    // result version, or an error if conversion failed
+    GetAsVersion(version string) (Result, error)
+
+    // Prints the result in JSON format to stdout
+    Print() error
+
+    // Returns a JSON string representation of the result
+    String() string
+}
+</code></pre>
+
+<p>而其中的GetAsVersion()方法则用于将当前版本的CNI Result信息转化到对应的CNI Result信息。我们来举个具体的例子，应该就很清晰了。</p>
+
+<pre><code>func (r *Result) GetAsVersion(version string) (types.Result, error) {
+    switch version {
+    case &quot;0.3.0&quot;, ImplementedSpecVersion:
+        r.CNIVersion = version
+        return r, nil
+    case types020.SupportedVersions[0], types020.SupportedVersions[1], types020.SupportedVersions[2]:
+        return r.convertTo020()
+    }
+    return nil, fmt.Errorf(&quot;cannot convert version 0.3.x to %q&quot;, version)
+}
+</code></pre>
+
+<p>假设现在我们的result的版本0.3.0， 但是插件要求返回的result版本是0.2.0的，根据上文中的代码，显然此时我们会调用r.convertTo020()函数进行转换，如下所示：</p>
+
+<pre><code>// Convert to the older 0.2.0 CNI spec Result type
+func (r *Result) convertTo020() (*types020.Result, error) {
+    oldResult := &amp;types020.Result{
+        CNIVersion: types020.ImplementedSpecVersion,
+        DNS:        r.DNS,
+    }
+
+    for _, ip := range r.IPs {
+        // Only convert the first IP address of each version as 0.2.0
+        // and earlier cannot handle multiple IP addresses
+               ......
+    }
+
+    for _, route := range r.Routes {
+               ......
+    }
+        ......
+    return oldResult, nil
+}
+</code></pre>
+
+<p>该函数所做的操作，简单来说，就是定义了相应版本具体的Result结构，然后用当前版本的Result结构中的信息进行填充，从而完成Result版本的转化。</p>
+
+<p>而Print方法对于各个版本的Result都是一样的，都是将Result进行json编码后，输出到标准输出而已。</p>
+
+<p>到此为止，cmdAdd函数操作完成。其他的套路这个都是一样的，就不一一说明了。</p>
+
+<h1 id="交互协议">交互协议</h1>
+
+<h2 id="add">ADD</h2>
+
+<ul>
+<li>Parameters:
+
+<ul>
+<li>Version. 调用者使用的CNI 配置的版本信息</li>
+<li>Container ID. 这个字段是可选的，但是建议使用，在容器活着的时候要求该字段全局唯一的。比如，存在IPAM的环境可能会要求每个container都分配一个独立的ID，这样每一个IP的分配都能和一个特定的容器相关联。例如，在appc implementations中，container ID其实就是pod ID</li>
+<li>Network namespace path. 这个字段表示要加入的network namespace的路径。例如，/proc/[pid]/ns/net或者对于该目录的bind-mount/link。</li>
+<li>Network configuration. 这是一个JSON文件用于描述container可以加入的network，具体内容在下文中描述</li>
+<li>Extra arguments. 该字段提供了可选的机制，从而允许基于每个容器进行CNI插件的简单配置</li>
+<li>Name of the interface inside the container. 该字段提供了在container （network namespace）中的interface的名字；因此，它也必须符合Linux对于网络命名的限制</li>
+</ul></li>
+<li>Result:
+
+<ul>
+<li>Interface list. 根据插件的不同，这个字段可以包括sandbox (container or hypervisor) interface的name，以及host interface的name，每个interface的hardware address，以及interface所在的sandbox（如果存在的话）的信息。</li>
+<li>IP configuration assigned to each interface. IPv4和/或者IPv6地址，gateways以及为sandbox或host interfaces中添加的路由</li>
+<li>DNS inormation. 包含nameservers，domains，search domains和options的DNS information的字典</li>
+</ul></li>
+</ul>
+
+<h2 id="del">DEL</h2>
+
+<ul>
+<li>Parameter:
+
+<ul>
+<li>Version. 调用者使用的CNI 配置的版本信息</li>
+<li>ContainerID. 定义同上</li>
+<li>Network namespace path. 定义同上</li>
+<li>Network configuration. 定义同上</li>
+<li>Extra argument. 定义同上</li>
+<li>Name of the interface inside the container. 定义同上</li>
+</ul></li>
+</ul>
+
+<h2 id="version">VERSION</h2>
+
+<ul>
+<li>Parameter: 无</li>
+
+<li><p>Result: 返回插件支持的所有CNI版本,如下</p>
+
+<pre><code>{
+  &quot;cniVersion&quot;: &quot;1.0.0&quot;, // the version of the CNI spec in use for this output
+  &quot;supportedVersions&quot;: [ &quot;0.1.0&quot;, &quot;0.2.0&quot;, &quot;0.3.0&quot;, &quot;0.3.1&quot;, &quot;0.4.0&quot;, &quot;1.0.0&quot; ] // the list of CNI spec versions that this plugin supports
+}
+</code></pre></li>
+</ul>
+
+<h2 id="check">CHECK</h2>
+
+<ul>
+<li>Parameter:
+
+<ul>
+<li>Version. 调用者使用的CNI 配置的版本信息</li>
+<li>ContainerID. 定义同上</li>
+<li>Network namespace path. 定义同上</li>
+<li>Network configuration. 定义同上</li>
+<li>Extra argument. 定义同上</li>
+<li>Name of the interface inside the container. 定义同上</li>
+</ul></li>
+<li>result
+
+<ul>
+<li>The plugin must return either nothing or an error.</li>
+</ul></li>
+</ul>
+
+<h1 id="如何开发自己的-cni-插件">如何开发自己的 CNI 插件</h1>
+
+<p>首先就是注册我们的操作，比如ADD，DEL等调用的函数，然后在对应的操作中做网络的配置，这一部分我们在上面的源码解析中已经说明，主要看一下配置</p>
+
+<p>这一块的的实现一般都是组件实现的，我们也可以集成在CNI插件中，通常包含两个部分：</p>
+
+<ul>
+<li>一个二进制的 CNI 插件去配置 Pod 网卡和 IP 地址。这一步配置完成之后相当于给 Pod 上插上了一条网线，就是说它已经有自己的 IP、有自己的网卡了；</li>
+<li>一个 Daemon 进程去管理 Pod 之间的网络打通。这一步相当于说将 Pod 真正连上网络，让 Pod 之间能够互相通信。</li>
+</ul>
+
+<p>1、给 Pod 插上网线</p>
+
+<p>那么如何实现第一步，给 Pod 插上网线呢？通常是这样一个步骤：</p>
+
+<p><img src="/media/cloud/k8s/cni1" alt="" /></p>
+
+<ol>
+<li><p>给 Pod 准备一个网卡</p>
+
+<p>通常我们会用一个 &ldquo;veth&rdquo; 这种虚拟网卡，一端放到 Pod 的网络空间，一端放到主机的网络空间，这样就实现了 Pod 与主机这两个命名空间的打通。</p></li>
+
+<li><p>给 Pod 分配 IP 地址</p>
+
+<p>这个 IP 地址有一个要求，我们在之前介绍网络的时候也有提到，就是说这个 IP 地址在集群里需要是唯一的。如何保障集群里面给 Pod 分配的是个唯一的 IP 地址呢？</p>
+
+<p>一般来说我们在创建整个集群的时候会指定 Pod 的一个大网段，按照每个节点去分配一个 Node 网段。比如说上图右侧创建的是一个 172.16 的网段，我们再按照每个节点去分配一个 /24 的段，这样就能保障每个节点上的地址是互不冲突的。然后每个 Pod 再从一个具体的节点上的网段中再去顺序分配具体的 IP 地址，比如 Pod1 分配到了 172.16.0.1，Pod2 分配到了 172.16.0.2，这样就实现了在节点里面 IP 地址分配的不冲突，并且不同的 Node 又分属不同的网段，因此不会冲突。</p>
+
+<p>这样就给 Pod 分配了集群里面一个唯一的 IP 地址。</p></li>
+
+<li><p>配置 Pod 的 IP 和路由</p>
+
+<p>第一步，将分配到的 IP 地址配置给 Pod 的虚拟网卡；
+第二步，在 Pod 的网卡上配置集群网段的路由，令访问的流量都走到对应的 Pod 网卡上去，并且也会配置默认路由的网段到这个网卡上，也就是说走公网的流量也会走到这个网卡上进行路由；
+最后在宿主机上配置到 Pod 的 IP 地址的路由，指向到宿主机对端 veth1 这个虚拟网卡上。这样实现的是从 Pod 能够到宿主机上进行路由出去的，同时也实现了在宿主机上访问到 Pod 的 IP 地址也能路由到对应的 Pod 的网卡所对应的对端上去。</p></li>
+</ol>
+
+<p>2、给 Pod 连上网络</p>
+
+<p>刚才我们是给 Pod 插上网线，也就是给它配了 IP 地址以及路由表。那怎么打通 Pod 之间的通信呢？也就是让每一个 Pod 的 IP 地址在集群里面都能被访问到。</p>
+
+<p>一般我们是在 CNI Daemon 进程中去做这些网络打通的事情。通常来说是这样一个步骤：</p>
+
+<ul>
+<li>首先 CNI 在每个节点上运行的 Daemon 进程会学习到集群所有 Pod 的 IP 地址及其所在节点信息。学习的方式通常是通过监听 K8s APIServer，拿到现有 Pod 的 IP 地址以及节点，并且新的节点和新的 Pod 的创建的时候也能通知到每个 Daemon；</li>
+<li>拿到 Pod 以及 Node 的相关信息之后，再去配置网络进行打通。
+
+<ul>
+<li>首先 Daemon 会创建到整个集群所有节点的通道。这里的通道是个抽象概念，具体实现一般是通过 Overlay 隧道、阿里云上的 VPC 路由表、或者是自己机房里的 BGP 路由完成的；</li>
+<li>第二步是将所有 Pod 的 IP 地址跟上一步创建的通道关联起来。关联也是个抽象概念，具体的实现通常是通过 Linux 路由、fdb 转发表或者OVS 流表等完成的。Linux 路由可以设定某一个 IP 地址路由到哪个节点上去。fdb 转发表是 forwarding database 的缩写，就是把某个 Pod 的 IP 转发到某一个节点的隧道端点上去（Overlay 网络）。OVS 流表是由 Open vSwitch 实现的，它可以把 Pod 的 IP 转发到对应的节点上。</li>
+</ul></li>
+</ul>
+
+<p>由于以CNI插件的方式来扩展网络并不是很复杂，很多公司都会自研自己的插件和组件。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-network-cni/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-network-cni/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/network/">
+                            <i class="fa fa-tags"></i>
+                            network
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cni/">
+                            <i class="fa fa-tags"></i>
+                            cni
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-istio/">云计算K8s系列---- istio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">云计算K8s组件系列（二）---- K8s scheduler 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月24日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/cncf/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#基本使用">基本使用</a>
+<ul>
+<li><a href="#环境变量">环境变量</a></li>
+<li><a href="#启动">启动</a></li>
+</ul></li>
+<li><a href="#kubelet使用">kubelet使用</a></li>
+<li><a href="#各种插件">各种插件</a></li>
+<li><a href="#源码解析">源码解析</a>
+<ul>
+<li><a href="#目录结构">目录结构</a></li>
+<li><a href="#接口">接口</a></li>
+<li><a href="#kubelet">kubelet</a></li>
+<li><a href="#cni插件">CNI插件</a></li>
+</ul></li>
+<li><a href="#交互协议">交互协议</a>
+<ul>
+<li><a href="#add">ADD</a></li>
+<li><a href="#del">DEL</a></li>
+<li><a href="#version">VERSION</a></li>
+<li><a href="#check">CHECK</a></li>
+</ul></li>
+<li><a href="#如何开发自己的-cni-插件">如何开发自己的 CNI 插件</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

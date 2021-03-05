@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Kubernetes中有三种网络和三种IP。
+
+">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s组件系列（九）---- 网络 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s组件系列（九）---- 网络
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年04月10日 
+                </div>
+                <h1 class="post-title">云计算K8s组件系列（九）---- 网络</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Kubernetes中有三种网络和三种IP。</p>
+
+<p><img src="/media/cloud/k8s/network" alt="" /></p>
+
+<h1 id="docker网络实现">docker网络实现</h1>
+
+<p>想要理解k8s的网络，需要先了解docker的网络实现，用过docker基本都知道，启动docker engine后，主机的网络设备里会有一个docker0的网关，而容器默认情况下会被分配在一个以docker0为网关的虚拟子网中。</p>
+
+<pre><code>root@VM-66-197-ubuntu:/home/ubuntu# ifconfig
+...
+docker0   Link encap:Ethernet  HWaddr 02:42:ec:43:56:b2
+          inet addr:172.17.0.1  Bcast:0.0.0.0  Mask:255.255.0.0
+...
+root@VM-66-197-ubuntu:/home/ubuntu# docker inspect nginx
+···
+&quot;IPAddress&quot;: &quot;172.17.0.2&quot;,
+···
+</code></pre>
+
+<p>为了实现上述功能，docker主要用到了linux的Bridge、Network Namespace、VETH。</p>
+
+<ul>
+<li>Bridge相当于是一个虚拟网桥，工作在第二层网络。也可以为它配置IP，工作在三层网络。docker0网关就是通过Bridge实现的。</li>
+<li>Network Namespace是网络命名空间，通过Network Namespace可以建立一些完全隔离的网络栈。比如通过docker network create xxx就是在建立一个Network Namespace。</li>
+<li>VETH是虚拟网卡的接口对，可以把两端分别接在两个不同的Network Namespace中，实现两个原本隔离的Network Namespace的通信。</li>
+</ul>
+
+<p>所以总结起来就是：Network Namespace做了容器和宿主机的网络隔离，Bridge分别在容器和宿主机建立一个网关，然后再用VETH将容器和宿主机两个网络空间连接起来。</p>
+
+<p><img src="/media/cloud/docker/network/bridge" alt="" /></p>
+
+<p>这就docker默认的bridge实现方式，对此，docker总结提出来CNM（container network model）理论，还在这个理论的基础上实现了libnetwork。具体docker网络的实现可以查看<a href="/post/cloud/paas/base/docker/docker-network/">这里</a>。</p>
+
+<h1 id="kubernetes网络模型">Kubernetes网络模型</h1>
+
+<p>1、每个Pod拥有唯一的IP（perPodperIp模型）。</p>
+
+<p>2、所有的pod都在一个可以直接连通的、扁平的网络空间中。满足以下条件：</p>
+
+<ul>
+<li>任意两个 pod 之间其实是可以直接通信的，无需经过显式地使用 NAT 来接收数据和地址的转换；</li>
+<li>node 与 pod 之间是可以直接通信的，无需使用明显的地址转换；</li>
+<li>pod 看到自己的 IP 跟别人看见它所用的 IP 是一样的，中间不能经过转换。</li>
+</ul>
+
+<p>3、四大目标，其实是在设计一个 K8s 的系统为外部世界提供服务的时候，从网络的角度要想清楚，外部世界如何一步一步连接到容器内部的应用？</p>
+
+<ul>
+<li>外部世界和 service 之间是怎么通信的？就是有一个互联网或者是公司外部的一个用户，怎么用到 service？service 特指 K8s 里面的服务概念。</li>
+<li>service 如何与它后端的 pod 通讯？</li>
+<li>pod 和 pod 之间调用是怎么做到通信的？</li>
+<li>最后就是 pod 内部容器与容器之间的通信？</li>
+</ul>
+
+<p>最终要达到目标，就是外部世界可以连接到最里面，对容器提供服务。</p>
+
+<h1 id="pod-network">Pod Network</h1>
+
+<h2 id="pod内网络">pod内网络</h2>
+
+<p>Kubernetes的一个Pod中包含有多个容器，这些容器共享一个Network Namespace，更具体的说，是共享一个Network Namespace中的一个IP。创建Pod时，首先会生成一个pause容器，然后其他容器会共享pause容器的网络。</p>
+
+<pre><code>root@kube-2:~# docker ps
+CONTAINER ID        IMAGE                                            COMMAND                  CREATED             STATUS              PORTS               NAMES
+d2dbb9e288e2        mirrorgooglecontainers/pause-amd64:3.0           &quot;/pause&quot;                 3 weeks ago         Up 3 weeks                              k8s_POD_frontend-647d9fdddf-n4x9w_default_9f275ea8-4853-11e8-8c42-fa163e4a07e5_0
+cf1bfff28238        nginx                                            &quot;nginx -g 'daemon of…&quot;   3 weeks ago         Up 3 weeks                              k8s_nginx-demo_frontend-647d9fdddf-n4x9w_default_9f275ea8-4853-11e8-8c42-fa163e4a07e5_0
+
+root@kube-2:~# docker inspect cf1bf
+...
+            &quot;NetworkMode&quot;: &quot;container:d2dbb9e288e26231759e28e8d4816862c6c57d4d2822a259bee7fcc9a2fd0b20&quot;,
+...
+</code></pre>
+
+<p>可以看出，在这个Pod中，nginx容器通过&rdquo;NetworkMode&rdquo;: &ldquo;container:d2db&hellip;&ldquo;与pause容器共享了网络，我们可以想到docker我网络的contaienr模式。这时候，相同容器之间的访问只需要用localhost+端口的形式，就像他们是部署在同一台物理机的不同进程一样，可以使用本地IPC进行通信。</p>
+
+<h2 id="pod间通信">pod间通信</h2>
+
+<h3 id="节点内通信">节点内通信</h3>
+
+<p>在每个Kubernetes节点上，都有一个根（root）命名空间（root是作为基准，而不是超级用户）&ndash;root netns。这个命令空间就是我们node节点的网络，包含这个物理网卡eth0。</p>
+
+<p><img src="/media/cloud/k8s/network10" alt="" /></p>
+
+<p>类似的，每个Pod都有其自身的netns，通过一个虚拟的以太网对连接到root netns。这基本上就是一个管道对，一端在root netns内，另一端在Pod的nens内。</p>
+
+<p>我们把Pod端的网络接口叫 eth0，这样Pod就不需要知道底层主机，它认为它拥有自己的根网络设备。另一端命名成比如 vethxxx。你可以用ifconfig 或者 ip a 命令列出你的节点上的所有这些接口。</p>
+
+<p><img src="/media/cloud/k8s/network11" alt="" /></p>
+
+<p>节点上的所有Pod都会完成这个过程。这些Pod要相互通信，就要用到linux的以太网桥 cbr0 了。Docker使用了类似的网桥，称为docker0。</p>
+
+<p><img src="/media/cloud/k8s/network12" alt="" /></p>
+
+<p>所以一个网络数据包要由pod1到pod2。</p>
+
+<ul>
+<li>它由pod1中netns的eth0网口离开，通过vethxxx进入root netns。</li>
+<li>然后被传到cbr0，cbr0使用ARP请求，说“谁拥有这个IP”，从而发现目标地址。</li>
+<li>vethyyy说它有这个IP，因此网桥就知道了往哪里转发这个包。</li>
+<li>数据包到达vethyyy，跨过管道对，到达pod2的netns。</li>
+</ul>
+
+<p>这就是同一节点内容器间通信的流程。当然也可以用其它方式，但是无疑这是最简单的方式，同时也是Docker单机采用的方式，可以看出只是把container换成了pod。</p>
+
+<h3 id="节点间通信">节点间通信</h3>
+
+<p>正如我前面提到，Pod也需要跨节点可达。Kubernetes不关心如何实现。我们可以使用L2（ARP跨节点），L3（IP路由跨节点，就像云提供商的路由表），Overlay网络，或者甚至信鸽。无所谓，只要流量能到达另一个节点的期望Pod就好。每个节点都为Pod IPs分配了唯一的CIDR块（一段IP地址范围），因此每个Pod都拥有唯一的IP，不会和其它节点上的Pod冲突。</p>
+
+<p><img src="/media/cloud/k8s/network13" alt="" /></p>
+
+<p>一个数据包要从pod1到达pod4（在不同的节点上）</p>
+
+<ul>
+<li>它由pod1中netns的eth0网口离开，通过vethxxx进入root netns。</li>
+<li>然后被传到cbr0，cbr0通过发送ARP请求来找到目标地址。</li>
+<li>本节点上没有Pod拥有pod4的IP地址，因此数据包由cbr0 传到 主网络接口 eth0.</li>
+<li>数据包的源地址为pod1，目标地址为pod4，它以这种方式离开node1进入电缆。</li>
+<li>路由表有每个节点的CIDR块的路由设定，它把数据包路由到CIDR块包含pod4的IP的节点。</li>
+<li>因此数据包到达了node2的主网络接口eth0。现在即使pod4不是eth0的IP，数据包也仍然能转发到cbr0，因为节点配置了IP forwarding enabled。节点的路由表寻找任意能匹配pod4 IP的路由。它发现了 cbr0 是这个节点的CIDR块的目标地址。你可以用route -n命令列出该节点的路由表，它会显示cbr0的路由。</li>
+<li>网桥接收了数据包，发送ARP请求，发现目标IP属于vethyyy。</li>
+<li>数据包跨过管道对到达pod4。</li>
+</ul>
+
+<h1 id="node-network">Node network</h1>
+
+<p>其实就是整个k8s集群node之间的网络，也就是基本的物理机网络，只要各个node之间能相互通信就好。</p>
+
+<h1 id="service-network">Service Network</h1>
+
+<p>service网络主要是kube-proxy来实现构建的,主要是Pod 和 Service 间通信，外部和 Service 间通信，这些都可以使用kube-proxy的各种模式来解决，具体可以看<a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">这里</a>。</p>
+
+<p>service network比较特殊，每个新创建的service会被分配一个service IP，比如在集群中设置环境变量export SERVICE_CLUSTER_IP_RANGE=${SERVICE_CLUSTER_IP_RANGE:-192.168.3.0/24}，并在kube-apiserver的启动参数&ndash;service-cluster-ip-range使用这个环境变量，这个IP的分配范围是192.168.3.0/24。不过这个IP并不“真实”，更像一个“占位符”并且只有入口流量。</p>
+
+<p>在 Service 创建的请求中，可以通过设置 spec.clusterIP 字段来指定自己的集群 IP 地址。 比如，希望替换一个已经已存在的 DNS 条目，或者遗留系统已经配置了一个固定的 IP 且很难重新配置。用户选择的 IP 地址必须合法，并且这个 IP 地址在 service-cluster-ip-range CIDR 范围内，这对 API Server 来说是通过一个标识来指定的。 如果 IP 地址不合法，API Server 会返回 HTTP 状态码 422，表示值不合法。</p>
+
+<h1 id="kubernetes网络开源组件">Kubernetes网络开源组件</h1>
+
+<p>service network的实现依靠kube-proxy，node network依靠的是物理组网，pod network就需要插件来完成了，目前比较通用的就是CNI规范的插件。其实主要是解决两个问题：</p>
+
+<ul>
+<li>为容器分配IP地址</li>
+<li>不同容器之间的互通</li>
+</ul>
+
+<h2 id="基本概念">基本概念</h2>
+
+<p>第2层网络：OSI（Open Systems Interconnections，开放系统互连）网络模型的“数据链路”层。第2层网络会处理网络上两个相邻节点之间的帧传递。第2层网络的一个值得注意的示例是以太网，其中MAC表示为子层。</p>
+
+<p>第3层网络：OSI网络模型的“网络”层。第3层网络的主要关注点，是在第2层连接之上的主机之间路由数据包。IPv4、IPv6和ICMP是第3层网络协议的示例。</p>
+
+<p>IPAM：IP地址管理；这个IP地址管理并不是容器所特有的，传统的网络比如说DHCP其实也是一种IPAM，到了容器时代我们谈IPAM，主流的两种方法： 基于CIDR的IP地址段分配地或者精确为每一个容器分配IP。但总之一旦形成一个容器主机集群之后，上面的容器都要给它分配一个全局唯一的IP地址，这就涉及到IPAM的话题。</p>
+
+<p>Overlay：在现有二层或三层网络之上再构建起来一个独立的网络，这个网络通常会有自己独立的IP地址空间、交换或者路由的实现。</p>
+
+<p>IPSesc：一个点对点的一个加密通信协议，一般会用到Overlay网络的数据通道里。</p>
+
+<p>vxLAN：由VMware、Cisco、RedHat等联合提出的这么一个解决方案，这个解决方案最主要是解决VLAN支持虚拟网络数量（4096）过少的问题。因为在公有云上每一个租户都有不同的VPC，4096明显不够用。就有了vxLAN，它可以支持1600万个虚拟网络，基本上公有云是够用的。</p>
+
+<p>网桥Bridge： 连接两个对等网络之间的网络设备，但在今天的语境里指的是Linux Bridge，就是大名鼎鼎的Docker0这个网桥。</p>
+
+<p>BGP： 代表“边界网关协议”，主干网自治网络的路由协议，今天有了互联网，互联网由很多小的自治网络构成的，自治网络之间的三层路由是由BGP实现的。</p>
+
+<p>SDN、Openflow： 软件定义网络里面的一个术语，比如说我们经常听到的流表、控制平面，或者转发平面都是Openflow里的术语。</p>
+
+<h2 id="容器网络模型">容器网络模型</h2>
+
+<p>容器网络发展到现在，形成了两大阵营，就是Docker的CNM和Google、CoreOS、Kuberenetes主导的CNI。首先明确一点，CNM和CNI并不是网络实现，他们是网络规范和网络体系，从研发的角度他们就是一堆接口，你底层是用Flannel也好、用Calico也好，他们并不关心，CNM和CNI关心的是网络管理的问题。</p>
+
+<h3 id="cnm">CNM</h3>
+
+<p>CNM（Docker LibnetworkContainer Network Model）</p>
+
+<p>Docker Libnetwork的优势就是原生，而且和Docker容器生命周期结合紧密；缺点也可以理解为是原生，被Docker“绑架”。</p>
+
+<pre><code>Docker Swarm overlay
+Macvlan &amp; IP networkdrivers
+Calico
+Contiv
+Weave
+</code></pre>
+
+<p>目前因为docker很少单独使用，使用CMN规范的也比较少，但是很多都是相通的。</p>
+
+<h3 id="cni">CNI</h3>
+
+<p>CNI的优势是兼容其他容器技术（e.g. rkt）及上层编排系统（Kubernetes &amp; Mesos)，而且社区活跃势头迅猛，Kubernetes加上CoreOS主推，缺点是非Docker原生。</p>
+
+<pre><code>Kubernetes
+Weave
+Macvlan
+Calico
+Flannel
+Contiv
+Mesos CNI
+</code></pre>
+
+<p>Kubernetes 在处理网络上，没有选择自己再独立创造一个，而是选择了其中的 CNI作为了自己的网络插件。（至于为什么不选择 CNM，可以看看这篇官方的解释：Why Kubernetes doesn’t use libnetwork）。不使用 CNM 最关键的一点，是 k8s 考虑到CNM 在一定程度上和 container runtime 联系相对比较紧密，不好解耦。
+有了 k8s 这种巨无霸的选择之后，后来的很多项目都在 CNM 和 CNI 之间选择了 CNI。</p>
+
+<p>CNI目前已经获得了众多开源项目的青睐，比如 K8S、Memos、Cloud Foundry。同时被Cloud Native Computing Foundation所认可。CNCF 背后有众多的科技大亨，所以可以预见，CNI 将会成为未来容器网络的标准，所以很有必要详细研究了解<a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">CNI</a></p>
+
+<h2 id="容器网络方案">容器网络方案</h2>
+
+<p>容器网络方案基本就是只有下面几种解决方式，后面的组件实现都是基于这些思路来进行的。</p>
+
+<blockquote>
+<p>隧道方案（Overlay Networking）</p>
+</blockquote>
+
+<p>隧道方案在IaaS层的网络中应用也比较多，大家共识是随着节点规模的增长复杂度会提升，而且出了网络问题跟踪起来比较麻烦，大规模集群情况下这是需要考虑的一个点。</p>
+
+<pre><code>Weave：UDP广播，本机建立新的BR，通过PCAP互通
+Open vSwitch（OVS）：基于VxLan和GRE协议，但是性能方面损失比较严重
+Flannel：UDP广播，VxLan
+Racher：IPsec
+</code></pre>
+
+<blockquote>
+<p>路由方案</p>
+</blockquote>
+
+<p>路由方案一般是从3层或者2层实现隔离和跨主机容器互通的，出了问题也很容易排查。</p>
+
+<pre><code>Calico：基于BGP协议的路由方案，支持很细致的ACL控制，对混合云亲和度比较高。
+Macvlan：从逻辑和Kernel层来看隔离性和性能最优的方案，基于二层隔离，所以需要二层路由器支持，大多数云服务商不支持，所以混合云上比较难以实现。
+</code></pre>
+
+<blockquote>
+<p>底层网络（Underlay Networking）</p>
+</blockquote>
+
+<p>vpc网络，也就是路由表，是指在交换机上直接配置对应的ip转发到对应的node，一般私有云都会使用vpc方案。</p>
+
+<h2 id="组件">组件</h2>
+
+<p>其实网络插件解决的是pod network的问题，都是基于CMN或者CNI的管理规范来开发的网络插件。</p>
+
+<h3 id="kubenet">kubenet</h3>
+
+<p><img src="/media/cloud/k8s/kubenet" alt="" /></p>
+
+<p>kubenet 是一个基于 CNI bridge 的网络插件，它为每个容器建立一对 veth pair 并连接到 cbr0 网桥上。kubenet 在 bridge 插件的基础上拓展了很多功能，包括</p>
+
+<ul>
+<li>使用 host-local IPAM 插件为容器分配 IP 地址， 并定期释放已分配但未使用的 IP 地址</li>
+<li>设置 sysctl net.bridge.bridge-nf-call-iptables = 1</li>
+<li>为 Pod IP 创建 SNAT 规则
+
+<ul>
+<li>-A POSTROUTING ! -d 10.0.0.0/8 -m comment &ndash;comment &ldquo;kubenet: SNAT for outbound traffic from cluster&rdquo; -m addrtype ! &ndash;dst-type LOCAL -j MASQUERADE</li>
+</ul></li>
+<li>开启网桥的 hairpin 和 promisc 模式，允许 Pod 访问它自己所在的 Service IP（即通过 NAT 后再访问 Pod 自己）
+
+<ul>
+<li>-A OUTPUT -j KUBE-DEDUP</li>
+<li>-A KUBE-DEDUP -p IPv4 -s a:58:a:f4:2:1 -o veth+ &ndash;ip-src 10.244.2.1 -j ACCEPT</li>
+<li>-A KUBE-DEDUP -p IPv4 -s a:58:a:f4:2:1 -o veth+ &ndash;ip-src 10.244.2.0/24 -j DROP</li>
+</ul></li>
+<li>HostPort 管理以及设置端口映射</li>
+<li>Traffic shaping，支持通过 kubernetes.io/ingress-bandwidth 和 kubernetes.io/egress-bandwidth 等 Annotation 设置 Pod 网络带宽限制</li>
+</ul>
+
+<p>未来 kubenet 插件会迁移到标准的 CNI 插件。</p>
+
+<h3 id="flannel">flannel</h3>
+
+<p>Flannel是CoreOS团队针对Kubernetes设计的一个网络规划服务，简单来说，它的功能是让集群中的不同节点主机创建的Docker容器都具有全集群唯一的虚拟IP地址。</p>
+
+<p>在默认的Docker配置中，每个节点上的Docker服务会分别负责所在节点容器的IP分配。这样导致的一个问题是，不同节点上容器可能获得相同的内外IP地址。并使这些容器之间能够之间通过IP地址相互找到，也就是相互ping通。</p>
+
+<p>Flannel的设计目的就是为集群中的所有节点重新规划IP地址的使用规则，从而使得不同节点上的容器能够获得“同属一个内网”且”不重复的”IP地址，并让属于不同节点上的容器能够直接通过内网IP通信。</p>
+
+<p>Flannel实质上是一种“覆盖网络(overlaynetwork)”，也就是将TCP数据包装在另一种网络包里面进行路由转发和通信，目前已经支持udp、vxlan、host-gw、aws-vpc、gce和alloc路由等数据转发方式，默认的节点间数据通信方式是UDP转发。</p>
+
+<blockquote>
+<p>flannel网络模型</p>
+</blockquote>
+
+<p>1、互补冲突的ip</p>
+
+<ul>
+<li>flannel利用Kubernetes API或者etcd用于存储整个集群的网络配置，根据配置记录集群使用的网段。</li>
+<li>flannel在每个主机中运行flanneld作为agent，它会为所在主机从集群的网络地址空间中，获取一个小的网段subnet，本主机内所有容器的IP地址都将从中分配。</li>
+</ul>
+
+<p>我们可以查看/run/flannel/subnet.env文件来查看对于的IP分配，在不同的主机上进行分配。</p>
+
+<p><img src="/media/cloud/k8s/flannel" alt="" /></p>
+
+<p>在flannel network中，每个pod都会被分配唯一的ip地址，且每个K8s node的subnet各不重叠，没有交集，如下：</p>
+
+<p><img src="/media/cloud/k8s/flannel1" alt="" /></p>
+
+<p>2、pod间互相访问</p>
+
+<ul>
+<li>flanneld将本主机获取的subnet以及用于主机间通信的Public IP通过etcd存储起来，需要时发送给相应模块。</li>
+<li>flannel利用各种backend mechanism，例如udp，vxlan等等，跨主机转发容器间的网络流量，完成容器间的跨主机通信。</li>
+</ul>
+
+<blockquote>
+<p>flannel架构</p>
+</blockquote>
+
+<p><img src="/media/cloud/k8s/flannel2" alt="" />
+<img src="/media/cloud/k8s/flannel3" alt="" /></p>
+
+<p>详解</p>
+
+<ul>
+<li>创建pod，分配ip，由于k8s更改了docker的DOCKER_OPTS，显式指定了–bip，这个值与分配给该node上的subnet的范围是一致的。这样一来，docker引擎每次创建一个Docker container，该container被分配到的ip都在flannel subnet范围内。</li>
+<li>数据包到达docker0网桥，docker0的内核栈处理程序发现这个数据包的目的地址是172.16.57.15，并不是真的要送给自己，于是开始为该数据包找下一hop。</li>
+
+<li><p>flannel.1收到数据包后，由于自己不是目的地，也要尝试将数据包重新发送出去。数据包沿着网络协议栈向下流动，在二层时需要封二层以太包，填写目的mac地址，这时一般应该发出arp：”who is 172.16.57.15″。但vxlan设备的特殊性就在于它并没有真正在二层发出这个arp包，因为下面的这个内核参数设置，而是由linux kernel引发一个”L3 MISS”事件并将arp请求发到用户空间的flanned程序。flanned程序收到”L3 MISS”内核事件以及arp请求(who is 172.16.57.15)后，并不会向外网发送arp request，而是尝试从etcd查找该地址匹配的子网的vtep信息。在前面章节我们曾经展示过etcd中Flannel network的配置信息，flanneld从etcd中找到了，接下来，flanned将查询到的信息放入master node host的arp cache表中，flanneld完成这项工作后，linux kernel就可以在arp table中找到 172.16.57.15对应的mac地址并封装二层以太包了。不过这个封包还不能在物理网络上传输，因为它实际上只是vxlan tunnel上的packet。</p>
+
+<pre><code>  # cat /proc/sys/net/ipv4/neigh/flannel.1/app_solicit
+  3
+</code></pre></li>
+
+<li><p>我们需要将上述的packet再次封包。这个任务在backend为vxlan的flannel network中由linux kernel来完成。flannel.1为vxlan设备，linux kernel可以自动识别，并将上面的packet进行vxlan封包处理。在这个封包过程中，kernel需要知道该数据包究竟发到哪个node上去。kernel需要查看node上的fdb(forwarding database)以获得上面对端vtep设备（已经从arp table中查到其mac地址：d6:51:2e:80:5c:69）所在的node地址。如果fdb中没有这个信息，那么kernel会向用户空间的flanned程序发起”L2 MISS”事件。flanneld收到该事件后，会查询etcd，获取该vtep设备对应的node的”Public IP“，并将信息注册到fdb中。这样Kernel就可以顺利查询到该信息并封包了。</p></li>
+
+<li><p>收到上述vxlan包，kernel将识别出这是一个vxlan包，于是拆包后将flannel.1 packet转给minion node上的vtep（flannel.1）。minion node上的flannel.1再将这个数据包转到minion node上的docker0，继而由docker0传输到Pod3的某个容器里。</p></li>
+</ul>
+
+<blockquote>
+<p>flannel后端支持网络</p>
+</blockquote>
+
+<p>Flannel可以指定不同的转发后端网络，常用的有hostgw，udp，vxlan等。</p>
+
+<ul>
+<li><p>hostgw</p>
+
+<p>hostgw是最简单的backend，它的原理非常简单，直接添加路由，将目的主机当做网关，直接路由原始封包。</p>
+
+<p>例如，我们从etcd中监听到一个EventAdded事件subnet为10.1.15.0/24被分配给主机Public IP 192.168.0.100，hostgw要做的工作就是在本主机上添加一条目的地址为10.1.15.0/24，网关地址为192.168.0.100，输出设备为上文中选择的集群间交互的网卡即可。</p>
+
+<p>优点：简单，直接，效率高</p>
+
+<p>缺点：要求所有的pod都在一个子网中，如果跨网段就无法通信。</p></li>
+
+<li><p>udp</p>
+
+<p>如何应对Pod不在一个子网里的场景呢？将Pod的网络包作为一个应用层的数据包，使用UDP封装之后在集群里传输。即overlay。</p>
+
+<ul>
+<li>因为该封包的目的地不在本主机subnet内，因此封包会首先通过网桥转发到主机中。</li>
+<li>在主机上经过路由匹配，进入网卡flannel.1。(需要注意的是flannel.1是一个tun设备，它是一种工作在三层的虚拟网络设备，而flanneld是一个proxy，它会监听flannel.1并转发流量。)</li>
+<li>当封包进入flannel.1时，flanneld就可以从flanne.1中将封包读出，由于flanne.1是三层设备，所以读出的封包仅仅包含IP层的报头及其负载。</li>
+<li>最后flanneld会将获取的封包作为负载数据，通过udp socket发往目的主机。</li>
+<li>在目的主机的flanneld会监听Public IP所在的设备，从中读取udp封包的负载，并将其放入flannel.1设备内。</li>
+<li>容器网络封包到达目的主机，之后就可以通过网桥转发到目的容器了。</li>
+</ul>
+
+<p>优点：Pod能够跨网段访问</p>
+
+<p>缺点：隔离性不够，udp不能隔离两个网段。</p>
+
+<p>其实也就是我们上面的基本架构原理，因为是默认使用的方式。</p></li>
+
+<li><p>vxlan</p>
+
+<p>vxlan和上文提到的udp backend的封包结构是非常类似的，不同之处是多了一个vxlan header，以及原始报文中多了个二层的报头。</p></li>
+</ul>
+
+<blockquote>
+<p>总结</p>
+</blockquote>
+
+<p>flannel更像是经典的桥接模式的扩展。我们知道，在桥接模式中，每台主机的容器都将使用一个默认的网段，容器与容器之间，主机与容器之间都能互相通信。要是，我们能手动配置每台主机的网段，使它们互不冲突。接着再想点办法，将目的地址为非本机容器的流量送到相应主机：如果集群的主机都在一个子网内，就搞一条路由转发过去；若是不在一个子网内，就搞一条隧道转发过去。这样以来，容器的跨网络通信问题就解决了。而flannel做的，其实就是将这些工作自动化了而已。他也存在这个明显的缺点：</p>
+
+<ul>
+<li>不支持pod之间的网络隔离。Flannel设计思想是将所有的pod都放在一个大的二层网络中，所以pod之间没有隔离策略。</li>
+<li>设备复杂，效率不高。Flannel模型下有三种设备，数量经过多种设备的封装、解析，势必会造成传输效率的下降。</li>
+</ul>
+
+<h3 id="weave">Weave</h3>
+
+<p>Weave Net是一个多主机容器网络方案，支持去中心化的控制平面，各个host上的wRouter间通过建立Full Mesh的TCP链接，并通过Gossip来同步控制信息。这种方式省去了集中式的K/V Store，能够在一定程度上减低部署的复杂性，Weave将其称为“data centric”，而非RAFT或者Paxos的“algorithm centric”。</p>
+
+<p>数据平面上，Weave通过UDP封装实现L2 Overlay，封装支持两种模式：</p>
+
+<p>1、运行在user space的sleeve mode：通过pcap设备在Linux bridge上截获数据包并由wRouter完成UDP封装，支持对L2 traffic进行加密，还支持Partial Connection，但是性能损失明显。</p>
+
+<p><img src="/media/cloud/k8s/weave" alt="" /></p>
+
+<p>2、运行在kernal space的 fastpath mode：即通过OVS的odp封装VxLAN并完成转发，wRouter不直接参与转发，而是通过下发odp 流表的方式控制转发，这种方式可以明显地提升吞吐量，但是不支持加密等高级功能。</p>
+
+<p><img src="/media/cloud/k8s/weave1" alt="" /></p>
+
+<p>容器网络</p>
+
+<p><img src="/media/cloud/k8s/weave2" alt="" /></p>
+
+<ul>
+<li>所有容器都连接到weave网桥</li>
+<li>weave网桥通过veth pair连到内核的openvswitch模块</li>
+<li>跨主机容器通过openvswitch vxlan通信</li>
+<li>policy controller通过配置iptables规则为容器设置网络策略</li>
+</ul>
+
+<h3 id="calico">calico</h3>
+
+<p>Calico 是一种容器之间互通的网络方案。在虚拟化平台中，比如 OpenStack、Docker 等都需要实现 workloads 之间互连，但同时也需要对容器做隔离控制，就像在 Internet 中的服务仅开放80端口、公有云的多租户一样，提供隔离和管控机制。而在多数的虚拟化平台实现中，通常都使用二层隔离技术来实现容器的网络，这些二层的技术有一些弊端，比如需要依赖 VLAN、bridge 和隧道等技术，其中 bridge 带来了复杂性，vlan 隔离和 tunnel 隧道则消耗更多的资源并对物理环境有要求，随着网络规模的增大，整体会变得越加复杂。我们尝试把 Host 当作 Internet 中的路由器，同样使用 BGP 同步路由，并使用 iptables 来做安全访问策略，最终设计出了 Calico 方案。</p>
+
+<p>架构</p>
+
+<p><img src="/media/cloud/k8s/calico" alt="" /></p>
+
+<p>Calico网络模型主要工作组件：</p>
+
+<ul>
+<li>Felix：运行在每一台 Host 的 agent 进程，主要负责网络接口管理和监听、路由、ARP 管理、ACL 管理和同步、状态上报等。
+
+<ul>
+<li>Felix会监听ECTD中心的存储，从它获取事件，比如说用户在这台机器上加了一个IP，或者是创建了一个容器等。用户创建pod后，Felix负责将其网卡、IP、MAC都设置好，然后在内核的路由表里面写一条，注明这个IP应该到这张网卡。同样如果用户制定了隔离策略，Felix同样会将该策略创建到ACL中，以实现隔离。</li>
+</ul></li>
+<li>etcd：分布式键值存储，主要负责网络元数据一致性，确保Calico网络状态的准确性，可以与kubernetes共用；</li>
+<li>BGP Client（BIRD）：Calico 为每一台 Host 部署一个 BGP Client，使用 BIRD 实现，BIRD 是一个单独的持续发展的项目，实现了众多动态路由协议比如 BGP、OSPF、RIP 等。在 Calico 的角色是监听 Host 上由 Felix 注入的路由信息，然后通过 BGP 协议广播告诉剩余 Host 节点，从而实现网络互通。
+
+<ul>
+<li>BIRD是一个标准的路由程序，它会从内核里面获取哪一些IP的路由发生了变化，然后通过标准BGP的路由协议扩散到整个其他的宿主机上，让外界都知道这个IP在这里，你们路由的时候得到这里来。</li>
+</ul></li>
+<li>BGP Route Reflector：在大型网络规模中，如果仅仅使用 BGP client 形成 mesh 全网互联的方案就会导致规模限制，因为所有节点之间俩俩互联，需要 N^2 个连接，为了解决这个规模问题，可以采用 BGP 的 Router Reflector 的方法，使所有 BGP Client 仅与特定 RR 节点互联并做路由同步，从而大大减少连接数。</li>
+</ul>
+
+<p>由于Calico是一种纯三层的实现，因此可以避免与二层方案相关的数据包封装的操作，中间没有任何的NAT，没有任何的overlay，所以它的转发效率可能是所有方案中最高的，因为它的包直接走原生TCP/IP的协议栈，它的隔离也因为这个栈而变得好做。因为TCP/IP的协议栈提供了一整套的防火墙的规则，所以它可以通过IPTABLES的规则达到比较复杂的隔离逻辑。</p>
+
+<blockquote>
+<p>网络模式</p>
+</blockquote>
+
+<p>1、IPIP</p>
+
+<p>从字面来理解，就是把一个IP数据包又套在一个IP包里，即把 IP 层封装到 IP 层的一个 tunnel。它的作用其实基本上就相当于一个基于IP层的网桥！一般来说，普通的网桥是基于mac层的，根本不需 IP，而这个 ipip 则是通过两端的路由做一个 tunnel，把两个本来不通的网络通过点对点连接起来。</p>
+
+<p><img src="/media/cloud/k8s/calico1" alt="" /></p>
+
+<p>其实这还是一种Overlay模式，需要使用把 IP 层封装到 IP 层的一个 tunnel。在主机的路由上route -n可以看到这个通道tunX。</p>
+
+<p>2、BGP</p>
+
+<p>在安装calico网络时，默认安装是IPIP网络。calico.yaml文件中，将CALICO_IPV4POOL_IPIP的值修改成 &ldquo;off&rdquo;，就能够替换成BGP网络。</p>
+
+<p>BGP网络相比较IPIP网络，最大的不同之处就是没有了隧道设备 tunl0。 前面介绍过IPIP网络pod之间的流量发送tunl0，然后tunl0发送对端设备。BGP网络中，pod之间的流量直接从网卡发送目的地，减少了tunl0这个环节。</p>
+
+<p><img src="/media/cloud/k8s/calico2" alt="" /></p>
+
+<p>总结对比</p>
+
+<p>IPIP网络：</p>
+
+<ul>
+<li>流量：tunlo设备封装数据，形成隧道，承载流量。</li>
+<li>适用网络类型：适用于互相访问的pod不在同一个网段中，跨网段访问的场景。外层封装的ip能够解决跨网段的路由问题。</li>
+<li>效率：流量需要tunl0设备封装，效率略低</li>
+</ul>
+
+<p>BGP网络：</p>
+
+<ul>
+<li>流量：使用路由信息导向流量</li>
+<li>适用网络类型：适用于互相访问的pod在同一个网段，适用于大型网络。</li>
+<li>效率：原生hostGW，效率高</li>
+</ul>
+
+<p>缺点</p>
+
+<ul>
+<li>租户隔离问题：Calico 的三层方案是直接在 host 上进行路由寻址，那么对于多租户如果使用同一个 CIDR 网络就面临着地址冲突的问题。</li>
+<li>路由规模问题：通过路由规则可以看出，路由规模和 pod 分布有关，如果 pod离散分布在 host 集群中，势必会产生较多的路由项。</li>
+<li>iptables 规则规模问题：1台 Host 上可能虚拟化十几或几十个容器实例，过多的 iptables 规则造成复杂性和不可调试性，同时也存在性能损耗。</li>
+<li>跨子网时的网关路由问题：当对端网络不为二层可达时，需要通过三层路由机时，需要网关支持自定义路由配置，即 pod 的目的地址为本网段的网关地址，再由网关进行跨三层转发。</li>
+</ul>
+
+<h3 id="contiv">contiv</h3>
+
+<p>Contiv是思科开源的容器网络方案，是一个用于跨虚拟机、裸机、公有云或私有云的异构容器部署的开源容器网络架构，并与主流容器编排系统集成。Contiv最主要的优势是直接提供了多租户网络，并支持L2(VLAN), L3(BGP), Overlay (VXLAN)以及思科自家的ACI。</p>
+
+<h3 id="其他">其他</h3>
+
+<p>还有很多的网络插件，基本思路都是基于overlay的隧道，或者基于underlay的路由，基本上插件都能支持这两个功能，只是在那个功能上做的更加好，并且还带有其他的辅助功能。其实个人觉得核心解决的问题就是如何进行跨主机网络路由。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-network/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-network/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/network/">
+                            <i class="fa fa-tags"></i>
+                            network
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-istio/">云计算K8s系列---- istio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/base/docker/docker-principle/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/distributed/distributed-event/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#docker网络实现">docker网络实现</a></li>
+<li><a href="#kubernetes网络模型">Kubernetes网络模型</a></li>
+<li><a href="#pod-network">Pod Network</a>
+<ul>
+<li><a href="#pod内网络">pod内网络</a></li>
+<li><a href="#pod间通信">pod间通信</a>
+<ul>
+<li><a href="#节点内通信">节点内通信</a></li>
+<li><a href="#节点间通信">节点间通信</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#node-network">Node network</a></li>
+<li><a href="#service-network">Service Network</a></li>
+<li><a href="#kubernetes网络开源组件">Kubernetes网络开源组件</a>
+<ul>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#容器网络模型">容器网络模型</a>
+<ul>
+<li><a href="#cnm">CNM</a></li>
+<li><a href="#cni">CNI</a></li>
+</ul></li>
+<li><a href="#容器网络方案">容器网络方案</a></li>
+<li><a href="#组件">组件</a>
+<ul>
+<li><a href="#kubenet">kubenet</a></li>
+<li><a href="#flannel">flannel</a></li>
+<li><a href="#weave">Weave</a></li>
+<li><a href="#calico">calico</a></li>
+<li><a href="#contiv">contiv</a></li>
+<li><a href="#其他">其他</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

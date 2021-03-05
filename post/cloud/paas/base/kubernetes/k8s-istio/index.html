@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="istio是一款 Service Mesh 模式的落地实现，是目前servicemesh实现使用最多的一个方案，istio本身和平台无关，但是一般都是和k8s结合使用，首先k8s服务间通信和流控的相关操作。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s系列---- istio - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s系列---- istio
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年12月17日 
+                </div>
+                <h1 class="post-title">云计算K8s系列---- istio</h1>
+            </header>
+
+            <div class="post-content">
+                <p>istio是一款 Service Mesh 模式的落地实现，是目前servicemesh实现使用最多的一个方案，istio本身和平台无关，但是一般都是和k8s结合使用，首先k8s服务间通信和流控的相关操作。</p>
+
+<h1 id="istio">istio</h1>
+
+<p>istio是为了实现由 William Morgan 提出的微服务 Service Mesh 模式和诸多理念，Google , IBM 和 Lyft 这三家公司协同研发，并于 2017 年 6 月 8 日( 根据 Github 最后一次提交的时间 )发布了 Istio 的第一个发行版——Istio 0.1 版本。</p>
+
+<p>istio主要集成了服务发现、负载均衡、故障恢复、度量和监控等服务治理的基本功能。还满足了更复杂的运维需求，比如 A/B 测试、金丝雀发布、速率限制、访问控制和端到端认证。</p>
+
+<p>在k8s中实现有着负载均衡，路由等基本的服务治理功能，都是通过service实现的，service其实就是通过kube-proxy这个组件实现，核心是使用的iptables的路由功能，包括后来优化的ipvs，但是kube-proxy还有着很多的不足，比如流量控制，可视化，安全等等，所以istio诞生了。</p>
+
+<h1 id="设计目标">设计目标</h1>
+
+<p>Istio 最根本的设计目标就是实现 Service Mesh 的设计构想</p>
+
+<ul>
+<li>将“应用程序”与“网络”解藕: 将服务之间、服务与集群外部的网络通讯和安全机制从微服务的业务逻辑中解藕，并作为一个与平台无关的、独立运行的程序，以减少开发和运维人员的工作量。</li>
+<li>保障网络环节: 应用程序的目标是“将某些东西从A传送到B”，而 Service Mesh 所要做的就是实现这个目标，并处理传送过程中可能出现的任何故障。</li>
+<li>提供应用层面的可见性和可控性: 通过每个微服务中的 Sidecar ，Service Mesh 得以将服务间通信从底层的基础设施中分离出来，让它成为整个生态系统的一个独立部分——它不再是单纯的基础设施，更可以被监控、托管和控制。</li>
+</ul>
+
+<p>除此之外，Istio 还有着其他更加关键的设计目标，这些目标对于使系统能够应对大规模流量和高性能地服务处理至关重要。</p>
+
+<ul>
+<li>最大化透明度( 与“解藕”类似，但具体到基于 Pod 实现 ): Istio 使用 Sidecar 代理来捕获流量，并且在尽可能的地方自动编程网络层，以路由流量通过这些代理，而无需对已部署的应用程序代码进行任何改动。注入 sidecar 代理到 pod 中并且修改路由规则后，Istio 就能够调解所有流量。</li>
+<li>增量扩容策略: 扩展策略系统，集成其他策略和控制来源，并将网格行为信号传播到其他系统进行分析。策略运行时支持标准扩展机制以便插入到其他服务中。</li>
+<li>可移植性: Istio 必须能够以最少的代价运行在任何云或预置环境中。将基于 Istio 的服务移植到新环境应该是轻而易举的，而使用 Istio 将一个服务同时部署到多个环境中也是可行的（例如，在多个云上进行冗余部署）。</li>
+<li>策略一致性: 在服务间的 API 调用中，策略的应用使得可以对网格间行为进行全面的控制，但对于无需在 API 级别表达的资源来说，对资源应用策略也同样重要。策略系统作为独特的服务来维护，具有自己的 API，而不是将其放到代理或 Sidecar 中，这容许服务根据需要直接与其集成。</li>
+</ul>
+
+<h1 id="核心功能">核心功能</h1>
+
+<p>基于以上的设计目标，Istio 的核心功能有以下五点：</p>
+
+<ul>
+<li>流量管理: Istio 通过 Pilot 所提供的 API 动态地配置所有 Pod 中 Sidecar 的路由规则，进而控制服务间的流量和 API 调用。Istio 简化了断路器、超时和重试等服务级别属性的配置，并且可以轻松设置 A/B 测试、金丝雀部署和基于百分比的流量分割的分阶段部署等重要任务。</li>
+<li>安全: Istio 提供给开发人员应用程序级别的安全性。Istio 提供底层安全通信信道，并大规模管理服务通信的认证、授权和加密。使用 Istio ，服务通信在默认情况下是安全的，它允许跨多种协议和运行时一致地实施策略——所有这些都很少或根本不需要应用程序更改。将 Istio 与 Kubernetes 的网络策略结合使用，其优势会更大，包括在网络和应用层保护 Pod 间或服务间通信的能力。</li>
+<li>可观察性: Istio 的 Mixer 组件负责策略控制和遥测收集。通过 Istio 的监控功能，可以了解服务性能如何影响上游和下游的功能；其自定义仪表板可以提供对所有服务性能的可视化，从而了解性能如何影响其他进程。</li>
+<li>平台独立: Istio 是独立于平台的，旨在运行在各种环境中，包括跨云、内部部署、Kubernetes、Mesos 等。您可以在 Kubernetes 上部署 Istio 或具有 Consul 的 Nomad 上部署。</li>
+<li>集成和定制: 策略执行组件可以扩展和定制，以便与现有的 ACL、日志、监控、配额、审计等方案集成。</li>
+</ul>
+
+<h1 id="基本概念和使用">基本概念和使用</h1>
+
+<h2 id="流量管理">流量管理</h2>
+
+<p>流量管理包括服务发现和负载均衡（服务发现和负载均衡是流控的基本手段）的很多对流量进行控制和更细粒度规划的API：虚拟服务，目标规划，网关，服务入口，sidecar。这些API使用 Kubernetes 的自定义资源定义（CRDs）来声明使用。</p>
+
+<h3 id="虚拟服务">虚拟服务</h3>
+
+<p>虚拟服务（Virtual Service） 和目标规则（Destination Rule） 是 Istio 流量路由功能的关键，虚拟服务使得可以配置如何在服务网格内将请求路由到服务。每个虚拟服务包含一组路由规则，Istio 按顺序评估它们，Istio 将每个给定的请求匹配到虚拟服务指定的实际目标地址。</p>
+
+<p>如果没有虚拟服务，Envoy 会在所有的服务实例中使用轮询的负载均衡策略分发请求。在虚拟服务中使用路由规则，告诉 Envoy 如何发送虚拟服务的流量到适当的目标。</p>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>下面的虚拟服务根据请求是否来自特定的用户，把它们路由到服务的不同版本。</p>
+
+<pre><code>apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: reviews
+spec:
+  hosts:
+  - reviews
+  http:
+  - match:
+    - headers:
+        end-user:
+          exact: jason
+    route:
+    - destination:
+        host: reviews
+        subset: v2
+  - route:
+    - destination:
+        host: reviews
+        subset: v3
+</code></pre>
+
+<ul>
+<li>hosts：用户指定的目标或是路由规则设定的目标。这是客户端向服务发送请求时使用的一个或多个地址。可以是 IP 地址、DNS 名称，或者依赖于平台的一个简称（例如 Kubernetes 服务的短名称），隐式或显式地指向一个完全限定域名（FQDN）。</li>
+<li>http：需要路由的协议</li>
+<li>match：路由的匹配条件，在本例中，您希望此路由应用于来自 ”jason“ 用户的所有请求，所以使用 headers、end-user 和 exact 字段选择适当的请求。</li>
+<li>destination：符合此条件的流量的实际目标地址，与虚拟服务的 hosts 不同，destination 的 host 必须是存在于 Istio 服务注册中心的实际目标地址，否则 Envoy 不知道该将请求发送到哪里。</li>
+<li>路由规则按从上到下的顺序选择，虚拟服务中定义的第一条规则有最高优先级。</li>
+</ul>
+
+<p>这边只是一个简单的实例，其实路由规则是将特定流量子集路由到指定目标地址的强大工具。您可以在流量端口、header 字段、URI 等内容上设置匹配条件，有些匹配条件可以使用精确的值，如前缀或正则，使用匹配条件您可以按百分比”权重“分发请求等都是很有用的功能。</p>
+
+<h3 id="目标规则">目标规则</h3>
+
+<p>目标规则是配置该目标的流量，在评估虚拟服务路由规则之后，目标规则将应用于流量的“真实”目标地址。</p>
+
+<p>默认情况下，Istio 使用轮询的负载均衡策略，当然我们还可以使用</p>
+
+<ul>
+<li>随机：请求以随机的方式转到池中的实例。</li>
+<li>权重：请求根据指定的百分比转到实例。</li>
+<li>最少请求：请求被转到最少被访问的实例。</li>
+</ul>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>在下面的示例中，目标规则为 my-svc 目标服务配置了 3 个具有不同负载均衡策略的子集：</p>
+
+<pre><code>apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: my-destination-rule
+spec:
+  host: my-svc
+  trafficPolicy:
+    loadBalancer:
+      simple: RANDOM
+  subsets:
+  - name: v1
+    labels:
+      version: v1
+  - name: v2
+    labels:
+      version: v2
+    trafficPolicy:
+      loadBalancer:
+        simple: ROUND_ROBIN
+  - name: v3
+    labels:
+      version: v3
+</code></pre>
+
+<ul>
+<li>lables：这些标签应用于 Kubernetes 服务的 Deployment 并作为 metadata 来识别不同的版本。</li>
+<li>目标规则对于所有子集都有默认的流量策略，而对于该子集，则有特定于子集的策略覆盖它。定义在 subsets 上的默认策略，为 v1 和 v3 子集设置了一个简单的随机负载均衡器。在 v2 策略中，轮询负载均衡器被指定在相应的子集字段上。</li>
+</ul>
+
+<h3 id="网关">网关</h3>
+
+<p>网关是网格来管理入站和出站流量，可以让指定要进入或离开网格的流量。</p>
+
+<p>网关配置被用于运行在网格边界的独立 Envoy 代理，而不是服务工作负载的 sidecar 代理。</p>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>下面的示例展示了一个外部 HTTPS 入口流量的网关配置</p>
+
+<pre><code>apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: ext-host-gwy
+spec:
+  selector:
+    app: my-gateway-controller
+  servers:
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    hosts:
+    - ext-host.example.com
+    tls:
+      mode: SIMPLE
+      serverCertificate: /tmp/tls.crt
+      privateKey: /tmp/tls.key
+</code></pre>
+
+<p>这个网关配置让 HTTPS 流量从 ext-host.example.com 通过 443 端口流入网格，但没有为请求指定任何路由规则。</p>
+
+<p>如果想要工作的网关指定路由，您必须把网关绑定到虚拟服务上。正如下面的示例所示，使用虚拟服务的 gateways 字段进行设置：</p>
+
+<pre><code>apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: virtual-svc
+spec:
+  hosts:
+  - ext-host.example.com
+  gateways:
+    - ext-host-gwy
+</code></pre>
+
+<p>然后就可以为出口流量配置带有路由规则的虚拟服务。</p>
+
+<h3 id="服务入口">服务入口</h3>
+
+<p>服务入口（Service Entry） 就是添加一个入口到 Istio 内部维护的服务注册中心。</p>
+
+<ul>
+<li>为外部目标 redirect 和转发请求，例如来自 web 端的 API 调用，或者流向遗留老系统的服务。</li>
+<li>为外部目标定义重试、超时和故障注入策略。</li>
+<li>添加一个运行在虚拟机的服务来扩展您的网格。</li>
+<li>从逻辑上添加来自不同集群的服务到网格，在 Kubernetes 上实现一个多集群 Istio 网格。</li>
+</ul>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>下面示例的 mesh-external 服务入口将 ext-resource 外部依赖项添加到 Istio 的服务注册中心</p>
+
+<pre><code>apiVersion: networking.istio.io/v1alpha3
+kind: ServiceEntry
+metadata:
+  name: svc-entry
+spec:
+  hosts:
+  - ext-svc.example.com
+  ports:
+  - number: 443
+    name: https
+    protocol: HTTPS
+  location: MESH_EXTERNAL
+  resolution: DNS
+</code></pre>
+
+<ul>
+<li>hosts：指定的外部资源，可以使用完全限定名或通配符作为前缀域名。</li>
+</ul>
+
+<h3 id="sidecar">sidecar</h3>
+
+<p>可以指定将 sidecar 配置应用于特定命名空间中的所有工作负载，或者使用 workloadSelector 选择特定的工作负载。例如，下面的 sidecar 配置将 bookinfo 命名空间中的所有服务配置为仅能访问运行在相同命名空间和 Istio 控制平面中的服务（目前需要使用 Istio 的策略和遥测功能）：</p>
+
+<pre><code>apiVersion: networking.istio.io/v1alpha3
+kind: Sidecar
+metadata:
+  name: default
+  namespace: bookinfo
+spec:
+  egress:
+  - hosts:
+    - &quot;./*&quot;
+    - &quot;istio-system/*&quot;
+</code></pre>
+
+<h3 id="故障恢复和故障注入">故障恢复和故障注入</h3>
+
+<p>除了为您的网格导流之外，Istio 还提供了可选的故障恢复和故障注入功能，您可以在运行时动态配置这些功能。使用这些特性可以让您的应用程序运行稳定，确保服务网格能够容忍故障节点，并防止局部故障级联影响到其他节点。</p>
+
+<blockquote>
+<p>超时</p>
+</blockquote>
+
+<p>超时是 Envoy 代理等待来自给定服务的答复的时间量，以确保服务不会因为等待答复而无限期的挂起，并在可预测的时间范围内调用成功或失败。HTTP 请求的默认超时时间是 15 秒，这意味着如果服务在 15 秒内没有响应，调用将失败。</p>
+
+<p>下面的示例是一个虚拟服务，它对 ratings 服务的 v1 子集的调用指定 10 秒超时：</p>
+
+<pre><code>apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: ratings
+spec:
+  hosts:
+  - ratings
+  http:
+  - route:
+    - destination:
+        host: ratings
+        subset: v1
+    timeout: 10s
+</code></pre>
+
+<blockquote>
+<p>重试</p>
+</blockquote>
+
+<p>重试设置指定如果初始调用失败，Envoy 代理尝试连接服务的最大次数。通过确保调用不会因为临时过载的服务或网络等问题而永久失败，重试可以提高服务可用性和应用程序的性能。重试之间的间隔（25ms+）是可变的，并由 Istio 自动确定，从而防止被调用服务被请求淹没。默认情况下，在第一次失败后，Envoy 代理不会重新尝试连接服务。</p>
+
+<p>下面的示例配置了在初始调用失败后最多重试 3 次来连接到服务子集，每个重试都有 2 秒的超时。</p>
+
+<pre><code>apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: ratings
+spec:
+  hosts:
+  - ratings
+  http:
+  - route:
+    - destination:
+        host: ratings
+        subset: v1
+    retries:
+      attempts: 3
+      perTryTimeout: 2s
+</code></pre>
+
+<blockquote>
+<p>熔断</p>
+</blockquote>
+
+<p>熔断器是 Istio 为创建具有弹性的微服务应用提供的另一个有用的机制。在熔断器中，设置一个对服务中的单个主机调用的限制，例如并发连接的数量或对该主机调用失败的次数。一旦限制被触发，熔断器就会“跳闸”并停止连接到该主机。使用熔断模式可以快速失败而不必让客户端尝试连接到过载或有故障的主机。</p>
+
+<p>熔断适用于在负载均衡池中的“真实”网格目标地址，您可以在目标规则中配置熔断器阈值，让配置适用于服务中的每个主机。下面的示例将 v1 子集的reviews服务工作负载的并发连接数限制为 100：</p>
+
+<pre><code>apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: reviews
+spec:
+  host: reviews
+  subsets:
+  - name: v1
+    labels:
+      version: v1
+    trafficPolicy:
+      connectionPool:
+        tcp:
+          maxConnections: 100
+</code></pre>
+
+<blockquote>
+<p>故障注入</p>
+</blockquote>
+
+<p>故障注入是一种将错误引入系统以确保系统能够承受并从错误条件中恢复的测试方法。</p>
+
+<p>您可以注入两种故障，它们都使用虚拟服务配置：</p>
+
+<ul>
+<li>延迟：延迟是时间故障。它们模拟增加的网络延迟或一个超载的上游服务。</li>
+<li>终止：终止是崩溃失败。他们模仿上游服务的失败。终止通常以 HTTP 错误码或 TCP 连接失败的形式出现。</li>
+</ul>
+
+<p>下面的虚拟服务为千分之一的访问 ratings 服务的请求配置了一个 5 秒的延迟：</p>
+
+<pre><code>apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: ratings
+spec:
+  hosts:
+  - ratings
+  http:
+  - fault:
+      delay:
+        percentage:
+          value: 0.1
+        fixedDelay: 5s
+    route:
+    - destination:
+        host: ratings
+        subset: v1
+</code></pre>
+
+<h2 id="扩展性">扩展性</h2>
+
+<p>扩展主要是对envoy的扩展。</p>
+
+<h2 id="安全">安全</h2>
+
+<p>Istio 安全功能提供强大的身份，强大的策略，透明的 TLS 加密，认证，授权和审计（AAA）工具来保护你的服务和数据。</p>
+
+<blockquote>
+<p>身份</p>
+</blockquote>
+
+<p>身份是任何安全基础架构的基本概念。在工作负载间通信开始时，双方必须交换包含身份信息的凭证以进行双向验证。在客户端，根据安全命名信息检查服务器的标识，以查看它是否是该服务的授权运行程序。在服务器端，服务器可以根据授权策略确定客户端可以访问哪些信息，审计谁在什么时间访问了什么，根据他们使用的工作负载向客户收费，并拒绝任何未能支付账单的客户访问工作负载。</p>
+
+<p>Istio 身份模型使用 service identity （服务身份）来确定一个请求源端的身份。这种模型有极好的灵活性和粒度，可以用服务身份来标识人类用户、单个工作负载或一组工作负载。</p>
+
+<p>在不同平台上可以使用的服务身份：</p>
+
+<pre><code>Kubernetes: Kubernetes service account
+GKE/GCE: GCP service account
+GCP: GCP service account
+AWS: AWS IAM user/role account
+本地（非 Kubernetes）：用户帐户、自定义服务帐户、服务名称、Istio 服务帐户或 GCP 服务帐户。自定义服务帐户引用现有服务帐户，就像客户的身份目录管理的身份一样。
+</code></pre>
+
+<blockquote>
+<p>认证</p>
+</blockquote>
+
+<p>Istio 提供两种类型的认证：</p>
+
+<ul>
+<li>Peer authentication：用于服务到服务的认证，以验证进行连接的客户端。Istio 提供双向 TLS 作为传输认证的全栈解决方案，无需更改服务代码就可以启用它。</li>
+<li>Request authentication：用于最终用户认证，以验证附加到请求的凭据。 Istio 使用 JSON Web Token（JWT）验证启用请求级认证，并使用自定义认证实现或任何 OpenID Connect 的认证实现（例如下面列举的）来简化的开发人员体验。</li>
+</ul>
+
+<p>1、双向TLS认证</p>
+
+<p>当一个工作负载使用双向 TLS 认证向另一个工作负载发送请求时，该请求的处理方式如下：</p>
+
+<ul>
+<li>Istio 将出站流量从客户端重新路由到客户端的本地 sidecar Envoy。</li>
+<li>客户端 Envoy 与服务器端 Envoy 开始双向 TLS 握手。在握手期间，客户端 Envoy 还做了安全命名检查，以验证服务器证书中显示的服务帐户是否被授权运行目标服务。</li>
+<li>客户端 Envoy 和服务器端 Envoy 建立了一个双向的 TLS 连接，Istio 将流量从客户端 Envoy 转发到服务器端 Envoy。</li>
+<li>授权后，服务器端 Envoy 通过本地 TCP 连接将流量转发到服务器服务。</li>
+</ul>
+
+<p><strong>宽容模式</strong></p>
+
+<p>Istio 双向 TLS 具有一个宽容模式（permissive mode），允许服务同时接受纯文本流量和双向 TLS 流量。这样对于将服务移植到启用了双向 TLS 的 Istio 上时，许多非 Istio 客户端和非 Istio 服务端通信时会产生问题有了一个解决方案。</p>
+
+<p>通常情况下，运维人员无法同时为所有客户端安装 Istio sidecar，甚至没有这样做的权限。即使在服务端上安装了 Istio sidecar，运维人员也无法在不中断现有连接的情况下启用双向 TLS。启用宽容模式后，服务可以同时接受纯文本和双向 TLS 流量。这个模式为入门提供了极大的灵活性。服务中安装的 Istio sidecar 立即接受双向 TLS 流量而不会打断现有的纯文本流量。因此，运维人员可以逐步安装和配置客户端 Istio sidecar 发送双向 TLS 流量。一旦客户端配置完成，运维人员便可以将服务端配置为仅 TLS 模式。</p>
+
+<p><strong>安全命名</strong></p>
+
+<p>安全命名能够防止 HTTPS 流量受到一般性网络劫持，除了 DNS 欺骗外，它还可以保护 TCP 流量免受一般网络劫持。如果攻击者劫持了 DNS 并修改了目的地的 IP 地址，它将无法用于 TCP 通信。这是因为 TCP 流量不包含主机名信息，我们只能依靠 IP 地址进行路由，而且甚至在客户端 Envoy 收到流量之前，也可能发生 DNS 劫持。</p>
+
+<blockquote>
+<p>认证架构</p>
+</blockquote>
+
+<p>使用 peer 和 request 认证策略为在 Istio 网格中接收请求的工作负载指定认证要求。网格运维人员使用 .yaml 文件来指定策略。部署后，策略将保存在 Istio 配置存储中。Istio 控制器监视配置存储。</p>
+
+<p><img src="/media/cloud/k8s/istio/istio1" alt="" /></p>
+
+<blockquote>
+<p>授权</p>
+</blockquote>
+
+<p>您无需显式启用 Istio 的授权功能。只需将授权策略应用于工作负载即可实施访问控制。对于未应用授权策略的工作负载，Istio 不会执行访问控制，放行所有请求。</p>
+
+<p>授权策略支持 ALLOW 和 DENY 动作。 拒绝策略优先于允许策略。如果将任何允许策略应用于工作负载，则默认情况下将拒绝对该工作负载的访问，除非策略中的规则明确允许。当您将多个授权策略应用于相同的工作负载时，Istio 会累加地应用它们。</p>
+
+<p>要配置授权策略，请创建一个 AuthorizationPolicy 自定义资源。 一个授权策略包括选择器（selector），动作（action） 和一个规则（rules）列表：</p>
+
+<ul>
+<li>selector 字段指定策略的目标</li>
+<li>action 字段指定允许还是拒绝请求</li>
+<li>rules 指定何时触发动作
+
+<ul>
+<li>rules 下的 from 字段指定请求的来源</li>
+<li>rules 下的 to 字段指定请求的操作</li>
+<li>rules 下的 when 字段指定应用规则所需的条件</li>
+</ul></li>
+</ul>
+
+<p>以下示例显示了一个授权策略，该策略允许两个源（服务帐号 cluster.local/ns/default/sa/sleep 和命名空间 dev），在使用有效的 JWT 令牌发送请求时，可以访问命名空间 foo 中的带有标签 app: httpbin 和 version: v1 的工作负载。</p>
+
+<pre><code>apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+ name: httpbin
+ namespace: foo
+spec:
+ selector:
+   matchLabels:
+     app: httpbin
+     version: v1
+ action: ALLOW
+ rules:
+ - from:
+   - source:
+       principals: [&quot;cluster.local/ns/default/sa/sleep&quot;]
+   - source:
+       namespaces: [&quot;dev&quot;]
+   to:
+   - operation:
+       methods: [&quot;GET&quot;]
+   when:
+   - key: request.auth.claims[iss]
+     values: [&quot;https://accounts.google.com&quot;]
+</code></pre>
+
+<p>下例显示了一个授权策略，如果请求来源不是命名空间 foo，请求将被拒绝。</p>
+
+<pre><code>apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+ name: httpbin-deny
+ namespace: foo
+spec:
+ selector:
+   matchLabels:
+     app: httpbin
+     version: v1
+ action: DENY
+ rules:
+ - from:
+   - source:
+       notNamespaces: [&quot;foo&quot;]
+</code></pre>
+
+<p>拒绝策略优先于允许策略。如果请求同时匹配上允许策略和拒绝策略，请求将被拒绝。Istio 首先评估拒绝策略，以确保允许策略不能绕过拒绝策略。很多使用匹配可以查看<a href="https://istio.io/latest/zh/docs/concepts/security/#authentication-architecture">官网</a>。</p>
+
+<blockquote>
+<p>授权架构</p>
+</blockquote>
+
+<p>每个 Envoy 代理都运行一个授权引擎，该引擎在运行时授权请求。当请求到达代理时，授权引擎根据当前授权策略评估请求上下文，并返回授权结果 ALLOW 或 DENY。 运维人员使用 .yaml 文件指定 Istio 授权策略。</p>
+
+<p><img src="/media/cloud/k8s/istio/istio2.svg" alt="" /></p>
+
+<h2 id="可视化">可视化</h2>
+
+<p>stio 生成以下类型的遥测数据，以提供对整个服务网格的可观察性：</p>
+
+<ul>
+<li>指标。Istio 基于 4 个监控的黄金标识（延迟、流量、错误、饱和）生成了一系列服务指标。Istio 还为网格控制平面提供了更详细的指标。除此以外还提供了一组默认的基于这些指标的网格监控仪表板。</li>
+<li>分布式追踪。Istio 为每个服务生成分布式追踪 span，运维人员可以理解网格内服务的依赖和调用流程。</li>
+<li>访问日志。当流量流入网格中的服务时，Istio 可以生成每个请求的完整记录，包括源和目标的元数据。此信息使运维人员能够将服务行为的审查控制到单个工作负载实例的级别。</li>
+</ul>
+
+<h1 id="安装部署">安装部署</h1>
+
+<h2 id="安装">安装</h2>
+
+<blockquote>
+<p>下载 Istio</p>
+</blockquote>
+
+<p>1、访问 Istio release 页面下载与您操作系统对应的安装文件。在 macOS 或 Linux 系统中，也可以通过以下命令下载最新版本的 Istio：</p>
+
+<pre><code>$ curl -L https://istio.io/downloadIstio | sh -
+</code></pre>
+
+<p>切换到 Istio 包所在目录下。例如：Istio 包名为 istio-1.6.8，则：</p>
+
+<pre><code>$ cd istio-1.6.8
+</code></pre>
+
+<p>安装目录包含如下内容：</p>
+
+<ul>
+<li>install/kubernetes 目录下，有 Kubernetes 相关的 YAML 安装文件</li>
+<li>samples/ 目录下，有示例应用程序</li>
+<li>bin/ 目录下，包含 istioctl 的客户端文件。istioctl 工具用于手动注入 Envoy sidecar 代理。</li>
+</ul>
+
+<p>2、将 istioctl 客户端路径增加到 path 环境变量中，macOS 或 Linux 系统的增加方式如下：</p>
+
+<pre><code>$ export PATH=$PWD/bin:$PATH
+</code></pre>
+
+<p>在使用 bash 或 ZSH 控制台时，可以选择启动 auto-completion option。</p>
+
+<blockquote>
+<p>安装 Istio</p>
+</blockquote>
+
+<p>1、安装 demo 配置</p>
+
+<pre><code>$ istioctl manifest apply --set profile=demo
+</code></pre>
+
+<p>为了验证是否安装成功，需要先确保以下 Kubernetes 服务正确部署，然后验证除 jaeger-agent 服务外的其他服务，是否均有正确的 CLUSTER-IP：</p>
+
+<pre><code>$ kubectl get svc -n istio-system
+NAME                     TYPE           CLUSTER-IP       EXTERNAL-IP     PORT(S)                                                                                                                                      AGE
+grafana                  ClusterIP      172.21.211.123   &lt;none&gt;          3000/TCP                                                                                                                                     2m
+istio-citadel            ClusterIP      172.21.177.222   &lt;none&gt;          8060/TCP,15014/TCP                                                                                                                           2m
+istio-egressgateway      ClusterIP      172.21.113.24    &lt;none&gt;          80/TCP,443/TCP,15443/TCP                                                                                                                     2m
+istio-galley             ClusterIP      172.21.132.247   &lt;none&gt;          443/TCP,15014/TCP,9901/TCP                                                                                                                   2m
+istio-ingressgateway     LoadBalancer   172.21.144.254   52.116.22.242   15020:31831/TCP,80:31380/TCP,443:31390/TCP,31400:31400/TCP,15029:30318/TCP,15030:32645/TCP,15031:31933/TCP,15032:31188/TCP,15443:30838/TCP   2m
+istio-pilot              ClusterIP      172.21.105.205   &lt;none&gt;          15010/TCP,15011/TCP,8080/TCP,15014/TCP                                                                                                       2m
+istio-policy             ClusterIP      172.21.14.236    &lt;none&gt;          9091/TCP,15004/TCP,15014/TCP                                                                                                                 2m
+istio-sidecar-injector   ClusterIP      172.21.155.47    &lt;none&gt;          443/TCP,15014/TCP                                                                                                                            2m
+istio-telemetry          ClusterIP      172.21.196.79    &lt;none&gt;          9091/TCP,15004/TCP,15014/TCP,42422/TCP                                                                                                       2m
+jaeger-agent             ClusterIP      None             &lt;none&gt;          5775/UDP,6831/UDP,6832/UDP                                                                                                                   2m
+jaeger-collector         ClusterIP      172.21.135.51    &lt;none&gt;          14267/TCP,14268/TCP                                                                                                                          2m
+jaeger-query             ClusterIP      172.21.26.187    &lt;none&gt;          16686/TCP                                                                                                                                    2m
+kiali                    ClusterIP      172.21.155.201   &lt;none&gt;          20001/TCP                                                                                                                                    2m
+prometheus               ClusterIP      172.21.63.159    &lt;none&gt;          9090/TCP                                                                                                                                     2m
+tracing                  ClusterIP      172.21.2.245     &lt;none&gt;          80/TCP                                                                                                                                       2m
+zipkin                   ClusterIP      172.21.182.245   &lt;none&gt;          9411/TCP                                                                                                                                     2m
+</code></pre>
+
+<p>如果集群运行在一个不支持外部负载均衡器的环境中（例如：minikube），istio-ingressgateway 的 EXTERNAL-IP 将显示为 <pending> 状态。请使用服务的 NodePort 或 端口转发来访问网关。</p>
+
+<p>2、请确保关联的 Kubernetes pod 已经部署，并且 STATUS 为 Running：</p>
+
+<pre><code>$ kubectl get pods -n istio-system
+NAME                                                           READY   STATUS      RESTARTS   AGE
+grafana-f8467cc6-rbjlg                                         1/1     Running     0          1m
+istio-citadel-78df5b548f-g5cpw                                 1/1     Running     0          1m
+istio-egressgateway-78569df5c4-zwtb5                           1/1     Running     0          1m
+istio-galley-74d5f764fc-q7nrk                                  1/1     Running     0          1m
+istio-ingressgateway-7ddcfd665c-dmtqz                          1/1     Running     0          1m
+istio-pilot-f479bbf5c-qwr28                                    1/1     Running     0          1m
+istio-policy-6fccc5c868-xhblv                                  1/1     Running     2          1m
+istio-sidecar-injector-78499d85b8-x44m6                        1/1     Running     0          1m
+istio-telemetry-78b96c6cb6-ldm9q                               1/1     Running     2          1m
+istio-tracing-69b5f778b7-s2zvw                                 1/1     Running     0          1m
+kiali-99f7467dc-6rvwp                                          1/1     Running     0          1m
+prometheus-67cdb66cbb-9w2hm                                    1/1     Running     0          1m
+</code></pre>
+
+<p>3、安装 Istio 后，就可以部署您自己的服务，或部署安装程序中系统的任意一个示例应用。</p>
+
+<ul>
+<li>应用程序必须使用 HTTP/1.1 或 HTTP/2.0 协议用于 HTTP 通信；HTTP/1.0 不支持。</li>
+
+<li><p>当使用 kubectl apply 来部署应用时，如果 pod 启动在标有 istio-injection=enabled 的命名空间中，那么，Istio sidecar 注入器将自动注入 Envoy 容器到应用的 pod 中：</p>
+
+<pre><code>$ kubectl label namespace &lt;namespace&gt; istio-injection=enabled
+$ kubectl create -n &lt;namespace&gt; -f &lt;your-app-spec&gt;.yaml
+</code></pre></li>
+
+<li><p>在没有 istio-injection 标记的命名空间中，在部署前可以使用 istioctl kube-inject 命令将 Envoy 容器手动注入到应用的 pod 中：</p>
+
+<pre><code>$ istioctl kube-inject -f &lt;your-app-spec&gt;.yaml | kubectl apply -f -
+</code></pre></li>
+</ul>
+
+<h2 id="卸载">卸载</h2>
+
+<p>卸载程序将删除 RBAC 权限、istio-system 命名空间和所有相关资源。可以忽略那些不存在的资源的报错，因为它们可能已经被删除掉了。</p>
+
+<pre><code>$ istioctl manifest generate --set profile=demo | kubectl delete -f -
+</code></pre>
+
+<h2 id="部署">部署</h2>
+
+<p>虽然istio是与平台无关的，但是我们大部分都是只是结合k8s平台应用，其他平台可以忽略。</p>
+
+<h1 id="实战">实战</h1>
+
+<h2 id="bookinfo">bookinfo</h2>
+
+<p>我们通过一个应用Bookinfo来展示istio的功能。这个应用模仿在线书店的一个分类，显示一本书的信息。 页面上会显示一本书的描述，书籍的细节（ISBN、页数等），以及关于这本书的一些评论。</p>
+
+<p>Bookinfo 应用分为四个单独的微服务：</p>
+
+<ul>
+<li>productpage. 这个微服务会调用 details 和 reviews 两个微服务，用来生成页面。</li>
+<li>details. 这个微服务中包含了书籍的信息。</li>
+<li>reviews. 这个微服务中包含了书籍相关的评论。它还会调用 ratings 微服务。</li>
+<li>ratings. 这个微服务中包含了由书籍评价组成的评级信息。</li>
+</ul>
+
+<p>reviews 微服务有 3 个版本：</p>
+
+<ul>
+<li>v1 版本不会调用 ratings 服务。</li>
+<li>v2 版本会调用 ratings 服务，并使用 1 到 5 个黑色星形图标来显示评分信息。</li>
+<li>v3 版本会调用 ratings 服务，并使用 1 到 5 个红色星形图标来显示评分信息。</li>
+</ul>
+
+<p>下图展示了这个应用的端到端架构。</p>
+
+<p><img src="/media/cloud/k8s/istio/istio.svg" alt="" /></p>
+
+<p>Bookinfo 应用中的几个微服务是由不同的语言编写的。 这些服务对 Istio 并无依赖，但是构成了一个有代表性的服务网格的例子：它由多个服务、多个语言构成，并且 reviews 服务具有多个版本，很具有代表性。</p>
+
+<h2 id="部署-1">部署</h2>
+
+<p>1、进入 Istio 安装目录。Istio 默认自动注入 Sidecar. 请为 default 命名空间打上标签 istio-injection=enabled：</p>
+
+<pre><code>$ kubectl label namespace default istio-injection=enabled
+</code></pre>
+
+<p>2、使用 kubectl 部署应用：</p>
+
+<pre><code>$ kubectl apply -f samples/bookinfo/platform/kube/bookinfo.yaml
+</code></pre>
+
+<p>上面的命令会启动全部的四个服务，其中也包括了 reviews 服务的三个版本（v1、v2 以及 v3）。</p>
+
+<p>3、确认所有的服务和 Pod 都已经正确的定义和启动：</p>
+
+<pre><code>$ kubectl get services
+NAME                       CLUSTER-IP   EXTERNAL-IP   PORT(S)              AGE
+details                    10.0.0.31    &lt;none&gt;        9080/TCP             6m
+kubernetes                 10.0.0.1     &lt;none&gt;        443/TCP              7d
+productpage                10.0.0.120   &lt;none&gt;        9080/TCP             6m
+ratings                    10.0.0.15    &lt;none&gt;        9080/TCP             6m
+reviews                    10.0.0.170   &lt;none&gt;        9080/TCP             6m
+
+$ kubectl get pods
+NAME                                        READY     STATUS    RESTARTS   AGE
+details-v1-1520924117-48z17                 2/2       Running   0          6m
+productpage-v1-560495357-jk1lz              2/2       Running   0          6m
+ratings-v1-734492171-rnr5l                  2/2       Running   0          6m
+reviews-v1-874083890-f0qf0                  2/2       Running   0          6m
+reviews-v2-1343845940-b34q5                 2/2       Running   0          6m
+reviews-v3-1813607990-8ch52                 2/2       Running   0          6m
+</code></pre>
+
+<p>4、确认 Bookinfo 应用是否正在运行，请在某个 Pod 中用 curl 命令对应用发送请求，例如 ratings：</p>
+
+<pre><code>$ kubectl exec -it $(kubectl get pod -l app=ratings -o jsonpath='{.items[0].metadata.name}') -c ratings -- curl productpage:9080/productpage | grep -o &quot;&lt;title&gt;.*&lt;/title&gt;&quot;
+&lt;title&gt;Simple Bookstore App&lt;/title&gt;
+</code></pre>
+
+<p>5、现在 Bookinfo 服务启动并运行中，需要使应用程序可以从外部访问 Kubernetes 集群，例如使用浏览器。可以用 Istio Gateway 来实现这个目标。为应用程序定义 Ingress 网关：</p>
+
+<pre><code>$ kubectl apply -f samples/bookinfo/networking/bookinfo-gateway.yaml
+</code></pre>
+
+<p>6、确认网关创建完成：</p>
+
+<pre><code>$ kubectl get gateway
+NAME               AGE
+bookinfo-gateway   32s
+</code></pre>
+
+<p>7、根据文档设置访问网关的 INGRESS_HOST 和 INGRESS_PORT 变量。确认并设置。</p>
+
+<p>设置 GATEWAY_URL：</p>
+
+<pre><code>$ export GATEWAY_URL=$INGRESS_HOST:$INGRESS_PORT
+</code></pre>
+
+<p>8、可以用 curl 命令来确认是否能够从集群外部访问 Bookinfo 应用程序：</p>
+
+<pre><code>$ curl -s http://${GATEWAY_URL}/productpage | grep -o &quot;&lt;title&gt;.*&lt;/title&gt;&quot;
+&lt;title&gt;Simple Bookstore App&lt;/title&gt;
+</code></pre>
+
+<p>还可以用浏览器打开网址 http://$GATEWAY_URL/productpage，来浏览应用的 Web 页面。如果刷新几次应用的页面，就会看到 productpage 页面中会随机展示 reviews 服务的不同版本的效果（红色、黑色的星形或者没有显示）。reviews 服务出现这种情况是因为我们还没有使用 Istio 来控制版本的路由。</p>
+
+<p>9、在使用 Istio 控制 Bookinfo 版本路由之前，您需要在目标规则中定义好可用的版本，命名为 subsets，运行以下命令为 Bookinfo 服务创建的默认的目标规则：</p>
+
+<p>如果没有启用双向 TLS，请执行以下命令：</p>
+
+<p>如果您是 Istio 的新手，并且使用了 demo 配置文件，请选择此步。</p>
+
+<pre><code>$ kubectl apply -f samples/bookinfo/networking/destination-rule-all.yaml
+</code></pre>
+
+<p>如果启用了双向 TLS，请执行以下命令：</p>
+
+<pre><code>$ kubectl apply -f samples/bookinfo/networking/destination-rule-all-mtls.yaml
+</code></pre>
+
+<p>等待几秒钟，以使目标规则生效。</p>
+
+<p>您可以使用以下命令查看目标规则：</p>
+
+<pre><code>$ kubectl get destinationrules -o yaml
+</code></pre>
+
+<p>10、到此部署就完成了，可以对这个系统进行其他的流控的操作，我们继续说明，我先看一下如何清理</p>
+
+<p>删除路由规则，并销毁应用的 Pod</p>
+
+<pre><code>$ samples/bookinfo/platform/kube/cleanup.sh
+</code></pre>
+
+<p>确认应用已经关停</p>
+
+<pre><code>$ kubectl get virtualservices   #-- there should be no virtual services
+$ kubectl get destinationrules  #-- there should be no destination rules
+$ kubectl get gateway           #-- there should be no gateway
+$ kubectl get pods              #-- the Bookinfo pods should be deleted
+</code></pre>
+
+<h2 id="流量管理-1">流量管理</h2>
+
+<p>流量管理是基本功能，也就是我们常说的流控，主要包括</p>
+
+<ul>
+<li>配置请求路由：将请求对应的动态路由到服务</li>
+<li>故障注入：注入故障来测试应用</li>
+<li>流量转移：将流量从旧版本迁移到新版本中</li>
+<li>设置超时时间</li>
+<li>熔断</li>
+<li>Ingress：控制入口流量</li>
+<li>Engress：控制出口流量</li>
+</ul>
+
+<h3 id="配置请求路由">配置请求路由</h3>
+
+<h2 id="安全-1">安全</h2>
+
+<p>安全是网络服务中必要的功能，能够保护数据交互的安全。</p>
+
+<ul>
+<li>认证：管控网格服务间进行双向TLS认证和终端用户身份认证。</li>
+<li>授权：给用户身份角色，控制访问。</li>
+</ul>
+
+<h2 id="策略">策略</h2>
+
+<p>网络通信的一些功能，主要是完成一些逻辑的处理。</p>
+
+<ul>
+<li>速率限制：动态的限制流量</li>
+<li>黑白名单：通过黑白名单来控制访问</li>
+<li>修改请求头和路由</li>
+</ul>
+
+<h2 id="可视化-1">可视化</h2>
+
+<p>就是让服务网格内部能够通过检测数据一目了然的看出来，便于控制和定位问题。</p>
+
+<ul>
+<li>指标：网格指标度量的配置、收集和处理。</li>
+<li>log： Istio 网格日志的配置、收集和处理。</li>
+<li>分布式追踪：服务调用链路的监控</li>
+<li>可视化： Istio 网格中可视化服务</li>
+</ul>
+
+<h1 id="架构">架构</h1>
+
+<p><img src="/media/cloud/k8s/istio/istio3.svg" alt="" /></p>
+
+<blockquote>
+<p>Envoy</p>
+</blockquote>
+
+<p>Envoy 是用 C++ 开发的高性能代理，用于协调服务网格中所有服务的入站和出站流量。</p>
+
+<p>Envoy 代理是唯一与数据平面流量交互的 Istio 组件。</p>
+
+<p>Envoy 代理被部署为服务的 sidecar，这种 sidecar 部署允许 Istio 提取大量关于流量行为的信号作为属性。Istio 可以使用这些属性来实施策略决策，并将其发送到监视系统以提供有关整个网格行为的信息。在逻辑上为服务增加了 Envoy 的许多内置特性，例如:</p>
+
+<ul>
+<li>动态服务发现</li>
+<li>负载均衡</li>
+<li>TLS 终端</li>
+<li>HTTP/2 与 gRPC 代理</li>
+<li>熔断器</li>
+<li>健康检查</li>
+<li>基于百分比流量分割的分阶段发布</li>
+<li>故障注入</li>
+<li>丰富的指标</li>
+</ul>
+
+<p>通过上面这些特性可以完成下面的基本功能</p>
+
+<ul>
+<li>流量控制功能：通过丰富的 HTTP、gRPC、WebSocket 和 TCP 流量路由规则来执行细粒度的流量控制。</li>
+<li>网络弹性特性：重试设置、故障转移、熔断器和故障注入。</li>
+<li>安全性和身份验证特性：执行安全性策略以及通过配置 API 定义的访问控制和速率限制。</li>
+<li>基于 WebAssembly 的可插拔扩展模型，允许通过自定义策略实施和生成网格流量的遥测。</li>
+</ul>
+
+<blockquote>
+<p>Pilot</p>
+</blockquote>
+
+<p>Pilot 为 Envoy sidecar 提供服务发现、用于智能路由的流量管理功能（例如，A/B 测试、金丝雀发布等）以及弹性功能（超时、重试、熔断器等）。</p>
+
+<p>通过下图的交互可以看出pilot的服务注册和发现功能</p>
+
+<p><img src="/media/cloud/k8s/istio/istio4.svg" alt="" /></p>
+
+<ul>
+<li>平台启动一个服务的新实例，该实例通知其平台适配器。</li>
+<li>平台适配器使用 Pilot 抽象模型注册实例。</li>
+<li>Pilot 将流量规则和配置派发给 Envoy 代理，来传达此次更改。</li>
+</ul>
+
+<blockquote>
+<p>citadel</p>
+</blockquote>
+
+<p>Citadel 通过内置的身份和证书管理，可以支持强大的服务到服务以及最终用户的身份验证。</p>
+
+<blockquote>
+<p>Galley</p>
+</blockquote>
+
+<p>Galley 是 Istio 的配置验证、提取、处理和分发组件。它负责将其余的 Istio 组件与从底层平台（例如 Kubernetes）获取用户配置的细节隔离开来。</p>
+
+<blockquote>
+<p>逻辑架构</p>
+</blockquote>
+
+<p>Istio 服务网格从逻辑上分为数据平面和控制平面。</p>
+
+<ul>
+<li>数据平面 由一组智能代理（Envoy）组成，被部署为 sidecar。这些代理负责协调和控制微服务之间的所有网络通信。他们还收集和报告所有网格流量的遥测数据。同时负责和控制平面进行交互。</li>
+<li>控制平面 管理并配置代理来进行流量路由。</li>
+</ul>
+
+<h1 id="原理">原理</h1>
+
+<h2 id="流量管理及请求路由">流量管理及请求路由</h2>
+
+<p>将流量从应用程序中解藕，使得 Istio 能提供各种流量管理的功能，例如：动态路由( 负载均衡，A/B 测试，金丝雀部署 )、故障处理( 超时，重试，熔断器，故障恢复 )以及故障注入( 测试服务之间的故障恢复策略的兼容性 )。这些都是通过 Pilot 与 Sidecar 共同协作完成的。</p>
+
+<p><img src="/media/cloud/k8s/istio/istio5" alt="" /></p>
+
+<p>一个 Pilot 主要由“平台适配器”、“抽象模型”、用于配置和调用 Envoy 的“Envoy API” 和 用于用户指定流量管理规则的“Rules API”所组成。</p>
+
+<ul>
+<li>平台适配器( Platform Adapter )从 Kubernetes API server 中获取 Pod 的注册信息。( 注意：Istio 本身并不具备服务注册的功能，它需要通过平台适配器和特定的平台结合才能具有完整的服务发现的功能。)</li>
+<li>用户通过 Pilot 的 Rules API 对所有被发现的服务的 Sidecar 进行各种高级特性( 包括路由规则、HTTP层的流量管理等 )的配置</li>
+<li>用户配置的这些规则被抽象模型翻译成低级配置</li>
+<li>Sidecar API(即 Envoy API) 将这些翻译好的低级配置通过 discovery API 分发到每个微服务上的 SIdecar(即 Envoy) 实例中</li>
+</ul>
+
+<h2 id="服务间通讯">服务间通讯</h2>
+
+<p>运维人员可以用 Pilot 指定路由规则，而 Envoy 根据这些规则动态地确定其服务版本的实际选择。Envoy 拦截并转发客户端和服务器之间的所有请求和相应。路由规则让 Envoy 能够根据诸如 header、source/destination 或分配给每个版本的权重等标准来进行版本选择。</p>
+
+<p><img src="/media/cloud/k8s/istio/istio6" alt="" /></p>
+
+<p>Service A 访问不同版本的 Service B 的工作流程如下：</p>
+
+<ul>
+<li>运维人员通过 Polit 的 Rules API 根据 destination 的相关标签配置分流规则</li>
+<li>Service A 运行时，其 Envoy 的配置规则更新</li>
+<li>Service A 根据新配置的规则访问带有不同标签的 Service B 的版本</li>
+</ul>
+
+<h2 id="集群出入站规则">集群出入站规则</h2>
+
+<p>Istio 默认进入和离开网络的所有流量都会通过 Envoy 进行传输。通过 Envoy 将流量路由到外部 Web 服务( 例如访问 Maps API 或 视频服务 API )的方式，运维人员可以为这些服务添加超时控制、重试、熔断器等功能；还能从服务连接中获得各种细节指标。</p>
+
+<p><img src="/media/cloud/k8s/istio/istio7" alt="" /></p>
+
+<p>流量从外网进入集群再流出的流程如下：</p>
+
+<ul>
+<li>通过 Kubernetes 的准入控制，外部流量进入 Istio</li>
+<li>流量与 Service A 和 Service B 的 Envoy 交互，并由 Envoy 获取服务具体相应的内容</li>
+<li>流量通过 Egress gateway 或 直接流出的方式流出 Istio</li>
+</ul>
+
+<h2 id="服务发现和负载均衡">服务发现和负载均衡</h2>
+
+<p>Istio 的服务注册功能是基于平台来实现的。Istio 默认存在用于跟踪 Pod 的服务注册表，而且还默认新的服务自动注册，不健康的服务被自动删除。</p>
+
+<p>Pilot 使用服务注册的信息，并提供与平台无关的 discovery API。网格中的 Envoy 提供服务发现功能，并相应地动态更新负载均衡池。</p>
+
+<p><img src="/media/cloud/k8s/istio/istio8" alt="" /></p>
+
+<ul>
+<li>每个微服务的 Pod 通过 Kubernetes 提供的服务注册机制进行注册</li>
+<li>已注册的 Service A 的 Envoy 通过 Pilot 中汇总的 Envoy 信息发现欲访问的 Service B</li>
+<li>Service A 的 Envoy 根据设置好的负载均衡或流量管理规则，对 Service B 的 Envoy 发起请求</li>
+<li>Service B 的 Envoy 根据设置好的规则确认是否接收 Service A 发出的请求。</li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-istio/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-istio/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/istio/">
+                            <i class="fa fa-tags"></i>
+                            istio
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">云计算K8s组件系列（二）---- K8s scheduler 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月24日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/cncf/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/distributed/store/store/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#istio">istio</a></li>
+<li><a href="#设计目标">设计目标</a></li>
+<li><a href="#核心功能">核心功能</a></li>
+<li><a href="#基本概念和使用">基本概念和使用</a>
+<ul>
+<li><a href="#流量管理">流量管理</a>
+<ul>
+<li><a href="#虚拟服务">虚拟服务</a></li>
+<li><a href="#目标规则">目标规则</a></li>
+<li><a href="#网关">网关</a></li>
+<li><a href="#服务入口">服务入口</a></li>
+<li><a href="#sidecar">sidecar</a></li>
+<li><a href="#故障恢复和故障注入">故障恢复和故障注入</a></li>
+</ul></li>
+<li><a href="#扩展性">扩展性</a></li>
+<li><a href="#安全">安全</a></li>
+<li><a href="#可视化">可视化</a></li>
+</ul></li>
+<li><a href="#安装部署">安装部署</a>
+<ul>
+<li><a href="#安装">安装</a></li>
+<li><a href="#卸载">卸载</a></li>
+<li><a href="#部署">部署</a></li>
+</ul></li>
+<li><a href="#实战">实战</a>
+<ul>
+<li><a href="#bookinfo">bookinfo</a></li>
+<li><a href="#部署-1">部署</a></li>
+<li><a href="#流量管理-1">流量管理</a>
+<ul>
+<li><a href="#配置请求路由">配置请求路由</a></li>
+</ul></li>
+<li><a href="#安全-1">安全</a></li>
+<li><a href="#策略">策略</a></li>
+<li><a href="#可视化-1">可视化</a></li>
+</ul></li>
+<li><a href="#架构">架构</a></li>
+<li><a href="#原理">原理</a>
+<ul>
+<li><a href="#流量管理及请求路由">流量管理及请求路由</a></li>
+<li><a href="#服务间通讯">服务间通讯</a></li>
+<li><a href="#集群出入站规则">集群出入站规则</a></li>
+<li><a href="#服务发现和负载均衡">服务发现和负载均衡</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

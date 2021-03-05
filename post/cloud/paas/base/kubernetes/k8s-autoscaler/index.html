@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Pod 水平自动伸缩（Horizontal Pod Autoscaler）和垂直扩展（Vertical Pod Autoscaler）以及CA（ cluster-autoscaler）特性，可以说是很实用的特性，完全自动化实现了资源的充分利用，所以单独拿出来说说。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s系列---- K8s autoscaler - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s系列---- K8s autoscaler
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2021年02月04日 
+                </div>
+                <h1 class="post-title">云计算K8s系列---- K8s autoscaler</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Pod 水平自动伸缩（Horizontal Pod Autoscaler）和垂直扩展（Vertical Pod Autoscaler）以及CA（ cluster-autoscaler）特性，可以说是很实用的特性，完全自动化实现了资源的充分利用，所以单独拿出来说说。</p>
+
+<h1 id="hpa">HPA</h1>
+
+<p>我们使用 kubectl scale 命令可以来实现 Pod 的扩缩容功能，但是这个毕竟是完全手动操作的，要应对线上的各种复杂情况，我们需要能够做到自动化去感知业务，来自动进行扩缩容。为此，Kubernetes 也为我们提供了这样的一个资源对象：Horizontal Pod Autoscaling（Pod 水平自动伸缩），简称HPA</p>
+
+<p>HPA原来是k8s下面单独的一个项目，现在已经独立在github上了。</p>
+
+<p><img src="/media/cloud/k8s/hpa" alt="" /></p>
+
+<p>Pod 水平自动伸缩特性由 Kubernetes API 资源和控制器实现。资源决定了控制器的行为。 控制器会周期性的获取平均 CPU 利用率，并与目标值相比较后来调整 replication controller 或 deployment 中的副本数量。主要应用于无状态的服务的扩缩容，一般无状态的服务都是使用deployment来部署的，可以直接使用scale来指定副本的数量&ndash;replicas的方式来完成扩缩容。pod 自动缩放不适用于无法缩放的对象，比如 DaemonSets。</p>
+
+<p>Horizontal Pod Autoscaling，简称HPA, Kubernetes通过HPA的设定，实现了容器的弹性伸缩功能。对于Kubernetes中的POD集群来说，HPA可以实现很多自动化功能，比如当POD中业务负载上升的时候，可以创建新的POD来保证业务系统稳定运行，当POD中业务负载下降的时候，可以销毁POD来减少资源的浪费。当前的弹性伸缩的指标包括：CPU，内存，并发数，包传输大小。HPA控制器默认每隔15秒就会运行一次（Pod 水平自动伸缩的实现是一个控制循环，由 controller manager 的 &ndash;horizontal-pod-autoscaler-sync-period 参数 指定周期（默认值为15秒）。），一旦创建的HPA，我们就可以通过命令查看获取到的当前指标信息。</p>
+
+<p>首先hpa要创建一个规则，就像我们之前创建ingress的规则一样，里面定义好一个扩容缩容的一个范围然后指定好对象，指定好它的预值，hpa本身就是一个控制器，循环的控制器，控制器将会不断从一系列的聚合 API（metrics.k8s.io、custom.metrics.k8s.io和external.metrics.k8s.io） 中获取指标数据。 metrics.k8s.io API 通常由 metrics-server（需要额外启动）提供。 可以从metrics-server 获取更多信息。，判断这个预值是不是到达你设置规则的预值，如果是的话，就会去执行这个scale帮你扩容这个副本，如果长期处于一个低使用率的情况下，它会帮你缩容这个副本，这个metrics server的资源来源是来自于cadvisor去拿的，想一下cadvisor可以提供那些指标，hpa可以拿到的，比如cpu,内存的使用率，主要采集你这些的利用率，所以hpa在早期已经支持了对CPU的弹性伸缩</p>
+
+<p>其实最早使用的不是metrics-server，而是heaspter，但是kubernetesv1.11以后不再支持通过heaspter采集监控数据，从 Kubernetes 1.12 开始，kubernetes 的安装脚本移除了 Heapster，从 1.13 开始完全移除了对 Heapster 的支持，Heapster 不再被维护。替代方案如下：</p>
+
+<ol>
+<li>用于支持自动扩缩容的 CPU/memory HPA metrics：metrics-server，metrics-server 通过 kube-apiserver 发现所有节点，然后调用 kubelet APIs（通过 https 接口）获得各节点（Node）和 Pod 的 CPU、Memory 等资源使用情况。</li>
+<li>通用的监控方案：使用第三方可以获取 Prometheus 格式监控指标的监控系统，如 Prometheus Operator。</li>
+<li>事件传输：使用第三方工具来传输、归档 kubernetes events。</li>
+</ol>
+
+<h2 id="原理">原理</h2>
+
+<p>从最基本的角度来看，pod 水平自动缩放控制器跟据当前指标和期望指标来计算缩放比例。</p>
+
+<pre><code>期望副本数 = ceil[当前副本数 * ( 当前指标 / 期望指标 )]
+</code></pre>
+
+<p>例如，当前指标为200m，目标设定值为100m,那么由于200.0 / 100.0 == 2.0， 副本数量将会翻倍。 如果当前指标为50m，副本数量将会减半，因为50.0 / 100.0 == 0.5。 如果计算出的缩放比例接近1.0（跟据&ndash;horizontal-pod-autoscaler-tolerance 参数全局配置的容忍值，默认为0.1）， 将会放弃本次缩放。</p>
+
+<p>有一些规则说明一下</p>
+
+<p>1、如果 HorizontalPodAutoscaler 指定的是targetAverageValue 或 targetAverageUtilization， 那么将会把指定pod的平均指标做为currentMetricValue。 然而，在检查容忍度和决定最终缩放值前，我们仍然会把那些无法获取指标的pod统计进去。</p>
+
+<p>2、所有被标记了删除时间戳(Pod正在关闭过程中)的 pod 和 失败的 pod 都会被忽略。</p>
+
+<p>3、如果某个 pod 缺失指标信息，它将会被搁置，只在最终确定缩值时再考虑。</p>
+
+<p>4、当使用 CPU 指标来缩放时，任何还未就绪（例如还在初始化）状态的 pod 或 最近的指标为就绪状态前的 pod， 也会被搁置</p>
+
+<p>由于受技术限制，pod 水平缩放控制器无法准确的知道 pod 什么时候就绪， 也就无法决定是否暂时搁置该 pod。 &ndash;horizontal-pod-autoscaler-initial-readiness-delay 参数（默认为30s），用于设置 pod 准备时间， 在此时间内的 pod 统统被认为未就绪。 &ndash;horizontal-pod-autoscaler-cpu-initialization-period参数（默认为5分钟），用于设置 pod 的初始化时间， 在此时间内的 pod，CPU 资源指标将不会被采纳。</p>
+
+<p>5、在排除掉被搁置的 pod 后，缩放比例就会跟据currentMetricValue / desiredMetricValue计算出来。</p>
+
+<p>6、如果有任何 pod 的指标缺失，我们会更保守地重新计算平均值， 在需要缩小时假设这些 pod 消耗了目标值的 100%， 在需要放大时假设这些 pod 消耗了0%目标值。 这可以在一定程度上抑制伸缩的幅度。</p>
+
+<p>7、如果存在任何尚未就绪的pod，我们可以在不考虑遗漏指标或尚未就绪的pods的情况下进行伸缩， 我们保守地假设尚未就绪的pods消耗了试题指标的0%，从而进一步降低了伸缩的幅度。</p>
+
+<p>8、在缩放方向（缩小或放大）确定后，我们会把未就绪的 pod 和缺少指标的 pod 考虑进来再次计算使用率。 如果新的比率与缩放方向相反，或者在容忍范围内，则跳过缩放。 否则，我们使用新的缩放比例。</p>
+
+<p>注意，平均利用率的原始值会通过 HorizontalPodAutoscaler 的状态体现（ 即使使用了新的使用率，也不考虑未就绪 pod 和 缺少指标的 pod)。</p>
+
+<p>9、如果创建 HorizontalPodAutoscaler 时指定了多个指标， 那么会按照每个指标分别计算缩放副本数，取最大的进行缩放。 如果任何一个指标无法顺利的计算出缩放副本数（比如，通过 API 获取指标时出错）， 那么本次缩放会被跳过。</p>
+
+<p>10、在 HPA 控制器执行缩放操作之前，会记录缩放建议信息（scale recommendation）。 控制器会在操作时间窗口中考虑所有的建议信息，并从中选择得分最高的建议。 这个值可通过 kube-controller-manager 服务的启动参数 &ndash;horizontal-pod-autoscaler-downscale-stabilization 进行配置， 默认值为 5min。 这个配置可以让系统更为平滑地进行缩容操作，从而消除短时间内指标值快速波动产生的影响。</p>
+
+<h2 id="指标类型">指标类型</h2>
+
+<p>hpa支持设置四种指标类型。</p>
+
+<p>1、资源度量指标，容器上指定资源的百分比，例如cpu使用率，在hap的资源配置清单中表现为</p>
+
+<pre><code>metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 50
+</code></pre>
+
+<p>type类型有两种</p>
+
+<pre><code>1、averageUtilization 百分比，比如cpu使用率
+2、AverageValue  数值，比如内存
+</code></pre>
+
+<p>2、Pod 度量指标</p>
+
+<p>这些指标从某一方面描述了Pod，在不同Pod之间进行平均，并通过与一个目标值比对来确定副本的数量，它们的工作方式与资源度量指标非常相像。</p>
+
+<pre><code>type: Pods
+pods:
+  metric:
+    name: packets-per-second
+  target:
+    type: AverageValue
+    averageValue: 1k
+</code></pre>
+
+<p>仅支持target 类型为AverageValue。</p>
+
+<p>3、对象度量指标</p>
+
+<p>描述一个在相同名字空间(namespace)中的其他对象。 请注意这些度量指标用于描述这些对象，并非从对象中获取。 对象度量指标支持的target类型包括Value和AverageValue。如果是Value类型，target值将直接与API返回的度量指标比较， 而AverageValue类型，API返回的度量指标将按照 Pod 数量拆分，然后再与target值比较。</p>
+
+<pre><code>type: Object
+object:
+  metric:
+    name: requests-per-second
+  describedObject:
+    apiVersion: networking.k8s.io/v1beta1
+    kind: Ingress
+    name: main-route
+  target:
+    type: Value
+    value: 2k
+</code></pre>
+
+<p>4、外部的度量指标</p>
+
+<p>如果你的应用程序处理主机上的消息队列， 为了让每30个任务有1个worker，你可以将下面的内容添加到 HorizontalPodAutoscaler 的配置中。</p>
+
+<pre><code>- type: External
+  external:
+    metric:
+      name: queue_messages_ready
+      selector: &quot;queue=worker_tasks&quot;
+    target:
+      type: AverageValue
+      averageValue: 30
+</code></pre>
+
+<p>External metrics 同时支持Value和AverageValue类型</p>
+
+<h2 id="实现">实现</h2>
+
+<p>上面的三种方案，我们获取数据都是访问对应的api，且每个api都是固定的，所以k8s会对直接到对应的api拉去指标，我们主要注册这个api并且指定对应的service服务去调用就可以了，当然监控服务还是要我们自己来部署的。</p>
+
+<pre><code>1、资源指标会使用 metrics.k8s.io API，一般由 metrics-server 提供。 它可以做为集群组件启动。
+    esource metrics API 官方的说法是给 k8s 核心组件提供监控指标的，但是它只提供了 pod 和 node 的 CPU 和内存指标，功能实在有限。
+    官方给出它可以做以下工作：
+        HPA：CPU 指标可以拿来做 HPA。v1 版本的 HPA 也许依赖这个，现在已经无所谓了；
+        pod 调度：官方的意思是这是个扩展的功能，因为现在的 pod 调度根本没有考虑到 node 的使用情况；
+        集群联邦：同样是资源使用，但是现在没有使用；
+        dashboard：出图，没用过 dashboard，也不知道是不是有效果；
+        kubectl top：这算是最实用的功能吧。
+2、用户指标会使用 custom.metrics.k8s.io API。 它由其他厂商的“适配器”API 服务器提供。 比如prometheus
+3、外部指标会使用 external.metrics.k8s.io API。可能由上面的用户指标适配器提供。
+</code></pre>
+
+<p>自Kubernetes 1.11版本起，K8s资源采集指标由Resource Metrics API（Metrics Server 实现）和Custom metrics api（Prometheus实现）两种API实现，传统Heapster监控被废弃。前者主要负责采集Node、Pod的核心资源数据，如内存、CPU等；而后者则主要负责自定义指标数据采集，如网卡流量，磁盘IOPS、HTTP请求数、数据库连接数等。</p>
+
+<p>所以这两种方式是合作的关系，但是其实promtheus能提供所有的指标，常规使用</p>
+
+<pre><code>Core metrics(核心指标)：由metrics-server提供API，即 metrics.k8s.io，仅提供Node和Pod的CPU和内存使用情况。
+Custom Metrics(自定义指标)：由Prometheus Adapter提供API，即 custom.metrics.k8s.io，由此可支持任意Prometheus采集到的自定义指标。
+</code></pre>
+
+<p>如下图</p>
+
+<p><img src="/media/cloud/k8s/hpa.png" alt="" /></p>
+
+<h3 id="metrics-server">metrics-server</h3>
+
+<p>在 HPA 的第一个版本中，我们需要 Heapster 提供 CPU 和内存指标，在 HPA v2 过后就需要安装 Metrcis Server 了，Metrics Server 可以通过标准的 Kubernetes API 把监控数据暴露出来，有了 Metrics Server 之后，我们就完全可以通过标准的 Kubernetes API 来访问我们想要获取的监控数据了：</p>
+
+<pre><code>https://masterip/apis/metrics.k8s.io/v1beta1/namespaces/&lt;namespace-name&gt;/pods/&lt;pod-name&gt;
+</code></pre>
+
+<p>其实就是声明了metrics.k8s.io的apiservice指向metrics-server。</p>
+
+<p><img src="/media/cloud/k8s/k8s-hpa" alt="" /></p>
+
+<p>通过上图可以看出，数据是来自于 kubelet 的 Summary API 采集而来的，然后metrics server收集然后通过api对外提供，这边讲一下metrics server不是集成于apiserver，而是单独运行的，而上面的api是apiserver模式的，通过 Kubernetes 提供的 Aggregator 汇聚插件来实现的，Aggregator 允许开发人员编写一个自己的服务，把这个服务注册到 Kubernetes 的 APIServer 里面去，这样我们就可以像原生的 APIServer 提供的 API 使用自己的 API 了，然后 Kubernetes 的 Aggregator 通过 Service 名称就可以转发到我们自己写的 Service 里面去了。</p>
+
+<p>在这边简单提一下这种方式的好处，我自己在设计和开发代码的时候就是特别喜欢这种非侵入性的插件模式：</p>
+
+<pre><code>增加了 API 的扩展性，开发人员可以编写自己的 API 服务来暴露他们想要的 API。
+丰富了 API，核心 kubernetes 团队阻止了很多新的 API 提案，通过允许开发人员将他们的 API 作为单独的服务公开，这样就无须社区繁杂的审查了。
+开发分阶段实验性 API，新的 API 可以在单独的聚合服务中开发，当它稳定之后，在合并会 APIServer 就很容易了。
+确保新 API 遵循 Kubernetes 约定，如果没有这里提出的机制，社区成员可能会被迫推出自己的东西，这样很可能造成社区成员和社区约定不一致。
+</code></pre>
+
+<p>要使用HPA，就需要先安装注册Metrics Server 服务，就需要开启 Aggregator，只要设计apiserver的启动参数就好</p>
+
+<pre><code>--requestheader-client-ca-file=&lt;path to aggregator CA cert&gt;
+--requestheader-allowed-names=aggregator
+--requestheader-extra-headers-prefix=X-Remote-Extra-
+--requestheader-group-headers=X-Remote-Group
+--requestheader-username-headers=X-Remote-User
+--proxy-client-cert-file=&lt;path to aggregator proxy cert&gt;
+--proxy-client-key-file=&lt;path to aggregator proxy key&gt;
+--enable-aggregator-routing=true
+</code></pre>
+
+<p>Kubeadm 搭建的，默认已经开启了，minikube只要使用minikube addons enable metrics-server就好，二进制安装就要手动设置这些参数了。部署metrics server</p>
+
+<p>我们在minikube中直接用addons启动注册，我们来查看一下对应的情况</p>
+
+<pre><code>$ kubectl get apiservices.apiregistration.k8s.io | grep metrics-server
+v1beta1.metrics.k8s.io                 kube-system/metrics-server   True        8d
+MacBook-Pro:exercise chunyinjiang$ kubectl describe apiservices.apiregistration.k8s.io v1beta1.metrics.k8s.io
+Name:         v1beta1.metrics.k8s.io
+Namespace:
+Labels:       addonmanager.kubernetes.io/mode=Reconcile
+              kubernetes.io/minikube-addons=metrics-server
+Annotations:  API Version:  apiregistration.k8s.io/v1
+Kind:         APIService
+Metadata:
+  Creation Timestamp:  2020-06-20T08:04:48Z
+  Resource Version:    1088313
+  Self Link:           /apis/apiregistration.k8s.io/v1/apiservices/v1beta1.metrics.k8s.io
+  UID:                 e870aa38-3091-4b62-967e-700823d7c215
+Spec:
+  Group:                     metrics.k8s.io
+  Group Priority Minimum:    100
+  Insecure Skip TLS Verify:  true
+  Service:
+    Name:            metrics-server
+    Namespace:       kube-system
+    Port:            443
+  Version:           v1beta1
+  Version Priority:  100
+Status:
+  Conditions:
+    Last Transition Time:  2020-06-26T10:27:06Z
+    Message:               all checks passed
+    Reason:                Passed
+    Status:                True
+    Type:                  Available
+Events:                    &lt;none&gt;
+</code></pre>
+
+<p>说明已经注册上去了。然后k8s就会去/apis/metrics.k8s.io/v1beta1/拉去对应的指标。其实就是到对应的service：metrics-server拉去指标。</p>
+
+<p>Metrics Server 会通过 kubelet 的 10250 端口获取信息，使用的是 hostname，我们部署集群的时候在节点的 /etc/hosts 里面添加了节点的 hostname 和 ip 的映射，但是是我们的 Metrics Server 的 Pod 内部并没有这个 hosts 信息，当然也就不识别 hostname 了，要解决这个问题，有两种方法：</p>
+
+<p>1、DNS</p>
+
+<p>第一种方法就是在集群内部的 DNS 服务里面添加上 hostname 的解析，比如我们这里集群中使用的是 CoreDNS，我们就可以去修改下 CoreDNS 的 Configmap 信息，添加上 hosts 信息：</p>
+
+<pre><code>$ kubectl edit configmap coredns -n kube-system
+apiVersion: v1
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health
+        hosts {  # 添加集群节点hosts隐射信息
+          10.151.30.11 ydzs-master
+          10.151.30.57 ydzs-node3
+          10.151.30.59 ydzs-node4
+          10.151.30.22 ydzs-node1
+          10.151.30.23 ydzs-node2
+          fallthrough
+        }
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           upstream
+           fallthrough in-addr.arpa ip6.arpa
+        }
+        prometheus :9153
+        proxy . /etc/resolv.conf
+        cache 30
+        reload
+    }
+kind: ConfigMap
+metadata:
+  creationTimestamp: 2019-05-18T11:07:46Z
+  name: coredns
+  namespace: kube-system
+</code></pre>
+
+<p>这样当在集群内部访问集群的 hostname 的时候就可以解析到对应的 ip 了。</p>
+
+<p>2、指定ip</p>
+
+<p>另外一种方法就是在 metrics-server 的启动参数中修改 kubelet-preferred-address-types 参数，如下：</p>
+
+<pre><code>args:
+- --cert-dir=/tmp
+- --secure-port=4443
+- --kubelet-insecure-tls #用于跳过验证
+- --kubelet-preferred-address-types=InternalIP
+</code></pre>
+
+<p>验证metrics server是否安装成功，只要看有没有数据就行了</p>
+
+<pre><code>MacBook-Pro:exercise chunyinjiang$ kubectl top nodes
+NAME       CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
+minikube   172m         8%     2969Mi          77%
+MacBook-Pro:exercise chunyinjiang$ kubectl top pod
+NAME                    CPU(cores)   MEMORY(bytes)
+guestbook-clone-6dwl2   0m           1Mi
+guestbook-clone-7dtxx   0m           1Mi
+guestbook-clone-8tt9d   0m           1Mi
+guestbook-clone-c2hhc   0m           1Mi
+guestbook-clone-cbp59   0m           1Mi
+guestbook-clone-dncmh   0m           1Mi
+guestbook-clone-hl9jk   0m           1Mi
+guestbook-clone-j2s28   0m           1Mi
+guestbook-clone-j8jg9   0m           1Mi
+guestbook-clone-j94s9   0m           1Mi
+guestbook-clone-k9j5g   0m           1Mi
+guestbook-clone-l52km   0m           1Mi
+guestbook-clone-m6v7s   0m           1Mi
+guestbook-clone-nvst8   0m           1Mi
+guestbook-clone-q9dvt   0m           1Mi
+guestbook-clone-rvjww   0m           1Mi
+guestbook-clone-sdkg8   0m           1Mi
+guestbook-clone-xjjq2   0m           1Mi
+guestbook-clone-z4mwp   0m           1Mi
+guestbook-clone-zcpkq   0m           1Mi
+redis-master-fq8vp      0m           2Mi
+redis-slave-srgsc       1m           2Mi
+redis-slave-vglqg       0m           2Mi
+</code></pre>
+
+<p>可见已经有数据返回了，就是成功了。</p>
+
+<h4 id="基于cpu来实现hpa">基于cpu来实现hpa</h4>
+
+<p>0、运行业务容器</p>
+
+<p>我们用 Deployment 来创建一个 Nginx Pod，资源清单如下所示：</p>
+
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hpa-demo
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: 50Mi
+            cpu: 50m
+</code></pre>
+
+<p>如果要想让 HPA 生效，对应的 Pod 资源必须添加 requests 资源声明，创建deployment</p>
+
+<pre><code>MacBook-Pro:exercise chunyinjiang$ kubectl apply -f nginx.yaml
+deployment.apps/hpa-demo created
+</code></pre>
+
+<p>1、生成HPA控制器</p>
+
+<p>生成了一个HPA的控制器，用于控制自动扩缩容，当deployment资源对象的CPU使用率达到10%时，就进行扩容，最多可以扩容到10个</p>
+
+<pre><code>MacBook-Pro:exercise chunyinjiang$ kubectl autoscale deployment hpa-demo --cpu-percent=10 --min=1 --max=10
+horizontalpodautoscaler.autoscaling/hpa-demo autoscaled
+</code></pre>
+
+<p>查看</p>
+
+<pre><code>MacBook-Pro:exercise chunyinjiang$ kubectl get hpa
+NAME       REFERENCE             TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+hpa-demo   Deployment/hpa-demo   0%/10%    1         10        1          5m30s
+MacBook-Pro:exercise chunyinjiang$ kubectl describe hpa hpa-demo
+Name:                                                  hpa-demo
+Namespace:                                             default
+Labels:                                                &lt;none&gt;
+Annotations:                                           &lt;none&gt;
+CreationTimestamp:                                     Thu, 18 Jun 2020 16:58:16 +0800
+Reference:                                             Deployment/hpa-demo
+Metrics:                                               ( current / target )
+  resource cpu on pods  (as a percentage of request):  0% (0) / 10%
+Min replicas:                                          1
+Max replicas:                                          10
+Deployment pods:                                       1 current / 1 desired
+</code></pre>
+
+<p>可以看到hpa是正常的，如果在deployment中没有设置资源requset，就会影响计算，就会报错：failed to get cpu utilization: missing request for cpu</p>
+
+<p>再看看pod的数量，只有一个。</p>
+
+<pre><code>MacBook-Pro:exercise chunyinjiang$ kubectl get pod -o wide | grep hpa
+hpa-demo-644d845b7f-bb4ww   1/1     Running   0          17m    172.17.0.33   minikube   &lt;none&gt;           &lt;none&gt;
+</code></pre>
+
+<p>2、模拟消耗nginx的资源，并验证pod是否会自动扩容与缩容</p>
+
+<p>直接在宿主机器上执行一个死循环</p>
+
+<pre><code>while true; do curl http://172.17.0.33 ; done
+</code></pre>
+
+<p>默认15s采集一次，每隔15S查看一下，可以很轻松的看出扩缩容，注意：当停止死循环请求后，也并不会立即减少pod数量，会等一段时间后减少pod数量，防止流量再次激增。至此，pod副本数量的自动扩缩容就实现了。扩容默认3m，所容默认持续5m</p>
+
+<pre><code>MacBook-Pro:yaml chunyinjiang$ kubectl get hpa
+NAME       REFERENCE             TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+hpa-demo   Deployment/hpa-demo   38%/10%   1         10        4          19m
+MacBook-Pro:yaml chunyinjiang$ kubectl get hpa
+NAME       REFERENCE             TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+hpa-demo   Deployment/hpa-demo   58%/10%   1         10        6          20m
+MacBook-Pro:yaml chunyinjiang$ kubectl get hpa
+NAME       REFERENCE             TARGETS   MINPODS   MAXPODS   REPLICAS   AGE
+hpa-demo   Deployment/hpa-demo   0%/10%    1         10        10         23m
+</code></pre>
+
+<p>可以看出最后并没有一下减少pod，等一会可以看到缩到1个了。基于内存实现自动扩缩容和cpu基本是一样，都是属于资源度量指标的设置。</p>
+
+<h4 id="总结">总结</h4>
+
+<p>默认就是使用metrics.k8s.io API来调用mertrics-server，因为metrics-server都是来源于kubelet集成的cadvisor，基本就是核心指标。你要是想用其他的两种API接口也是可以的，需要自己定义apiservice。</p>
+
+<h3 id="生态监控系统">生态监控系统</h3>
+
+<p>使用第三方监控系统，常规就是使用custom.metrics.k8s.io API来调用对应的服务。</p>
+
+<h4 id="基于prometheus">基于prometheus</h4>
+
+<p>Prometheus 用于监控应用和集群来获取应用负载和集群本身的各种指标，但是prometheus的指标并不能直接给k8s使用，所以k8s-prometheus-adapter 可以帮我们把 Prometheus 收集的指标转化为k8s可用的指标，我们只要注册custom.metrics.k8s.io API到k8s-prometheus-adapter 的service，使得HPA 资源对象也可以很轻易的直接使用。</p>
+
+<p>当HPA请求metrics时，kube-aggregator(apiservice的controller)会通过ustom.metrics.k8s.io API接口将请求转发到adapter，adapter作为kubernentes集群的pod，它会根据配置的rules从Prometheus抓取并处理metrics，在处理(如重命名metrics等)完后将metric通过custom metrics API返回给HPA。最后HPA通过获取的metrics的value对Deployment/ReplicaSet进行扩缩容。</p>
+
+<p><img src="/media/cloud/k8s/hpa2" alt="" /></p>
+
+<p>我们将 k8s-prometheus-adapter 安装到集群中，并添加一个规则来跟踪 Pod 的请求，这样我们就可以将 Prometheus 中的任何一个指标都用于 HPA，但是前提是你得通过查询语句将它拿到（包括指标名称和其对应的值）。</p>
+
+<p>1、部署prometheus，开启prometheus自动配置发现，我们直接使用<a href="/post/monitor/prometheus/prometheus-operater/#部署prometheus生态">prometheus-operator</a>就可以</p>
+
+<p>2、部署k8s-prometheus-adapter</p>
+
+<p>其实在<a href="/post/monitor/prometheus/prometheus-operater/#部署prometheus生态">prometheus-operator</a>中已经部署了k8s-prometheus-adapter，我们可以查看一下</p>
+
+<pre><code>$ kubectl get all -n monitoring | grep adapter
+pod/prometheus-adapter-66b9c9dd58-6bdbm    1/1     Running   0          13h
+service/prometheus-adapter      ClusterIP   10.97.73.122    &lt;none&gt;        443/TCP                      8d
+deployment.apps/prometheus-adapter    1/1     1            1           8d
+replicaset.apps/prometheus-adapter-5cdcdf9c8d    0         0         0       8d
+replicaset.apps/prometheus-adapter-66b9c9dd58    1         1         1       13h
+</code></pre>
+
+<p>k8s-prometheus-adapter是将prometheus的metrics数据格式转换成k8s API接口能识别的格式，同时通过apiservice扩展的模式注册到kube-apiserver来给k8s进行调用，我们查看对应的api-versions</p>
+
+<pre><code>$ kubectl api-versions  | grep metrics
+metrics.k8s.io/v1beta1
+</code></pre>
+
+<p>这边只是声明了metrics.k8s.io这个api到prometheus-adapter去拉去核心指标，我们就可以重/apis/metrics.k8s.io/v1beta1这个URL来获取指标</p>
+
+<pre><code>$ kubectl get --raw=&quot;/apis/metrics.k8s.io/v1beta1&quot;
+{
+    &quot;kind&quot;:&quot;APIResourceList&quot;,
+    &quot;apiVersion&quot;:&quot;v1&quot;,
+    &quot;groupVersion&quot;:&quot;metrics.k8s.io/v1beta1&quot;,
+    &quot;resources&quot;:[
+        {
+            &quot;name&quot;:&quot;nodes&quot;,
+            &quot;singularName&quot;:&quot;&quot;,
+            &quot;namespaced&quot;:false,
+            &quot;kind&quot;:&quot;NodeMetrics&quot;,
+            &quot;verbs&quot;:[
+                &quot;get&quot;,
+                &quot;list&quot;
+            ]
+        },
+        {
+            &quot;name&quot;:&quot;pods&quot;,
+            &quot;singularName&quot;:&quot;&quot;,
+            &quot;namespaced&quot;:true,
+            &quot;kind&quot;:&quot;PodMetrics&quot;,
+            &quot;verbs&quot;:[
+                &quot;get&quot;,
+                &quot;list&quot;
+            ]
+        }
+    ]
+}
+</code></pre>
+
+<p>我们可以看出来这个接口主要获取了核心资源指标，比如nodes，pods，我们来看一下</p>
+
+<pre><code>$ kubectl get --raw &quot;/apis/metrics.k8s.io/v1beta1/nodes&quot;
+{&quot;kind&quot;:&quot;NodeMetricsList&quot;,&quot;apiVersion&quot;:&quot;metrics.k8s.io/v1beta1&quot;,&quot;metadata&quot;:{&quot;selfLink&quot;:&quot;/apis/metrics.k8s.io/v1beta1/nodes&quot;},&quot;items&quot;:[]}
+$ kubectl get --raw &quot;/apis/metrics.k8s.io/v1beta1/pods&quot;
+{
+    &quot;kind&quot;:&quot;PodMetricsList&quot;,
+    &quot;apiVersion&quot;:&quot;metrics.k8s.io/v1beta1&quot;,
+    &quot;metadata&quot;:{
+        &quot;selfLink&quot;:&quot;/apis/metrics.k8s.io/v1beta1/pods&quot;
+    },
+    &quot;items&quot;:[
+        {
+            &quot;metadata&quot;:{
+                &quot;name&quot;:&quot;kube-state-metrics-957fd6c75-wlnm4&quot;,
+                &quot;namespace&quot;:&quot;monitoring&quot;,
+                &quot;selfLink&quot;:&quot;/apis/metrics.k8s.io/v1beta1/namespaces/monitoring/pods/kube-state-metrics-957fd6c75-wlnm4&quot;,
+                &quot;creationTimestamp&quot;:&quot;2020-07-01T03:37:27Z&quot;
+            },
+            &quot;timestamp&quot;:&quot;2020-07-01T03:37:27Z&quot;,
+            &quot;window&quot;:&quot;0s&quot;,
+            &quot;containers&quot;:[
+                {
+                    &quot;name&quot;:&quot;&quot;,
+                    &quot;usage&quot;:{
+                        &quot;cpu&quot;:&quot;1m&quot;,
+                        &quot;memory&quot;:&quot;49112Ki&quot;
+                    }
+                }
+            ]
+        },
+        {
+            &quot;metadata&quot;:{
+                &quot;name&quot;:&quot;alertmanager-main-1&quot;,
+                &quot;namespace&quot;:&quot;monitoring&quot;,
+                &quot;selfLink&quot;:&quot;/apis/metrics.k8s.io/v1beta1/namespaces/monitoring/pods/alertmanager-main-1&quot;,
+                &quot;creationTimestamp&quot;:&quot;2020-07-01T03:37:27Z&quot;
+            },
+            &quot;timestamp&quot;:&quot;2020-07-01T03:37:27Z&quot;,
+            &quot;window&quot;:&quot;0s&quot;,
+            &quot;containers&quot;:[
+                {
+                    &quot;name&quot;:&quot;&quot;,
+                    &quot;usage&quot;:{
+                        &quot;cpu&quot;:&quot;5m&quot;,
+                        &quot;memory&quot;:&quot;32664Ki&quot;
+                    }
+                }
+            ]
+        },
+        {
+            &quot;metadata&quot;:{
+                &quot;name&quot;:&quot;storage-provisioner&quot;,
+                &quot;namespace&quot;:&quot;kube-system&quot;,
+                &quot;selfLink&quot;:&quot;/apis/metrics.k8s.io/v1beta1/namespaces/kube-system/pods/storage-provisioner&quot;,
+                &quot;creationTimestamp&quot;:&quot;2020-07-01T03:37:27Z&quot;
+            },
+            &quot;timestamp&quot;:&quot;2020-07-01T03:37:27Z&quot;,
+            &quot;window&quot;:&quot;0s&quot;,
+            &quot;containers&quot;:[
+                {
+                    &quot;name&quot;:&quot;&quot;,
+                    &quot;usage&quot;:{
+                        &quot;cpu&quot;:&quot;0&quot;,
+                        &quot;memory&quot;:&quot;30208Ki&quot;
+                    }
+                }
+            ]
+        },
+        。。。。。//很多数据，不展示了。
+            ]
+        }
+    ]
+}
+</code></pre>
+
+<p>那么如果我们需要自定义一下其他的指标，我们就需要使用的custom.metrics.k8s.io API，我们就需要部署k8s-prometheus-adapter中的deploy，当然这个项目是在新的namespaces中创建新的相关配置，可能会存在冲突，可以在github上找到相关资源配置清单。</p>
+
+<p>我们直接查看</p>
+
+<pre><code>$ kubectl get apiservice | grep monitoring/prometheus-adapter
+v1beta1.custom.metrics.k8s.io          monitoring/prometheus-adapter   True        4m10s
+v1beta1.metrics.k8s.io                 monitoring/prometheus-adapter   True        4m10s
+$ kubectl api-versions | grep metrics
+custom.metrics.k8s.io/v1beta1
+metrics.k8s.io/v1beta1
+</code></pre>
+
+<p>和metrics.k8s.io/v1beta1一样，自定义接口api也是到k8s-prometheus-adapter去拉去数据。我们可以直接访问这个对应的接口获取数据。</p>
+
+<pre><code>$ kubectl get --raw &quot;/apis/custom.metrics.k8s.io/v1beta1&quot;
+</code></pre>
+
+<p>可以查到所有的在prometheus-adapter的<a href="/post/monitor/prometheus/prometheus-operater/#adapter">配置文件</a>中指定查询的指标，如果只是查询相关的指标，可以访问 /apis/custom.metrics.k8s.io/v1beta1/namespaces/monitoring/pods/*/fs_usage_bytes 则是通过 metricsQuery 进行查询，从而获取每个 pod 的指标值。</p>
+
+<p>很多人会使用 metrics server 提供 resource metrics API，然后使用 Prometheus adapter 提供 custom metrics API。但是其实 Prometheus adapter 完全可以支持这两种 api，因此我们完全不需要 metrics server，只部署一个 Prometheus adapter 就行。我们上面就是这么部署的。</p>
+
+<h3 id="实例">实例</h3>
+
+<p>下面我们以nginx的请求总数为指标来做扩缩容</p>
+
+<p>1、先创建nginx服务</p>
+
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hpa-prom-demo
+spec:
+  selector:
+    matchLabels:
+      app: nginx-server
+  template:
+    metadata:
+      labels:
+        app: nginx-server
+    spec:
+      containers:
+      - name: nginx-demo
+        image: cnych/nginx-vts:v1.0
+        resources:
+          limits:
+            cpu: 50m
+          requests:
+            cpu: 50m
+        ports:
+        - containerPort: 80
+          name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hpa-prom-demo
+  annotations:
+    prometheus.io/scrape: &quot;true&quot;
+    prometheus.io/port: &quot;80&quot;
+    prometheus.io/path: &quot;/status/format/prometheus&quot;
+spec:
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+  selector:
+    app: nginx-server
+  type: NodePort
+</code></pre>
+
+<p>这里我们部署的应用是在 80 端口的 /status/format/prometheus 这个端点暴露 nginx-vts 指标的，我们已经在 Prometheus 中配置了 Endpoints 的自动发现，所以我们直接在 Service 对象的 annotations 中进行配置，这样我们就可以在 Prometheus 中采集该指标数据了。</p>
+
+<p>2、配置hpa指标的查询配置在adapter中</p>
+
+<pre><code>rules:
+- seriesQuery: 'nginx_vts_server_requests_total'
+  seriesFilters: []
+  resources:
+    overrides:
+      kubernetes_namespace:
+        resource: namespace
+      kubernetes_pod_name:
+        resource: pod
+  name:
+    matches: &quot;^(.*)_total&quot;
+    as: &quot;${1}_per_second&quot;
+  metricsQuery: (sum(rate(&lt;&lt;.Series&gt;&gt;{&lt;&lt;.LabelMatchers&gt;&gt;}[1m])) by (&lt;&lt;.GroupBy&gt;&gt;))
+</code></pre>
+
+<p>我们就可以通过custom api来获取指标了，我们可以通过命令行查询一下</p>
+
+<pre><code>$ kubectl get --raw &quot;/apis/custom.metrics.k8s.io/v1beta1/namespaces/default/pods/*/nginx_vts_server_requests_per_second&quot; | jq .
+{
+  &quot;kind&quot;: &quot;MetricValueList&quot;,
+  &quot;apiVersion&quot;: &quot;custom.metrics.k8s.io/v1beta1&quot;,
+  &quot;metadata&quot;: {
+    &quot;selfLink&quot;: &quot;/apis/custom.metrics.k8s.io/v1beta1/namespaces/default/pods/%2A/nginx_vts_server_requests_per_second&quot;
+  },
+  &quot;items&quot;: [
+    {
+      &quot;describedObject&quot;: {
+        &quot;kind&quot;: &quot;Pod&quot;,
+        &quot;namespace&quot;: &quot;default&quot;,
+        &quot;name&quot;: &quot;hpa-prom-demo-755bb56f85-lvksr&quot;,
+        &quot;apiVersion&quot;: &quot;/v1&quot;
+      },
+      &quot;metricName&quot;: &quot;nginx_vts_server_requests_per_second&quot;,
+      &quot;timestamp&quot;: &quot;2020-04-07T09:45:45Z&quot;,
+      &quot;value&quot;: &quot;527m&quot;,
+      &quot;selector&quot;: null
+    }
+  ]
+}
+</code></pre>
+
+<p>3、部署hpa</p>
+
+<pre><code>apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: nginx-custom-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hpa-prom-demo
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+  - type: Pods
+    pods:
+      metricName: nginx_vts_server_requests_per_second
+      targetAverageValue: 10
+</code></pre>
+
+<p>创建</p>
+
+<pre><code>$ kubectl apply -f hpa-prome.yaml
+horizontalpodautoscaler.autoscaling/nginx-custom-hpa created
+$ kubectl describe hpa nginx-custom-hpa
+Name:                                              nginx-custom-hpa
+Namespace:                                         default
+Labels:                                            &lt;none&gt;
+Annotations:                                       kubectl.kubernetes.io/last-applied-configuration:
+                                                     {&quot;apiVersion&quot;:&quot;autoscaling/v2beta1&quot;,&quot;kind&quot;:&quot;HorizontalPodAutoscaler&quot;,&quot;metadata&quot;:{&quot;annotations&quot;:{},&quot;name&quot;:&quot;nginx-custom-hpa&quot;,&quot;namespace&quot;:&quot;d...
+CreationTimestamp:                                 Tue, 07 Apr 2020 17:54:55 +0800
+Reference:                                         Deployment/hpa-prom-demo
+Metrics:                                           ( current / target )
+  &quot;nginx_vts_server_requests_per_second&quot; on pods:  &lt;unknown&gt; / 10
+Min replicas:                                      2
+Max replicas:                                      5
+Deployment pods:                                   1 current / 2 desired
+Conditions:
+  Type         Status  Reason            Message
+  ----         ------  ------            -------
+  AbleToScale  True    SucceededRescale  the HPA controller was able to update the target scale to 2
+Events:
+  Type    Reason             Age   From                       Message
+  ----    ------             ----  ----                       -------
+  Normal  SuccessfulRescale  7s    horizontal-pod-autoscaler  New size: 2; reason: Current number of replicas below Spec.MinReplicas
+</code></pre>
+
+<p>4、对应用进行压测</p>
+
+<pre><code>$ while true; do wget -q -O- http://ip:port; done
+</code></pre>
+
+<p>打开另外一个终端观察 HPA 对象的变化：</p>
+
+<pre><code>$ kubectl get hpa
+NAME               REFERENCE                  TARGETS     MINPODS   MAXPODS   REPLICAS   AGE
+nginx-custom-hpa   Deployment/hpa-prom-demo   14239m/10   2         5         2          4m27s
+$ kubectl describe hpa nginx-custom-hpa
+Name:                                              nginx-custom-hpa
+Namespace:                                         default
+Labels:                                            &lt;none&gt;
+Annotations:                                       kubectl.kubernetes.io/last-applied-configuration:
+                                                     {&quot;apiVersion&quot;:&quot;autoscaling/v2beta1&quot;,&quot;kind&quot;:&quot;HorizontalPodAutoscaler&quot;,&quot;metadata&quot;:{&quot;annotations&quot;:{},&quot;name&quot;:&quot;nginx-custom-hpa&quot;,&quot;namespace&quot;:&quot;d...
+CreationTimestamp:                                 Tue, 07 Apr 2020 17:54:55 +0800
+Reference:                                         Deployment/hpa-prom-demo
+Metrics:                                           ( current / target )
+  &quot;nginx_vts_server_requests_per_second&quot; on pods:  14308m / 10
+Min replicas:                                      2
+Max replicas:                                      5
+Deployment pods:                                   3 current / 3 desired
+Conditions:
+  Type            Status  Reason              Message
+  ----            ------  ------              -------
+  AbleToScale     True    ReadyForNewScale    recommended size matches current size
+  ScalingActive   True    ValidMetricFound    the HPA was able to successfully calculate a replica count from pods metric nginx_vts_server_requests_per_second
+  ScalingLimited  False   DesiredWithinRange  the desired count is within the acceptable range
+Events:
+  Type    Reason             Age   From                       Message
+  ----    ------             ----  ----                       -------
+  Normal  SuccessfulRescale  5m2s  horizontal-pod-autoscaler  New size: 2; reason: Current number of replicas below Spec.MinReplicas
+  Normal  SuccessfulRescale  61s   horizontal-pod-autoscaler  New size: 3; reason: pods metric nginx_vts_server_requests_per_second above target
+</code></pre>
+
+<p>可以看到指标 nginx_vts_server_requests_per_second 的数据已经超过阈值了，触发扩容动作了，副本数变成了3，扩缩容和上面是一样的，就不多说了。</p>
+
+<p>到这里我们就完成了使用自定义的指标对应用进行自动扩缩容的操作。如果 Prometheus 安装在我们的 Kubernetes 集群之外，则只需要确保可以从集群访问到查询的端点，并在 adapter 的部署清单中对其进行更新即可。在更复杂的场景中，可以获取多个指标结合使用来制定扩展策略。</p>
+
+<h1 id="vpa">VPA</h1>
+
+<p>VPA 全称 Vertical Pod Autoscaler，即垂直 Pod 自动扩缩容，可以根据容器资源使用情况自动设置 CPU 和 内存 的request值，从而允许在节点上进行适当的调度，以便为每个 Pod 提供适当的资源。它既可以缩小过度请求资源的容器，也可以根据其使用情况随时提升资源不足的容量。注意：VPA 不会改变 Pod 的资源limit值。</p>
+
+<pre><code>1、因为 Pod 完全用其所需，所以集群节点使用效率高。
+2、Pod 会被安排到具有适当可用资源的节点上。
+3、不必运行耗时的基准测试任务来确定 CPU 和内存请求的合适值。
+4、VPA 可以随时调整 CPU 和内存请求，而无需执行任何操作，因此可以减少维护时间。
+</code></pre>
+
+<h2 id="架构图">架构图</h2>
+
+<p><img src="/media/cloud/k8s/vpa.png" alt="" />
+<img src="/media/cloud/k8s/vpa" alt="" />
+<img src="/media/cloud/k8s/vpa1" alt="" /></p>
+
+<h2 id="原理-1">原理</h2>
+
+<p>VPA 主要包含三个组件：</p>
+
+<p>1、Admission Controller 会拦截所有 Pod 的创建请求，如果 Pod 和某个 VPA 匹配且该 VPA 的更新策略不为 Off，Admission Controller 会使用推荐值修改 Pod 的资源请求，否则不会修改。</p>
+
+<p>Admission Controller 从 Recommender 获取资源的推荐值，如果获取超时或失败，则会使用缓存在对应 VPA 中的推荐值，如果这个推荐值也无法获取，则使用 Pod 指定的请求值。</p>
+
+<p>2、Recommender 负责计算推荐资源，该组件启动时会获取所有 Pod 的历史资源利用率（无论是否使用了VPA），以及历史存储（如Promethues，通过参数配置）中的 Pod OOM 事件的历史记录，然后聚合这些数据并存储在内存中。</p>
+
+<p>Recommender 会监听集群中的所有 Pod 和 VPA ，对于和某个 VPA 匹配的Pod，它会计算推荐的资源并在对应 VPA 中设置推荐值。</p>
+
+<p>3、Updater 监听集群中的所有 Pod 和 VPA，通过调用 Recommender API 定期获取 VPA 中的推荐值，当一个 Pod 的推荐资源与实际配置的资源相差较大时，Updater 会驱逐这个 Pod（注意：Updater并不负责 Pod 资源的更新），Pod 被其控制器重新创建时，Admission Controller 会拦截这个创建请求，并使用推荐值修改请求值，然后 Pod 使用推荐值被创建。</p>
+
+<p>VPA 有以下四种更新策略：</p>
+
+<pre><code>1、Initial：仅在 Pod 创建时修改资源请求，以后都不再修改。
+2、Auto：默认策略，在 Pod 创建时修改资源请求，并且在 Pod 更新时也会修改。
+3、Recreate：类似 Auto，在 Pod 的创建和更新时都会修改资源请求，不同的是，只要Pod 中的请求值与新的推荐值不同，VPA 都会驱逐该 Pod，然后使用新的推荐值重新启一个。因此，一般不使用该策略，而是使用 Auto，除非你真的需要保证请求值是最新的推荐值。
+4、Off：不改变 Pod 的资源请求，不过仍然会在 VPA 中设置资源的推荐值。
+</code></pre>
+
+<p>若要禁止 VPA 修改 Pod 的请求资源，有以下三种方式：</p>
+
+<pre><code>1、将 VPA 的更新策略改为 Off
+2、删除 VPA
+3、去除 Pod 的 label，使其不再被 VPA 匹配到
+</code></pre>
+
+<h2 id="实现-1">实现</h2>
+
+<p>首先肯定要开启apiservice，来提供获取指标的api</p>
+
+<pre><code>$ kubectl api-versions | grep admissionregistration
+admissionregistration.k8s.io/v1beta1
+</code></pre>
+
+<p>kubernetes 版本从 1.9 开始，MutatingAdmissionWebhooks是默认启用的。默认应该也是重metrics-server中获取指标的，如果需要支持其他的监控生态，可以参考hpa。</p>
+
+<p>然后vpa的组件是要部署的，所以我们要部署vpa</p>
+
+<p>VPA 目前有两个版本，分别是 0.2.x和 0.3.x，0.2.x被称为 alpha版，0.3.x被称为 beta版，apiVersion也从 poc.autoscaling.k8s.io/v1alpha1 变为了 <code>autoscaling.k8s.io/v1beta1</code>。</p>
+
+<p>安装步骤如下：</p>
+
+<pre><code>$ git clone https://github.com/kubernetes/autoscaler.git
+$ cd autoscaler/vertical-pod-autoscaler
+$ ./hack/vpa-up.sh
+</code></pre>
+
+<p>vpa-up.sh 脚本会读取当前的环境变量：$REGISTRY 和 $TAG，分别是镜像仓库地址和镜像版本，默认分别是 k8s.gcr.io和 0.3.1。由于网络的原因，我们无法拉取k8s.gcr.io的镜像，因此建议修改 $REGISTRY为国内可访问的镜像仓库地址。</p>
+
+<p>若已经安装了 alpha版本的 VPA，想要升级到 beta版本，最安全的方法是通过 vpa-down.sh脚本删除老版本，然后通过 vpa-up.sh脚本安装新版本。</p>
+
+<p>若没有修改镜像地址，执行 vpa-up.sh脚本后，主要是获取下面三个镜像：</p>
+
+<pre><code>k8s.gcr.io/vpa-recommender:0.3.1
+k8s.gcr.io/vpa-updater:0.3.1
+k8s.gcr.io/vpa-admission-controller:0.3.1
+</code></pre>
+
+<h3 id="实例-1">实例</h3>
+
+<p>off策略：仅获取资源推荐不更新Pod</p>
+
+<p>1、创建 Deployment</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: my-rec-deployment
+  labels:
+    purpose: try-recommend
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        purpose: try-recommend
+    spec:
+      containers:
+      - name: my-rec-container
+        image: nginx:latest
+</code></pre>
+
+<p>2、创建 VPA</p>
+
+<pre><code>apiVersion: autoscaling.k8s.io/v1beta1
+kind: VerticalPodAutoscaler
+metadata:
+  name: my-rec-vpa
+spec:
+  selector:
+    matchLabels:
+      purpose: try-recommend
+  updatePolicy:
+    updateMode: &quot;Off&quot;
+</code></pre>
+
+<p>3、查看该 VPA 的详细信息</p>
+
+<pre><code>...
+  recommendation:
+    containerRecommendations:
+    - containerName: my-rec-container
+      lowerBound:
+        cpu: 25m
+        memory: 262144k
+      target:
+        cpu: 25m
+        memory: 262144k
+      upperBound:
+        cpu: 25m
+        memory: 262144k
+...
+</code></pre>
+
+<p>其中lowerBound 、target、upperBound 分别表示 下限值、推荐值、上限值，上述结果表明，推荐的 Pod 的 CPU 请求为 25m，推荐的内存请求为 262144k 字节。</p>
+
+<p>VPA 使用 lowerBound 和 upperBound 来决定是否删除 Pod 并使用推荐值重新创建。如果 Pod 的请求小于下限或大于上限，则 VPA 将删除 Pod 并重新创建。</p>
+
+<p>auto策略：自动更新Pod资源请求</p>
+
+<p>1、创建deployment</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+name: my-deployment
+labels:
+  purpose: try-auto-requests
+spec:
+replicas: 2
+template:
+  metadata:
+    labels:
+      purpose: try-auto-requests
+  spec:
+    containers:
+    - name: my-container
+      image: alpine:latest
+      resources:
+        requests:
+          cpu: 100m
+          memory: 50Mi
+      command: [&quot;/bin/sh&quot;]
+      args: [&quot;-c&quot;, &quot;while true; do timeout 0.5s yes &gt;/dev/null; sleep 0.5s; done&quot;]
+</code></pre>
+
+<p>2、创建vpa</p>
+
+<pre><code>apiVersion: autoscaling.k8s.io/v1beta1
+kind: VerticalPodAutoscaler
+metadata:
+name: my-vpa
+spec:
+selector:
+  matchLabels:
+    purpose: try-auto-requests
+updatePolicy:
+  updateMode: &quot;Auto&quot;
+</code></pre>
+
+<p>3、获取该 VPA 的详细信息</p>
+
+<pre><code>  recommendation:
+    containerRecommendations:
+    - containerName: my-container
+      lowerBound:
+        cpu: 25m
+        memory: 262144k
+      target:
+        cpu: 35m
+        memory: 262144k
+      upperBound:
+        cpu: 117m
+        memory: 262144k
+</code></pre>
+
+<p>4、查看pod，pod发生了重启</p>
+
+<pre><code>$ kubectl get pod -w|grep my-deployment
+my-deployment-79f7977c8-hrnt4        1/1       Running             0          44s
+my-deployment-79f7977c8-r27kk        1/1       Running             0          44s
+my-deployment-79f7977c8-r27kk   1/1       Terminating   0         2m
+my-deployment-79f7977c8-r27kk   1/1       Terminating   0         2m
+my-deployment-79f7977c8-29kl9   0/1       Pending   0         0s
+my-deployment-79f7977c8-29kl9   0/1       Pending   0         1s
+my-deployment-79f7977c8-29kl9   0/1       ContainerCreating   0         1s
+my-deployment-79f7977c8-29kl9   1/1       Running   0         20s
+my-deployment-79f7977c8-hrnt4   1/1       Terminating   0         3m
+my-deployment-79f7977c8-hrnt4   1/1       Terminating   0         3m
+my-deployment-79f7977c8-558bg   0/1       Pending   0         0s
+my-deployment-79f7977c8-558bg   0/1       Pending   0         0s
+my-deployment-79f7977c8-558bg   0/1       ContainerCreating   0         1s
+my-deployment-79f7977c8-558bg   1/1       Running   0         16s
+</code></pre>
+
+<p>5、查看重启后的pod的资源</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    vpaUpdates: 'Pod resources updated by my-vpa: container 0: cpu request, memory request'
+spec:
+    ...
+    resources:
+      requests:
+        cpu: 35m
+        memory: 262144k
+    ...
+</code></pre>
+
+<p>可以看到，Pod 的 CPU 和 内存 请求都已经改变，请求值就是 VPA 中 target，而且 Pod 的annotations也多了一行 vpaUpdates，表明该 Pod 是由 VPA 更新的。</p>
+
+<p>需要使用 VPA 的 Pod 必须属于副本集，比如属于 Deployment 或 StatefulSet，这样才能保证 Pod 被驱逐后能自动重启，也就是说部署了 Pod 类型的应用后，VPA 无法更新其资源请求，但 VPA 对象中仍然会显示推荐的资源，这时只能手动删除 Pod，然后重新创建，VPA Admission Controller拦截后才能更改 Pod 的请求值。</p>
+
+<h1 id="ca">CA</h1>
+
+<p>CA（ cluster-autoscaler）是用来弹性伸缩kubernetes集群的，cluster-autoscaler可以自动的根据部署的应用所请求的资源量来动态的伸缩集群，从而来保持集群合适的大小。</p>
+
+<h2 id="架构">架构</h2>
+
+<p><img src="/media/cloud/k8s/ca.png" alt="" />
+<img src="/media/cloud/k8s/ca" alt="" /></p>
+
+<h2 id="原理-2">原理</h2>
+
+<p>ca主要是由以下几个核心组件完成的：</p>
+
+<pre><code>1、autoscaler：核心模块，负责整体扩缩容功能
+2、Estimator：负责评估计算扩容节点
+3、Simulator：负责模拟调度，计算缩容节点
+4、CA Cloud-Provider：与云交互进行节点的增删操作。社区目前仅支持AWS和GCE，其他云厂商需要自己实现CloudProvider和NodeGroup相关接口。
+</code></pre>
+
+<h2 id="实现-2">实现</h2>
+
+<p>1、扩容： 由于资源不足，pod调度失败，即有pod一直处于Pending状态。</p>
+
+<p>2、缩容：node的资源利用率较低时，且此node上存在的pod都能被重新调度到其他node上运行。</p>
+
+<p>什么样的节点不会被CA删除</p>
+
+<pre><code>节点上有pod被PodDisruptionBudget控制器限制。
+节点上有命名空间是kube-system的pods。
+节点上的pod不是被控制器创建，例如不是被deployment, replica set, job, stateful set创建。
+节点上有pod使用了本地存储
+节点上pod驱逐后无处可去，即没有其他node能调度这个pod
+节点有注解：”cluster-autoscaler.kubernetes.io/scale-down-disabled”: “true”，可以通过给节点打上特定注解保证节点不给CA删除：
+</code></pre>
+
+<p>CA与HPA协同工作</p>
+
+<pre><code>HPA（Horizontal Pod Autoscaling）是k8s中pod的水平自动扩展，HPA的操作对象是RC、RS或Deployment对应的Pod，根据观察到的CPU等实际使用量与用户的期望值进行比对，做出是否需要增减实例数量的决策。
+当CPU负载增加，HPA扩容pod，如果此pod因为资源不足无法被调度，则此时CA出马扩容节点。
+当CPU负载减小，HPA减少pod，CA发现有节点资源利用率低甚至已经是空时，CA就会删除此节点。
+</code></pre>
+
+<p>部署使用CA</p>
+
+<p>直接在集群中部署即可，简化的yaml如下所示，启动参数按需添加，其中{{MIN}}是最小节点数，{{MAX}}是最大节点数</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: cluster-autoscaler
+  labels:
+    k8s-app: cluster-autoscaler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      k8s-app: cluster-autoscaler
+  template:
+    metadata:
+      labels:
+        k8s-app: cluster-autoscaler
+    spec:
+      containers:
+        - image: cluster-autoscaler:latest
+          name: cluster-autoscaler
+          command:
+            - ./cluster-autoscaler
+            - --nodes={{MIN}}:{{MAX}}:k8s-worker-asg-1
+</code></pre>
+
+<h1 id="总结-1">总结</h1>
+
+<p>目前 Kubernetes 的 Pod 水平自动伸缩（HPA，Horizontal Pod Autoscaler）已在业界广泛应用。但对一些特殊的 Pod（如一些有状态的 Pod），HPA 并不能很好地解决资源不足的问题。 这就引出 Pod 垂直自动伸缩（VPA，Vertical Pod Autoscaler）。目前在实际使用中，hpa使用比较多，vpa和ca也有使用，只是使用比较少。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-autoscaler/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-autoscaler/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/autoscaler/">
+                            <i class="fa fa-tags"></i>
+                            autoscaler
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/hpa/">
+                            <i class="fa fa-tags"></i>
+                            hpa
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-istio/">云计算K8s系列---- istio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">云计算K8s组件系列（二）---- K8s scheduler 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月24日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous disabled"><a href="#"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#hpa">HPA</a>
+<ul>
+<li><a href="#原理">原理</a></li>
+<li><a href="#指标类型">指标类型</a></li>
+<li><a href="#实现">实现</a>
+<ul>
+<li><a href="#metrics-server">metrics-server</a>
+<ul>
+<li><a href="#基于cpu来实现hpa">基于cpu来实现hpa</a></li>
+<li><a href="#总结">总结</a></li>
+</ul></li>
+<li><a href="#生态监控系统">生态监控系统</a>
+<ul>
+<li><a href="#基于prometheus">基于prometheus</a></li>
+</ul></li>
+<li><a href="#实例">实例</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#vpa">VPA</a>
+<ul>
+<li><a href="#架构图">架构图</a></li>
+<li><a href="#原理-1">原理</a></li>
+<li><a href="#实现-1">实现</a>
+<ul>
+<li><a href="#实例-1">实例</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#ca">CA</a>
+<ul>
+<li><a href="#架构">架构</a></li>
+<li><a href="#原理-2">原理</a></li>
+<li><a href="#实现-2">实现</a></li>
+</ul></li>
+<li><a href="#总结-1">总结</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

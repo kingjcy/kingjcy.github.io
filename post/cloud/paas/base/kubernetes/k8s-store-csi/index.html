@@ -1,0 +1,1691 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="CSI是Container Storage Interface的简称，旨在能为容器编排引擎和存储系统间建立一套标准的存储调用接口，实现解耦，通过该接口能为容器编排引擎提供存储服务。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s组件系列—- 存储CSI - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s组件系列—- 存储CSI
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年06月29日 
+                </div>
+                <h1 class="post-title">云计算K8s组件系列—- 存储CSI</h1>
+            </header>
+
+            <div class="post-content">
+                <p>CSI是Container Storage Interface的简称，旨在能为容器编排引擎和存储系统间建立一套标准的存储调用接口，实现解耦，通过该接口能为容器编排引擎提供存储服务。</p>
+
+<h1 id="基本使用">基本使用</h1>
+
+<p>以csi-hostpath插件为例，演示部署CSI插件、用户使用CSI插件提供的存储资源。</p>
+
+<h2 id="开启csi">开启csi</h2>
+
+<p>设置Kubernetes服务启动参数，为kube-apiserver、kubecontroller-manager和kubelet服务的启动参数添加。</p>
+
+<pre><code>[root@k8smaster01 ~]# vi /etc/kubernetes/manifests/kube-apiserver.yaml
+……
+    - --allow-privileged=true
+    - --feature-gates=CSIPersistentVolume=true
+    - --runtime-config=storage.k8s.io/v1alpha1=true
+……
+[root@k8smaster01 ~]# vi /etc/kubernetes/manifests/kube-controller-manager.yaml
+……
+    - --feature-gates=CSIPersistentVolume=true
+……
+[root@k8smaster01 ~]# vi /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
+# Note: This dropin only works with kubeadm and kubelet v1.11+
+[Service]
+Environment=&quot;KUBELET_KUBECONFIG_ARGS=--bootstrap-kubeconfig=/etc/kubernetes/bootstrap-kubelet.conf --kubeconfig=/etc/kubernetes/kubelet.conf --feature-gates=CSIPersistentVolume=true&quot;
+……
+[root@k8smaster01 ~]# systemctl daemon-reload
+[root@k8smaster01 ~]# systemctl restart kubelet.service
+</code></pre>
+
+<h1 id="设计架构">设计架构</h1>
+
+<p><img src="/media/cloud/k8s/store6.png" alt="" /></p>
+
+<p>大致看上去，这个和原生存储架构并没有太大的变化，其实不然，原生中Plugin和driver之间的调用使用的是操作系统命令行接口，而CSI采用的是grpc调用，grpc调用的一个优势就是可以将grpc服务运行在socket上，这样服务端就可以运行在socket端点的任何地方，换句话说就是可以被隔离单独运行。</p>
+
+<p>其中组件的主要作用</p>
+
+<ul>
+<li>PV Controller：负责 PV/PVC 绑定及周期管理，根据需求进行数据卷的 Provision/Delete 操作；</li>
+<li>AD Controller：负责数据卷的 Attach/Detach 操作，将设备挂接到目标节点；</li>
+<li>Kubelet：Kubelet 是在每个 Node 节点上运行的主要 “节点代理”，功能是 Pod 生命周期管理、容器健康检查、容器监控等；</li>
+<li>Volume Manager：Kubelet 中的组件，负责管理数据卷的 Mount/Umount 操作（也负责数据卷的 Attach/Detach 操作，需配置 kubelet 相关参数开启该特性）、卷设备的格式化等等；</li>
+<li>Volume Plugins：存储插件，由存储供应商开发，目的在于扩展各种存储类型的卷管理能力，实现第三方存储的各种操作能力，即是上面蓝色操作的实现。Volume Plugins 有 in-tree 和 out-of-tree 两种；</li>
+<li>External Provioner：External Provioner 是一种 sidecar 容器，作用是调用 Volume Plugins 中的 CreateVolume 和 DeleteVolume 函数来执行 Provision/Delete 操作。因为 K8s 的 PV 控制器无法直接调用 Volume Plugins 的相关函数，故由 External Provioner 通过 gRPC 来调用；</li>
+<li>External Attacher：External Attacher 是一种 sidecar 容器，作用是调用 Volume Plugins 中的 ControllerPublishVolume 和 ControllerUnpublishVolume 函数来执行 Attach/Detach 操作。因为 K8s 的 AD 控制器无法直接调用 Volume Plugins 的相关函数，故由 External Attacher 通过 gRPC 来调用。</li>
+</ul>
+
+<p>可见csi提供了一套标准的接口集成在k8s的源码（kube-controller-manager，kubelet）中，然后第三方的存储插件只要实现这些接口并注册就可以调用对应的函数进行pv和pvc的自动创建，提供了可扩展的机会。</p>
+
+<p><img src="/media/cloud/k8s/store14.png" alt="" /></p>
+
+<p>所以部署架构如下</p>
+
+<ul>
+<li>右边一个StatefulSet或Deployment的pod，可以说是csi controller，提供存储服务视角对存储资源和存储卷进行管理和操作。在Kubernetes中建议将其部署为单实例Pod，可以使用StatefulSet或Deployment控制器进行部署，设置副本数量为1，保证为一种存储插件只运行一个控制器实例。
+
+<ul>
+<li>用户实现的 CSI 插件，也就是CSI Driver存储驱动容器（正常和下面的CSI 插件是同一个程序，也可以分开做一个控制插件，一个操作插件）</li>
+<li>与Master（kube-controller-manager）通信的辅助sidecar容器。
+
+<ul>
+<li><a href="https://github.com/kubernetes-csi/external-attacher">External Attacher</a>：Kubernetes 提供的 sidecar 容器，它监听 VolumeAttachment 和 PersistentVolume 对象的变化情况，并调用 CSI 插件的 ControllerPublishVolume 和 ControllerUnpublishVolume 等 API 将 Volume 挂载或卸载到指定的 Node 上（官网提供）</li>
+<li><a href="https://github.com/kubernetes-csi/external-provisioner">External Provisioner</a>：Kubernetes 提供的 sidecar 容器，它监听 PersistentVolumeClaim 对象的变化情况，并调用 CSI 插件的 ControllerPublish 和 ControllerUnpublish 等 API 管理 Volume（官网提供）</li>
+</ul></li>
+<li>这两个容器通过本地Socket（Unix DomainSocket，UDS），并使用gPRC协议进行通信。</li>
+<li>sidecar容器通过Socket调用CSI Driver容器的CSI接口，CSI Driver容器负责具体的存储卷操作。</li>
+</ul></li>
+<li>左边一个Daemonset的pod：对主机（Node）上的Volume进行管理和操作。在Kubernetes中建议将其部署为DaemonSet，在每个Node上都运行一个Pod，以便 Kubelet 可以调用。它包含 2 个容器
+
+<ul>
+<li>用户实现的 CSI 插件，也就是CSI Driver存储驱动容器，主要功能是接收kubelet的调用，需要实现一系列与Node相关的CSI接口，例如NodePublishVolume接口（用于将Volume挂载到容器内的目标路径）、NodeUnpublishVolume接口（用于从容器中卸载Volume），等等。</li>
+<li><a href="https://github.com/kubernetes-csi/driver-registrar">Driver Registrar</a>：注册 CSI 插件到 kubelet 中，并初始化 NodeId（即给 Node 对象增加一个 Annotation csi.volume.kubernetes.io/nodeid）（官网提供）</li>
+<li>node-driver-registrar容器与kubelet通过Node主机的一个hostPath目录下的unixsocket进行通信。CSI Driver容器与kubelet通过Node主机的另一个hostPath目录下的unixsocket进行通信，同时需要将kubelet的工作目录（默认为/var/lib/kubelet）挂载给CSIDriver容器，用于为Pod进行Volume的管理操作（包括mount、umount等）。</li>
+</ul></li>
+</ul>
+
+<p>所以重点就是用户自己实现的插件逻辑，<a href="https://github.com/kubernetes-csi">官方</a>已经支持实现了很多的插件，我们在开发的时候可以参考，如何开发一个csi插件，我们需要先了解一下插件的使用过程。</p>
+
+<h1 id="存储流程">存储流程</h1>
+
+<h2 id="pv创建方式">pv创建方式</h2>
+
+<p>我们先了解一下创建 PV 的两种方式</p>
+
+<ul>
+<li>一种是集群管理员通过手动方式静态创建应用所需要的 PV，也就是我们在<a href="/post/cloud/paas/base/kubernetes/k8s-store/">存储</a>中说明的内置的原生的方式。</li>
+<li>另一种是用户手动创建 PVC 并由 Provisioner 组件动态创建对应的 PV。</li>
+</ul>
+
+<blockquote>
+<p>静态创建存储卷</p>
+</blockquote>
+
+<p><img src="/media/cloud/k8s/store7.png" alt="" /></p>
+
+<ul>
+<li>集群管理员创建 NFS PV，NFS 属于 K8s 原生支持的 in-tree 存储类型。</li>
+<li>用户创建 PVC，通过 kubectl get pv 命令可看到 PV 和 PVC 自动绑定</li>
+<li>用户创建应用，并使用第二步创建的 PVC。</li>
+</ul>
+
+<p>就完成了静态创建存储卷并且使用，也就是我们最初使用的方式。</p>
+
+<blockquote>
+<p>动态创建存储卷</p>
+</blockquote>
+
+<p>动态创建存储卷相比静态创建存储卷，少了集群管理员的干预，动态创建存储卷，要求集群中部署有 provisioner 以及对应的 storageclass。</p>
+
+<p><img src="/media/cloud/k8s/store8.png" alt="" /></p>
+
+<ul>
+<li>集群管理员只需要保证环境中有相关的 storageclass 即可</li>
+<li>用户创建 PVC，此处 PVC 的 storageClassName 指定为上面的 storageclass 名称，集群中的 provisioner 会动态创建相应 PV。</li>
+<li>用户创建应用，并使用第二步创建的 PVC，同静态创建存储卷的第三步。</li>
+</ul>
+
+<h2 id="流程">流程</h2>
+
+<p><img src="/media/cloud/k8s/store9.png" alt="" /></p>
+
+<p>pod创建过程中调用存储的相关流程</p>
+
+<ul>
+<li>用户创建了一个包含 PVC 的 Pod，该 PVC 要求使用动态存储卷；</li>
+<li>Scheduler 根据 Pod 配置、节点状态、PV 配置等信息，把 Pod 调度到一个合适的 Worker 节点上；（图上23换一下）</li>
+<li>PV 控制器 watch 到该 Pod 使用的 PVC 处于 Pending 状态，于是调用 Volume Plugin（in-tree）创建存储卷，并创建 PV 对象（out-of-tree 由 External Provisioner 来处理）；</li>
+<li>AD 控制器发现 Pod 和 PVC 处于待挂接状态，于是调用 Volume Plugin 挂接存储设备到目标 Worker 节点上</li>
+<li>在 Worker 节点上，Kubelet 中的 Volume Manager 等待存储设备挂接完成，并通过 Volume Plugin 将设备挂载到全局目录：/var/lib/kubelet/pods/[pod uid]/volumes/kubernetes.io~iscsi/[PV name]（以 iscsi 为例）；</li>
+<li>Kubelet 通过 Docker 启动 Pod 的 Containers，用 bind mount 方式将已挂载到本地全局目录的卷映射到容器中。</li>
+</ul>
+
+<p>我们可以通过时序图看的更加清晰</p>
+
+<p><img src="/media/cloud/k8s/store10.png" alt="" /></p>
+
+<p>可见，存储卷从创建到提供应用使用共分为三个阶段：</p>
+
+<ul>
+<li>Provision/Delete（创建/删除存储卷，处理pv和pvc之间的关系）</li>
+<li>Attach/Detach（挂接和摘除存储卷，处理的是volumes和node上目录之间的关系）</li>
+<li>Mount/Unmount（挂载和摘除目录，处理的是volumes和pod之间的关系）。</li>
+</ul>
+
+<h3 id="provisioning-volumes">provisioning volumes</h3>
+
+<p>先了解一些pv控制器的基本概念</p>
+
+<p><img src="/media/cloud/k8s/store11.png" alt="" /></p>
+
+<p>重图上可见pv控制器中主要有两个worker</p>
+
+<ul>
+<li>ClaimWorker：处理 PVC 的 add / update / delete 相关事件以及 PVC 的状态迁移；</li>
+<li>VolumeWorker：负责 PV 的状态迁移。</li>
+</ul>
+
+<blockquote>
+<p>PV 状态迁移（UpdatePVStatus）</p>
+</blockquote>
+
+<ul>
+<li>PV 初始状态为 Available，当 PV 与 PVC 绑定后，状态变为 Bound；</li>
+<li>与 PV 绑定的 PVC 删除后，状态变为 Released；</li>
+<li>当 PV 回收策略为 Recycled 或手动删除 PV 的 .Spec.ClaimRef 后，PV 状态变为 Available；</li>
+<li>当 PV 回收策略未知或 Recycle 失败或存储卷删除失败，PV 状态变为 Failed；</li>
+<li>手动删除 PV 的 .Spec.ClaimRef，PV 状态变为 Available。</li>
+</ul>
+
+<blockquote>
+<p>PVC 状态迁移（UpdatePVCStatus）</p>
+</blockquote>
+
+<ul>
+<li>当集群中不存在满足 PVC 条件的 PV 时，PVC 状态为 Pending。在 PV 与 PVC 绑定后，PVC 状态由 Pending 变为 Bound；</li>
+<li>与 PVC 绑定的 PV 在环境中被删除，PVC 状态变为 Lost；</li>
+<li>再次与一个同名 PV 绑定后，PVC 状态变为 Bound。</li>
+</ul>
+
+<p>再来看Provisioning 流程就十分清晰简单了</p>
+
+<blockquote>
+<p>先寻找静态存储卷（FindBestMatch）</p>
+</blockquote>
+
+<p>PV 控制器首先在环境中筛选一个状态为 Available 的 PV 与新 PVC 匹配。</p>
+
+<ul>
+<li>DelayBinding：PV 控制器判断该 PVC 是否需要延迟绑定：
+
+<ul>
+<li>查看 PVC 的 annotation 中是否包含 volume.kubernetes.io/selected-node，若存在则表示该 PVC 已经被调度器指定好了节点（属于 ProvisionVolume），故不需要延迟绑定；</li>
+<li>若 PVC 的 annotation 中不存在 volume.kubernetes.io/selected-node，同时没有 StorageClass，默认表示不需要延迟绑定；若有 StorageClass，查看其 VolumeBindingMode 字段，若为 WaitForFirstConsumer 则需要延迟绑定，若为 Immediate 则不需要延迟绑定；</li>
+</ul></li>
+<li>FindBestMatchPVForClaim：PV 控制器尝试找一个满足 PVC 要求的环境中现有的 PV。PV 控制器会将所有的 PV 进行一次筛选，并会从满足条件的 PV 中选择一个最佳匹配的 PV。筛选规则：
+
+<ul>
+<li>VolumeMode 是否匹配；</li>
+<li>PV 是否已绑定到 PVC 上；</li>
+<li>PV 的 .Status.Phase 是否为 Available；</li>
+<li>LabelSelector 检查，PV 与 PVC 的 label 要保持一致；</li>
+<li>PV 与 PVC 的 StorageClass 是否一致；</li>
+<li>每次迭代更新最小满足 PVC requested size 的 PV，并作为最终结果返回；</li>
+</ul></li>
+<li>Bind：PV 控制器对选中的 PV、PVC 进行绑定：
+
+<ul>
+<li>更新 PV 的 .Spec.ClaimRef 信息为当前 PVC；</li>
+<li>更新 PV 的 .Status.Phase 为 Bound；</li>
+<li>新增 PV 的 annotation ：pv.kubernetes.io/bound-by-controller: “yes”；</li>
+<li>更新 PVC 的 .Spec.VolumeName 为 PV 名称；</li>
+<li>更新 PVC 的 .Status.Phase 为 Bound；</li>
+<li>新增 PVC 的 annotation：pv.kubernetes.io/bound-by-controller: “yes” 和 pv.kubernetes.io/bind-completed: “yes”；</li>
+</ul></li>
+</ul>
+
+<blockquote>
+<p>再动态创建存储卷（ProvisionVolume）</p>
+</blockquote>
+
+<p>若环境中没有合适的 PV，则进入动态 Provisioning 场景：</p>
+
+<ul>
+<li>Before Provisioning：
+
+<ul>
+<li>PV 控制器首先判断 PVC 使用的 StorageClass 是 in-tree 还是 out-of-tree：通过查看 StorageClass 的 Provisioner 字段是否包含 “kubernetes.io/” 前缀来判断；</li>
+<li>PV 控制器更新 PVC 的 annotation：<code>claim.Annotations[“volume.beta.kubernetes.io/storage-provisioner”] = storageClass.Provisioner</code>；</li>
+</ul></li>
+<li>in-tree Provisioning（internal provisioning）：
+
+<ul>
+<li>in-tree 的 Provioner 会实现 ProvisionableVolumePlugin 接口的 NewProvisioner 方法，用来返回一个新的 Provisioner；</li>
+<li>PV 控制器调用 Provisioner 的 Provision 函数，该函数会返回一个 PV 对象；</li>
+<li>PV 控制器创建上一步返回的 PV 对象，将其与 PVC 绑定，Spec.ClaimRef 设置为 PVC，.Status.Phase 设置为 Bound，.Spec.StorageClassName 设置为与 PVC 相同的 StorageClassName；同时新增 annotation：“pv.kubernetes.io/bound-by-controller”=“yes” 和 “pv.kubernetes.io/provisioned-by”=plugin.GetPluginName()；</li>
+</ul></li>
+<li>out-of-tree Provisioning（external provisioning）：
+
+<ul>
+<li>External Provisioner 检查 PVC 中的 claim.Spec.VolumeName 是否为空，不为空则直接跳过该 PVC；</li>
+<li>External Provisioner 检查 PVC 中的 <code>claim.Annotations[“volume.beta.kubernetes.io/storage-provisioner”]</code>是否等于自己的 Provisioner Name（External Provisioner 在启动时会传入 &ndash;provisioner 参数来确定自己的 Provisioner Name）；</li>
+<li>若 PVC 的 VolumeMode=Block，检查 External Provisioner 是否支持块设备；</li>
+<li>External Provisioner 调用 Provision 函数：通过 gRPC 调用 CSI 存储插件的 CreateVolume 接口；</li>
+<li>External Provisioner 创建一个 PV 来代表该 volume，同时将该 PV 与之前的 PVC 做绑定。</li>
+</ul></li>
+</ul>
+
+<h3 id="deleting-volumes">deleting volumes</h3>
+
+<p>用户删除 PVC，PV 控制器改变 PV.Status.Phase 为 Released。</p>
+
+<p>当 PV.Status.Phase == Released 时，PV 控制器首先检查 Spec.PersistentVolumeReclaimPolicy 的值，为 Retain 时直接跳过，为 Delete 时：</p>
+
+<ul>
+<li>in-tree Deleting：
+
+<ul>
+<li>in-tree 的 Provioner 会实现 DeletableVolumePlugin 接口的 NewDeleter 方法，用来返回一个新的 Deleter；</li>
+<li>控制器调用 Deleter 的 Delete 函数，删除对应 volume；</li>
+<li>在 volume 删除后，PV 控制器会删除 PV 对象；</li>
+</ul></li>
+<li>out-of-tree Deleting：
+
+<ul>
+<li>External Provisioner 调用 Delete 函数，通过 gRPC 调用 CSI 插件的 DeleteVolume 接口；</li>
+<li>在 volume 删除后，External Provisioner 会删除 PV 对象</li>
+</ul></li>
+</ul>
+
+<h3 id="attaching-volumes">Attaching Volumes</h3>
+
+<p>Kubelet 组件和 AD 控制器都可以做 attach/detach 操作，若 Kubelet 的启动参数中指定了 &ndash;enable-controller-attach-detach，则由 Kubelet 来做；否则默认由 AD 控制起来做。</p>
+
+<p><img src="/media/cloud/k8s/store12.png" alt="" /></p>
+
+<p>AD 控制器中有两个核心变量：</p>
+
+<ul>
+<li>DesiredStateOfWorld（DSW）：集群中预期的数据卷挂接状态，包含了 nodes-&gt;volumes-&gt;pods 的信息；</li>
+<li>ActualStateOfWorld（ASW）：集群中实际的数据卷挂接状态，包含了 volumes-&gt;nodes 的信息。</li>
+</ul>
+
+<p>Attaching 流程如下：</p>
+
+<ul>
+<li>AD 控制器根据集群中的资源信息，初始化 DSW 和 ASW。</li>
+<li>AD 控制器内部有三个组件周期性更新 DSW 和 ASW：
+
+<ul>
+<li>Reconciler。通过一个 GoRoutine 周期性运行，确保 volume 挂接 / 摘除完毕。此期间不断更新 ASW：
+
+<ul>
+<li>in-tree attaching：
+
+<ul>
+<li>in-tree 的 Attacher 会实现 AttachableVolumePlugin 接口的 NewAttacher 方法，用来返回一个新的 Attacher；</li>
+<li>AD 控制器调用 Attacher 的 Attach 函数进行设备挂接；</li>
+<li>更新 ASW。</li>
+</ul></li>
+<li>out-of-tree attaching：
+
+<ul>
+<li>调用 in-tree 的 CSIAttacher 创建一个 VolumeAttachement（VA）对象，该对象包含了 Attacher 信息、节点名称、待挂接 PV 信息；</li>
+<li>External Attacher 会 watch 集群中的 VolumeAttachement 资源，发现有需要挂接的数据卷时，调用 Attach 函数，通过 gRPC 调用 CSI 插件的 ControllerPublishVolume 接口。</li>
+</ul></li>
+</ul></li>
+<li>DesiredStateOfWorldPopulator。通过一个 GoRoutine 周期性运行，主要功能是更新 DSW：
+
+<ul>
+<li>findAndRemoveDeletedPods - 遍历所有 DSW 中的 Pods，若其已从集群中删除则从 DSW 中移除；</li>
+<li>findAndAddActivePods - 遍历所有 PodLister 中的 Pods，若 DSW 中不存在该 Pod 则添加至 DSW。</li>
+</ul></li>
+<li>PVC Worker。watch PVC 的 add/update 事件，处理 PVC 相关的 Pod，并实时更新 DSW。</li>
+</ul></li>
+</ul>
+
+<h3 id="detaching-volumes">Detaching Volumes</h3>
+
+<p>Detaching 流程如下：</p>
+
+<ul>
+<li>当 Pod 被删除，AD 控制器会 watch 到该事件。首先 AD 控制器检查 Pod 所在的 Node 资源是否包含&rdquo;volumes.kubernetes.io/keep-terminated-pod-volumes&rdquo;标签，若包含则不做操作；不包含则从 DSW 中去掉该 volume；</li>
+<li>AD 控制器通过 Reconciler 使 ActualStateOfWorld 状态向 DesiredStateOfWorld 状态靠近，当发现 ASW 中有 DSW 中不存在的 volume 时，会做 Detach 操作：
+
+<ul>
+<li>in-tree detaching：
+
+<ul>
+<li>AD 控制器会实现 AttachableVolumePlugin 接口的 NewDetacher 方法，用来返回一个新的 Detacher；</li>
+<li>控制器调用 Detacher 的 Detach 函数，detach 对应 volume；</li>
+<li>AD 控制器更新 ASW。</li>
+</ul></li>
+<li>out-of-tree detaching：
+
+<ul>
+<li>AD 控制器调用 in-tree 的 CSIAttacher 删除相关 VolumeAttachement 对象；</li>
+<li>External Attacher 会 watch 集群中的 VolumeAttachement（VA）资源，发现有需要摘除的数据卷时，调用 Detach 函数，通过 gRPC 调用 CSI 插件的 ControllerUnpublishVolume 接口；</li>
+<li>AD 控制器更新 ASW。</li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h3 id="mounting-unmounting-volumes">Mounting/Unmounting Volumes</h3>
+
+<p><img src="/media/cloud/k8s/store13.png" alt="" /></p>
+
+<p>Volume Manager 中同样也有两个核心变量：</p>
+
+<ul>
+<li>DesiredStateOfWorld（DSW）：集群中预期的数据卷挂载状态，包含了 volumes-&gt;pods 的信息；</li>
+<li>ActualStateOfWorld（ASW）：集群中实际的数据卷挂载状态，包含了 volumes-&gt;pods 的信息。</li>
+</ul>
+
+<p>全局目录（global mount path）存在的目的：块设备在 Linux 上只能挂载一次，而在 K8s 场景中，一个 PV 可能被挂载到同一个 Node 上的多个 Pod 实例中。若块设备格式化后先挂载至 Node 上的一个临时全局目录，然后再使用 Linux 中的 bind mount 技术把这个全局目录挂载进 Pod 中对应的目录上，就可以满足要求。上述流程图中，全局目录即 /var/lib/kubelet/pods/[pod uid]/volumes/kubernetes.io~iscsi/[PV name]</p>
+
+<p>Mounting/UnMounting 流程如下：</p>
+
+<ul>
+<li>VolumeManager 根据集群中的资源信息，初始化 DSW 和 ASW。</li>
+
+<li><p>VolumeManager 内部有两个组件周期性更新 DSW 和 ASW：</p>
+
+<ul>
+<li>DesiredStateOfWorldPopulator：通过一个 GoRoutine 周期性运行，主要功能是更新 DSW；</li>
+
+<li><p>Reconciler：通过一个 GoRoutine 周期性运行，确保 volume 挂载 / 卸载完毕。此期间不断更新 ASW：</p>
+
+<ul>
+<li>unmountVolumes：确保 Pod 删除后 volumes 被 unmount。遍历一遍所有 ASW 中的 Pod，若其不在 DSW 中（表示 Pod 被删除），此处以 VolumeMode=FileSystem 举例，则执行如下操作：
+
+<ul>
+<li>Remove all bind-mounts：调用 Unmounter 的 TearDown 接口（若为 out-of-tree 则调用 CSI 插件的 NodeUnpublishVolume 接口）；</li>
+<li>Unmount volume：调用 DeviceUnmounter 的 UnmountDevice 函数（若为 out-of-tree 则调用 CSI 插件的 NodeUnstageVolume 接口）；</li>
+<li>更新 ASW。</li>
+</ul></li>
+
+<li><p>mountAttachVolumes：确保 Pod 要使用的 volumes 挂载成功。遍历一遍所有 DSW 中的 Pod，若其不在 ASW 中（表示目录待挂载映射到 Pod 上），此处以 VolumeMode=FileSystem 举例，执行如下操作：</p>
+
+<ul>
+<li>等待 volume 挂接到节点上（由 External Attacher or Kubelet 本身挂接）；</li>
+<li>挂载 volume 到全局目录：调用 DeviceMounter 的 MountDevice 函数（若为 out-of-tree 则调用 CSI 插件的 NodeStageVolume 接口）；</li>
+<li>更新 ASW：该 volume 已挂载到全局目录；</li>
+<li>bind-mount volume 到 Pod 上：调用 Mounter 的 SetUp 接口（若为 out-of-tree 则调用 CSI 插件的 NodePublishVolume 接口）；</li>
+<li>更新 ASW。</li>
+</ul></li>
+
+<li><p>unmountDetachDevices：确保需要 unmount 的 volumes 被 unmount。遍历一遍所有 ASW 中的 UnmountedVolumes，若其不在 DSW 中（表示 volume 已无需使用），执行如下操作：</p>
+
+<ul>
+<li>Unmount volume：调用 DeviceUnmounter 的 UnmountDevice 函数（若为 out-of-tree 则调用 CSI 插件的 NodeUnstageVolume 接口）；</li>
+<li>更新 ASW。</li>
+</ul></li>
+</ul></li>
+</ul></li>
+</ul>
+
+<h2 id="总结">总结</h2>
+
+<p>在这6个流程中，</p>
+
+<ul>
+<li>其中mount/umount, 在kubelet中触发相应操作后由CSI plugin调用CSI driver（由厂商自己提供的CSI接口实现，类似于flexvolume的driver）做相应的mount/umount操作；</li>
+<li>provision/delete操作由外置controller通过监听API-Server，做相应的创卷、删卷操作并更新API中实体状态。</li>
+<li>当AD Controller的reconciler检测要做相应的attach或者detach操作时，是直接通过调用volume plugin来实现，volume plugin调用CSI Driver就将变成跨节点调用，而对于K8S设计来讲，Master执行完一段逻辑后触发Minion做相应的逻辑的设计太普遍，都是通过API Server内部接口更新状态的方式来设计，如前面提到的AD Controller执行完attach操作后通过node.Status.VolumesAttached通知Kubelet做mount操作。这里K8S CSI也沿用了这个设计方案。即AD Controller通过向API Server写入一个对象，在Minion侧开启一个进程监听这类对象变化，当检测了有对象Add则执行attach操作，有对象delete则执行detach操作，具体参数则通过这个内部对象属性传递给Minion。于是就引入了两个变化：
+
+<ul>
+<li>定义一个用于attach/detach的内部API对象</li>
+<li>增加一个attach/detach的Minion代理，负责监听1中定义的对象变化，再调用本节点上CSI driver执行相应的操作。 于是就有了图2中右边部分的CSI Proxy Container，剩下的就是考虑这些部件间的通信机制打通。</li>
+</ul></li>
+</ul>
+
+<blockquote>
+<p>provision/delete</p>
+</blockquote>
+
+<p><img src="/media/cloud/k8s/store15.png" alt="" /></p>
+
+<p>CSI proxy通过监听API Server有PVC的Add/Delete操作后通过host与container的socket调用CSI接口，CSI Driver接收到调用后，调用存储设备实现卷的增删。</p>
+
+<blockquote>
+<p>attach/detach</p>
+</blockquote>
+
+<p><img src="/media/cloud/k8s/store16.png" alt="" /></p>
+
+<p>AD Controller监听API Server的pod，node状态判断是否进行attach/detach操作，如果需要进行，CSI Plugin则通过API Server创建/删除attachvolume(内部API对象). CSI Proxy Container中的attacher监听到API Server中attachvolume的增删后，通过本地socket调用另一个容器中的CSI Driver执行attach/detach操作（注意，CSI接口不是这个名称），CSI Driver再通过调用存储后端完成attach/detach操作。操作完成后，CSI Proxy Container更新attachvolume状态。</p>
+
+<blockquote>
+<p>mount/unmount</p>
+</blockquote>
+
+<p><img src="/media/cloud/k8s/store17.png" alt="" /></p>
+
+<p>Kubelet判断需要做mount操作，通过Host到container的socket调用CSI Driver，CSI Driver在容器内部通过挂载到容器里的Mount Point卷进行bind mount操作。</p>
+
+<h1 id="开发csi插件">开发csi插件</h1>
+
+<h2 id="基本概念">基本概念</h2>
+
+<p>首先我们了解一下插件有两种类型</p>
+
+<ul>
+<li>Controller Plugin，负责存储对象（Volume）的生命周期管理，在集群中仅需要有一个即可；</li>
+<li>Node Plugin，在必要时与使用 Volume 的容器所在的节点交互，提供诸如节点上的 Volume 挂载/卸载等动作支持，如有需要则在每个服务节点上均部署。</li>
+</ul>
+
+<p>通过上面的流程，我们知道开发一个csi driver插件，需要实现以下的rpc接口</p>
+
+<ul>
+<li>身份服务：Node Plugin和Controller Plugin都必须实现这些RPC集。
+
+<ul>
+<li>GetPluginInfo， 获取 Plugin 基本信息</li>
+<li>GetPluginCapabilities，获取 Plugin 支持的能力</li>
+<li>Probe，探测 Plugin 的健康状态</li>
+</ul></li>
+<li>控制器服务：Controller Plugin必须实现这些RPC集。
+
+<ul>
+<li>Volume CRUD，包括了扩容和容量探测等 Volume 状态检查与操作接口</li>
+<li>Controller Publish/Unpublish Volume ，Node 对 Volume 的访问权限管理</li>
+<li>Snapshot CRD，快照的创建和删除操作，目前 CSI 定义的 Snapshot 仅用于创建 Volume，未提供回滚的语义</li>
+</ul></li>
+<li>节点服务：Node Plugin必须实现这些RPC集。
+
+<ul>
+<li>Node Stage/Unstage/Publish/Unpublish/GetStats Volume，节点上 Volume 的连接状态管理</li>
+<li>Node Expand Volume, 节点上的 Volume 扩容操作，在 volume 逻辑大小扩容之后，可能还需要同步的扩容 Volume 之上的文件系统并让使用 Volume 的 Container 感知到，所以在 Node Plugin 上需要有对应的接口</li>
+<li>Node Get Capabilities/Info， Plugin 的基础属性与 Node 的属性查询</li>
+</ul></li>
+</ul>
+
+<p>CSI 插件的三部分 CSI Identity , CSI Controller , CSI Node 可放在同一个二进制程序中实现。就是我们常见的插件，当然针对不同的存储，可以只实现一种类型就可以。</p>
+
+<p>对应的rpc定义可以看源码，简单的看一下对应的定义</p>
+
+<pre><code>service Identity {
+  rpc GetPluginInfo(GetPluginInfoRequest)
+    returns (GetPluginInfoResponse) {}
+
+  rpc GetPluginCapabilities(GetPluginCapabilitiesRequest)
+    returns (GetPluginCapabilitiesResponse) {}
+
+  rpc Probe (ProbeRequest)
+    returns (ProbeResponse) {}
+}
+
+service Controller {
+  rpc CreateVolume (CreateVolumeRequest)
+    returns (CreateVolumeResponse) {}
+
+  rpc DeleteVolume (DeleteVolumeRequest)
+    returns (DeleteVolumeResponse) {}
+
+  rpc ControllerPublishVolume (ControllerPublishVolumeRequest)
+    returns (ControllerPublishVolumeResponse) {}
+
+  rpc ControllerUnpublishVolume (ControllerUnpublishVolumeRequest)
+    returns (ControllerUnpublishVolumeResponse) {}
+
+  rpc ValidateVolumeCapabilities (ValidateVolumeCapabilitiesRequest)
+    returns (ValidateVolumeCapabilitiesResponse) {}
+
+  rpc ListVolumes (ListVolumesRequest)
+    returns (ListVolumesResponse) {}
+
+  rpc GetCapacity (GetCapacityRequest)
+    returns (GetCapacityResponse) {}
+
+  rpc ControllerGetCapabilities (ControllerGetCapabilitiesRequest)
+    returns (ControllerGetCapabilitiesResponse) {}
+
+  rpc CreateSnapshot (CreateSnapshotRequest)
+    returns (CreateSnapshotResponse) {}
+
+  rpc DeleteSnapshot (DeleteSnapshotRequest)
+    returns (DeleteSnapshotResponse) {}
+
+  rpc ListSnapshots (ListSnapshotsRequest)
+    returns (ListSnapshotsResponse) {}
+
+  rpc ControllerExpandVolume (ControllerExpandVolumeRequest)
+    returns (ControllerExpandVolumeResponse) {}
+
+  rpc ControllerGetVolume (ControllerGetVolumeRequest)
+    returns (ControllerGetVolumeResponse) {
+        option (alpha_method) = true;
+    }
+}
+
+service Node {
+  rpc NodeStageVolume (NodeStageVolumeRequest)
+    returns (NodeStageVolumeResponse) {}
+
+  rpc NodeUnstageVolume (NodeUnstageVolumeRequest)
+    returns (NodeUnstageVolumeResponse) {}
+
+  rpc NodePublishVolume (NodePublishVolumeRequest)
+    returns (NodePublishVolumeResponse) {}
+
+  rpc NodeUnpublishVolume (NodeUnpublishVolumeRequest)
+    returns (NodeUnpublishVolumeResponse) {}
+
+  rpc NodeGetVolumeStats (NodeGetVolumeStatsRequest)
+    returns (NodeGetVolumeStatsResponse) {}
+
+
+  rpc NodeExpandVolume(NodeExpandVolumeRequest)
+    returns (NodeExpandVolumeResponse) {}
+
+
+  rpc NodeGetCapabilities (NodeGetCapabilitiesRequest)
+    returns (NodeGetCapabilitiesResponse) {}
+
+  rpc NodeGetInfo (NodeGetInfoRequest)
+    returns (NodeGetInfoResponse) {}
+}
+</code></pre>
+
+<p>这些接口都定义在<a href="https://github.com/container-storage-interface/spec/blob/master/lib/go/csi/csi.pb.go">csi的spec的lib</a>中，所以我们开发的时候会引用这个库，我们只要实现这些接口就可以实现csi的基本插件功能。</p>
+
+<h2 id="实例">实例</h2>
+
+<p>csi-driver-host-path 是社区实现的一个 CSI 插件的示例，它以 hostpath 为后端存储，kubernetes 通过这个 CSI 插件 driver 来对接 hostpath ，管理本地 Node 节点上的存储卷。我们以这个为例子，来看看如何编写一个csi插件。</p>
+
+<h3 id="目录结构">目录结构</h3>
+
+<pre><code>├── hostpath
+│   ├── controllerserver.go
+│   ├── nodeserver.go
+│   ├── nodeserver_test.go
+│   ├── hostpath.go
+│   └── utils.go
+│   └── identityserver.go
+</code></pre>
+
+<ul>
+<li>controllerserver.go主要是实现controller的rpc接口</li>
+<li>nodeserver.go主要是实现node的rpc接口</li>
+<li>utils.go基本公用函数</li>
+<li>hostpath.go入口，启动rpc服务</li>
+<li>identityserver.go身份验证的rpc接口</li>
+</ul>
+
+<h3 id="启动rpc服务">启动rpc服务</h3>
+
+<p>首先肯定是定一个结构体包含plugin启动的所需信息</p>
+
+<pre><code>type hostPath struct {
+    driver *csicommon.CSIDriver
+
+    ids *identityServer
+    ns  *nodeServer
+    cs  *controllerServer
+
+    cap   []*csi.VolumeCapability_AccessMode
+    cscap []*csi.ControllerServiceCapability
+}
+</code></pre>
+
+<p>简单的介绍一下这个结构体</p>
+
+<ul>
+<li>csicommon.CSIDriver：k8s自定义代表插件的结构体, 初始化的时候需要指定插件的RPC功能和支持的读写模式</li>
+<li>endpoint：插件的监听地址,一般的,我们测试的时候可以用tcp方式进行,比如<code>tcp://127.0.0.1:10000</code>,最后在k8s中部署的时候一般使用unix方式:/csi/csi.sock</li>
+<li>csicommon.DefaultIdentityServer: 认证服务一般不需要特别实现,使用k8s公共部分的即可</li>
+<li>controllerServer: 实现CSI中的controller服务的RPC功能,继承后可以选择性覆盖部分方法</li>
+<li>nodeServer: 实现CSI中的node服务的RPC功能,继承后可以选择性覆盖部分方法</li>
+</ul>
+
+<p>然后就是调用这个结构体的run方法，该方法中调用csicommon的公共方法启动socket监听</p>
+
+<pre><code>func (hp *hostPath) Run(driverName, nodeID, endpoint string) {
+    glog.Infof(&quot;Driver: %v &quot;, driverName)
+    glog.Infof(&quot;Version: %s&quot;, vendorVersion)
+
+    // Initialize default library driver
+    hp.driver = csicommon.NewCSIDriver(driverName, vendorVersion, nodeID)
+    if hp.driver == nil {
+        glog.Fatalln(&quot;Failed to initialize CSI Driver.&quot;)
+    }
+    hp.driver.AddControllerServiceCapabilities(
+        []csi.ControllerServiceCapability_RPC_Type{
+            csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+            csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+            csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
+        })
+    hp.driver.AddVolumeCapabilityAccessModes([]csi.VolumeCapability_AccessMode_Mode{csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER})
+
+    // Create GRPC servers
+    hp.ids = NewIdentityServer(hp.driver)
+    hp.ns = NewNodeServer(hp.driver)
+    hp.cs = NewControllerServer(hp.driver)
+
+    s := csicommon.NewNonBlockingGRPCServer()
+    s.Start(endpoint, hp.ids, hp.cs, hp.ns)
+    s.Wait()
+}
+</code></pre>
+
+<p>start来启动grpc服务来给对应的客户端进行调用</p>
+
+<pre><code>func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer, cs csi.ControllerServer, ns csi.NodeServer) {
+
+    proto, addr, err := parseEndpoint(endpoint)
+    if err != nil {
+        glog.Fatal(err.Error())
+    }
+
+    if proto == &quot;unix&quot; {
+        addr = &quot;/&quot; + addr
+        if err := os.Remove(addr); err != nil &amp;&amp; !os.IsNotExist(err) { //nolint: vetshadow
+            glog.Fatalf(&quot;Failed to remove %s, error: %s&quot;, addr, err.Error())
+        }
+    }
+
+    listener, err := net.Listen(proto, addr)
+    if err != nil {
+        glog.Fatalf(&quot;Failed to listen: %v&quot;, err)
+    }
+
+    opts := []grpc.ServerOption{
+        grpc.UnaryInterceptor(logGRPC),
+    }
+    server := grpc.NewServer(opts...)
+    s.server = server
+
+    if ids != nil {
+        csi.RegisterIdentityServer(server, ids)
+    }
+    if cs != nil {
+        csi.RegisterControllerServer(server, cs)
+    }
+    if ns != nil {
+        csi.RegisterNodeServer(server, ns)
+    }
+
+    glog.Infof(&quot;Listening for connections on address: %#v&quot;, listener.Addr())
+
+    server.Serve(listener)
+
+}
+</code></pre>
+
+<h3 id="实现csi-identity">实现CSI Identity</h3>
+
+<p>然后就是对应接口的实现，先看CSI Identity 用于认证driver的身份信息，上面提到的 kubernetes 外部组件调用，返回 CSI driver 的身份信息和健康状态。</p>
+
+<pre><code>func NewIdentityServer(name, version string) *identityServer {
+    return &amp;identityServer{
+        name:    name,
+        version: version,
+    }
+}
+
+func (ids *identityServer) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
+    glog.V(5).Infof(&quot;Using default GetPluginInfo&quot;)
+
+    if ids.name == &quot;&quot; {
+        return nil, status.Error(codes.Unavailable, &quot;Driver name not configured&quot;)
+    }
+
+    if ids.version == &quot;&quot; {
+        return nil, status.Error(codes.Unavailable, &quot;Driver is missing version&quot;)
+    }
+
+    return &amp;csi.GetPluginInfoResponse{
+        Name:          ids.name,
+        VendorVersion: ids.version,
+    }, nil
+}
+
+func (ids *identityServer) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.ProbeResponse, error) {
+    return &amp;csi.ProbeResponse{}, nil
+}
+
+func (ids *identityServer) GetPluginCapabilities(ctx context.Context, req *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
+    glog.V(5).Infof(&quot;Using default capabilities&quot;)
+    return &amp;csi.GetPluginCapabilitiesResponse{
+        Capabilities: []*csi.PluginCapability{
+            {
+                Type: &amp;csi.PluginCapability_Service_{
+                    Service: &amp;csi.PluginCapability_Service{
+                        Type: csi.PluginCapability_Service_CONTROLLER_SERVICE,
+                    },
+                },
+            },
+        },
+    }, nil
+}
+</code></pre>
+
+<h3 id="实现csi-controller">实现CSI Controller</h3>
+
+<p>再来看看CSI Controller 主要实现 Volume 管理流程当中的 &ldquo;Provision&rdquo; 和 &ldquo;Attach&rdquo; 阶段。&rdquo;Provision&rdquo; 阶段是指创建和删除 Volume 的流程，而 &ldquo;Attach&rdquo; 阶段是指把存储卷附着在某个 Node 或脱离某个 Node 的流程。只有块存储类型的 CSI 插件才需要 &ldquo;Attach&rdquo; 功能。</p>
+
+<pre><code>func NewControllerServer(ephemeral bool) *controllerServer {
+    if ephemeral {
+        return &amp;controllerServer{caps: getControllerServiceCapabilities(nil)}
+    }
+    return &amp;controllerServer{
+        caps: getControllerServiceCapabilities(
+            []csi.ControllerServiceCapability_RPC_Type{
+                csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+                csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+                csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
+            }),
+    }
+}
+
+func (cs *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+    if err := cs.validateControllerServiceRequest(csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME); err != nil {
+        glog.V(3).Infof(&quot;invalid create volume req: %v&quot;, req)
+        return nil, err
+    }
+
+    // Check arguments
+    if len(req.GetName()) == 0 {
+        return nil, status.Error(codes.InvalidArgument, &quot;Name missing in request&quot;)
+    }
+    caps := req.GetVolumeCapabilities()
+    if caps == nil {
+        return nil, status.Error(codes.InvalidArgument, &quot;Volume Capabilities missing in request&quot;)
+    }
+
+    // Keep a record of the requested access types.
+    var accessTypeMount, accessTypeBlock bool
+
+    for _, cap := range caps {
+        if cap.GetBlock() != nil {
+            accessTypeBlock = true
+        }
+        if cap.GetMount() != nil {
+            accessTypeMount = true
+        }
+    }
+    // A real driver would also need to check that the other
+    // fields in VolumeCapabilities are sane. The check above is
+    // just enough to pass the &quot;[Testpattern: Dynamic PV (block
+    // volmode)] volumeMode should fail in binding dynamic
+    // provisioned PV to PVC&quot; storage E2E test.
+
+    if accessTypeBlock &amp;&amp; accessTypeMount {
+        return nil, status.Error(codes.InvalidArgument, &quot;cannot have both block and mount access type&quot;)
+    }
+
+    var requestedAccessType accessType
+
+    if accessTypeBlock {
+        requestedAccessType = blockAccess
+    } else {
+        // Default to mount.
+        requestedAccessType = mountAccess
+    }
+
+    // Check for maximum available capacity
+    capacity := int64(req.GetCapacityRange().GetRequiredBytes())
+    if capacity &gt;= maxStorageCapacity {
+        return nil, status.Errorf(codes.OutOfRange, &quot;Requested capacity %d exceeds maximum allowed %d&quot;, capacity, maxStorageCapacity)
+    }
+
+    // Need to check for already existing volume name, and if found
+    // check for the requested capacity and already allocated capacity
+    if exVol, err := getVolumeByName(req.GetName()); err == nil {
+        // Since err is nil, it means the volume with the same name already exists
+        // need to check if the size of exisiting volume is the same as in new
+        // request
+        if exVol.VolSize &gt;= int64(req.GetCapacityRange().GetRequiredBytes()) {
+            // exisiting volume is compatible with new request and should be reused.
+            // TODO (sbezverk) Do I need to make sure that RBD volume still exists?
+            return &amp;csi.CreateVolumeResponse{
+                Volume: &amp;csi.Volume{
+                    VolumeId:      exVol.VolID,
+                    CapacityBytes: int64(exVol.VolSize),
+                    VolumeContext: req.GetParameters(),
+                },
+            }, nil
+        }
+        return nil, status.Error(codes.AlreadyExists, fmt.Sprintf(&quot;Volume with the same name: %s but with different size already exist&quot;, req.GetName()))
+    }
+
+    volumeID := uuid.NewUUID().String()
+    path := getVolumePath(volumeID)
+
+    if requestedAccessType == blockAccess {
+        executor := utilexec.New()
+        size := fmt.Sprintf(&quot;%dM&quot;, capacity/mib)
+        // Create a block file.
+        out, err := executor.Command(&quot;fallocate&quot;, &quot;-l&quot;, size, path).CombinedOutput()
+        if err != nil {
+            glog.V(3).Infof(&quot;failed to create block device: %v&quot;, string(out))
+            return nil, err
+        }
+
+        // Associate block file with the loop device.
+        volPathHandler := volumepathhandler.VolumePathHandler{}
+        _, err = volPathHandler.AttachFileDevice(path)
+        if err != nil {
+            glog.Errorf(&quot;failed to attach device: %v&quot;, err)
+            // Remove the block file because it'll no longer be used again.
+            if err2 := os.Remove(path); err != nil {
+                glog.Errorf(&quot;failed to cleanup block file %s: %v&quot;, path, err2)
+            }
+            return nil, status.Error(codes.Internal, fmt.Sprintf(&quot;failed to attach device: %v&quot;, err))
+        }
+    }
+
+    vol, err := createHostpathVolume(volumeID, req.GetName(), capacity, requestedAccessType)
+    if err != nil {
+        return nil, status.Error(codes.Internal, fmt.Sprintf(&quot;failed to create volume: %s&quot;, err))
+    }
+    glog.V(4).Infof(&quot;created volume %s at path %s&quot;, vol.VolID, vol.VolPath)
+
+    if req.GetVolumeContentSource() != nil {
+        contentSource := req.GetVolumeContentSource()
+        if contentSource.GetSnapshot() != nil {
+            snapshotId := contentSource.GetSnapshot().GetSnapshotId()
+            snapshot, ok := hostPathVolumeSnapshots[snapshotId]
+            if !ok {
+                return nil, status.Errorf(codes.NotFound, &quot;cannot find snapshot %v&quot;, snapshotId)
+            }
+            if snapshot.ReadyToUse != true {
+                return nil, status.Errorf(codes.Internal, &quot;Snapshot %v is not yet ready to use.&quot;, snapshotId)
+            }
+            snapshotPath := snapshot.Path
+            args := []string{&quot;zxvf&quot;, snapshotPath, &quot;-C&quot;, path}
+            executor := utilexec.New()
+            out, err := executor.Command(&quot;tar&quot;, args...).CombinedOutput()
+            if err != nil {
+                return nil, status.Error(codes.Internal, fmt.Sprintf(&quot;failed pre-populate data for volume: %v: %s&quot;, err, out))
+            }
+        }
+    }
+
+    return &amp;csi.CreateVolumeResponse{
+        Volume: &amp;csi.Volume{
+            VolumeId:      volumeID,
+            CapacityBytes: req.GetCapacityRange().GetRequiredBytes(),
+            VolumeContext: req.GetParameters(),
+        },
+    }, nil
+}
+
+func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
+
+    // Check arguments
+    if len(req.GetVolumeId()) == 0 {
+        return nil, status.Error(codes.InvalidArgument, &quot;Volume ID missing in request&quot;)
+    }
+
+    if err := cs.validateControllerServiceRequest(csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME); err != nil {
+        glog.V(3).Infof(&quot;invalid delete volume req: %v&quot;, req)
+        return nil, err
+    }
+
+    vol, err := getVolumeByID(req.GetVolumeId())
+    if err != nil {
+        // Return OK if the volume is not found.
+        return &amp;csi.DeleteVolumeResponse{}, nil
+    }
+    glog.V(4).Infof(&quot;deleting volume %s&quot;, vol.VolID)
+
+    if vol.VolAccessType == blockAccess {
+
+        volPathHandler := volumepathhandler.VolumePathHandler{}
+        // Get the associated loop device.
+        device, err := volPathHandler.GetLoopDevice(getVolumePath(vol.VolID))
+        if err != nil {
+            return nil, status.Error(codes.Internal, fmt.Sprintf(&quot;failed to get the loop device: %v&quot;, err))
+        }
+
+        if device != &quot;&quot; {
+            // Remove any associated loop device.
+            glog.V(4).Infof(&quot;deleting loop device %s&quot;, device)
+            if err := volPathHandler.RemoveLoopDevice(device); err != nil {
+                return nil, status.Error(codes.Internal, fmt.Sprintf(&quot;failed to remove loop device: %v&quot;, err))
+            }
+        }
+    }
+
+    if err := deleteHostpathVolume(vol.VolID); err != nil &amp;&amp; !os.IsNotExist(err) {
+        return nil, status.Error(codes.Internal, fmt.Sprintf(&quot;failed to delete volume: %s&quot;, err))
+    }
+
+    glog.V(4).Infof(&quot;volume deleted ok: %s&quot;, vol.VolID)
+
+    return &amp;csi.DeleteVolumeResponse{}, nil
+}
+</code></pre>
+
+<p>其中，CreateVolume 和 DeleteVolume 是实现 &ldquo;Provision&rdquo; 阶段需要实现的接口，External provisioner 组件会 CSI 插件的这个接口以创建或者删除存储卷。ControllerPublishVolume 和 ControllerUnpublishVolume 是实现 &ldquo;Attach&rdquo; 阶段需要实现的接口，External attach 组件会调用 CSI 插件实现的这个接口以把某个块存储卷附着或脱离某个 Node 。
+如果想扩展 CSI 的功能，可以实现更多功能的接口，如快照功能的接口 CreateSnapshot 和 DeleteSnapshot。</p>
+
+<h3 id="实现csi-node">实现CSI Node</h3>
+
+<p>最后再来看看CSI Node 部分主要负责 Volume 管理流程当中的 &ldquo;Mount&rdquo; 阶段，即把 Volume 挂载至 Pod 容器，或者从 Pod 中卸载 Volume 。在宿主机 Node 上需要执行的操作都包含在这个部分。</p>
+
+<pre><code>func NewNodeServer(nodeId string, ephemeral bool) *nodeServer {
+    return &amp;nodeServer{
+        nodeID:    nodeId,
+        ephemeral: ephemeral,
+    }
+}
+
+func (ns *nodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
+
+    // Check arguments
+    if req.GetVolumeCapability() == nil {
+        return nil, status.Error(codes.InvalidArgument, &quot;Volume capability missing in request&quot;)
+    }
+    if len(req.GetVolumeId()) == 0 {
+        return nil, status.Error(codes.InvalidArgument, &quot;Volume ID missing in request&quot;)
+    }
+    if len(req.GetTargetPath()) == 0 {
+        return nil, status.Error(codes.InvalidArgument, &quot;Target path missing in request&quot;)
+    }
+
+    targetPath := req.GetTargetPath()
+
+    if req.GetVolumeCapability().GetBlock() != nil &amp;&amp;
+        req.GetVolumeCapability().GetMount() != nil {
+        return nil, status.Error(codes.InvalidArgument, &quot;cannot have both block and mount access type&quot;)
+    }
+
+    // if ephemeral is specified, create volume here to avoid errors
+    if ns.ephemeral {
+        volID := req.GetVolumeId()
+        volName := fmt.Sprintf(&quot;ephemeral-%s&quot;, volID)
+        vol, err := createHostpathVolume(req.GetVolumeId(), volName, maxStorageCapacity, mountAccess)
+        if err != nil &amp;&amp; !os.IsExist(err) {
+            glog.Error(&quot;ephemeral mode failed to create volume: &quot;, err)
+            return nil, status.Error(codes.Internal, err.Error())
+        }
+        glog.V(4).Infof(&quot;ephemeral mode: created volume: %s&quot;, vol.VolPath)
+    }
+
+    vol, err := getVolumeByID(req.GetVolumeId())
+    if err != nil {
+        return nil, status.Error(codes.NotFound, err.Error())
+    }
+
+    if req.GetVolumeCapability().GetBlock() != nil {
+        if vol.VolAccessType != blockAccess {
+            return nil, status.Error(codes.InvalidArgument, &quot;cannot publish a non-block volume as block volume&quot;)
+        }
+
+        volPathHandler := volumepathhandler.VolumePathHandler{}
+
+        // Get loop device from the volume path.
+        loopDevice, err := volPathHandler.GetLoopDevice(vol.VolPath)
+        if err != nil {
+            return nil, status.Error(codes.Internal, fmt.Sprintf(&quot;failed to get the loop device: %v&quot;, err))
+        }
+
+        mounter := mount.New(&quot;&quot;)
+
+        // Check if the target path exists. Create if not present.
+        _, err = os.Lstat(targetPath)
+        if os.IsNotExist(err) {
+            if err = mounter.MakeFile(targetPath); err != nil {
+                return nil, status.Error(codes.Internal, fmt.Sprintf(&quot;failed to create target path: %s: %v&quot;, targetPath, err))
+            }
+        }
+        if err != nil {
+            return nil, status.Errorf(codes.Internal, &quot;failed to check if the target block file exists: %v&quot;, err)
+        }
+
+        // Check if the target path is already mounted. Prevent remounting.
+        notMount, err := mounter.IsNotMountPoint(targetPath)
+        if err != nil {
+            if !os.IsNotExist(err) {
+                return nil, status.Errorf(codes.Internal, &quot;error checking path %s for mount: %s&quot;, targetPath, err)
+            }
+            notMount = true
+        }
+        if !notMount {
+            // It's already mounted.
+            glog.V(5).Infof(&quot;Skipping bind-mounting subpath %s: already mounted&quot;, targetPath)
+            return &amp;csi.NodePublishVolumeResponse{}, nil
+        }
+
+        options := []string{&quot;bind&quot;}
+        if err := mount.New(&quot;&quot;).Mount(loopDevice, targetPath, &quot;&quot;, options); err != nil {
+            return nil, status.Error(codes.Internal, fmt.Sprintf(&quot;failed to mount block device: %s at %s: %v&quot;, loopDevice, targetPath, err))
+        }
+    } else if req.GetVolumeCapability().GetMount() != nil {
+        if vol.VolAccessType != mountAccess {
+            return nil, status.Error(codes.InvalidArgument, &quot;cannot publish a non-mount volume as mount volume&quot;)
+        }
+
+        notMnt, err := mount.New(&quot;&quot;).IsLikelyNotMountPoint(targetPath)
+        if err != nil {
+            if os.IsNotExist(err) {
+                if err = os.MkdirAll(targetPath, 0750); err != nil {
+                    return nil, status.Error(codes.Internal, err.Error())
+                }
+                notMnt = true
+            } else {
+                return nil, status.Error(codes.Internal, err.Error())
+            }
+        }
+
+        if !notMnt {
+            return &amp;csi.NodePublishVolumeResponse{}, nil
+        }
+
+        fsType := req.GetVolumeCapability().GetMount().GetFsType()
+
+        deviceId := &quot;&quot;
+        if req.GetPublishContext() != nil {
+            deviceId = req.GetPublishContext()[deviceID]
+        }
+
+        readOnly := req.GetReadonly()
+        volumeId := req.GetVolumeId()
+        attrib := req.GetVolumeContext()
+        mountFlags := req.GetVolumeCapability().GetMount().GetMountFlags()
+
+        glog.V(4).Infof(&quot;target %v\nfstype %v\ndevice %v\nreadonly %v\nvolumeId %v\nattributes %v\nmountflags %v\n&quot;,
+            targetPath, fsType, deviceId, readOnly, volumeId, attrib, mountFlags)
+
+        options := []string{&quot;bind&quot;}
+        if readOnly {
+            options = append(options, &quot;ro&quot;)
+        }
+        mounter := mount.New(&quot;&quot;)
+        path := getVolumePath(volumeId)
+
+        if err := mounter.Mount(path, targetPath, &quot;&quot;, options); err != nil {
+            var errList strings.Builder
+            errList.WriteString(err.Error())
+            if ns.ephemeral {
+                if rmErr := os.RemoveAll(path); rmErr != nil &amp;&amp; !os.IsNotExist(rmErr) {
+                    errList.WriteString(fmt.Sprintf(&quot; :%s&quot;, rmErr.Error()))
+                }
+            }
+        }
+    }
+
+    return &amp;csi.NodePublishVolumeResponse{}, nil
+}
+
+func (ns *nodeServer) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
+
+    // Check arguments
+    if len(req.GetVolumeId()) == 0 {
+        return nil, status.Error(codes.InvalidArgument, &quot;Volume ID missing in request&quot;)
+    }
+    if len(req.GetTargetPath()) == 0 {
+        return nil, status.Error(codes.InvalidArgument, &quot;Target path missing in request&quot;)
+    }
+    targetPath := req.GetTargetPath()
+    volumeID := req.GetVolumeId()
+
+    vol, err := getVolumeByID(volumeID)
+    if err != nil {
+        return nil, status.Error(codes.NotFound, err.Error())
+    }
+
+    switch vol.VolAccessType {
+    case blockAccess:
+        // Unmount and delete the block file.
+        err = mount.New(&quot;&quot;).Unmount(targetPath)
+        if err != nil {
+            return nil, status.Error(codes.Internal, err.Error())
+        }
+        if err = os.RemoveAll(targetPath); err != nil {
+            return nil, status.Error(codes.Internal, err.Error())
+        }
+        glog.V(4).Infof(&quot;hostpath: volume %s has been unpublished.&quot;, targetPath)
+    case mountAccess:
+        // Unmounting the image
+        err = mount.New(&quot;&quot;).Unmount(req.GetTargetPath())
+        if err != nil {
+            return nil, status.Error(codes.Internal, err.Error())
+        }
+        glog.V(4).Infof(&quot;hostpath: volume %s/%s has been unmounted.&quot;, targetPath, volumeID)
+    }
+
+    if ns.ephemeral {
+        glog.V(4).Infof(&quot;deleting volume %s&quot;, volumeID)
+        if err := deleteHostpathVolume(volumeID); err != nil &amp;&amp; !os.IsNotExist(err) {
+            return nil, status.Error(codes.Internal, fmt.Sprintf(&quot;failed to delete volume: %s&quot;, err))
+        }
+    }
+
+    return &amp;csi.NodeUnpublishVolumeResponse{}, nil
+}
+
+func (ns *nodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+
+    // Check arguments
+    if len(req.GetVolumeId()) == 0 {
+        return nil, status.Error(codes.InvalidArgument, &quot;Volume ID missing in request&quot;)
+    }
+    if len(req.GetStagingTargetPath()) == 0 {
+        return nil, status.Error(codes.InvalidArgument, &quot;Target path missing in request&quot;)
+    }
+    if req.GetVolumeCapability() == nil {
+        return nil, status.Error(codes.InvalidArgument, &quot;Volume Capability missing in request&quot;)
+    }
+
+    return &amp;csi.NodeStageVolumeResponse{}, nil
+}
+
+func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
+
+    // Check arguments
+    if len(req.GetVolumeId()) == 0 {
+        return nil, status.Error(codes.InvalidArgument, &quot;Volume ID missing in request&quot;)
+    }
+    if len(req.GetStagingTargetPath()) == 0 {
+        return nil, status.Error(codes.InvalidArgument, &quot;Target path missing in request&quot;)
+    }
+
+    return &amp;csi.NodeUnstageVolumeResponse{}, nil
+}
+</code></pre>
+
+<p>kubelet 会调用 CSI 插件实现的接口，以实现 volume 的挂载和卸载。</p>
+
+<p>其中 Volume 的挂载被分成了 NodeStageVolume 和 NodePublishVolume 两个阶段。NodeStageVolume 接口主要是针对块存储类型的 CSI 插件而提供的。 块设备在 &ldquo;Attach&rdquo; 阶段被附着在 Node 上后，需要挂载至 Pod 对应目录上，但因为块设备在 linux 上只能 mount 一次，而在 kubernetes volume 的使用场景中，一个 volume 可能被挂载进同一个 Node 上的多个 Pod 实例中，所以这里提供了 NodeStageVolume 这个接口，使用这个接口把块设备格式化后先挂载至 Node 上的一个临时全局目录，然后再调用 NodePublishVolume 使用 linux 中的 bind mount 技术把这个全局目录挂载进 Pod 中对应的目录上。</p>
+
+<p>NodeUnstageVolume 和 NodeUnpublishVolume 正是 volume 卸载阶段所分别对应的上述两个流程。从上述代码中可以看到，因为 hostpath 非块存储类型的第三方存储，所以没有实现 NodeStageVolume 和 NodeUnstageVolume 这两个接口。</p>
+
+<p>当然，如果是非块存储类型的 CSI 插件，也就不必实现 NodeStageVolume 和 NodeUnstageVolume 这两个接口了。</p>
+
+<p>到这里一个完整的csi插件就开发完成，大体都是这些流程，只要实现对应的rpc接口逻辑就好。</p>
+
+<h1 id="源码分析">源码分析</h1>
+
+<h2 id="pv-controller">pv controller</h2>
+
+<p>根据存储流程，首先调度后，pv控制器来处理pv和pvc的关系，pv控制器在组件kube-controller-manager中，我们先来看看pv控制器，首先看到pv控制器在kube-controller-manager的注册。</p>
+
+<pre><code>controllers[&quot;persistentvolume-binder&quot;] = startPersistentVolumeBinderController
+controllers[&quot;persistentvolume-expander&quot;] = startVolumeExpandController
+</code></pre>
+
+<p>分别支持原生的存储和扩展的存储，我们来看对待的初始化函数。</p>
+
+<pre><code>func startPersistentVolumeBinderController(ctx ControllerContext) (http.Handler, bool, error) {
+    plugins, err := ProbeControllerVolumePlugins(ctx.Cloud, ctx.ComponentConfig.PersistentVolumeBinderController.VolumeConfiguration)
+    if err != nil {
+        return nil, true, fmt.Errorf(&quot;failed to probe volume plugins when starting persistentvolume controller: %v&quot;, err)
+    }
+    filteredDialOptions, err := options.ParseVolumeHostFilters(
+        ctx.ComponentConfig.PersistentVolumeBinderController.VolumeHostCIDRDenylist,
+        ctx.ComponentConfig.PersistentVolumeBinderController.VolumeHostAllowLocalLoopback)
+    if err != nil {
+        return nil, true, err
+    }
+    params := persistentvolumecontroller.ControllerParameters{
+        KubeClient:                ctx.ClientBuilder.ClientOrDie(&quot;persistent-volume-binder&quot;),
+        SyncPeriod:                ctx.ComponentConfig.PersistentVolumeBinderController.PVClaimBinderSyncPeriod.Duration,
+        VolumePlugins:             plugins,
+        Cloud:                     ctx.Cloud,
+        ClusterName:               ctx.ComponentConfig.KubeCloudShared.ClusterName,
+        VolumeInformer:            ctx.InformerFactory.Core().V1().PersistentVolumes(),
+        ClaimInformer:             ctx.InformerFactory.Core().V1().PersistentVolumeClaims(),
+        ClassInformer:             ctx.InformerFactory.Storage().V1().StorageClasses(),
+        PodInformer:               ctx.InformerFactory.Core().V1().Pods(),
+        NodeInformer:              ctx.InformerFactory.Core().V1().Nodes(),
+        EnableDynamicProvisioning: ctx.ComponentConfig.PersistentVolumeBinderController.VolumeConfiguration.EnableDynamicProvisioning,
+        FilteredDialOptions:       filteredDialOptions,
+    }
+    volumeController, volumeControllerErr := persistentvolumecontroller.NewController(params)
+    if volumeControllerErr != nil {
+        return nil, true, fmt.Errorf(&quot;failed to construct persistentvolume controller: %v&quot;, volumeControllerErr)
+    }
+    go volumeController.Run(ctx.Stop)
+    return nil, true, nil
+}
+</code></pre>
+
+<p>创建各种params最后创建结构体PersistentVolumeController</p>
+
+<pre><code>// NewController creates a new PersistentVolume controller
+func NewController(p ControllerParameters) (*PersistentVolumeController, error) {
+    eventRecorder := p.EventRecorder
+    if eventRecorder == nil {
+        broadcaster := record.NewBroadcaster()
+        broadcaster.StartStructuredLogging(0)
+        broadcaster.StartRecordingToSink(&amp;v1core.EventSinkImpl{Interface: p.KubeClient.CoreV1().Events(&quot;&quot;)})
+        eventRecorder = broadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: &quot;persistentvolume-controller&quot;})
+    }
+
+    controller := &amp;PersistentVolumeController{
+        volumes:                       newPersistentVolumeOrderedIndex(),
+        claims:                        cache.NewStore(cache.DeletionHandlingMetaNamespaceKeyFunc),
+        kubeClient:                    p.KubeClient,
+        eventRecorder:                 eventRecorder,
+        runningOperations:             goroutinemap.NewGoRoutineMap(true /* exponentialBackOffOnError */),
+        cloud:                         p.Cloud,
+        enableDynamicProvisioning:     p.EnableDynamicProvisioning,
+        clusterName:                   p.ClusterName,
+        createProvisionedPVRetryCount: createProvisionedPVRetryCount,
+        createProvisionedPVInterval:   createProvisionedPVInterval,
+        claimQueue:                    workqueue.NewNamed(&quot;claims&quot;),
+        volumeQueue:                   workqueue.NewNamed(&quot;volumes&quot;),
+        resyncPeriod:                  p.SyncPeriod,
+        operationTimestamps:           metrics.NewOperationStartTimeCache(),
+    }
+    ...
+}
+</code></pre>
+
+<p>然后初始化volumes的插件，包括hostpath nfs csi等等</p>
+
+<pre><code>// Prober is nil because PV is not aware of Flexvolume.
+if err := controller.volumePluginMgr.InitPlugins(p.VolumePlugins, nil /* prober */, controller); err != nil {
+    return nil, fmt.Errorf(&quot;Could not initialize volume plugins for PersistentVolume Controller: %v&quot;, err)
+}
+</code></pre>
+
+<p>然后添加volume informer机制</p>
+
+<pre><code>p.VolumeInformer.Informer().AddEventHandler(
+    cache.ResourceEventHandlerFuncs{
+        AddFunc:    func(obj interface{}) { controller.enqueueWork(controller.volumeQueue, obj) },
+        UpdateFunc: func(oldObj, newObj interface{}) { controller.enqueueWork(controller.volumeQueue, newObj) },
+        DeleteFunc: func(obj interface{}) { controller.enqueueWork(controller.volumeQueue, obj) },
+    },
+)
+controller.volumeLister = p.VolumeInformer.Lister()
+controller.volumeListerSynced = p.VolumeInformer.Informer().HasSynced
+</code></pre>
+
+<p>然后添加claim informer机制</p>
+
+<pre><code>p.ClaimInformer.Informer().AddEventHandler(
+    cache.ResourceEventHandlerFuncs{
+        AddFunc:    func(obj interface{}) { controller.enqueueWork(controller.claimQueue, obj) },
+        UpdateFunc: func(oldObj, newObj interface{}) { controller.enqueueWork(controller.claimQueue, newObj) },
+        DeleteFunc: func(obj interface{}) { controller.enqueueWork(controller.claimQueue, obj) },
+    },
+)
+controller.claimLister = p.ClaimInformer.Lister()
+controller.claimListerSynced = p.ClaimInformer.Informer().HasSynced
+</code></pre>
+
+<p>最后添加 storageclas pod node资源 informer机制</p>
+
+<pre><code>controller.classLister = p.ClassInformer.Lister()
+controller.classListerSynced = p.ClassInformer.Informer().HasSynced
+controller.podLister = p.PodInformer.Lister()
+controller.podIndexer = p.PodInformer.Informer().GetIndexer()
+controller.podListerSynced = p.PodInformer.Informer().HasSynced
+controller.NodeLister = p.NodeInformer.Lister()
+controller.NodeListerSynced = p.NodeInformer.Informer().HasSynced
+</code></pre>
+
+<p>到此NewController调用就结束了，下面调用这个PersistentVolumeController的run函数运行</p>
+
+<pre><code>// Run starts all of this controller's control loops
+func (ctrl *PersistentVolumeController) Run(stopCh &lt;-chan struct{}) {
+    defer utilruntime.HandleCrash()
+    defer ctrl.claimQueue.ShutDown()
+    defer ctrl.volumeQueue.ShutDown()
+
+    klog.Infof(&quot;Starting persistent volume controller&quot;)
+    defer klog.Infof(&quot;Shutting down persistent volume controller&quot;)
+
+    if !cache.WaitForNamedCacheSync(&quot;persistent volume&quot;, stopCh, ctrl.volumeListerSynced, ctrl.claimListerSynced, ctrl.classListerSynced, ctrl.podListerSynced, ctrl.NodeListerSynced) {
+        return
+    }
+
+    ctrl.initializeCaches(ctrl.volumeLister, ctrl.claimLister)
+
+    go wait.Until(ctrl.resync, ctrl.resyncPeriod, stopCh)
+    go wait.Until(ctrl.volumeWorker, time.Second, stopCh)
+    go wait.Until(ctrl.claimWorker, time.Second, stopCh)
+
+    metrics.Register(ctrl.volumes.store, ctrl.claims, &amp;ctrl.volumePluginMgr)
+
+    &lt;-stopCh
+}
+</code></pre>
+
+<p>开启了三个goroutine来定期执行对应的函数</p>
+
+<ul>
+<li>resysc 定期list pv pvc并加入到队列</li>
+<li>volumeManager 这个我们在之前说过，主要是管理pv的状态迁移</li>
+<li>claimWorker 这个我们在之前说过，主要处理 PVC 的 add / update / delete 相关事件以及 PVC 的状态迁移</li>
+</ul>
+
+<p>我们来看看对应的函数，先看resysc</p>
+
+<pre><code>// resync supplements short resync period of shared informers - we don't want
+// all consumers of PV/PVC shared informer to have a short resync period,
+// therefore we do our own.
+func (ctrl *PersistentVolumeController) resync() {
+    klog.V(4).Infof(&quot;resyncing PV controller&quot;)
+
+    pvcs, err := ctrl.claimLister.List(labels.NewSelector())
+    if err != nil {
+        klog.Warningf(&quot;cannot list claims: %s&quot;, err)
+        return
+    }
+    for _, pvc := range pvcs {
+        ctrl.enqueueWork(ctrl.claimQueue, pvc)
+    }
+
+    pvs, err := ctrl.volumeLister.List(labels.NewSelector())
+    if err != nil {
+        klog.Warningf(&quot;cannot list persistent volumes: %s&quot;, err)
+        return
+    }
+    for _, pv := range pvs {
+        ctrl.enqueueWork(ctrl.volumeQueue, pv)
+    }
+}
+</code></pre>
+
+<p>可见就是获取pvcs，pvs，最后放到对应的队列中处理。我们再来看看volumeManager</p>
+
+<pre><code>// volumeWorker processes items from volumeQueue. It must run only once,
+// syncVolume is not assured to be reentrant.
+func (ctrl *PersistentVolumeController) volumeWorker() {
+    workFunc := func() bool {
+        keyObj, quit := ctrl.volumeQueue.Get()
+        if quit {
+            return true
+        }
+        defer ctrl.volumeQueue.Done(keyObj)
+        key := keyObj.(string)
+        klog.V(5).Infof(&quot;volumeWorker[%s]&quot;, key)
+
+        _, name, err := cache.SplitMetaNamespaceKey(key)
+        if err != nil {
+            klog.V(4).Infof(&quot;error getting name of volume %q to get volume from informer: %v&quot;, key, err)
+            return false
+        }
+        volume, err := ctrl.volumeLister.Get(name)
+        if err == nil {
+            // The volume still exists in informer cache, the event must have
+            // been add/update/sync
+            ctrl.updateVolume(volume)
+            return false
+        }
+        if !errors.IsNotFound(err) {
+            klog.V(2).Infof(&quot;error getting volume %q from informer: %v&quot;, key, err)
+            return false
+        }
+
+        // The volume is not in informer cache, the event must have been
+        // &quot;delete&quot;
+        volumeObj, found, err := ctrl.volumes.store.GetByKey(key)
+        if err != nil {
+            klog.V(2).Infof(&quot;error getting volume %q from cache: %v&quot;, key, err)
+            return false
+        }
+        if !found {
+            // The controller has already processed the delete event and
+            // deleted the volume from its cache
+            klog.V(2).Infof(&quot;deletion of volume %q was already processed&quot;, key)
+            return false
+        }
+        volume, ok := volumeObj.(*v1.PersistentVolume)
+        if !ok {
+            klog.Errorf(&quot;expected volume, got %+v&quot;, volumeObj)
+            return false
+        }
+        ctrl.deleteVolume(volume)
+        return false
+    }
+    for {
+        if quit := workFunc(); quit {
+            klog.Infof(&quot;volume worker queue shutting down&quot;)
+            return
+        }
+    }
+}
+</code></pre>
+
+<p>从队列取进行处理，未有就退出等待下一个周期在处理，如果有则 updateVolume 更新操作，可能包括 add update sync 等操作，处理并删除队列，具体处理的逻辑在上面已经说过，我们简单看一下</p>
+
+<h2 id="extrenal-provisioner">extrenal provisioner</h2>
+
+<h2 id="csi插件">csi插件</h2>
+
+<h2 id="ad-controller">AD controller</h2>
+
+<p>AD Controller中核心部件包括两个缓存，一个populator，一个reconciler，一个status updater。</p>
+
+<p>两个缓存分别是desired status和actual status，分别代表跟attach/detach相关对象模型的期望状态和实际状态。
+reconciler通过定期比较期望状态和实际状态来决定是执行attach，还是detach，还是什么都不做。
+populator负责定期从API Server同步相关模型值到期望状态缓存中。
+status updater负责node的状态刷新，这里主要是当有卷做完attach/detach操作后，从记录实际状态缓存中获取每个node已经attach的卷信息，向API Server同步node.Status.VolumesAttached，通过这个状态Kubelet才知道AD Controller是否已经完成attach操作。详细代码查看这里，结构见下图：</p>
+
+<p>核心的逻辑部件有一定了解之后，再梳理下它的逻辑。对于AD Controller来讲，它的核心职责就是当API Server中，有卷声明的pod与node间的关系发生变化时，需要决定是通过调用存储插件将这个pod关联的卷attach到对应node的主机（或者虚拟机）上，还是将卷从node上detach掉，这里的关系变化可能是pod调度某个node上，也可能是某个pod在node上终止掉了，所以它需要做这几件事情：</p>
+
+<p>监控API Server 中的pod和node。
+监控当前各个node上卷的实际attach状态。
+通过对比API Server中pod和node的状态变化以及node上的实际attach状态来决定做attach、detach操作。
+调用相应的卷插件执行attach，detach操作。
+操作完成后，通知其它关联组件（这里主要是kubelet）做相应的业务操作。</p>
+
+<h2 id="external-attacher">external-attacher</h2>
+
+<h2 id="kubelet">kubelet</h2>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-store-csi/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-store-csi/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/store/">
+                            <i class="fa fa-tags"></i>
+                            store
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/csi/">
+                            <i class="fa fa-tags"></i>
+                            csi
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-istio/">云计算K8s系列---- istio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月17日)</span></li><li id="li-rels"><a href="/post/distributed/store/store/">分布式系列---- 分布式存储</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月15日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/glusterfs/">分布式系列---- 文件存储系统glusterfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月15日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/log/collect/filebeat/filebeat/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/base/kubernetes/k8s-controller-manager/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本使用">基本使用</a>
+<ul>
+<li><a href="#开启csi">开启csi</a></li>
+</ul></li>
+<li><a href="#设计架构">设计架构</a></li>
+<li><a href="#存储流程">存储流程</a>
+<ul>
+<li><a href="#pv创建方式">pv创建方式</a></li>
+<li><a href="#流程">流程</a>
+<ul>
+<li><a href="#provisioning-volumes">provisioning volumes</a></li>
+<li><a href="#deleting-volumes">deleting volumes</a></li>
+<li><a href="#attaching-volumes">Attaching Volumes</a></li>
+<li><a href="#detaching-volumes">Detaching Volumes</a></li>
+<li><a href="#mounting-unmounting-volumes">Mounting/Unmounting Volumes</a></li>
+</ul></li>
+<li><a href="#总结">总结</a></li>
+</ul></li>
+<li><a href="#开发csi插件">开发csi插件</a>
+<ul>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#实例">实例</a>
+<ul>
+<li><a href="#目录结构">目录结构</a></li>
+<li><a href="#启动rpc服务">启动rpc服务</a></li>
+<li><a href="#实现csi-identity">实现CSI Identity</a></li>
+<li><a href="#实现csi-controller">实现CSI Controller</a></li>
+<li><a href="#实现csi-node">实现CSI Node</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#源码分析">源码分析</a>
+<ul>
+<li><a href="#pv-controller">pv controller</a></li>
+<li><a href="#extrenal-provisioner">extrenal provisioner</a></li>
+<li><a href="#csi插件">csi插件</a></li>
+<li><a href="#ad-controller">AD controller</a></li>
+<li><a href="#external-attacher">external-attacher</a></li>
+<li><a href="#kubelet">kubelet</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

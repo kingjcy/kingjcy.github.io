@@ -1,0 +1,1190 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="为了方便查阅 API 接口的详细定义，Kubernetes 使用了 swagger-ui 提供 API 在线查询功能，其官网为 http://kubernetes.kansea.com/docs/api-reference/v1/operations/， Kubernetes开发团队会定期更新、生成 UI 及文档。Swagger UI 是一款 REST API 文档在线自动生成和功能测试软件，关于 Swagger 的内容请访问官网 http://swagger.io。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s系列---- K8s API - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s系列---- K8s API
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年05月16日 
+                </div>
+                <h1 class="post-title">云计算K8s系列---- K8s API</h1>
+            </header>
+
+            <div class="post-content">
+                <p>为了方便查阅 API 接口的详细定义，Kubernetes 使用了 swagger-ui 提供 API 在线查询功能，其官网为 <a href="http://kubernetes.kansea.com/docs/api-reference/v1/operations/，">http://kubernetes.kansea.com/docs/api-reference/v1/operations/，</a> Kubernetes开发团队会定期更新、生成 UI 及文档。Swagger UI 是一款 REST API 文档在线自动生成和功能测试软件，关于 Swagger 的内容请访问官网 <a href="http://swagger.io。">http://swagger.io。</a></p>
+
+<h1 id="api设计哲学">API设计哲学</h1>
+
+<p>运行在 Master 节点上的 API Server 进程同时提供了 swagger-ui 的访问地址：http://<master-ip>: <master-port>/swagger-ui/。假设我们的 API Server 安装在 192.168.1.128 服务器上，绑定了 8080 端口，则可以通过访问 <a href="http://192.168.1.128:8080/swagger-ui/">http://192.168.1.128:8080/swagger-ui/</a> 来查看 API 信息。</p>
+
+<blockquote>
+<p>声明式风格的API设计</p>
+</blockquote>
+
+<p>声明性API中，你声明系统要执行的操作，系统将不断向该状态驱动。</p>
+
+<blockquote>
+<p>命令式API的设计</p>
+</blockquote>
+
+<p>命令式API中，直接发出服务器要执行的命令，例如： “运行容器”、“停止容器”等。</p>
+
+<blockquote>
+<p>api对象</p>
+</blockquote>
+
+<p>k8s的api采用了声明式的api设计，并且在在etcd中都有完整的资源路径。</p>
+
+<p><img src="/media/cloud/k8s/api2.png" alt="" /></p>
+
+<p>完整的资源路径是由：Group（API组）、Version（API版本）和Resource（API资源类型）三个部分组成的。</p>
+
+<h1 id="api">API</h1>
+
+<blockquote>
+<p>版本和资源对象</p>
+</blockquote>
+
+<pre><code>curl localhost:8080/api  #查看kubernetes API的版本信息
+curl localhost:8080/api/v1  #查看kubernetes API支持的所有的资源对象
+</code></pre>
+
+<blockquote>
+<p>具体的资源操作</p>
+</blockquote>
+
+<p>1、首先要找到具体的资源</p>
+
+<pre><code>localhost:8080/api/v1/资源对象（ns，pod，service）
+</code></pre>
+
+<p>2、然后不同的资源需要不同的处理</p>
+
+<p><strong>node</strong></p>
+
+<p>node是以name来进行资源划分的。</p>
+
+<pre><code>分类          说明                      方法  API
+查   list or watch objects of kind Node      GET     /api/v1/nodes
+    read the specified Node                 GET     /api/v1/nodes/{name}
+增   create a Node                           POST    /api/v1/nodes
+删   delete a Node                           DELETE  /api/v1/nodes/{name}
+改   replace the specified Node              PUT     /api/v1/nodes/{name}
+    partially update the specified Node P   ATCH    /api/v1/nodes/{name}
+    replace status of the specified Node    PUT     /api/v1/nodes/{name}/status
+</code></pre>
+
+<p><strong>namespace</strong></p>
+
+<p>namespace也是以name来进行资源划分的。</p>
+
+<pre><code>分类      说明                                          方法  API
+查       list or watch objects of kind Namespace             GET     /api/v1/namespaces
+        read the specified Namespace                        GET     /api/v1/namespaces/{name}
+增       create a Namespace                                  POST    /api/v1/namespaces
+删       delete a Namespace                                  DELETE  /api/v1/namespaces/{name}
+改       replace the specified Namespace                     PUT     /api/v1/namespaces/{name}
+        partially update the specified Namespace            PATCH   /api/v1/namespaces/{name}
+        replace finalize of the specified Namespace         PUT     /api/v1/namespaces/{name}/finalize
+        replace status of the specified Namespace           PUT     /api/v1/namespaces/{name}/status
+</code></pre>
+
+<p><strong>endpoint</strong></p>
+
+<p>Endpoints是以Namespace维度划分资源，然后结合name来区分。</p>
+
+<pre><code>分类      说明                                          方法  API
+查       list or watch objects of kind Endpoints             GET     /api/v1/endpoints
+        list or watch objects of kind Endpoints             GET     /api/v1/namespaces/{namespace}/endpoints
+        read the specified Endpoints                        GET     /api/v1/namespaces/{namespace}/endpoints/{name}
+增       create a Endpoints                                  POST    /api/v1/namespaces/{namespace}/endpoints
+删       delete a Endpoints                                  DELETE  /api/v1/namespaces/{namespace}/endpoints/{name}
+改       replace the specified Endpoints                     PUT     /api/v1/namespaces/{namespace}/endpoints/{name}
+        partially update the specified Endpoints            PATCH   /api/v1/namespaces/{namespace}/endpoints/{name}
+</code></pre>
+
+<p><strong>pod</strong></p>
+
+<p>pod是以Namespace维度划分资源，然后结合name来区分。</p>
+
+<pre><code>分类          说明                              方法  API
+查           list or watch objects of kind Pod       GET /api/v1/namespaces/{namespace}/pods
+            read the specified Pod                  GET /api/v1/namespaces/{namespace}/pods/{name}
+增           create a Pod                            POST    /api/v1/namespaces/{namespace}/pods
+删           delete a Pod                            DELETE  /api/v1/namespaces/{namespace}/pods/{name}
+改           replace the specified Pod               PUT /api/v1/namespaces/{namespace}/pods/{name}
+            partially update the specified Pod      PATCH   /api/v1/namespaces/{namespace}/pods/{name}
+
+            connect GET requests to attach of Pod   GET /api/v1/namespaces/{namespace}/pods/{name}/attach
+            connect POST requests to attach of Pod  POST    /api/v1/namespaces/{namespace}/pods/{name}/attach
+            create binding of a Binding             POST    /api/v1/namespaces/{namespace}/pods/{name}/binding
+            connect GET requests to exec of Pod     GET /api/v1/namespaces/{namespace}/pods/{name}/exec
+            connect POST requests to exec of Pod    POST    /api/v1/namespaces/{namespace}/pods/{name}/exec
+            read log of the specified Pod           GET /api/v1/namespaces/{namespace}/pods/{name}/log
+            connect GET requests to portforward of Pod  GET /api/v1/namespaces/{namespace}/pods/{name}/portforward
+            connect POST requests to portforward of Pod POST    /api/v1/namespaces/{namespace}/pods/{name}/portforward
+</code></pre>
+
+<p><strong>Service</strong></p>
+
+<pre><code>分类              说明                                      方法          API
+查               list or watch objects of kind Service           GET             /api/v1/namespaces/{namespace}/services
+                read the specified Service                      GET             /api/v1/namespaces/{namespace}/services/{name}
+增               create a Service                                POST            /api/v1/namespaces/{namespace}/services
+删               delete a Service                                DELETE          /api/v1/namespaces/{namespace}/services/{name}
+改               replace the specified Service                   PUT             /api/v1/namespaces/{namespace}/services/{name}
+                partially update the specified Service          PATCH           /api/v1/namespaces/{namespace}/services/{name}
+</code></pre>
+
+<p><strong>ReplicationController</strong></p>
+
+<pre><code>分类              说明                                                  方法      API
+查                   list or watch objects of kind ReplicationController     GET         /api/v1/namespaces/{namespace}/replicationcontrollers
+                    read the specified ReplicationController                GET         /api/v1/namespaces/{namespace}/replicationcontrollers/{name}
+增                   create a ReplicationController                          POST        /api/v1/namespaces/{namespace}/replicationcontrollers
+删                   delete a ReplicationController                          DELETE      /api/v1/namespaces/{namespace}/replicationcontrollers/{name}
+改                   replace the specified ReplicationController             PUT         /api/v1/namespaces/{namespace}/replicationcontrollers/{name}
+                    partially update the specified ReplicationController    PATCH       /api/v1/namespaces/{namespace}/replicationcontrollers/{name}
+                    replace status of the specified ReplicationController   PUT         /api/v1/namespaces/{namespace}/replicationcontrollers/{name}/status
+</code></pre>
+
+<p>其实大多都差不多相似，照着规律就行</p>
+
+<blockquote>
+<p>proxy接口</p>
+</blockquote>
+
+<p>kubernetes API server还提供了一类很特殊的rest接口—proxy接口，这个结构就是代理REST请求，即kubernetes API server把收到的rest请求转发到某个node上的kubelet守护进程的rest端口上，由该kubelet进程负责相应。</p>
+
+<pre><code>node
+    masterIP:8080/api/v1/proxy/nodes/{node_name}/pods  #某个节点下所有pod信息
+    masterIP:8080/api/v1/proxy/nodes/{node_name}/stats  #某个节点内物理资源的统计信息
+    masterIP:8080/api/v1/proxy/nodes/{node_name}/spec  #某个节点的概要信息
+pod
+    masterIP:8080/api/v1/proxy/namespaces/{namespace}/pods/{pod_name}/{path:*} #访问pod的某个服务接口
+    masterIP:8080/api/v1/proxy/namespaces/{namespace}/pods/{pod_name}  #访问pod
+service
+    masterIP:8080/api/v1/proxy/namespaces/{namespace}/services/{service_name}
+</code></pre>
+
+<p>可以参考上面的资源操作方式，同样的可以进行操作。</p>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<ul>
+<li>GET /&lt; 资源名的复数格式 &gt;：获得某一类型的资源列表，例如 GET /pods 返回一个 Pod 资源列表。</li>
+<li>POST /&lt; 资源名的复数格式 &gt;：创建一个资源，该资源来自用户提供的 JSON 对象。</li>
+<li>GET /&lt; 资源名复数格式 &gt;/&lt; 名字 &gt;：通过给出的名称（Name）获得单个资源，例如 GET /pods/first 返回一个名称为“first”的 Pod。</li>
+<li>DELETE /&lt; 资源名复数格式 &gt;/&lt; 名字 &gt;：通过给出的名字删除单个资源，删除选项（DeleteOptions）中可以指定的优雅删除（Grace Deletion）的时间（GracePeriodSeconds），该可选项表明了从服务端接收到删除请求到资源被删除的时间间隔（单位为秒）。不同的类别（Kind）可能为优雅删除时间（Grace Period）申明默认值。用户提交的优雅删除时间将覆盖该默认值，包括值为 0 的优雅删除时间。</li>
+<li>PUT /&lt; 资源名复数格式 &gt;/&lt; 名字 &gt;：通过给出的资源名和客户端提供的 JSON 对象来更新或创建资源。</li>
+<li>PATCH /&lt; 资源名复数格式 &gt;/&lt; 名字 &gt;：选择修改资源详细指定的域。</li>
+</ul>
+
+<blockquote>
+<p>patch</p>
+</blockquote>
+
+<p>对于 PATCH 操作，目前 Kubernetes API 通过相应的 HTTP 首部“Content-Type”对其进行识别。</p>
+
+<p>目前支持以下三种类型的 PATCH 操作。</p>
+
+<ul>
+<li>JSON Patch, Content-Type: application/json-patch+json。在 RFC6902 的定义中，JSON Patch 是执行在资源对象上的一系列操作，例如 {＂op＂: ＂add＂, ＂path＂: ＂/a/b/c＂, ＂value＂: [ ＂foo＂, ＂bar＂ ]}。详情请查看 RFC6902 说明，网址为 <a href="HTTPs://tools.ietf.org/html/rfc6902。">HTTPs://tools.ietf.org/html/rfc6902。</a></li>
+<li>Merge Patch, Content-Type: application/merge-json-patch+json。在 RFC7386 的定义中，Merge Patch 必须包含对一个资源对象的部分描述，这个资源对象的部分描述就是一个 JSON 对象。该 JSON 对象被提交到服务端，并和服务端的当前对象合并，从而创建一个新的对象。详情请查看 RFC73862 说明，网址为 <a href="HTTPs://tools.ietf.org/html/rfc7386。">HTTPs://tools.ietf.org/html/rfc7386。</a></li>
+<li>Strategic Merge Patch, Content-Type: application/strategic-merge-patch+json。</li>
+</ul>
+
+<p>Strategic Merge Patch 是一个定制化的 Merge Patch 实现。接下来将详细讲解 Strategic Merge Patch。</p>
+
+<p>在标准的 JSON Merge Patch 中，JSON 对象总是被合并（merge）的，但是资源对象中的列表域总是被替换的。通常这不是用户所希望的。例如，我们通过下列定义创建一个 Pod 资源对象：</p>
+
+<pre><code>spec:
+
+  containers:
+
+    - name: nginx
+
+      image: nginx-1.0
+</code></pre>
+
+<p>接着我们希望添加一个容器到这个 Pod 中，代码和上传的 JSON 对象如下所示：</p>
+
+<p>PATCH /api/v1/namespaces/default/pods/pod-name</p>
+
+<pre><code>spec:
+
+  containers:
+
+    - name: log-tailer
+
+      image: log-tailer-1.0
+</code></pre>
+
+<p>如果我们使用标准的 Merge Patch，则其中的整个容器列表将被单个的“log-tailer”容器所替换。然而我们的目的是两个容器列表能够合并。</p>
+
+<p>为了解决这个问题，Strategic Merge Patch 通过添加元数据到 API 对象中，并通过这些新元数据来决定哪个列表被合并，哪个列表不被合并。当前这些元数据作为结构标签，对于 API 对象自身来说是合法的。对于客户端来说，这些元数据作为 Swagger annotations 也是合法的。在上述例子中，向“containers”中添加“patchStrategy”域，且它的值为“merge”，通过添加“patchMergeKey”，它的值为“name”。也就是说，“containers”中的列表将会被合并而不是替换，合并的依据为“name”域的值。</p>
+
+<p>其实patch在使用过程中还是比较难以操作的，所以在修改的时候，我们更多的是使用直接修改文件的方式来进行更新</p>
+
+<p>1、在线编辑</p>
+
+<pre><code>kubectl edit
+</code></pre>
+
+<p>2、离线编辑</p>
+
+<p>导出yaml文件，然后修改文件，进行apply</p>
+
+<pre><code>kubectl apply
+</code></pre>
+
+<blockquote>
+<p>watch</p>
+</blockquote>
+
+<p>此外，Kubernetes API 添加了资源变动的“观察者”模式的 API 接口。</p>
+
+<ul>
+<li>GET /watch/&lt; 资源名复数格式 &gt;：随时间变化，不断接收一连串的 JSON 对象，这些 JSON 对象记录了给定资源类别内所有资源对象的变化情况。</li>
+<li>GET /watch/&lt; 资源名复数格式 &gt;/<name>：随时间变化，不断接收一连串的 JSON 对象，这些 JSON 对象记录了某个给定资源对象的变化情况。</li>
+</ul>
+
+<p>上述接口改变了返回数据的基本类别，watch 动词返回的是一连串的 JSON 对象，而不是单个的 JSON 对象。并不是所有的对象类别都支持“观察者”模式的 API 接口，在后续的章节中将会说明哪些资源对象支持这种接口。</p>
+
+<blockquote>
+<p>其他</p>
+</blockquote>
+
+<p>另外，Kubernetes 还增加了 HTTP Redirect 与 HTTP Proxy 这两种特殊的 API 接口，前者实现资源重定向访问，后者则实现 HTTP 请求的代理。</p>
+
+<h1 id="顶级api对象">顶级API对象</h1>
+
+<p>API对象也就是我们常用的post的body，也就是我们使用的yaml文件或json文件的组成，符合声明式api的设计。</p>
+
+<p>所以也可以直接是说是我们使用的yaml文件的组成。其实最后yaml文件都是转化为结构体进行操作的，所以最终都是符合api的设计，重这边就能知道对应的yaml组成了。</p>
+
+<p>在 Kubernetes API 中，一个 API 的顶层（Top Level）元素由 kind、apiVersion、metadata、spec 和 status 等几个部分组成，接下来，我们分别对这几个部分进行说明。</p>
+
+<blockquote>
+<p>kind</p>
+</blockquote>
+
+<p>kind 表明对象有以下三大类别。</p>
+
+<ul>
+<li>对象（objects）：代表在系统中的一个永久资源（实体），例如 Pod、RC、Service、Namespace 及 Node 等。通过操作这些资源的属性，客户端可以对该对象做创建、修改、删除和获取操作。</li>
+<li>列表（list）：一个或多个资源类别的集合。列表有一个通用元数据的有限集合。所有列表（lists）通过“items”域获得对象数组。例如 PodLists、ServiceLists、NodeLists。大部分定义在系统中的对象都有一个返回所有资源（resource）集合的端点，以及零到多个返回所有资源集合的子集的端点。某些对象有可能是单例对象（singletons），例如当前用户、系统默认用户等，这些对象没有列表。</li>
+<li>简单类别（simple）：该类别包含作用在对象上的特殊行为和非持久实体。该类别限制了使用范围，它有一个通用元数据的有限集合，例如 Binding、 Status。</li>
+</ul>
+
+<blockquote>
+<p>apiversion</p>
+</blockquote>
+
+<p>apiVersion 表明 API 的版本号，当前版本默认只支持 v1。</p>
+
+<p>为了在兼容旧版本的同时不断升级新的 API，Kubernetes 提供了多版本 API 的支持能力，每个版本的 API 通过一个版本号路径前缀进行区分，例如 /api/v1beta3。通常情况下，新旧几个不同的 API 版本都能涵盖所有的 Kubernetes 资源对象，在不同的版本之间这些 API 接口存在一些细微差别。Kubernetes 开发团队基于 API 级别选择版本而不是基于资源和域级别，是为了确保 API 能够描述一个清晰的连续的系统资源和行为的视图，能够控制访问的整个过程和控制实验性 API 的访问。</p>
+
+<blockquote>
+<p>Metadata</p>
+</blockquote>
+
+<p>Metadata 是资源对象的元数据定义，是集合类的元素类型，包含一组由不同名称定义的属性。在 Kubernetes 中每个资源对象都必须包含以下 3 种 Metadata。</p>
+
+<ul>
+<li>namespace：对象所属的命名空间，如果不指定，系统则会将对象置于名为“default”的系统命名空间中。</li>
+<li>name：对象的名字，在一个命名空间中名字应具备唯一性。</li>
+<li>uid：系统为每个对象生成的唯一 ID，符合 RFC 4122 规范的定义。</li>
+</ul>
+
+<p>此外，每种对象还应该包含以下几个重要元数据。</p>
+
+<ul>
+<li>labels：用户可定义的“标签”，键和值都为字符串的 map，是对象进行组织和分类的一种手段，通常用于标签选择器（Label Selector），用来匹配目标对象。</li>
+<li>annotations：用户可定义的“注解”，键和值都为字符串的 map，被 Kubernetes 内部进程或者某些外部工具使用，用于存储和获取关于该对象的特定元数据。</li>
+<li>resourceVersion：用于识别该资源内部版本号的字符串，在用于 Watch 操作时，可以避免在 GET 操作和下一次 Watch 操作之间造成的信息不一致，客户端可以用它来判断资源是否改变。该值应该被客户端看作不透明，且不做任何修改就返回给服务端。客户端不应该假定版本信息具有跨命名空间、跨不同资源类别、跨不同服务器的含义。</li>
+<li>creationTimestamp：系统记录创建对象时的时间戳，符合 RFC 3339 规范。</li>
+<li>deletionTimestamp：系统记录删除对象时的时间戳，符合 RFC 3339 规范。</li>
+<li>selfLink：通过 API 访问资源自身的 URL，例如一个 Pod 的 link 可能是 /api/v1/namespaces/ default/pods/frontend-o8bg4。</li>
+</ul>
+
+<blockquote>
+<p>spec</p>
+</blockquote>
+
+<p>spec 是集合类的元素类型，用户对需要管理的对象进行详细描述的主体部分都在 spec 里给出，它会被 Kubernetes 持久化到 etcd 中保存，系统通过 spec 的描述来创建或更新对象，以达到用户期望的对象运行状态。spec 的内容既包括用户提供的配置设置、默认值、属性的初始化值，也包括在对象创建过程中由其他相关组件（例如 schedulers、auto-scalers）创建或修改的对象属性，比如 Pod 的 Service IP 地址。如果 spec 被删除，那么该对象将会从系统中被删除。</p>
+
+<blockquote>
+<p>status</p>
+</blockquote>
+
+<p>Status 用于记录对象在系统中的当前状态信息，它也是集合类元素类型，status 在一个自动处理的进程中被持久化，可以在流转的过程中生成。如果观察到一个资源丢失了它的状态（Status），则该丢失的状态可能被重新构造。以 Pod 为例，Pod 的 status 信息主要包括 conditions、containerStatuses、hostIP、phase、podIP、startTime 等。其中比较重要的两个状态属性如下。</p>
+
+<ul>
+<li>phase：描述对象所处的生命周期阶段，phase 的典型值是“Pending”（创建中）“Running”“Active”（正在运行中）或“Terminated”（已终结），这几种状态对于不同的对象可能有轻微的差别，此外，关于当前 phase 附加的详细说明可能包含在其他域中。</li>
+<li>condition：表示条件，由条件类型和状态值组成，目前仅有一种条件类型 Ready，对应的状态值可以为 True、False 或 Unknown。一个对象可以具备多种 condition，而 condition 的状态值也可能不断发生变化，condition 可能附带一些信息，例如最后的探测时间或最后的转变时间。</li>
+</ul>
+
+<h1 id="crd-自定义资源类型">CRD(自定义资源类型)</h1>
+
+<p>Aggregation API和crd都可以在不修改k8s核心代码前提下，并扩展k8s api，是一种实现方式，Aggregation API我们下面讲，先说说crd。</p>
+
+<p>Kubernetes 1.7 之后增加了对 CRD 自定义资源二次开发能力来扩展 Kubernetes API，通过 CRD 我们可以向 Kubernetes API 中增加新资源类型，而不需要修改 Kubernetes 源码来创建自定义的 API server，该功能大大提高了 Kubernetes 的扩展能力。
+当你创建一个新的CustomResourceDefinition (CRD)时，Kubernetes API服务器将为你指定的每个版本创建一个新的RESTful资源路径，我们可以根据该api路径来创建一些我们自己定义的类型资源。CRD可以是命名空间的，也可以是集群范围的，由CRD的作用域(scpoe)字段中所指定的，与现有的内置对象一样，删除名称空间将删除该名称空间中的所有自定义对象。customresourcedefinition本身没有名称空间，所有名称空间都可以使用。</p>
+
+<blockquote>
+<p>通过crd资源创建自定义资源，即自定义一个Restful API和资源类型contab</p>
+</blockquote>
+
+<p>创建自定义contab资源类型</p>
+
+<pre><code>$ kubectl create -f resourcedefinition.yaml
+</code></pre>
+
+<p>resourcedefinition.yaml</p>
+
+<pre><code>apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  # 名称必须与下面的spec字段匹配，格式为: &lt;plural&gt;.&lt;group&gt;
+  name: crontabs.stable.example.com
+spec:
+  # 用于REST API的组名称: /apis/&lt;group&gt;/&lt;version&gt;
+  group: stable.example.com
+  # 此CustomResourceDefinition支持的版本列表
+  versions:
+    - name: v1
+      # 每个版本都可以通过服务标志启用/禁用。
+      served: true
+      # 必须将一个且只有一个版本标记为存储版本。
+      storage: true
+  # 指定crd资源作用范围在命名空间或集群
+  scope: Namespaced
+  names:
+    # URL中使用的复数名称: /apis/&lt;group&gt;/&lt;version&gt;/&lt;plural&gt;
+    plural: crontabs
+    # 在CLI(shell界面输入的参数)上用作别名并用于显示的单数名称
+    singular: crontab
+    # kind字段使用驼峰命名规则. 资源清单使用如此
+    kind: CronTab
+    # 短名称允许短字符串匹配CLI上的资源，意识就是能通过kubectl 在查看资源的时候使用该资源的简名称来获取。
+    shortNames:
+    - ct
+</code></pre>
+
+<p>然后在以下位置创建一个新的带有名称空间的RESTful API端点:</p>
+
+<pre><code>/apis/stable.example.com/v1/namespaces/*/crontabs/...然后我们可以使用该url来创建和管理自定义对象资源。
+</code></pre>
+
+<p>查看自定义contab资源的信息</p>
+
+<pre><code>$ kubectl get contab(ct)
+</code></pre>
+
+<blockquote>
+<p>创建</p>
+</blockquote>
+
+<p>刚刚自定义了ct类型，我们可以创建这种kind的资源实例了。</p>
+
+<p>my-crontab.yaml</p>
+
+<pre><code>apiVersion: &quot;stable.example.com/v1&quot;
+kind: CronTab
+metadata:
+  name: my-new-cron-object
+spec:
+  cronSpec: &quot;* * * * */5&quot;
+  image: my-awesome-cron-image
+</code></pre>
+
+<p>创建自定义资源contab资源的对象</p>
+
+<pre><code>$ kubectl create -f my-crontab.yaml
+</code></pre>
+
+<p>查看</p>
+
+<pre><code>$ kubectl get contab(ct)
+</code></pre>
+
+<blockquote>
+<p>验证</p>
+</blockquote>
+
+<p>修改resourcedefinition.yaml</p>
+
+<pre><code>apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: crontabs.stable.example.com
+spec:
+  group: stable.example.com
+  versions:
+    - name: v1
+      served: true
+      storage: true
+  version: v1
+  scope: Namespaced
+  names:
+    plural: crontabs
+    singular: crontab
+    kind: CronTab
+    shortNames:
+    - ct
+  validation:
+   # openAPIV3Schema is the schema for validating custom objects.
+    openAPIV3Schema:
+      properties:
+        spec:
+          properties:
+            cronSpec: #--必须是字符串，并且必须是正则表达式所描述的形式
+              type: string
+              pattern: '^(\d+|\*)(/\d+)?(\s+(\d+|\*)(/\d+)?){4}$'
+            replicas: #----必须是整数，最小值必须为1，最大值必须为10
+              type: integer
+              minimum: 1
+              maximum: 10
+</code></pre>
+
+<p>可以看到validation就是验证规则。</p>
+
+<p>这个适合如果创建下面这个类型的实例就会失败</p>
+
+<pre><code>apiVersion: &quot;stable.example.com/v1&quot;
+kind: CronTab
+metadata:
+  name: my-new-cron-object
+spec:
+  cronSpec: &quot;* * * *&quot;
+  image: my-awesome-cron-image
+  replicas: 15
+</code></pre>
+
+<blockquote>
+<p>新增打印信息</p>
+</blockquote>
+
+<p>在crd文件中添加“additionalPrinterColumns:”字段声明</p>
+
+<p>resourcedefinition.yaml：</p>
+
+<pre><code>apiVersion: apiextensions.k8s.io/v1beta1
+  kind: CustomResourceDefinition
+  metadata:
+    name: crontabs.stable.example.com
+  spec:
+    group: stable.example.com
+    version: v1
+    scope: Namespaced
+    names:
+      plural: crontabs
+      singular: crontab
+      kind: CronTab
+      shortNames:
+      - ct
+    additionalPrinterColumns:
+    - name: Spec
+      type: string
+      description: The cron spec defining the interval a CronJob is run
+      JSONPath: .spec.cronSpec
+    - name: Replicas
+      type: integer
+      description: The number of jobs launched by the CronJob
+      JSONPath: .spec.replicas
+    - name: Age
+      type: date
+      JSONPath: .metadata.creationTimestamp
+</code></pre>
+
+<p>查看自定义资源对象基本信息，可以发现多了Spec，Replicas，Age。</p>
+
+<pre><code>$ kubectl get crontab my-new-cron-object
+
+NAME                       SPEC        REPLICAS   AGE
+my-new-cron-object   * * * * *            1         7s
+注意：name列不需要定义默认会有的
+</code></pre>
+
+<blockquote>
+<p>为自定义的资源添加状态和伸缩配置</p>
+</blockquote>
+
+<p>subresources: 字段来声明状态和伸缩信息。</p>
+
+<p>resourcedefinition.yaml</p>
+
+<pre><code>apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: crontabs.stable.example.com
+spec:
+  group: stable.example.com
+  versions:
+    - name: v1
+      served: true
+      storage: true
+  scope: Namespaced
+  names:
+    plural: crontabs
+    singular: crontab
+    kind: CronTab
+    shortNames:
+    - ct
+  # 自定义资源的子资源的描述
+  subresources:
+    # 启用状态子资源。
+    status: {}
+    # 启用scale子资源
+    scale:
+      specReplicasPath: .spec.replicas
+      statusReplicasPath: .status.replicas
+      labelSelectorPath: .status.labelSelector
+</code></pre>
+
+<p>然后就可以通过scale来扩缩副本数量了。</p>
+
+<pre><code>$ kubectl scale --replicas=5 crontabs/my-new-cron-object
+</code></pre>
+
+<p>上面就是crd的基本用法，其实crd主要是用于自定义controller的开发的第一步，我们还需要controller来控制，所以还需要了解二次开发的<a href="/post/cloud/paas/base/kubernetes/k8s-controller/">控制器开发</a></p>
+
+<h1 id="kubernetes-aggregated-api-servers">kubernetes Aggregated API Servers</h1>
+
+<p>Aggregated（聚合的）API server是为了将原来的API server这个巨石（monolithic）应用给拆分成，为了方便用户开发自己的API server集成进来，而不用直接修改kubernetes官方仓库的代码，这样一来也能将API server解耦，方便用户使用实验特性。这些API server可以跟core API server无缝衔接，使用kubectl也可以管理它们。</p>
+
+<p>Aggregated API是允许k8s的开发人员编写一个自己的服务，可以把这个服务注册到k8s的api里面，这样，就像k8s自己的api一样，你的服务只要运行在k8s集群里面，k8s 的Aggregate通过service名称就可以转发到你写的service里面去了。</p>
+
+<p>一句话阐述就是：动态注册、发现汇总、和安全代理。</p>
+
+<p>这时候，我们需要创建一个新的组件，名为kube-aggregator，它需要负责以下几件事：</p>
+
+<ul>
+<li>提供用于注册API server的API</li>
+<li>汇总所有的API server信息</li>
+<li>代理所有的客户端到API server的请求</li>
+</ul>
+
+<p>注意：这里说的API server是一组“API Server”，而不是说我们安装集群时候的那个APIserver组件，而且这组API server是可以横向扩展的。</p>
+
+<p>这种设计理念有着很多的好处：</p>
+
+<ul>
+<li>第一是增加了api的扩展性，这样k8s的开发人员就可以编写自己的API服务器来公开他们想要的API。集群管理员应该能够使用这些服务，而不需要对核心库存储库进行任何更改。</li>
+<li>第二是丰富了APIs，核心kubernetes团队阻止了很多新的API提案。通过允许开发人员将他们的API作为单独的服务器公开，并使集群管理员能够在不对核心库存储库进行任何更改的情况下使用它们，这样就无须社区繁杂的审查了</li>
+<li>第三是开发分阶段实验性API的地方，新的API可以在单独的聚集服务器中开发，当它稳定之后，那么把它们封装起来安装到其他集群就很容易了。</li>
+<li>第四是确保新API遵循kubernetes约定：如果没有这里提出的机制，社区成员可能会被迫推出自己的东西，这可能会或可能不遵循kubernetes约定。</li>
+</ul>
+
+<p>有两种方式来启用kube-aggregator：</p>
+
+<ul>
+<li><p>使用test mode/single-user mode，作为一个独立的进程来运行</p>
+
+<pre><code>kube-aggregator二进制文件已经包含在kubernetes release里面了。
+</code></pre></li>
+
+<li><p>使用gateway mode，kube-apiserver集成了kube-aggregator组件。</p>
+
+<pre><code>开启 Aggregator，只要修改apiserver的启动参数就好
+
+    --requestheader-client-ca-file=&lt;path to aggregator CA cert&gt;
+    --requestheader-allowed-names=aggregator
+    --requestheader-extra-headers-prefix=X-Remote-Extra-
+    --requestheader-group-headers=X-Remote-Group
+    --requestheader-username-headers=X-Remote-User
+    --proxy-client-cert-file=&lt;path to aggregator proxy cert&gt;
+    --proxy-client-key-file=&lt;path to aggregator proxy key&gt;
+    --enable-aggregator-routing=true
+
+Kubeadm 搭建的集群默认已经开启了，minikube也是。其实就是配置了一些证书，用于自定义的apiservice和kube-apiserver进行通信，因为是机密的需要证书认证。
+</code></pre></li>
+</ul>
+
+<p>我们来看看基本使用，先看一个资源配置清单</p>
+
+<pre><code>apiVersion: apiregistration.k8s.io/v1beta1
+kind: APIService
+metadata:
+  name: v1alpha1.custom-metrics.metrics.k8s.io
+spec:
+  insecureSkipTLSVerify: true
+  group: custom-metrics.metrics.k8s.io
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  service:
+    name: api
+    namespace: custom-metrics
+  version: v1alpha1
+</code></pre>
+
+<p>上面就定义了资源类型为APIService，service名称为api，空间为custom-metrics的一个资源聚合接口。</p>
+
+<ul>
+<li>使用apiregistration.k8s.io/v1beta1 版本的APIService，在metadata.name中定义该API的名字。</li>
+<li>insecureSkipTLSVerify：当与该服务通信时，禁用TLS证书认证。强加建议不要设置这个参数，默认为 false。应该使用CABundle代替。</li>
+<li>service：与该APIService通信时引用的service，其中要注明service的名字和所属的namespace，如果为空的话，则所有的服务都会该API groupversion将在本地443端口处理所有通信。</li>
+<li>groupPriorityMinimum：该组API的处理优先级，主要排序是基于groupPriorityMinimum，该数字越大表明优先级越高，客户端就会与其通信处理请求。次要排序是基于字母表顺序，例如v1.bar比v1.foo的优先级更高。</li>
+<li>versionPriority：VersionPriority控制其组内的API版本的顺序。必须大于零。主要排序基于VersionPriority，从最高到最低（20大于10）排序。次要排序是基于对象名称的字母比较。 （v1.foo在v1.bar之前）由于它们都是在一个组内，因此数字可能很小，一般都小于10。</li>
+</ul>
+
+<p>可以看看官方的模版</p>
+
+<pre><code>apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: &lt; 注释对象名称 &gt;
+spec:
+  group: &lt; 拓展 Apiserver 的 API group 名称 &gt;
+  version: &lt; 拓展 Apiserver 的 API version&gt;
+  groupPriorityMinimum: &lt; APIService 对对应 group 的优先级, 参考 API 文档 &gt;
+  versionPriority: &lt; 优先考虑 version 在 group 中的排序, 参考 API 文档 &gt;
+  service:
+    namespace: &lt; 拓展 Apiserver 服务的 namespace &gt;
+    name: &lt; 拓展 Apiserver 服务的 name &gt;
+  caBundle: &lt; PEM 编码的 CA 证书，用于对 Webhook 服务器的证书签名 &gt;
+</code></pre>
+
+<p>要注册 API，用户必须添加一个 APIService 对象，用它来申领 Kubernetes API 中的 URL 路径。自此以后，聚合层将会把发给该 API 路径的所有内容（例如 /apis/myextension.mycompany.io/v1/…）代理到已注册的 APIService。</p>
+
+<p>查看我们使用上面的yaml文件创建的APIService。</p>
+
+<p>下面从源代码的角度来看</p>
+
+<pre><code>pkg/apiserver/apiservice_controller.go
+</code></pre>
+
+<p>和k8s其它controller一样，watch变化分发到add、update和delete方法。</p>
+
+<pre><code>apiServiceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+    AddFunc:    c.addAPIService,
+    UpdateFunc: c.updateAPIService,
+    DeleteFunc: c.deleteAPIService,
+})
+
+serviceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+    AddFunc:    c.addService,
+    UpdateFunc: c.updateService,
+    DeleteFunc: c.deleteService,
+})
+</code></pre>
+
+<p>主要监听两种资源apiService和service，分别看看</p>
+
+<pre><code>func (s *APIAggregator) AddAPIService(apiService *apiregistration.APIService) error {
+    // if the proxyHandler already exists, it needs to be updated. The aggregation bits do not
+    // since they are wired against listers because they require multiple resources to respond
+    if proxyHandler, exists := s.proxyHandlers[apiService.Name]; exists {
+        proxyHandler.updateAPIService(apiService)
+        if s.openAPIAggregationController != nil {
+            s.openAPIAggregationController.UpdateAPIService(proxyHandler, apiService)
+        }
+        return nil
+    }
+
+    proxyPath := &quot;/apis/&quot; + apiService.Spec.Group + &quot;/&quot; + apiService.Spec.Version
+    // v1. is a special case for the legacy API.  It proxies to a wider set of endpoints.
+    if apiService.Name == legacyAPIServiceName {
+        proxyPath = &quot;/api&quot;
+    }
+
+    // register the proxy handler
+    proxyHandler := &amp;proxyHandler{
+        contextMapper:   s.contextMapper,
+        localDelegate:   s.delegateHandler,
+        proxyClientCert: s.proxyClientCert,
+        proxyClientKey:  s.proxyClientKey,
+        proxyTransport:  s.proxyTransport,
+        serviceResolver: s.serviceResolver,
+    }
+    proxyHandler.updateAPIService(apiService)
+    if s.openAPIAggregationController != nil {
+        s.openAPIAggregationController.AddAPIService(proxyHandler, apiService)
+    }
+    s.proxyHandlers[apiService.Name] = proxyHandler
+    s.GenericAPIServer.Handler.NonGoRestfulMux.Handle(proxyPath, proxyHandler)
+    s.GenericAPIServer.Handler.NonGoRestfulMux.UnlistedHandlePrefix(proxyPath+&quot;/&quot;, proxyHandler)
+
+    // if we're dealing with the legacy group, we're done here
+    if apiService.Name == legacyAPIServiceName {
+        return nil
+    }
+
+    // if we've already registered the path with the handler, we don't want to do it again.
+    if s.handledGroups.Has(apiService.Spec.Group) {
+        return nil
+    }
+
+    // it's time to register the group aggregation endpoint
+    groupPath := &quot;/apis/&quot; + apiService.Spec.Group
+    groupDiscoveryHandler := &amp;apiGroupHandler{
+        codecs:        Codecs,
+        groupName:     apiService.Spec.Group,
+        lister:        s.lister,
+        delegate:      s.delegateHandler,
+        contextMapper: s.contextMapper,
+    }
+    // aggregation is protected
+    s.GenericAPIServer.Handler.NonGoRestfulMux.Handle(groupPath, groupDiscoveryHandler)
+    s.GenericAPIServer.Handler.NonGoRestfulMux.UnlistedHandle(groupPath+&quot;/&quot;, groupDiscoveryHandler)
+    s.handledGroups.Insert(apiService.Spec.Group)
+    return nil
+}
+</code></pre>
+
+<p>上面path是</p>
+
+<pre><code>proxyPath := &quot;/apis/&quot; + apiService.Spec.Group + &quot;/&quot; + apiService.Spec.Version
+</code></pre>
+
+<p>结合上面的例子就是/apis/custom-metrics.metrics.k8s.io/v1alpha1.</p>
+
+<p>而处理方法请求的handle就是</p>
+
+<pre><code>proxyHandler := &amp;proxyHandler{
+        contextMapper:   s.contextMapper,
+        localDelegate:   s.delegateHandler,
+        proxyClientCert: s.proxyClientCert,
+        proxyClientKey:  s.proxyClientKey,
+        proxyTransport:  s.proxyTransport,
+        serviceResolver: s.serviceResolver,
+    }
+proxyHandler.updateAPIService(apiService)
+</code></pre>
+
+<p>上面的updateAPIService就是更新这个proxy的后端service</p>
+
+<pre><code>func (r *proxyHandler) updateAPIService(apiService *apiregistrationapi.APIService) {
+    if apiService.Spec.Service == nil {
+        r.handlingInfo.Store(proxyHandlingInfo{local: true})
+        return
+    }
+
+    newInfo := proxyHandlingInfo{
+        restConfig: &amp;restclient.Config{
+            TLSClientConfig: restclient.TLSClientConfig{
+                Insecure:   apiService.Spec.InsecureSkipTLSVerify,
+                ServerName: apiService.Spec.Service.Name + &quot;.&quot; + apiService.Spec.Service.Namespace + &quot;.svc&quot;,
+                CertData:   r.proxyClientCert,
+                KeyData:    r.proxyClientKey,
+                CAData:     apiService.Spec.CABundle,
+            },
+        },
+        serviceName:      apiService.Spec.Service.Name,
+        serviceNamespace: apiService.Spec.Service.Namespace,
+    }
+    newInfo.proxyRoundTripper, newInfo.transportBuildingError = restclient.TransportFor(newInfo.restConfig)
+    if newInfo.transportBuildingError == nil &amp;&amp; r.proxyTransport.Dial != nil {
+        switch transport := newInfo.proxyRoundTripper.(type) {
+        case *http.Transport:
+            transport.Dial = r.proxyTransport.Dial
+        default:
+            newInfo.transportBuildingError = fmt.Errorf(&quot;unable to set dialer for %s/%s as rest transport is of type %T&quot;, apiService.Spec.Service.Namespace, apiService.Spec.Service.Name, newInfo.proxyRoundTripper)
+            glog.Warning(newInfo.transportBuildingError.Error())
+        }
+    }
+    r.handlingInfo.Store(newInfo)
+}
+</code></pre>
+
+<p>这个restConfig就是调用service的客户端参数，其中</p>
+
+<pre><code>ServerName: apiService.Spec.Service.Name + &quot;.&quot; + apiService.Spec.Service.Namespace + &quot;.svc&quot;,
+</code></pre>
+
+<p>就是具体的service。而上面watch service的变化就是为了动态更新这个apiservice后端handler所用的service。</p>
+
+<h1 id="响应">响应</h1>
+
+<p>API Server 响应用户请求时附带一个状态码，该状态码符合 HTTP 规范。</p>
+
+<pre><code>200
+
+OK
+
+表明请求完全成功
+
+201
+
+Created
+
+表明创建类的请求完全成功
+
+204
+
+NoContent
+
+表明请求完全成功，同时 HTTP 响应不包含响应体。
+
+在响应 OPTIONS 方法的 HTTP 请求时返回
+
+307
+
+TemporaryRedirect
+
+表明请求资源的地址被改变，建议客户端使用 Location 首部给出的临时 URL 来定位资源
+
+400
+
+BadRequest
+
+表明请求是非法的，建议客户不要重试，修改该请求
+
+401
+
+Unauthorized
+
+表明请求能够到达服务端，且服务端能够理解用户请求，但是拒绝做更多的事情，因为客户端必须提供认证信息。如果客户端提供了认证信息，则返回该状态码，表明服务端指出所提供的认证信息不合适或非法
+
+403
+
+Forbidden
+
+表明请求能够到达服务端，且服务端能够理解用户请求，但是拒绝做更多的事情，因为该请求被设置成拒绝访问。建议客户不要重试，修改该请求
+
+404
+
+NotFound
+
+表明所请求的资源不存在。建议客户不要重试，修改该请求
+
+405
+
+MethodNotAllowed
+
+表明请求中带有该资源不支持的方法。建议客户不要重试，修改该请求
+
+409
+
+Conflict
+
+表明客户端尝试创建的资源已经存在，或者由于冲突请求的更新操作不能被完成
+
+422
+
+UnprocessableEntity
+
+表明由于所提供的作为请求部分的数据非法，创建或修改操作不能被完成
+
+429
+
+TooManyRequests
+
+表明超出了客户端访问频率的限制或者服务端接收到多于它能处理的请求。建议客户端读取相应的 Retry-After 首部，然后等待该首部指出的时间后再重试
+
+500
+
+InternalServerError
+
+表明服务端能被请求访问到，但是不能理解用户的请求；或者服务端内产生非预期中的一个错误，而且该错误无法被认知；或者服务端不能在一个合理的时间内完成处理（这可能由于服务器临时负载过重造成或者由于和其他服务器通信时的一个临时通信故障造成）
+
+503
+
+ServiceUnavailable
+
+表明被请求的服务无效。建议客户不要重试，修改该请求
+
+504
+
+ServerTimeout
+
+表明请求在给定的时间内无法完成。客户端仅在为请求指定超时（Timeout）参数时会得到该响应
+</code></pre>
+
+<p>在调用 API 接口发生错误时，Kubernetes 将会返回一个状态类别（Status Kind）。</p>
+
+<p>状态对象被编码成 JSON 格式，同时该 JSON 对象被作为请求的响应体。该状态对象包含人和机器使用的域，这些域中包含来自 API 的关于失败原因的详细信息。状态对象中的信息补充了对 HTTP 状态码的说明。</p>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<pre><code>curl -v -k -H ＂Authorization: Bearer WhCDvq4VPpYhrcfmF6ei7V9qlbqTubUc＂ HTTPs://10.240.122.184:443/api/v1/namespaces/default/pods/grafana
+
+&gt; GET /api/v1/namespaces/default/pods/grafana HTTP/1.1
+
+&gt; User-Agent: curl/7.26.0
+
+&gt; Host: 10.240.122.184
+
+&gt; Accept: */*
+
+&gt; Authorization: Bearer WhCDvq4VPpYhrcfmF6ei7V9qlbqTubUc
+
+&gt;
+
+
+
+&lt; HTTP/1.1 404 Not Found
+
+&lt; Content-Type: application/json
+
+&lt; Date: Wed, 20 May 2015 18:10:42 GMT
+
+&lt; Content-Length: 232
+
+&lt;
+
+{
+
+  ＂kind＂: ＂Status＂,
+
+  ＂apiVersion＂: ＂v1＂,
+
+  ＂metadata＂: {},
+
+  ＂status＂: ＂Failure＂,
+
+  ＂message＂: ＂pods \＂grafana\＂ not found＂,
+
+  ＂reason＂: ＂NotFound＂,
+
+  ＂details＂: {
+
+    ＂name＂: ＂grafana＂,
+
+    ＂kind＂: ＂pods＂
+
+  },
+
+  ＂code＂: 404
+
+}
+</code></pre>
+
+<p>详解</p>
+
+<ul>
+<li>“status”域包含两个可能的值：Success 和 Failure。</li>
+<li>“message”域包含对错误的可读描述。</li>
+<li>“reason”域包含说明该操作失败原因的可读描述。如果该域的值为空，则表示该域内没有任何说明信息。“reason”域澄清 HTTP 状态码，但没有覆盖该状态码。</li>
+<li>“details”可能包含和“reason”域相关的扩展数据。每个“reason”域可以定义它的扩展的“details”域。该域是可选的，返回数据的格式是不确定的，不同的 reason 类型返回的“details”域的内容不一样。</li>
+</ul>
+
+<h1 id="client">client</h1>
+
+<p>使用各种编程语言的Kubernetes API的客户端库，主要包括两类：</p>
+
+<ul>
+<li>官方支持的Kubernetes客户端库</li>
+<li>社区维护的客户端库</li>
+</ul>
+
+<p>其实编程主要是走client的库，已经封装好了，不需要具体调用对于的api。</p>
+
+<ul>
+<li>官方
+
+<ul>
+<li>Go：github.com/kubernetes/client-go/</li>
+<li>Python：github.com/kubernetes-client/python/</li>
+<li>Java：github.com/kubernetes-client/java</li>
+<li>dotnet：github.com/kubernetes-client/csharp</li>
+<li>JavaScript：github.com/kubernetes-client/javascript</li>
+</ul></li>
+<li>社区
+
+<ul>
+<li>Go：github.com/ericchiang/k8s</li>
+</ul></li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-api/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-api/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/api/">
+                            <i class="fa fa-tags"></i>
+                            api
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-istio/">云计算K8s系列---- istio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-goroutinechannel/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/monitor-scheme/k8s-base/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#api设计哲学">API设计哲学</a></li>
+<li><a href="#api">API</a></li>
+<li><a href="#顶级api对象">顶级API对象</a></li>
+<li><a href="#crd-自定义资源类型">CRD(自定义资源类型)</a></li>
+<li><a href="#kubernetes-aggregated-api-servers">kubernetes Aggregated API Servers</a></li>
+<li><a href="#响应">响应</a></li>
+<li><a href="#client">client</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

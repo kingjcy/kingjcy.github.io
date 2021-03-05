@@ -1,0 +1,2945 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="pod只是运行的最小单元，我们一般不会直接使用pod。大部分情况下我们都是使用deployment（RS），deamonset，statefulset，job等控制器来完成部署调度使用。
+
+">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s系列---- K8s controller - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s系列---- K8s controller
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年11月24日 
+                </div>
+                <h1 class="post-title">云计算K8s系列---- K8s controller</h1>
+            </header>
+
+            <div class="post-content">
+                <p>pod只是运行的最小单元，我们一般不会直接使用pod。大部分情况下我们都是使用deployment（RS），deamonset，statefulset，job等控制器来完成部署调度使用。</p>
+
+<p><img src="/media/cloud/k8s/pod3.png" alt="" /></p>
+
+<h1 id="k8s原生控制器">k8s原生控制器</h1>
+
+<h2 id="rc">RC</h2>
+
+<p>Replication Controller 保证了在所有时间内，都有特定数量的Pod副本正在运行，如果太多了，Replication Controller就杀死几个，如果太少了，Replication Controller会新建几个，和直接创建的pod不同的是，Replication Controller会替换掉那些删除的或者被终止的pod，不管删除的原因是什么（维护阿，更新啊，Replication Controller都不关心）。基于这个理由，我们建议即使是只创建一个pod，我们也要使用Replication Controller。Replication Controller 就像一个进程管理器，监管着不同node上的多个pod,而不是单单监控一个node上的pod,Replication Controller 会委派本地容器来启动一些节点上服务（Kubelet ,Docker）。</p>
+
+<p>后来这种kind和kube-controller-manager的模块同名，所以修改为ReplicaSet，一样的功能。</p>
+
+<h2 id="depolymemt">depolymemt</h2>
+
+<p>Deployment为Pod和ReplicaSet提供了一个声明式定义(declarative)方法，用来替代以前的ReplicationController来方便的管理应用。典型的应用场景包括：</p>
+
+<ul>
+<li>定义Deployment来创建Pod和ReplicaSet</li>
+<li>滚动升级和回滚应用</li>
+<li>扩容和缩容</li>
+<li>暂停和继续Deployment</li>
+</ul>
+
+<p>deploymemt就是使用ReplicaSet来实现的，现在基本都是使用这个。一般适用于无状态的应用部署。</p>
+
+<p>实例：一个简单的nginx应用</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.7.9
+        ports:
+        - containerPort: 80
+</code></pre>
+
+<blockquote>
+<p>扩容</p>
+</blockquote>
+
+<pre><code>kubectl scale deployment nginx-deployment --replicas 10
+</code></pre>
+
+<p>如果集群支持 horizontal pod autoscaling 的话，还可以为Deployment设置自动扩展：</p>
+
+<pre><code>kubectl autoscale deployment nginx-deployment --min=10 --max=15 --cpu-percent=80
+</code></pre>
+
+<blockquote>
+<p>回滚：</p>
+</blockquote>
+
+<pre><code>kubectl rollout undo deployment/nginx-deployment
+</code></pre>
+
+<blockquote>
+<p>创建</p>
+</blockquote>
+
+<pre><code>$ kubectl create -f docs/user-guide/nginx-deployment.yaml --record
+deployment &quot;nginx-deployment&quot; created
+</code></pre>
+
+<p>将kubectl的 —record 的flag设置为 true可以在annotation中记录当前命令创建或者升级了该资源。</p>
+
+<p>获取信息</p>
+
+<pre><code>$ kubectl get deployments
+NAME               DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+nginx-deployment   3         3         3            3           18s
+
+$ kubectl get rs
+NAME                          DESIRED   CURRENT   READY   AGE
+nginx-deployment-2035384211   3         3         0       18s
+
+$ kubectl get pods --show-labels
+NAME                                READY     STATUS    RESTARTS   AGE       LABELS
+nginx-deployment-2035384211-7ci7o   1/1       Running   0          18s       app=nginx,pod-template-hash=2035384211
+nginx-deployment-2035384211-kzszj   1/1       Running   0          18s       app=nginx,pod-template-hash=2035384211
+nginx-deployment-2035384211-qqcnn   1/1       Running   0          18s       app=nginx,pod-template-hash=2035384211
+</code></pre>
+
+<p>可见是基于rs的基础上实现的。</p>
+
+<blockquote>
+<p>更新</p>
+</blockquote>
+
+<p>更新镜像也比较简单:</p>
+
+<pre><code>kubectl set image deployment/nginx-deployment nginx=nginx:1.9.1
+</code></pre>
+
+<p>我们可以使用edit命令来编辑Deployment，修改 .spec.template.spec.containers[0].image ，将nginx:1.7.9 改写成nginx:1.9.1。</p>
+
+<pre><code>$ kubectl edit deployment/nginx-deployment
+deployment &quot;nginx-deployment&quot; edited
+</code></pre>
+
+<p>查看rollout的状态，只要执行：</p>
+
+<pre><code>$ kubectl rollout status deployment/nginx-deployment
+Waiting for rollout to finish: 2 out of 3 new replicas have been updated...
+deployment &quot;nginx-deployment&quot; successfully rolled out
+</code></pre>
+
+<blockquote>
+<p>检查Deployment升级的历史记录</p>
+</blockquote>
+
+<p>首先，检查下Deployment的revision：</p>
+
+<pre><code>$ kubectl rollout history deployment/nginx-deployment
+deployments &quot;nginx-deployment&quot;:
+REVISION    CHANGE-CAUSE
+1           kubectl create -f docs/user-guide/nginx-deployment.yaml --record
+2           kubectl set image deployment/nginx-deployment nginx=nginx:1.9.1
+3           kubectl set image deployment/nginx-deployment nginx=nginx:1.91
+</code></pre>
+
+<blockquote>
+<p>调度</p>
+</blockquote>
+
+<p>deployment是基于rs的基础之上的，根据调度算法，选择合适的node，维持pod的数量，还可以指定调度和优化调度等。</p>
+
+<ul>
+<li><p>指定node(nodeselector)</p>
+
+<p>通过nodeSelector，一个Pod可以指定它所想要运行的Node节点。</p>
+
+<p>首先给Node加上标签：</p>
+
+<pre><code>kubectl label nodes &lt;your-node-name&gt; disktype=ssd
+</code></pre>
+
+<p>接着，指定该Pod只想运行在带有disktype=ssd标签的Node上：</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+  labels:
+    env: test
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+    imagePullPolicy: IfNotPresent
+  nodeSelector:
+    disktype: ssd
+</code></pre></li>
+
+<li><p>亲和度调度（nodeaffinity）</p>
+
+<p>目前主要的node affinity：</p>
+
+<ul>
+<li>requiredDuringSchedulingIgnoredDuringExecution
+表示pod必须部署到满足条件的节点上，如果没有满足条件的节点，就不停重试。其中IgnoreDuringExecution表示pod部署之后运行的时候，如果节点标签发生了变化，不再满足pod指定的条件，pod也会继续运行。</li>
+<li>requiredDuringSchedulingRequiredDuringExecution
+表示pod必须部署到满足条件的节点上，如果没有满足条件的节点，就不停重试。其中RequiredDuringExecution表示pod部署之后运行的时候，如果节点标签发生了变化，不再满足pod指定的条件，则重新选择符合要求的节点。</li>
+<li>preferredDuringSchedulingIgnoredDuringExecution
+表示优先部署到满足条件的节点上，如果没有满足条件的节点，就忽略这些条件，按照正常逻辑部署。</li>
+<li>preferredDuringSchedulingRequiredDuringExecution
+表示优先部署到满足条件的节点上，如果没有满足条件的节点，就忽略这些条件，按照正常逻辑部署。其中RequiredDuringExecution表示如果后面节点标签发生了变化，满足了条件，则重新调度到满足条件的节点。</li>
+</ul>
+
+<p>实例</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: with-node-affinity
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: kubernetes.io/e2e-az-name
+            operator: In
+            values:
+            - e2e-az1
+            - e2e-az2
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 1
+        preference:
+          matchExpressions:
+          - key: another-node-label-key
+            operator: In
+            values:
+            - another-node-label-value
+  containers:
+  - name: with-node-affinity
+    image: gcr.io/google_containers/pause:2.0
+</code></pre>
+
+<p>这个 pod 同时定义了 requiredDuringSchedulingIgnoredDuringExecution 和 preferredDuringSchedulingIgnoredDuringExecution 两种 nodeAffinity。第一个要求 pod 运行在特定 AZ 的节点上，第二个希望节点最好有对应的 another-node-label-key:another-node-label-value 标签。</p>
+
+<p>这里的匹配逻辑是label在某个列表中，可选的操作符有：</p>
+
+<ul>
+<li>In: label的值在某个列表中</li>
+<li>NotIn：label的值不在某个列表中</li>
+<li>Exists：某个label存在</li>
+<li>DoesNotExist：某个label不存在</li>
+<li>Gt：label的值大于某个值（字符串比较）</li>
+<li>Lt：label的值小于某个值（字符串比较）</li>
+</ul>
+
+<p>如果nodeAffinity中nodeSelector有多个选项，节点满足任何一个条件即可；如果matchExpressions有多个选项，则节点必须同时满足这些选项才能运行pod 。</p></li>
+
+<li><p>不被调度</p>
+
+<p>Taints 和 tolerations</p>
+
+<p>Taints 和 tolerations 用于保证 Pod 不被调度到不合适的 Node 上，Taint 应用于 Node 上，而 toleration 则应用于 Pod 上（Toleration 是可选的）。</p>
+
+<pre><code>比如，可以使用 taint 命令给 node1 添加 taints：
+kubectl taint nodes node1 key1=value1:NoSchedule
+kubectl taint nodes node1 key1=value2:NoExecute
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>[root@kube-manager01 rebuild]# kubectl cordon  kube-node02
+
+node/kube-node02 already cordoned
+</code></pre>
+
+<p>通过这个命令会使得node那个字段被设置成node转维护状态，不会被调度新pod</p></li>
+</ul>
+
+<h2 id="statefulset">StatefulSet</h2>
+
+<p>StatefulSet是为了解决有状态服务的问题（对应Deployments和ReplicaSets是为无状态服务而设计），其应用场景包括</p>
+
+<ul>
+<li>稳定的持久化存储，即Pod重新调度后还是能访问到相同的持久化数据，基于PVC来实现</li>
+<li>稳定的网络标志，即Pod重新调度后其PodName和HostName不变，基于Headless Service（即没有Cluster IP的Service）来实现</li>
+<li>有序部署，有序扩展，即Pod是有顺序的，在部署或者扩展的时候要依据定义的顺序依次依次进行（即从0到N-1，在下一个Pod运行之前所有之前的Pod必须都是Running和Ready状态），基于init containers来实现</li>
+<li>有序收缩，有序删除（即从N-1到0）</li>
+</ul>
+
+<p>从上面的应用场景可以发现，StatefulSet由以下几个部分组成：</p>
+
+<ul>
+<li>用于定义网络标志（DNS domain）的Headless Service</li>
+<li>用于创建PersistentVolumes的volumeClaimTemplates</li>
+<li>定义具体应用的StatefulSet</li>
+</ul>
+
+<p>StatefulSet中每个Pod的DNS格式为statefulSetName-{0..N-1}.serviceName.namespace.svc.cluster.local，其中</p>
+
+<ul>
+<li>serviceName为Headless Service的名字</li>
+<li>0..N-1为Pod所在的序号，从0开始到N-1</li>
+<li>statefulSetName为StatefulSet的名字</li>
+<li>namespace为服务所在的namespace，Headless Servic和StatefulSet必须在相同的namespace</li>
+<li>.cluster.local为Cluster Domain，</li>
+</ul>
+
+<blockquote>
+<p>简单示例</p>
+</blockquote>
+
+<p>以一个简单的nginx服务web.yaml为例：</p>
+
+<pre><code>---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  labels:
+    app: nginx
+spec:
+  ports:
+  - port: 80
+    name: web
+  clusterIP: None
+  selector:
+    app: nginx
+---
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: web
+spec:
+  serviceName: &quot;nginx&quot;
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: gcr.io/google_containers/nginx-slim:0.8
+        ports:
+        - containerPort: 80
+          name: web
+        volumeMounts:
+        - name: www
+          mountPath: /usr/share/nginx/html
+  volumeClaimTemplates:
+  - metadata:
+      name: www
+      annotations:
+        volume.alpha.kubernetes.io/storage-class: anything
+    spec:
+      accessModes: [ &quot;ReadWriteOnce&quot; ]
+      resources:
+        requests:
+          storage: 1Gi
+</code></pre>
+
+<p>创建</p>
+
+<pre><code>$ kubectl create -f web.yaml
+service &quot;nginx&quot; created
+statefulset &quot;web&quot; created
+</code></pre>
+
+<p>查看创建的headless service和statefulset</p>
+
+<pre><code>$ kubectl get service nginx
+NAME      CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+nginx     None         &lt;none&gt;        80/TCP    1m
+$ kubectl get statefulset web
+NAME      DESIRED   CURRENT   AGE
+web       2         2         2m
+</code></pre>
+
+<p>根据volumeClaimTemplates自动创建PVC（在GCE中会自动创建kubernetes.io/gce-pd类型的volume）</p>
+
+<pre><code>$ kubectl get pvc
+NAME        STATUS    VOLUME                                     CAPACITY   ACCESSMODES   AGE
+www-web-0   Bound     pvc-d064a004-d8d4-11e6-b521-42010a800002   1Gi        RWO           16s
+www-web-1   Bound     pvc-d06a3946-d8d4-11e6-b521-42010a800002   1Gi        RWO           16s
+</code></pre>
+
+<p>查看创建的Pod，他们都是有序的</p>
+
+<pre><code>$ kubectl get pods -l app=nginx
+NAME      READY     STATUS    RESTARTS   AGE
+web-0     1/1       Running   0          5m
+web-1     1/1       Running   0          4m
+</code></pre>
+
+<p>使用nslookup查看这些Pod的DNS</p>
+
+<pre><code>$ kubectl run -i --tty --image busybox dns-test --restart=Never --rm /bin/sh
+/ # nslookup web-0.nginx
+Server:    10.0.0.10
+Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      web-0.nginx
+Address 1: 10.244.2.10
+/ # nslookup web-1.nginx
+Server:    10.0.0.10
+Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      web-1.nginx
+Address 1: 10.244.3.12
+/ # nslookup web-0.nginx.default.svc.cluster.local
+Server:    10.0.0.10
+Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      web-0.nginx.default.svc.cluster.local
+Address 1: 10.244.2.10
+</code></pre>
+
+<p>还可以进行其他的操作</p>
+
+<p>扩容</p>
+
+<pre><code>$ kubectl scale statefulset web --replicas=5
+</code></pre>
+
+<p>缩容</p>
+
+<pre><code>$ kubectl patch statefulset web -p '{&quot;spec&quot;:{&quot;replicas&quot;:3}}'
+</code></pre>
+
+<p>镜像更新（目前还不支持直接更新image，需要patch来间接实现）</p>
+
+<pre><code>$ kubectl patch statefulset web --type='json' -p='[{&quot;op&quot;: &quot;replace&quot;, &quot;path&quot;: &quot;/spec/template/spec/containers/0/image&quot;, &quot;value&quot;:&quot;gcr.io/google_containers/nginx-slim:0.7&quot;}]'
+</code></pre>
+
+<p>删除StatefulSet和Headless Service</p>
+
+<pre><code>$ kubectl delete statefulset web
+$ kubectl delete service nginx
+</code></pre>
+
+<p>StatefulSet删除后PVC还会保留着，数据不再使用的话也需要删除</p>
+
+<pre><code>$ kubectl delete pvc www-web-0 www-web-1
+zookeeper
+</code></pre>
+
+<p>另外一个更能说明StatefulSet强大功能的示例为zookeeper.yaml。</p>
+
+<pre><code>---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zk-headless
+  labels:
+    app: zk-headless
+spec:
+  ports:
+  - port: 2888
+    name: server
+  - port: 3888
+    name: leader-election
+  clusterIP: None
+  selector:
+    app: zk
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zk-config
+data:
+  ensemble: &quot;zk-0;zk-1;zk-2&quot;
+  jvm.heap: &quot;2G&quot;
+  tick: &quot;2000&quot;
+  init: &quot;10&quot;
+  sync: &quot;5&quot;
+  client.cnxns: &quot;60&quot;
+  snap.retain: &quot;3&quot;
+  purge.interval: &quot;1&quot;
+---
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: zk-budget
+spec:
+  selector:
+    matchLabels:
+      app: zk
+  minAvailable: 2
+---
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: zk
+spec:
+  serviceName: zk-headless
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: zk
+      annotations:
+        pod.alpha.kubernetes.io/initialized: &quot;true&quot;
+        scheduler.alpha.kubernetes.io/affinity: &gt;
+            {
+              &quot;podAntiAffinity&quot;: {
+                &quot;requiredDuringSchedulingRequiredDuringExecution&quot;: [{
+                  &quot;labelSelector&quot;: {
+                    &quot;matchExpressions&quot;: [{
+                      &quot;key&quot;: &quot;app&quot;,
+                      &quot;operator&quot;: &quot;In&quot;,
+                      &quot;values&quot;: [&quot;zk-headless&quot;]
+                    }]
+                  },
+                  &quot;topologyKey&quot;: &quot;kubernetes.io/hostname&quot;
+                }]
+              }
+            }
+    spec:
+      containers:
+      - name: k8szk
+        imagePullPolicy: Always
+        image: gcr.io/google_samples/k8szk:v1
+        resources:
+          requests:
+            memory: &quot;4Gi&quot;
+            cpu: &quot;1&quot;
+        ports:
+        - containerPort: 2181
+          name: client
+        - containerPort: 2888
+          name: server
+        - containerPort: 3888
+          name: leader-election
+        env:
+        - name : ZK_ENSEMBLE
+          valueFrom:
+            configMapKeyRef:
+              name: zk-config
+              key: ensemble
+        - name : ZK_HEAP_SIZE
+          valueFrom:
+            configMapKeyRef:
+                name: zk-config
+                key: jvm.heap
+        - name : ZK_TICK_TIME
+          valueFrom:
+            configMapKeyRef:
+                name: zk-config
+                key: tick
+        - name : ZK_INIT_LIMIT
+          valueFrom:
+            configMapKeyRef:
+                name: zk-config
+                key: init
+        - name : ZK_SYNC_LIMIT
+          valueFrom:
+            configMapKeyRef:
+                name: zk-config
+                key: tick
+        - name : ZK_MAX_CLIENT_CNXNS
+          valueFrom:
+            configMapKeyRef:
+                name: zk-config
+                key: client.cnxns
+        - name: ZK_SNAP_RETAIN_COUNT
+          valueFrom:
+            configMapKeyRef:
+                name: zk-config
+                key: snap.retain
+        - name: ZK_PURGE_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+                name: zk-config
+                key: purge.interval
+        - name: ZK_CLIENT_PORT
+          value: &quot;2181&quot;
+        - name: ZK_SERVER_PORT
+          value: &quot;2888&quot;
+        - name: ZK_ELECTION_PORT
+          value: &quot;3888&quot;
+        command:
+        - sh
+        - -c
+        - zkGenConfig.sh &amp;&amp; zkServer.sh start-foreground
+        readinessProbe:
+          exec:
+            command:
+            - &quot;zkOk.sh&quot;
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+        livenessProbe:
+          exec:
+            command:
+            - &quot;zkOk.sh&quot;
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: datadir
+          mountPath: /var/lib/zookeeper
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+  volumeClaimTemplates:
+  - metadata:
+      name: datadir
+      annotations:
+        volume.alpha.kubernetes.io/storage-class: anything
+    spec:
+      accessModes: [ &quot;ReadWriteOnce&quot; ]
+      resources:
+        requests:
+          storage: 20Gi
+</code></pre>
+
+<p>创建</p>
+
+<pre><code>kubectl create -f zookeeper.yaml
+</code></pre>
+
+<h2 id="daemonset">DaemonSet</h2>
+
+<p>DaemonSet保证在每个Node上都运行一个容器副本，常用来部署一些集群的日志、监控或者其他系统管理应用。典型的应用包括：</p>
+
+<ul>
+<li>日志收集，比如fluentd，logstash等</li>
+<li>系统监控，比如Prometheus Node Exporter，collectd，New Relic agent，Ganglia gmond等</li>
+<li>系统程序，比如kube-proxy, kube-dns, glusterd, ceph等</li>
+</ul>
+
+<p>使用Fluentd收集日志的例子：</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: fluentd
+spec:
+  template:
+    metadata:
+      labels:
+        app: logging
+        id: fluentd
+      name: fluentd
+    spec:
+      containers:
+      - name: fluentd-es
+        image: gcr.io/google_containers/fluentd-elasticsearch:1.3
+        env:
+         - name: FLUENTD_ARGS
+           value: -qq
+        volumeMounts:
+         - name: containers
+           mountPath: /var/lib/docker/containers
+         - name: varlog
+           mountPath: /varlog
+      volumes:
+         - hostPath:
+             path: /var/lib/docker/containers
+           name: containers
+         - hostPath:
+             path: /var/log
+           name: varlog
+</code></pre>
+
+<p>daemonset的调度算法和deploymemt基本是差不多的，只不过它会调度到所有的节点上，当然也可以使用nodeselector或者nodeaffinity来进行范围性的调度。</p>
+
+<blockquote>
+<p>指定Node节点</p>
+</blockquote>
+
+<p>DaemonSet会忽略Node的unschedulable状态，有两种方式来指定Pod只运行在指定的Node节点上：</p>
+
+<ul>
+<li>nodeSelector：只调度到匹配指定label的Node上</li>
+<li>nodeAffinity：功能更丰富的Node选择器，比如支持集合操作</li>
+<li>podAffinity：调度到满足条件的Pod所在的Node上</li>
+</ul>
+
+<p>nodeSelector示例</p>
+
+<p>首先给Node打上标签</p>
+
+<pre><code>kubectl label nodes node-01 disktype=ssd
+</code></pre>
+
+<p>然后在daemonset中指定nodeSelector为disktype=ssd：</p>
+
+<pre><code>spec:
+  nodeSelector:
+    disktype: ssd
+</code></pre>
+
+<p>nodeAffinity示例</p>
+
+<p>nodeAffinity目前支持两种：requiredDuringSchedulingIgnoredDuringExecution和preferredDuringSchedulingIgnoredDuringExecution，分别代表必须满足条件和优选条件。比如下面的例子代表调度到包含标签kubernetes.io/e2e-az-name并且值为e2e-az1或e2e-az2的Node上，并且优选还带有标签another-node-label-key=another-node-label-value的Node。</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: with-node-affinity
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: kubernetes.io/e2e-az-name
+            operator: In
+            values:
+            - e2e-az1
+            - e2e-az2
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 1
+        preference:
+          matchExpressions:
+          - key: another-node-label-key
+            operator: In
+            values:
+            - another-node-label-value
+  containers:
+  - name: with-node-affinity
+    image: gcr.io/google_containers/pause:2.0
+</code></pre>
+
+<p>podAffinity示例</p>
+
+<p>podAffinity基于Pod的标签来选择Node，仅调度到满足条件Pod所在的Node上，支持podAffinity和podAntiAffinity。这个功能比较绕，以下面的例子为例：</p>
+
+<p>如果一个“Node所在Zone中包含至少一个带有security=S1标签且运行中的Pod”，那么可以调度到该Node</p>
+
+<p>不调度到“包含至少一个带有security=S2标签且运行中Pod”的Node上</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: with-pod-affinity
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: security
+            operator: In
+            values:
+            - S1
+        topologyKey: failure-domain.beta.kubernetes.io/zone
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: security
+              operator: In
+              values:
+              - S2
+          topologyKey: kubernetes.io/hostname
+  containers:
+  - name: with-pod-affinity
+    image: gcr.io/google_containers/pause:2.0
+</code></pre>
+
+<p>静态Pod</p>
+
+<p>除了DaemonSet，还可以使用静态Pod来在每台机器上运行指定的Pod，这需要kubelet在启动的时候指定manifest目录：</p>
+
+<pre><code>kubelet --pod-manifest-path=/etc/kubernetes/manifests
+</code></pre>
+
+<p>然后将所需要的Pod定义文件放到指定的manifest目录中。</p>
+
+<p>注意：静态Pod不能通过API Server来删除，但可以通过删除manifest文件来自动删除对应的Pod。</p>
+
+<h2 id="cronjob">CronJob</h2>
+
+<p>CronJob即定时任务，就类似于Linux系统的crontab，在指定的时间周期运行指定的任务。在Kubernetes 1.5，使用CronJob需要开启batch/v2alpha1 API，即–runtime-config=batch/v2alpha1。</p>
+
+<p>CronJob Spec</p>
+
+<pre><code>.spec.schedule指定任务运行周期，格式同Cron
+.spec.jobTemplate指定需要运行的任务，格式同Job
+.spec.startingDeadlineSeconds指定任务开始的截止期限
+.spec.concurrencyPolicy指定任务的并发策略，支持Allow、Forbid和Replace三个选项
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>apiVersion: batch/v2alpha1
+kind: CronJob
+metadata:
+  name: hello
+spec:
+  schedule: &quot;*/1 * * * *&quot;
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: hello
+            image: busybox
+            args:
+            - /bin/sh
+            - -c
+            - date; echo Hello from the Kubernetes cluster
+          restartPolicy: OnFailure
+</code></pre>
+
+<p>创建</p>
+
+<pre><code>$ kubectl create -f cronjob.yaml
+cronjob &quot;hello&quot; created
+</code></pre>
+
+<p>当然，也可以用kubectl run来创建一个CronJob：</p>
+
+<pre><code>kubectl run hello --schedule=&quot;*/1 * * * *&quot; --restart=OnFailure --image=busybox -- /bin/sh -c &quot;date; echo Hello from the Kubernetes cluster&quot;
+$ kubectl get cronjob
+NAME      SCHEDULE      SUSPEND   ACTIVE    LAST-SCHEDULE
+hello     */1 * * * *   False     0         &lt;none&gt;
+$ kubectl get jobs
+NAME               DESIRED   SUCCESSFUL   AGE
+hello-1202039034   1         1            49s
+$ pods=$(kubectl get pods --selector=job-name=hello-1202039034 --output=jsonpath={.items..metadata.name} -a)
+$ kubectl logs $pods
+Mon Aug 29 21:34:09 UTC 2016
+Hello from the Kubernetes cluster
+</code></pre>
+
+<p>注意，删除cronjob的时候不会自动删除job，这些job可以用kubectl delete job来删除</p>
+
+<pre><code>$ kubectl delete cronjob hello
+cronjob &quot;hello&quot; deleted
+</code></pre>
+
+<h2 id="job">job</h2>
+
+<p>Job负责批量处理短暂的一次性任务 (short lived one-off tasks)，即仅执行一次的任务，它保证批处理任务的一个或多个Pod成功结束。</p>
+
+<p>Kubernetes支持以下几种Job：</p>
+
+<ul>
+<li>非并行Job：通常创建一个Pod直至其成功结束</li>
+<li>固定结束次数的Job：设置.spec.completions，创建多个Pod，直到.spec.completions个Pod成功结束</li>
+<li>带有工作队列的并行Job：设置.spec.Parallelism但不设置.spec.completions，当所有Pod结束并且至少一个成功时，Job就认为是成功</li>
+</ul>
+
+<p>根据.spec.completions和.spec.Parallelism的设置，可以将Job划分为以下几种pattern：</p>
+
+<ul>
+<li>Job类型 使用示例    行为  completions Parallelism</li>
+<li>一次性Job    数据库迁移   创建一个Pod直至其成功结束  1   1</li>
+<li>固定结束次数的Job    处理工作队列的Pod  依次创建一个Pod运行直至completions个成功结束   2+  1</li>
+<li>固定结束次数的并行Job  多个Pod同时处理工作队列   依次创建多个Pod运行直至completions个成功结束   2+  2+</li>
+<li>并行Job 多个Pod同时处理工作队列   创建一个或多个Pod直至有一个成功结束 1   2+</li>
+</ul>
+
+<p>Job Spec格式</p>
+
+<p>spec.template格式同Pod</p>
+
+<p>RestartPolicy仅支持Never或OnFailure</p>
+
+<p>单个Pod时，默认Pod成功运行后Job即结束</p>
+
+<pre><code>.spec.completions标志Job结束需要成功运行的Pod个数，默认为1
+.spec.parallelism标志并行运行的Pod的个数，默认为1
+spec.activeDeadlineSeconds标志失败Pod的重试最大时间，超过这个时间不会继续重试
+</code></pre>
+
+<p>一个简单的例子：</p>
+
+<pre><code>apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pi
+spec:
+  template:
+    metadata:
+      name: pi
+    spec:
+      containers:
+      - name: pi
+        image: perl
+        command: [&quot;perl&quot;,  &quot;-Mbignum=bpi&quot;, &quot;-wle&quot;, &quot;print bpi(2000)&quot;]
+      restartPolicy: Never
+$ kubectl create -f ./job.yaml
+job &quot;pi&quot; created
+$ pods=$(kubectl get pods --selector=job-name=pi --output=jsonpath={.items..metadata.name})
+$ kubectl logs $pods
+3.141592653589793238462643383279502...
+</code></pre>
+
+<p>固定结束次数的Job示例</p>
+
+<pre><code>apiVersion: batch/v1
+kind: Job
+metadata:
+  name: busybox
+spec:
+  completions: 3
+  template:
+    metadata:
+      name: busybox
+    spec:
+      containers:
+      - name: busybox
+        image: busybox
+        command: [&quot;echo&quot;, &quot;hello&quot;]
+      restartPolicy: Never
+</code></pre>
+
+<h2 id="总结">总结</h2>
+
+<p>这边讲解的就是原生的资源定义和使用，其实都是通过控制器来完成基本的控制的，控制器的源码在<a href="/post/cloud/paas/base/kubernetes/k8s-controller-manager/">kube-controller-manager</a>中。</p>
+
+<h1 id="k8s自定义控制器">k8s自定义控制器</h1>
+
+<p>日常业务开发过程中，虽然常规的资源基本满足需求，但是这些常规的资源大多仅仅是代表相对底层、通用的概念的对象， 某些情况下我们总是想根据业务定制我们的资源类型，并且利用kubernetes的声明式API，对资源的增删改查进行监听并作出具体的业务功能。随着Kubernetes生态系统的持续发展，越来越多高层次的对象将会不断涌现，比起目前使用的对象，新对象将更加专业化。</p>
+
+<p>在这一块，目前业界比较多使用自定义的就是阿里云，其开源的项目<a href="https://github.com/openkruise/kruise">kruise</a>包含来很多的使用场景。具体可以看<a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">我的关于kruise的文章</a>。</p>
+
+<h2 id="最初开发流程">最初开发流程</h2>
+
+<p>作为一个k8s研发，会写控制器是一项最基本的工作，我们最初是参考官方提供的<a href="https://github.com/kubernetes/sample-controller">sample-controller</a>来完成控制器开发的，k8s自定义controller开发的整个过程：</p>
+
+<ul>
+<li>创建自定义API对象<a href="/post/cloud/paas/base/kubernetes/k8s-api/#crd-自定义资源类型">CRD（Custom Resource Definition）</a>，令k8s明白我们自定义的API对象；</li>
+<li>编写代码，将CRD的情况写入对应的代码中，然后通过自动代码生成工具，将controller之外的informer，client等内容较为固定的代码通过工具生成；</li>
+<li>编写controller，在里面判断实际情况是否达到了API对象的声明情况，如果未达到，就要进行实际业务处理，而这也是controller的通用做法；</li>
+</ul>
+
+<p>实际编码过程并不复杂，动手编写的文件如下：</p>
+
+<pre><code>├── controller.go
+├── main.go
+└── pkg
+    ├── apis
+    │   └── test
+    │       ├── register.go
+    │       └── v1
+    │           ├── doc.go
+    │           ├── register.go
+    │           └── types.go
+    └── signals
+        ├── signal.go
+        ├── signal_posix.go
+        └── signal_windows.go
+</code></pre>
+
+<p>下面我们以实例来看看具体的开发。</p>
+
+<h3 id="定义crd">定义CRD</h3>
+
+<p>创建jcy.yaml文件</p>
+
+<pre><code>apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  # metadata.name的内容是由&quot;复数名.分组名&quot;构成，如下，jcys是复数名，test.k8s.io是分组名
+  name: jcy.test.k8s.io
+spec:
+  # 分组名，在REST API中也会用到的，格式是: /apis/分组名/CRD版本
+  group: test.k8s.io
+  # list of versions supported by this CustomResourceDefinition
+  versions:
+    - name: v1
+      # 是否有效的开关.
+      served: true
+      # 只有一个版本能被标注为storage
+      storage: true
+  # 范围是属于namespace的
+  scope: Namespaced
+  names:
+    # 复数名
+    plural: jcys
+    # 单数名
+    singular: jcy
+    # 类型名
+    kind: Jcy
+    # 简称，就像service的简称是svc
+    shortNames:
+    - j
+</code></pre>
+
+<p>yaml中的关键字段</p>
+
+<ul>
+<li>group：设置API所属的组，将其映射为API URL中的 “/apis/” 下一级目录。它是逻辑上相关的Kinds集合，自定义的</li>
+<li>scope：该API的生效范围，可选项为Namespaced和Cluster。</li>
+<li>version：每个 Group 可以存在多个版本。例如，v1alpha1，然后升为 v1beta1，最后稳定为 v1 版本。</li>
+<li>ames：CRD的名称，包括单数、复数、kind、所属组等名称定义</li>
+</ul>
+
+<p>在jcy.yaml所在目录执行命令kubectl apply -f jcy.yaml，即可在k8s环境创建Jcy的定义，今后如果发起对类型为Jcy的对象的处理，k8s的api server就能识别到该对象类型了，如下所示，可以用kubectl get crd和kubectl describe crd stu命令查看更多细节，stu是在jcy.yaml中定义的简称</p>
+
+<pre><code>[root@master custom_controller]# kubectl apply -f jcy.yaml
+customresourcedefinition.apiextensions.k8s.io/jcy.test.k8s.io created
+[root@master custom_controller]# kubectl get crd
+NAME                            CREATED AT
+jcy.test.k8s.io   2019-03-30T13:33:13Z
+[root@master custom_controller]# kubectl describe crd stu
+Name:         jcys.test.k8s.io
+Namespace:
+Labels:       &lt;none&gt;
+Annotations:  kubectl.kubernetes.io/last-applied-configuration:
+                {&quot;apiVersion&quot;:&quot;apiextensions.k8s.io/v1beta1&quot;,&quot;kind&quot;:&quot;CustomResourceDefinition&quot;,&quot;metadata&quot;:{&quot;annotations&quot;:{},&quot;name&quot;:&quot;jcys.test...
+API Version:  apiextensions.k8s.io/v1beta1
+Kind:         CustomResourceDefinition
+Metadata:
+  Creation Timestamp:  2019-03-30T13:33:13Z
+  Generation:          1
+  Resource Version:    292010
+  Self Link:           /apis/apiextensions.k8s.io/v1beta1/customresourcedefinitions/jcys.test.k8s.io
+  UID:                 5e4ceb6e-52f0-11e9-96e1-000c29f1f9c9
+</code></pre>
+
+<p>如果您已配置好etcdctl，可以访问k8s的etcd上存储的数据，那么执行以下命令，就可以看到新的CRD已经保存在etcd中了</p>
+
+<pre><code>ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/healthcheck-client.crt --key=/etc/kubernetes/pki/etcd/healthcheck-client.key get /registry/apiextensions.k8s.io/customresourcedefinitions/ --prefix
+
+/registry/apiextensions.k8s.io/customresourcedefinitions/jcys.test.k8s.io{
+    &quot;kind&quot;: &quot;CustomResourceDefinition&quot;,
+    &quot;apiVersion&quot;: &quot;apiextensions.k8s.io/v1beta1&quot;,
+    &quot;metadata&quot;: {
+        &quot;name&quot;: &quot;jcys.test.k8s.io&quot;,
+        &quot;uid&quot;: &quot;5e4ceb6e-52f0-11e9-96e1-000c29f1f9c9&quot;,
+        &quot;generation&quot;: 1,
+        &quot;creationTimestamp&quot;: &quot;2019-03-30T13:33:13Z&quot;,
+        &quot;annotations&quot;: {
+            &quot;kubectl.kubernetes.io/last-applied-configuration&quot;: &quot;{\&quot;apiVersion\&quot;:\&quot;apiextensions.k8s.io/v1beta1\&quot;,\&quot;kind\&quot;:\&quot;CustomResourceDefinition\&quot;,\&quot;metadata\&quot;:{\&quot;annotations\&quot;:{},\&quot;name\&quot;:\&quot;jcys.test.k8s.io\&quot;},\&quot;spec\&quot;:{\&quot;group\&quot;:\&quot;test.k8s.io\&quot;,\&quot;names\&quot;:{\&quot;kind\&quot;:\&quot;Jcy\&quot;,\&quot;plural\&quot;:\&quot;jcys\&quot;,\&quot;shortNames\&quot;:[\&quot;stu\&quot;],\&quot;singular\&quot;:\&quot;jcy\&quot;},\&quot;scope\&quot;:\&quot;Namespaced\&quot;,\&quot;versions\&quot;:[{\&quot;name\&quot;:\&quot;v1\&quot;,\&quot;served\&quot;:true,\&quot;storage\&quot;:true}]}}\n&quot;
+        }
+    },
+    &quot;spec&quot;: {
+        &quot;group&quot;: &quot;test.k8s.io&quot;,
+        &quot;version&quot;: &quot;v1&quot;,
+        &quot;names&quot;: {
+            &quot;plural&quot;: &quot;jcys&quot;,
+            &quot;singular&quot;: &quot;jcy&quot;,
+            &quot;shortNames&quot;: [
+                &quot;stu&quot;
+            ],
+            &quot;kind&quot;: &quot;Jcy&quot;,
+            &quot;listKind&quot;: &quot;JcyList&quot;
+        },
+        &quot;scope&quot;: &quot;Namespaced&quot;,
+        &quot;versions&quot;: [
+            {
+                &quot;name&quot;: &quot;v1&quot;,
+                &quot;served&quot;: true,
+                &quot;storage&quot;: true
+            }
+        ],
+        &quot;conversion&quot;: {
+            &quot;strategy&quot;: &quot;None&quot;
+        }
+    },
+    &quot;status&quot;: {
+        &quot;conditions&quot;: [
+            {
+                &quot;type&quot;: &quot;NamesAccepted&quot;,
+                &quot;status&quot;: &quot;True&quot;,
+                &quot;lastTransitionTime&quot;: &quot;2019-03-30T13:33:13Z&quot;,
+                &quot;reason&quot;: &quot;NoConflicts&quot;,
+                &quot;message&quot;: &quot;no conflicts found&quot;
+            },
+            {
+                &quot;type&quot;: &quot;Established&quot;,
+                &quot;status&quot;: &quot;True&quot;,
+                &quot;lastTransitionTime&quot;: null,
+                &quot;reason&quot;: &quot;InitialNamesAccepted&quot;,
+                &quot;message&quot;: &quot;the initial names have been accepted&quot;
+            }
+        ],
+        &quot;acceptedNames&quot;: {
+            &quot;plural&quot;: &quot;jcys&quot;,
+            &quot;singular&quot;: &quot;jcy&quot;,
+            &quot;shortNames&quot;: [
+                &quot;stu&quot;
+            ],
+            &quot;kind&quot;: &quot;Jcy&quot;,
+            &quot;listKind&quot;: &quot;JcyList&quot;
+        },
+        &quot;storedVersions&quot;: [
+            &quot;v1&quot;
+        ]
+    }
+}
+</code></pre>
+
+<p>下面就可以创建stu类型的对象了，比如我们创建object-jcy.yaml</p>
+
+<pre><code>apiVersion: test.k8s.io/v1
+kind: Jcy
+metadata:
+  name: object-jcy
+spec:
+  name: &quot;张三&quot;
+  school: &quot;深圳中学&quot;
+</code></pre>
+
+<p>这个资源对象跟定义pod差不多，它的主要信息都是来源上面的定义，Kind是Jcy，apiVersion就是group/version，除了这些设置，还需要在spec端设置相应的参数，一般是开发者自定义定制的。</p>
+
+<p>在object-jcy.yaml文件所在目录执行命令kubectl apply -f object-jcy.yaml，会看到提示创建成功</p>
+
+<pre><code>[root@master custom_controller]# kubectl apply -f object-jcy.yaml
+jcy.test.k8s.io/object-jcy created
+</code></pre>
+
+<p>行命令kubectl get stu可见已创建成功的Jcy对象</p>
+
+<pre><code>[root@master custom_controller]# kubectl get jcy
+NAME             AGE
+object-jcy   15s
+</code></pre>
+
+<p>控制台输出的就是该Jcy对象存储在etcd中的内容</p>
+
+<pre><code>{
+    &quot;apiVersion&quot;: &quot;test.k8s.io/v1&quot;,
+    &quot;kind&quot;: &quot;Jcy&quot;,
+    &quot;metadata&quot;: {
+        &quot;annotations&quot;: {
+            &quot;kubectl.kubernetes.io/last-applied-configuration&quot;: &quot;{\&quot;apiVersion\&quot;:\&quot;test.k8s.io/v1\&quot;,\&quot;kind\&quot;:\&quot;Jcy\&quot;,\&quot;metadata\&quot;:{\&quot;annotations\&quot;:{},\&quot;name\&quot;:\&quot;object-jcy\&quot;,\&quot;namespace\&quot;:\&quot;default\&quot;},\&quot;spec\&quot;:{\&quot;name\&quot;:\&quot;张三\&quot;,\&quot;school\&quot;:\&quot;深圳中学\&quot;}}\n&quot;
+        },
+        &quot;creationTimestamp&quot;: &quot;2019-03-31T02:56:25Z&quot;,
+        &quot;generation&quot;: 1,
+        &quot;name&quot;: &quot;object-jcy&quot;,
+        &quot;namespace&quot;: &quot;default&quot;,
+        &quot;uid&quot;: &quot;92927d0d-5360-11e9-9d2a-000c29f1f9c9&quot;
+    },
+    &quot;spec&quot;: {
+        &quot;name&quot;: &quot;张三&quot;,
+        &quot;school&quot;: &quot;深圳中学&quot;
+    }
+}
+</code></pre>
+
+<p>至此，自定义API对象（也就是CRD）就创建成功了。</p>
+
+<h3 id="crd控制器的原理">CRD控制器的原理</h3>
+
+<p>在正式开发控制器之前，我们先理解一下自定义控制器的工作原理，因为很多东西直接是用工具生成的。</p>
+
+<p><strong>为什么要做controller？</strong></p>
+
+<p>如果仅仅是在etcd保存Jcy对象是没有什么意义的，试想通过deployment创建pod时，如果只在etcd创建pod对象，而不去node节点创建容器，那这个pod对象只是一条数据而已，没有什么实质性作用，其他对象如service、pv也是如此。</p>
+
+<p>controller的作用就是监听指定对象的新增、删除、修改等变化，针对这些变化做出相应的响应（例如新增pod的响应为创建docker容器），原理如下</p>
+
+<p><img src="/media/cloud/k8s/develop" alt="" /></p>
+
+<p>API对象的变化会通过Informer存入队列（WorkQueue），在Controller中消费队列的数据做出响应，响应相关的具体代码就是我们要做的真正业务逻辑，也就是我们要实现的控制器部分业务代码。</p>
+
+<p>CRD控制器的informer工作流，可分为监听、同步、触发三个步骤：</p>
+
+<ul>
+<li>Controller 首先会通过Informer （所谓的 Informer，就是一个自带缓存和索引机制），从K8ss的API Server中获取它所关心的对象，举个例子，也就是我编写的Controller获取的应该是jcy对象。值得注意的是Informer在构建之前，会使用我们生成的client,再透过Reflector的ListAndWatch机制跟API Server建立连接，不断地监听jcy对象实例的变化。在 ListAndWatch 机制下，一旦 APIServer 端有新的 jcy 实例被创建、删除或者更新，Reflector 都会收到“事件通知”。该事件及它对应的 API 对象会被放进一个 Delta FIFO Queue中。</li>
+<li>Local Store 此时完成同步缓存操作</li>
+<li>Informer 根据这些事件的类型，触发我们编写并注册号的ResourceEventHandler，完成业务动作的触发。</li>
+</ul>
+
+<p>代码实际上可以通过<a href="https://github.com/kubernetes/code-generator">code-generator</a>官方提供的工具生成的。</p>
+
+<h3 id="将controller之外的informer-client等内容较为固定的代码通过工具生成">将controller之外的informer，client等内容较为固定的代码通过工具生成</h3>
+
+<p>从上图可以发现整个逻辑还是比较复杂的，为了简化我们的自定义controller开发，k8s的大师们利用自动代码生成工具将controller之外的事情都做好了，我们只要专注于controller的开发就好。</p>
+
+<p>1、$GOPATH/src/目录下创建一个文件夹k8s_customize_controller：</p>
+
+<p>2、进入文件夹k8s_customize_controller，执行如下命令创建三层目录：</p>
+
+<pre><code>mkdir -p pkg/apis/jcy
+</code></pre>
+
+<p>3、在新建的jcy目录下创建文件register.go，内容如下：</p>
+
+<pre><code>package jcy
+
+const (
+        GroupName = &quot;test.k8s.io&quot;
+        Version   = &quot;v1&quot;
+)
+</code></pre>
+
+<p>4、在新建的jcy目录下创建名为v1的文件夹；</p>
+
+<p>5、在新建的v1文件夹下创建文件doc.go，内容如下：</p>
+
+<pre><code>// +k8s:deepcopy-gen=package
+
+// +groupName=test.k8s.io
+package v1
+</code></pre>
+
+<p>上述代码中的两行注释，都是代码生成工具会用到的，一个是声明为整个v1包下的类型定义生成DeepCopy方法，另一个声明了这个包对应的API的组名，和CRD中的组名一致；</p>
+
+<p>6、在v1文件夹下创建文件types.go，里面定义了Jcy对象的具体内容：</p>
+
+<pre><code>package v1
+
+import (
+    metav1 &quot;k8s.io/apimachinery/pkg/apis/meta/v1&quot;
+)
+
+// +genclient
+// +genclient:noStatus
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+type Jcy struct {
+    metav1.TypeMeta   `json:&quot;,inline&quot;`
+    metav1.ObjectMeta `json:&quot;metadata,omitempty&quot;`
+    Spec              JcySpec `json:&quot;spec&quot;`
+}
+
+type JcySpec struct {
+    name   string `json:&quot;name&quot;`
+    school string `json:&quot;school&quot;`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// JcytList is a list of Jcy resources
+type JcytList struct {
+    metav1.TypeMeta `json:&quot;,inline&quot;`
+    metav1.ListMeta `json:&quot;metadata&quot;`
+
+    Items []Jcy `json:&quot;items&quot;`
+}
+</code></pre>
+
+<p>从上述源码可见，Jcy对象的内容已经被设定好，主要有name和school这两个字段，表示学生的名字和所在学校，因此创建Jcy对象的时候内容就要和这里匹配了；</p>
+
+<p>在这个文件中也有几个k8s的Annotation 风格的注释</p>
+
+<p>+genclient 这段注解的意思是：请为下面资源类型生成对应的 Client 代码。</p>
+
+<ul>
+<li>+genclient 这段注解的意思是：请为下面资源类型生成对应的 Client 代码。</li>
+<li>+genclient:noStatus 的意思是：这个 API 资源类型定义里，没有 Status 字段，因为Mydemo才是主类型，所以 +genclient 要写在Mydemo之上，不用写在MydemoList之上，这时要细心注意的。</li>
+<li>+k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object 的意思是，请在生成 DeepCopy 的时候，实现 Kubernetes 提供的 runtime.Object 接口。否则，在某些版本的 Kubernetes 里，你的这个类型定义会出现编译错误。</li>
+</ul>
+
+<p>7、在v1目录下创建register.go文件，此文件的作用是通过addKnownTypes方法使得client可以知道Jcy类型的API对象：</p>
+
+<pre><code>package v1
+
+import (
+    metav1 &quot;k8s.io/apimachinery/pkg/apis/meta/v1&quot;
+    &quot;k8s.io/apimachinery/pkg/runtime&quot;
+    &quot;k8s.io/apimachinery/pkg/runtime/schema&quot;
+
+    &quot;k8s_customize_controller/pkg/apis/test&quot;
+)
+
+var SchemeGroupVersion = schema.GroupVersion{
+    Group:   Jcy.GroupName,
+    Version: Jcy.Version,
+}
+
+var (
+    SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
+    AddToScheme   = SchemeBuilder.AddToScheme
+)
+
+func Resource(resource string) schema.GroupResource {
+    return SchemeGroupVersion.WithResource(resource).GroupResource()
+}
+
+func Kind(kind string) schema.GroupKind {
+    return SchemeGroupVersion.WithKind(kind).GroupKind()
+}
+
+func addKnownTypes(scheme *runtime.Scheme) error {
+    scheme.AddKnownTypes(
+        SchemeGroupVersion,
+        &amp;Jcy{},
+        &amp;JcyList{},
+    )
+
+    // register the type in the scheme
+    metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
+    return nil
+}
+</code></pre>
+
+<p>至此，为自动生成代码做的准备工作已经完成了，目前为止，$GOPATH/src目录下的文件和目录结构是这样的：</p>
+
+<pre><code>[root@golang src]# tree
+.
+└── k8s_customize_controller
+    └── pkg
+        └── apis
+            └── jcy
+                ├── register.go
+                └── v1
+                    ├── doc.go
+                    ├── register.go
+                    └── types.go
+
+5 directories, 4 files
+</code></pre>
+
+<p>8、执行以下命令，会先下载依赖包，再下载代码生成工具<a href="https://github.com/kubernetes/code-generator">code-generator</a>，再执行代码生成脚本generate-groups.sh：</p>
+
+<pre><code>cd $GOPATH/src \
+&amp;&amp; go get -u k8s.io/apimachinery/pkg/apis/meta/v1 \
+&amp;&amp; go get -u k8s.io/code-generator/... \
+&amp;&amp; cd $GOPATH/src/k8s.io/code-generator \
+&amp;&amp; ./generate-groups.sh all \
+k8s_customize_controller/pkg/client \
+k8s_customize_controller/pkg/apis \
+test:v1
+</code></pre>
+
+<p>如果代码写得没有问题，会看到以下输出：</p>
+
+<pre><code>Generating deepcopy funcs
+Generating clientset for test:v1 at k8s_customize_controller/pkg/client/clientset
+Generating listers for test:v1 at k8s_customize_controller/pkg/client/listers
+Generating informers for test:v1 at k8s_customize_controller/pkg/client/informers
+</code></pre>
+
+<p>此时再去$GOPATH/src/k8s_customize_controller目录下执行tree命令，可见已生成了很多内容：</p>
+
+<pre><code>[root@master k8s_customize_controller]# tree
+.
+└── pkg
+    ├── apis
+    │   └── jcy
+    │       ├── register.go
+    │       └── v1
+    │           ├── doc.go
+    │           ├── register.go
+    │           ├── types.go
+    │           └── zz_generated.deepcopy.go
+    └── client
+        ├── clientset
+        │   └── versioned
+        │       ├── clientset.go
+        │       ├── doc.go
+        │       ├── fake
+        │       │   ├── clientset_generated.go
+        │       │   ├── doc.go
+        │       │   └── register.go
+        │       ├── scheme
+        │       │   ├── doc.go
+        │       │   └── register.go
+        │       └── typed
+        │           └── test
+        │               └── v1
+        │                   ├── test_client.go
+        │                   ├── doc.go
+        │                   ├── fake
+        │                   │   ├── doc.go
+        │                   │   ├── fake_test_client.go
+        │                   │   └── fake_jcy.go
+        │                   ├── generated_expansion.go
+        │                   └── jcy.go
+        ├── informers
+        │   └── externalversions
+        │       ├── test
+        │       │   ├── interface.go
+        │       │   └── v1
+        │       │       ├── interface.go
+        │       │       └── jcy.go
+        │       ├── factory.go
+        │       ├── generic.go
+        │       └── internalinterfaces
+        │           └── factory_interfaces.go
+        └── listers
+            └── test
+                └── v1
+                    ├── expansion_generated.go
+                    └── jcy.go
+
+21 directories, 27 files
+</code></pre>
+
+<p>如上所示，zz_generated.deepcopy.go就是DeepCopy代码文件，client目录下的内容都是客户端相关代码，在开发controller时会用到；</p>
+
+<p>client目录下的clientset、informers、listers的身份和作用可以和前面的原理图中的不同模块结合来理解；</p>
+
+<p>至此，自动生成代码的步骤已经完成。下面就是写我们的controller的逻辑了</p>
+
+<h3 id="编写controller代码">编写controller代码</h3>
+
+<p>在k8s_customize_controller目录下创建controller.go</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;time&quot;
+
+    &quot;github.com/golang/glog&quot;
+    corev1 &quot;k8s.io/api/core/v1&quot;
+    &quot;k8s.io/apimachinery/pkg/api/errors&quot;
+    &quot;k8s.io/apimachinery/pkg/util/runtime&quot;
+    utilruntime &quot;k8s.io/apimachinery/pkg/util/runtime&quot;
+    &quot;k8s.io/apimachinery/pkg/util/wait&quot;
+    &quot;k8s.io/client-go/kubernetes&quot;
+    &quot;k8s.io/client-go/kubernetes/scheme&quot;
+    typedcorev1 &quot;k8s.io/client-go/kubernetes/typed/core/v1&quot;
+    &quot;k8s.io/client-go/tools/cache&quot;
+    &quot;k8s.io/client-go/tools/record&quot;
+    &quot;k8s.io/client-go/util/workqueue&quot;
+
+    jcy &quot;github.com/kingjcy/k8s-controller-custom-resource/pkg/apis/jcy/v1&quot;
+    clientset &quot;github.com/kingjcy/k8s-controller-custom-resource/pkg/client/clientset/versioned&quot;
+    jcyscheme &quot;github.com/kingjcy/k8s-controller-custom-resource/pkg/client/clientset/versioned/scheme&quot;
+    informers &quot;github.com/kingjcy/k8s-controller-custom-resource/pkg/client/informers/externalversions/jcy/v1&quot;
+    listers &quot;github.com/kingjcy/k8s-controller-custom-resource/pkg/client/listers/jcy/v1&quot;
+)
+
+const controllerAgentName = &quot;jcy-controller&quot;
+
+const (
+    SuccessSynced = &quot;Synced&quot;
+
+    MessageResourceSynced = &quot;Jcy synced successfully&quot;
+)
+
+// Controller is the controller implementation for Jcy resources
+type Controller struct {
+    // kubeclientset is a standard kubernetes clientset
+    kubeclientset kubernetes.Interface
+    // jcyclientset is a clientset for our own API group
+    jcyclientset clientset.Interface
+
+    jcysLister listers.JcyLister
+    jcysSynced cache.InformerSynced
+
+    workqueue workqueue.RateLimitingInterface
+
+    recorder record.EventRecorder
+}
+
+// NewController returns a new jcy controller
+func NewController(
+kubeclientset kubernetes.Interface,
+jcyclientset clientset.Interface,
+jcyInformer informers.jcyInformer) *Controller {
+    utilruntime.Must(jcyscheme.AddToScheme(scheme.Scheme))
+    glog.V(4).Info(&quot;Creating event broadcaster&quot;)
+    eventBroadcaster := record.NewBroadcaster()
+    eventBroadcaster.StartLogging(glog.Infof)
+    eventBroadcaster.StartRecordingToSink(&amp;typedcorev1.EventSinkImpl{Interface: kubeclientset.CoreV1().Events(&quot;&quot;)})
+    recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
+
+    //使用client 和前面创建的 Informer，初始化了自定义控制器结构体
+    controller := &amp;Controller{
+        kubeclientset:    kubeclientset,
+        jcyclientset: jcyclientset,
+        jcysLister:   jcyInformer.Lister(),
+        jcysSynced:   jcyInformer.Informer().HasSynced,
+        workqueue:        workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), &quot;Jcys&quot;),
+        recorder:         recorder,
+    }
+
+
+    //jcyInformer注册了三个 Handler（AddFunc、UpdateFunc 和 DeleteFunc）,分别对应 API 对象的“添加”“更新”和“删除”事件。而具体的处理操作，都是将该事件对应的 API 对象加入到工作队列中
+
+    glog.Info(&quot;Setting up event handlers&quot;)
+    // Set up an event handler for when Jcy resources change
+    jcyInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+        AddFunc: controller.enqueueJcy,
+        UpdateFunc: func(old, new interface{}) {
+            oldJcy := old.(*test.Jcy)
+            newJcy := new.(*test.Jcy)
+            if oldJcy.ResourceVersion == newJcy.ResourceVersion {
+                //版本一致，就表示没有实际更新的操作，立即返回
+                return
+            }
+            controller.enqueueJcy(new)
+        },
+        DeleteFunc: controller.enqueueJcyForDelete,
+    })
+
+    return controller
+}
+
+//在此处开始controller的业务，也就是原理图中的Control Loop的部分，启动控制循环的逻辑非常简单，就是同步+循环监听任务。而这个循环监听任务就是我们真正的业务实现部分了
+func (c *Controller) Run(threadiness int, stopCh &lt;-chan struct{}) error {
+    defer runtime.HandleCrash()
+    defer c.workqueue.ShutDown()
+
+    glog.Info(&quot;开始controller业务，开始一次缓存数据同步&quot;)
+    if ok := cache.WaitForCacheSync(stopCh, c.jcysSynced); !ok {
+        return fmt.Errorf(&quot;failed to wait for caches to sync&quot;)
+    }
+
+    glog.Info(&quot;worker启动&quot;)
+    for i := 0; i &lt; threadiness; i++ {
+        go wait.Until(c.runWorker, time.Second, stopCh)
+    }
+
+    glog.Info(&quot;worker已经启动&quot;)
+    &lt;-stopCh
+    glog.Info(&quot;worker已经结束&quot;)
+
+    return nil
+}
+
+//runWorker是一个不断运行的方法，并且一直会调用 c.processNextWorkItem 从workqueue读取和读取消息
+func (c *Controller) runWorker() {
+    for c.processNextWorkItem() {
+    }
+}
+
+// 从workqueue取数据处理
+func (c *Controller) processNextWorkItem() bool {
+
+    obj, shutdown := c.workqueue.Get()
+
+    if shutdown {
+        return false
+    }
+
+    // We wrap this block in a func so we can defer c.workqueue.Done.
+    err := func(obj interface{}) error {
+        defer c.workqueue.Done(obj)
+        var key string
+        var ok bool
+
+        if key, ok = obj.(string); !ok {
+
+            c.workqueue.Forget(obj)
+            runtime.HandleError(fmt.Errorf(&quot;expected string in workqueue but got %#v&quot;, obj))
+            return nil
+        }
+        // 在syncHandler中处理业务
+        if err := c.syncHandler(key); err != nil {
+            return fmt.Errorf(&quot;error syncing '%s': %s&quot;, key, err.Error())
+        }
+
+        c.workqueue.Forget(obj)
+        glog.Infof(&quot;Successfully synced '%s'&quot;, key)
+        return nil
+    }(obj)
+
+    if err != nil {
+        runtime.HandleError(err)
+        return true
+    }
+
+    return true
+}
+
+// 处理，尝试从 Informer 维护的缓存中拿到了它所对应的对象
+func (c *Controller) syncHandler(key string) error {
+    // Convert the namespace/name string into a distinct namespace and name
+    namespace, name, err := cache.SplitMetaNamespaceKey(key)
+    if err != nil {
+        runtime.HandleError(fmt.Errorf(&quot;invalid resource key: %s&quot;, key))
+        return nil
+    }
+
+    // 从缓存中取对象
+    jcy, err := c.jcysLister.jcys(namespace).Get(name)
+    if err != nil {
+        // 如果Jcy对象被删除了，就会走到这里，所以应该在这里加入执行
+        if errors.IsNotFound(err) {
+            glog.Infof(&quot;Jcy对象被删除，请在这里执行实际的删除业务: %s/%s ...&quot;, namespace, name)
+
+            return nil
+        }
+
+        runtime.HandleError(fmt.Errorf(&quot;failed to list jcy by: %s/%s&quot;, namespace, name))
+
+        return err
+    }
+
+    glog.Infof(&quot;这里是jcy对象的期望状态: %#v ...&quot;, jcy)
+    glog.Infof(&quot;实际状态是从业务层面得到的，此处应该去的实际状态，与期望状态做对比，并根据差异做出响应(新增或者删除)&quot;)
+
+    c.recorder.Event(jcy, corev1.EventTypeNormal, SuccessSynced, MessageResourceSynced)
+    return nil
+}
+
+// 数据先放入缓存，再入队列
+func (c *Controller) enqueueJcy(obj interface{}) {
+    var key string
+    var err error
+    // 将对象放入缓存
+    if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+        runtime.HandleError(err)
+        return
+    }
+
+    // 将key放入队列
+    c.workqueue.AddRateLimited(key)
+}
+
+// 删除操作
+func (c *Controller) enqueueJcyForDelete(obj interface{}) {
+    var key string
+    var err error
+    // 从缓存中删除指定对象
+    key, err = cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+    if err != nil {
+        runtime.HandleError(err)
+        return
+    }
+    //再将key放入队列
+    c.workqueue.AddRateLimited(key)
+}
+</code></pre>
+
+<p>上述代码有以下几处关键点：</p>
+
+<ul>
+<li>创建controller的NewController方法中，定义了收到Jcy对象的增删改消息时的具体处理逻辑，除了同步本地缓存，就是将该对象的key放入消息中；</li>
+<li>实际处理消息的方法是syncHandler，这里面可以添加实际的业务代码，来响应Jcy对象的增删改情况，达到业务目的；</li>
+</ul>
+
+<p>2、在$GOPATH/src/k8s_customize_controller/pkg目录下新建目录signals，在signals目录下新建文件signal_posix.go</p>
+
+<pre><code>// +build !windows
+
+package signals
+
+import (
+    &quot;os&quot;
+    &quot;syscall&quot;
+)
+
+var shutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
+</code></pre>
+
+<p>在signals目录下新建文件signal.go</p>
+
+<pre><code>package signals
+
+import (
+        &quot;os&quot;
+        &quot;os/signal&quot;
+)
+
+var onlyOneSignalHandler = make(chan struct{})
+
+func SetupSignalHandler() (stopCh &lt;-chan struct{}) {
+        close(onlyOneSignalHandler) // panics when called twice
+
+        stop := make(chan struct{})
+        c := make(chan os.Signal, 2)
+        signal.Notify(c, shutdownSignals...)
+        go func() {
+                &lt;-c
+                close(stop)
+                &lt;-c
+                os.Exit(1) // second signal. Exit directly.
+        }()
+
+        return stop
+}
+</code></pre>
+
+<p>3、接下来可以编写main.go了，在k8s_customize_controller目录下创建main.go文件</p>
+
+<pre><code>package main
+
+import (
+    &quot;flag&quot;
+    &quot;time&quot;
+
+    &quot;github.com/golang/glog&quot;
+    &quot;k8s.io/client-go/kubernetes&quot;
+    &quot;k8s.io/client-go/tools/clientcmd&quot;
+    // Uncomment the following line to load the gcp plugin (only required to authenticate against GKE clusters).
+    // _ &quot;k8s.io/client-go/plugin/pkg/client/auth/gcp&quot;
+
+    clientset &quot;k8s_customize_controller/pkg/client/clientset/versioned&quot;
+    informers &quot;k8s_customize_controller/pkg/client/informers/externalversions&quot;
+    &quot;k8s_customize_controller/pkg/signals&quot;
+)
+
+var (
+    masterURL  string
+    kubeconfig string
+)
+
+func main() {
+    flag.Parse()
+
+    // 处理信号量
+    stopCh := signals.SetupSignalHandler()
+
+    // 处理入参
+    cfg, err := clientcmd.BuildConfigFromFlags(masterURL, kubeconfig)
+    if err != nil {
+        glog.Fatalf(&quot;Error building kubeconfig: %s&quot;, err.Error())
+    }
+
+    kubeClient, err := kubernetes.NewForConfig(cfg)
+    if err != nil {
+        glog.Fatalf(&quot;Error building kubernetes clientset: %s&quot;, err.Error())
+    }
+
+    jcyClient, err := clientset.NewForConfig(cfg)
+    if err != nil {
+        glog.Fatalf(&quot;Error building example clientset: %s&quot;, err.Error())
+    }
+
+    jcyInformerFactory := informers.NewSharedInformerFactory(jcyClient, time.Second*30)
+
+    //得到controller
+    controller := NewController(kubeClient, jcyClient,
+        jcyInformerFactory.Bolingcavalry().V1().Jcys())
+
+    //启动informer
+    go jcyInformerFactory.Start(stopCh)
+
+    //controller开始处理消息
+    if err = controller.Run(2, stopCh); err != nil {
+        glog.Fatalf(&quot;Error running controller: %s&quot;, err.Error())
+    }
+}
+
+func init() {
+    flag.StringVar(&amp;kubeconfig, &quot;kubeconfig&quot;, &quot;&quot;, &quot;Path to a kubeconfig. Only required if out-of-cluster.&quot;)
+    flag.StringVar(&amp;masterURL, &quot;master&quot;, &quot;&quot;, &quot;The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.&quot;)
+}
+</code></pre>
+
+<h3 id="部署验证">部署验证</h3>
+
+<blockquote>
+<p>编译和启动</p>
+</blockquote>
+
+<p>在$GOPATH/src/k8s_customize_controller目录下，执行以下命令</p>
+
+<pre><code>go get k8s.io/client-go/kubernetes/scheme \
+&amp;&amp; go get github.com/golang/glog \
+&amp;&amp; go get k8s.io/kube-openapi/pkg/util/proto \
+&amp;&amp; go get k8s.io/utils/buffer \
+&amp;&amp; go get k8s.io/utils/integer \
+&amp;&amp; go get k8s.io/utils/trace
+</code></pre>
+
+<ul>
+<li>上述脚本将编译过程中依赖的库通过go get方式进行获取，属于笨办法，更好的方法是选用一种包依赖工具，具体的可以参照k8s的官方demo，这个代码中同时提供了godep和vendor两种方式来处理上面的包依赖问题，地址是：<a href="https://github.com/kubernetes/sample-controller">https://github.com/kubernetes/sample-controller</a></li>
+<li>解决了包依赖问题后，在$GOPATH/src/k8s_customize_controller目录下执行命令go build，即可在当前目录生成k8s_customize_controller文件；</li>
+<li>将文件k8s_customize_controller复制到k8s环境中，记得通过chmod a+x命令给其可执行权限；</li>
+<li>执行命令./k8s_customize_controller -kubeconfig=$HOME/.kube/config -alsologtostderr=true，会立即启动controller，看到控制台输出如下</li>
+</ul>
+
+<p>启动</p>
+
+<pre><code>[root@master 31]# ./k8s_customize_controller -kubeconfig=$HOME/.kube/config -alsologtostderr=true
+I0331 23:27:17.909265   21540 controller.go:72] Setting up event handlers
+I0331 23:27:17.909450   21540 controller.go:96] 开始controller业务，开始一次缓存数据同步
+I0331 23:27:18.110448   21540 controller.go:101] worker启动
+I0331 23:27:18.110516   21540 controller.go:106] worker已经启动
+I0331 23:27:18.110653   21540 controller.go:181] 这里是jcy对象的期望状态: &amp;v1.Jcy{TypeMeta:v1.TypeMeta{Kind:&quot;Jcy&quot;, APIVersion:&quot;test.k8s.io/v1&quot;}, ObjectMeta:v1.ObjectMeta{Name:&quot;object-jcy&quot;, GenerateName:&quot;&quot;, Namespace:&quot;default&quot;, SelfLink:&quot;/apis/test.k8s.io/v1/namespaces/default/jcys/object-jcy&quot;, UID:&quot;92927d0d-5360-11e9-9d2a-000c29f1f9c9&quot;, ResourceVersion:&quot;310395&quot;, Generation:1, CreationTimestamp:v1.Time{Time:time.Time{wall:0x0, ext:63689597785, loc:(*time.Location)(0x1f9c200)}}, DeletionTimestamp:(*v1.Time)(nil), DeletionGracePeriodSeconds:(*int64)(nil), Labels:map[string]string(nil), Annotations:map[string]string{&quot;kubectl.kubernetes.io/last-applied-configuration&quot;:&quot;{\&quot;apiVersion\&quot;:\&quot;test.k8s.io/v1\&quot;,\&quot;kind\&quot;:\&quot;Jcy\&quot;,\&quot;metadata\&quot;:{\&quot;annotations\&quot;:{},\&quot;name\&quot;:\&quot;object-jcy\&quot;,\&quot;namespace\&quot;:\&quot;default\&quot;},\&quot;spec\&quot;:{\&quot;name\&quot;:\&quot;张三\&quot;,\&quot;school\&quot;:\&quot;深圳中学\&quot;}}\n&quot;}, OwnerReferences:[]v1.OwnerReference(nil), Initializers:(*v1.Initializers)(nil), Finalizers:[]string(nil), ClusterName:&quot;&quot;, ManagedFields:[]v1.ManagedFieldsEntry(nil)}, Spec:v1.JcySpec{name:&quot;&quot;, school:&quot;&quot;}} ...
+</code></pre>
+
+<p>至此，自定义controller已经启动成功了，并且从缓存中获取到了上一章中创建的对象的信息，接下来我们在k8s环境对Jcy对象做增删改，看看controller是否能做出响应；</p>
+
+<blockquote>
+<p>验证controller</p>
+</blockquote>
+
+<p>新开一个窗口连接到k8s环境，新建一个名为new-jcy.yaml的文件，内容如下：</p>
+
+<pre><code>apiVersion: test.k8s.io/v1
+kind: Jcy
+metadata:
+  name: new-jcy
+spec:
+  name: &quot;李四&quot;
+  school: &quot;深圳小学&quot;
+</code></pre>
+
+<p>在new-jcy.yaml所在目录执行命令kubectl apply -f new-jcy.yaml；</p>
+
+<p>返回controller所在的控制台窗口，发现新输出了如下内容，可见新增jcy对象的事件已经被controller监听并处理：</p>
+
+<pre><code>I0331 23:43:03.789894   21540 controller.go:181] 这里是jcy对象的期望状态: &amp;v1.Jcy{TypeMeta:v1.TypeMeta{Kind:&quot;&quot;, APIVersion:&quot;&quot;}, ObjectMeta:v1.ObjectMeta{Name:&quot;new-jcy&quot;, GenerateName:&quot;&quot;, Namespace:&quot;default&quot;, SelfLink:&quot;/apis/test.k8s.io/v1/namespaces/default/jcys/new-jcy&quot;, UID:&quot;abcd77d6-53cb-11e9-9d2a-000c29f1f9c9&quot;, ResourceVersion:&quot;370653&quot;, Generation:1, CreationTimestamp:v1.Time{Time:time.Time{wall:0x0, ext:63689643783, loc:(*time.Location)(0x1f9c200)}}, DeletionTimestamp:(*v1.Time)(nil), DeletionGracePeriodSeconds:(*int64)(nil), Labels:map[string]string(nil), Annotations:map[string]string{&quot;kubectl.kubernetes.io/last-applied-configuration&quot;:&quot;{\&quot;apiVersion\&quot;:\&quot;test.k8s.io/v1\&quot;,\&quot;kind\&quot;:\&quot;Jcy\&quot;,\&quot;metadata\&quot;:{\&quot;annotations\&quot;:{},\&quot;name\&quot;:\&quot;new-jcy\&quot;,\&quot;namespace\&quot;:\&quot;default\&quot;},\&quot;spec\&quot;:{\&quot;name\&quot;:\&quot;李四\&quot;,\&quot;school\&quot;:\&quot;深圳小学\&quot;}}\n&quot;}, OwnerReferences:[]v1.OwnerReference(nil), Initializers:(*v1.Initializers)(nil), Finalizers:[]string(nil), ClusterName:&quot;&quot;, ManagedFields:[]v1.ManagedFieldsEntry(nil)}, Spec:v1.JcySpec{name:&quot;&quot;, school:&quot;&quot;}} ...
+I0331 23:43:03.790076   21540 controller.go:182] 实际状态是从业务层面得到的，此处应该去的实际状态，与期望状态做对比，并根据差异做出响应(新增或者删除)
+I0331 23:43:03.790120   21540 controller.go:145] Successfully synced 'default/new-jcy'
+I0331 23:43:03.790141   21540 event.go:209] Event(v1.ObjectReference{Kind:&quot;Jcy&quot;, Namespace:&quot;default&quot;, Name:&quot;new-jcy&quot;, UID:&quot;abcd77d6-53cb-11e9-9d2a-000c29f1f9c9&quot;, APIVersion:&quot;test.k8s.io/v1&quot;, ResourceVersion:&quot;370653&quot;, FieldPath:&quot;&quot;}): type: 'Normal' reason: 'Synced' Jcy synced successfully
+</code></pre>
+
+<p>接下来您也可以尝试修改和删除已有的Jcy对象，观察controller控制台的输出，确定是否已经监听到所有jcy变化的事件，例如删除的事件日志如下：</p>
+
+<pre><code>I0331 23:44:37.236090   21540 controller.go:171] Jcy对象被删除，请在这里执行实际的删除业务: default/new-jcy ...
+I0331 23:44:37.236118   21540 controller.go:145] Successfully synced 'default/new-jcy'
+</code></pre>
+
+<h2 id="kubebuilder">kubebuilder</h2>
+
+<p>Kubebuilder 的工作流程如下：</p>
+
+<ul>
+<li>创建一个新的工程目录</li>
+<li>创建一个或多个资源 API CRD 然后将字段添加到资源</li>
+<li>在控制器中实现协调循环（reconcile loop），watch 额外的资源</li>
+<li>在集群中运行测试（自动安装 CRD 并自动启动控制器）</li>
+<li>更新引导集成测试测试新字段和业务逻辑</li>
+<li>使用用户提供的 Dockerfile 构建和发布容器</li>
+</ul>
+
+<h3 id="依赖">依赖</h3>
+
+<ul>
+<li>go version v1.15+.</li>
+<li>docker version 17.03+.</li>
+<li>kubectl version v1.11.3+.</li>
+<li>kustomize v3.1.0+</li>
+<li>能够访问 Kubernetes v1.11.3+ 集群</li>
+</ul>
+
+<p>还有一些kubebuilder依赖的重要库</p>
+
+<ul>
+<li><a href="https://github.com/kubernetes-sigs/controller-runtime">controller-runtime</a></li>
+<li><a href="https://github.com/kubernetes-sigs/controller-tools">controller-tools</a></li>
+</ul>
+
+<h3 id="安装">安装</h3>
+
+<p>直接去github项目上下载release对应的系统文件，或者使用命令下载</p>
+
+<pre><code>os=$(go env GOOS)
+arch=$(go env GOARCH)
+
+# 下载 kubebuilder 并解压到 tmp 目录中
+curl -L https://go.kubebuilder.io/dl/2.3.1/${os}/${arch} | tar -xz -C /tmp/
+</code></pre>
+
+<p>然后将其放到可执行的路径下，比如</p>
+
+<pre><code>sudo mv /tmp/kubebuilder_2.3.1_${os}_${arch} /usr/local/kubebuilder
+export PATH=$PATH:/usr/local/kubebuilder/bin
+</code></pre>
+
+<h3 id="使用">使用</h3>
+
+<blockquote>
+<p>创建一个项目</p>
+</blockquote>
+
+<p>创建一个目录，然后在里面运行 kubebuilder init 命令，初始化一个新项目,&ndash;domain flag arg 来指定 api group。示例如下。</p>
+
+<pre><code>mkdir $GOPATH/src/example
+cd $GOPATH/src/example
+kubebuilder init --domain test
+</code></pre>
+
+<p>当项目创建好之后，会提醒你是否下载依赖，然后你会发现大半个 Kubernetes 的代码已经在你 GOPATH 里了，这是的目录如下</p>
+
+<pre><code>├── Dockerfile                                  制作镜像的dockerfile
+├── Makefile
+├── PROJECT
+├── bin
+│   └── manager
+├── config
+│   ├── certmanager
+│   │   ├── certificate.yaml
+│   │   ├── kustomization.yaml
+│   │   └── kustomizeconfig.yaml
+│   ├── default
+│   │   ├── kustomization.yaml
+│   │   ├── manager_auth_proxy_patch.yaml
+│   │   ├── manager_webhook_patch.yaml
+│   │   └── webhookcainjection_patch.yaml
+│   ├── manager
+│   │   ├── kustomization.yaml
+│   │   └── manager.yaml
+│   ├── prometheus
+│   │   ├── kustomization.yaml
+│   │   └── monitor.yaml
+│   ├── rbac
+│   │   ├── auth_proxy_client_clusterrole.yaml
+│   │   ├── auth_proxy_role.yaml
+│   │   ├── auth_proxy_role_binding.yaml
+│   │   ├── auth_proxy_service.yaml
+│   │   ├── kustomization.yaml
+│   │   ├── leader_election_role.yaml
+│   │   ├── leader_election_role_binding.yaml
+│   │   └── role_binding.yaml
+│   └── webhook
+│       ├── kustomization.yaml
+│       ├── kustomizeconfig.yaml
+│       └── service.yaml
+├── go.mod
+├── go.sum
+├── hack
+│   └── boilerplate.go.txt
+└── main.go
+</code></pre>
+
+<p>可见是一堆yaml文件。</p>
+
+<blockquote>
+<p>创建API</p>
+</blockquote>
+
+<p>运行下面的命令，创建一个新的 API（组/版本）为 “webapp.test(这个test就是前面init的domain)/v1”，并在上面创建新的 Kind(CRD) “Jcy”。</p>
+
+<pre><code>kubebuilder create api --group webapp --version v1 --kind Jcy
+</code></pre>
+
+<p>我们来看看对应的生成的目录结构</p>
+
+<pre><code>├── Dockerfile
+├── Makefile
+├── PROJECT
+├── api
+│   └── v1
+│       ├── groupversion_info.go                包含了关于 group-version 的一些元数据
+│       ├── jcy_types.go                        数据
+│       └── zz_generated.deepcopy.go            包含了前述 runtime.Object 接口的自动实现，这些实现标记了代表 Kinds 的所有根类型。
+├── bin
+│   └── manager
+├── config
+│   ├── certmanager
+│   │   ├── certificate.yaml
+│   │   ├── kustomization.yaml
+│   │   └── kustomizeconfig.yaml
+│   ├── crd                                     部署crd的yaml
+│   │   ├── kustomization.yaml
+│   │   ├── kustomizeconfig.yaml
+│   │   └── patches
+│   │       ├── cainjection_in_jcies.yaml
+│   │       └── webhook_in_jcies.yaml
+│   ├── default
+│   │   ├── kustomization.yaml
+│   │   ├── manager_auth_proxy_patch.yaml
+│   │   ├── manager_webhook_patch.yaml
+│   │   └── webhookcainjection_patch.yaml
+│   ├── manager                                 部署controller的yaml，以pod形式启动
+│   │   ├── kustomization.yaml
+│   │   └── manager.yaml
+│   ├── prometheus
+│   │   ├── kustomization.yaml
+│   │   └── monitor.yaml
+│   ├── rbac                                        rbac权限运行的时候也是要用的
+│   │   ├── auth_proxy_client_clusterrole.yaml
+│   │   ├── auth_proxy_role.yaml
+│   │   ├── auth_proxy_role_binding.yaml
+│   │   ├── auth_proxy_service.yaml
+│   │   ├── jcy_editor_role.yaml
+│   │   ├── jcy_viewer_role.yaml
+│   │   ├── kustomization.yaml
+│   │   ├── leader_election_role.yaml
+│   │   ├── leader_election_role_binding.yaml
+│   │   └── role_binding.yaml
+│   ├── samples                                                 cd的简单实例
+│   │   └── webapp_v1_jcy.yaml
+│   └── webhook
+│       ├── kustomization.yaml
+│       ├── kustomizeconfig.yaml
+│       └── service.yaml
+├── controllers                                     controller的逻辑
+│   ├── jcy_controller.go
+│   └── suite_test.go
+├── go.mod
+├── go.sum
+├── hack
+│   └── boilerplate.go.txt
+└── main.go                                         入口函数
+</code></pre>
+
+<p>创建 api 你会发现 Kubebuilder 会帮你创建一些目录和源代码文件：</p>
+
+<ul>
+<li>在 api 里面包含了资源 Jcy  的默认数据结构</li>
+<li>在 controllers 里面 Jcy 的默认 Controller</li>
+</ul>
+
+<blockquote>
+<p>开发结构体</p>
+</blockquote>
+
+<p>我们来看看这个结构体文件，首先导入meta/v1 API 组，通常本身并不会暴露该组，而是包含所有 Kubernetes 种类共有的元数据。</p>
+
+<pre><code>import (
+    metav1 &quot;k8s.io/apimachinery/pkg/apis/meta/v1&quot;
+)
+</code></pre>
+
+<p>我们来看一下Kubebuilder 已经帮你创建和默认的结构：</p>
+
+<pre><code>// Jcy is the Schema for the Jcy API
+// +k8s:openapi-gen=true
+type Jcy struct {
+    metav1.TypeMeta   `json:&quot;,inline&quot;`
+    metav1.ObjectMeta `json:&quot;metadata,omitempty&quot;`
+
+    Spec   JcySpec   `json:&quot;spec,omitempty&quot;`                期待的状态
+    Status JcyStatus `json:&quot;status,omitempty&quot;`              实际的状态
+}
+</code></pre>
+
+<p>我们需要做的就是扩展JcySpec和JcyStatus来定义我们需要使用的字段。</p>
+
+<p>还提供了批量操作LIST</p>
+
+<pre><code>// JcyList contains a list of Jcy
+type JcyList struct {
+    metav1.TypeMeta `json:&quot;,inline&quot;`
+    metav1.ListMeta `json:&quot;metadata,omitempty&quot;`
+    Items           []Jcy `json:&quot;items&quot;`
+}
+</code></pre>
+
+<p>最后，我们将这个 Go 类型添加到 API 组中。这允许我们将这个 API 组中的类型可以添加到任何Scheme。</p>
+
+<pre><code>func init() {
+    SchemeBuilder.Register(&amp;Jcy{}, &amp;JcyList{})
+}
+</code></pre>
+
+<blockquote>
+<p>开发控制器</p>
+</blockquote>
+
+<p>在来看看Controller默认 Jcy Controller 名为 ReconcileJcy，其只有一个主要方法就是：</p>
+
+<pre><code>func (r *ReconcileJcy) Reconcile(request reconcile.Request) (reconcile.Result, error)
+</code></pre>
+
+<p>在使这个 Controller Work 之前，需要 pkg.controller.app.app_controller.go 中的 add 方法中注册要关注的事件，当任何感兴趣的事件发生时，Reconcile 便会被调用，这个函数的职责，就像 Deployment Controller 的 syncHandler 一样，当有事件发生时，去比对当前资源的状态和预期的状态是否一致，如果不一致，就去矫正。</p>
+
+<p>我们来看看这个控制器文件，首先是import包</p>
+
+<pre><code>package controllers
+
+import (
+    &quot;context&quot;
+
+    &quot;github.com/go-logr/logr&quot;
+    &quot;k8s.io/apimachinery/pkg/runtime&quot;
+    ctrl &quot;sigs.k8s.io/controller-runtime&quot;
+    &quot;sigs.k8s.io/controller-runtime/pkg/client&quot;
+
+    batchv1 &quot;tutorial.kubebuilder.io/project/api/v1&quot;
+)
+</code></pre>
+
+<p>可见核心的就是 controller-runtime 运行库，以及 client 包和我们的 API 类型包。</p>
+
+<p>接下来，kubebuilder 为我们搭建了一个基本的 reconciler 结构。</p>
+
+<pre><code>// JcyReconciler reconciles a Jcy object
+type JcyReconciler struct {
+    client.Client
+    Log    logr.Logger
+    Scheme *runtime.Scheme
+}
+</code></pre>
+
+<p>大多数控制器需要一个日志句柄和一个上下文，所以我们在 Reconcile 中将他们初始化。</p>
+
+<pre><code>func (r *JcyReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
+    _ = context.Background()
+    _ = r.Log.WithValues(&quot;jcy&quot;, req.NamespacedName)
+
+    // your logic here
+
+    return ctrl.Result{}, nil
+}
+</code></pre>
+
+<p>最后，我们将 Reconcile 添加到 manager 中，这样当 manager 启动时它就会被启动。</p>
+
+<pre><code>func (r *JcyReconciler) SetupWithManager(mgr ctrl.Manager) error {
+    return ctrl.NewControllerManagedBy(mgr).
+        For(&amp;webappv1.Jcy{}).
+        Complete(r)
+}
+</code></pre>
+
+<blockquote>
+<p>测试</p>
+</blockquote>
+
+<p>当 CR 的结构已经确定和 Controller 代码完成之后，便可以尝试试运行一下。Kubebuilder 可以通过本地 kubeconfig 配置的集群试运行（对于快速创建一个开发集群推荐 minikube）。</p>
+
+<p>首先记得在 main.go 中的 init 方法中添加 schema，确定监控的资源，可以根据需要来新增：</p>
+
+<pre><code>func init() {
+    _ = corev1.AddToScheme(scheme)
+    _ = appsv1.AddToScheme(scheme)
+    _ = extensionsv1beta1.AddToScheme(scheme)
+    _ = apis.AddToScheme(scheme)
+    // +kubebuilder:scaffold:scheme
+}
+</code></pre>
+
+<p>然后使 Kubebuilder 重新生成代码：</p>
+
+<pre><code>make
+</code></pre>
+
+<p>然后将 config/crd 下的 CRD yaml 应用到当前集群：</p>
+
+<pre><code>make install
+</code></pre>
+
+<p>在本地运行 CRD Controller（直接执行 main 函数也可以）：</p>
+
+<pre><code>make run
+</code></pre>
+
+<h3 id="控制器开发">控制器开发</h3>
+
+<blockquote>
+<p>main</p>
+</blockquote>
+
+<p>我们的 main 文件最开始是 import 一些基本库，尤其是：</p>
+
+<ul>
+<li>核心的 控制器运行时controller-runtime 库</li>
+<li>默认的控制器运行时日志库&ndash; Zap</li>
+</ul>
+
+<p>代码如下</p>
+
+<pre><code>import (
+    &quot;flag&quot;
+    &quot;os&quot;
+
+    &quot;k8s.io/apimachinery/pkg/runtime&quot;
+    clientgoscheme &quot;k8s.io/client-go/kubernetes/scheme&quot;
+    _ &quot;k8s.io/client-go/plugin/pkg/client/auth/gcp&quot;
+    ctrl &quot;sigs.k8s.io/controller-runtime&quot;
+    &quot;sigs.k8s.io/controller-runtime/pkg/log/zap&quot;
+
+    webappv1 &quot;example/api/v1&quot;
+    &quot;example/controllers&quot;
+    // +kubebuilder:scaffold:imports
+)
+</code></pre>
+
+<p>每一组控制器都需要一个 Scheme，它提供了 Kinds 和相应的 Go 类型之间的映射。</p>
+
+<pre><code>var (
+    scheme   = runtime.NewScheme()
+    setupLog = ctrl.Log.WithName(&quot;setup&quot;)
+)
+
+func init() {
+    _ = clientgoscheme.AddToScheme(scheme)
+
+    _ = webappv1.AddToScheme(scheme)
+    // +kubebuilder:scaffold:scheme
+}
+</code></pre>
+
+<p>最后即使main函数了</p>
+
+<pre><code>func main() {
+    var metricsAddr string
+    var enableLeaderElection bool
+    flag.StringVar(&amp;metricsAddr, &quot;metrics-addr&quot;, &quot;:8080&quot;, &quot;The address the metric endpoint binds to.&quot;)
+    flag.BoolVar(&amp;enableLeaderElection, &quot;enable-leader-election&quot;, false,
+        &quot;Enable leader election for controller manager. &quot;+
+            &quot;Enabling this will ensure there is only one active controller manager.&quot;)
+    flag.Parse()
+
+    ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
+
+    mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+        Scheme:             scheme,
+        MetricsBindAddress: metricsAddr,
+        Port:               9443,
+        LeaderElection:     enableLeaderElection,
+        LeaderElectionID:   &quot;8bf23ea1.test&quot;,
+    })
+    if err != nil {
+        setupLog.Error(err, &quot;unable to start manager&quot;)
+        os.Exit(1)
+    }
+
+    if err = (&amp;controllers.JcyReconciler{
+        Client: mgr.GetClient(),
+        Log:    ctrl.Log.WithName(&quot;controllers&quot;).WithName(&quot;Jcy&quot;),
+        Scheme: mgr.GetScheme(),
+    }).SetupWithManager(mgr); err != nil {
+        setupLog.Error(err, &quot;unable to create controller&quot;, &quot;controller&quot;, &quot;Jcy&quot;)
+        os.Exit(1)
+    }
+    // +kubebuilder:scaffold:builder
+
+    setupLog.Info(&quot;starting manager&quot;)
+    if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+        setupLog.Error(err, &quot;problem running manager&quot;)
+        os.Exit(1)
+    }
+}
+</code></pre>
+
+<p>这段代码的核心逻辑比较简单:</p>
+
+<ul>
+<li>我们通过 flag 库解析入参</li>
+<li>我们实例化了一个manager，它记录着我们所有控制器的运行情况，以及设置共享缓存和API服务器的客户端（注意，我们把我们的 Scheme 的信息告诉了 manager）。</li>
+<li>将 Manager 的 Client 传给 Controller，并且调用 SetupWithManager 方法传入 Manager 进行 Controller 的初始化</li>
+<li>运行 manager，它反过来运行我们所有的控制器和 webhooks。manager 状态被设置为 Running，直到它收到一个优雅停机 (graceful shutdown) 信号。这样一来，当我们在 Kubernetes 上运行时，我们就可以优雅地停止 pod。</li>
+</ul>
+
+<blockquote>
+<p>专业名称</p>
+</blockquote>
+
+<ul>
+<li>groups（组）就是相关功能的集合，就是自定义的一个名</li>
+<li>versions（版本）就是版本，一个组可以有多个版本，一般版本都是重v1alpha1，然后升为 v1beta1，最后稳定为 v1 版本。</li>
+<li>Kinds（类型）就是API类型，就是我们定义的类型</li>
+<li>resources（资源）就是 API 中的一个 Kind 的使用方式，就是Kind 的对象标识。通常情况下，Kind 和 resources 之间有一个一对一的映射。 例如，pods 资源对应于 Pod 种类。</li>
+<li>GVK（Group Version Kind）就是当我们在一个特定的群组版本 (Group-Version) 中提到一个 Kind，每个 GVK 对应 Golang 代码中的到对应生成代码中的 Go type。</li>
+<li>GVR（Group Version Resources）就是就是当我们在一个特定的群组版本 (Group-Version) 中提到一个 resources</li>
+<li>Scheme是一种追踪 Go Type 的方法，它对应于给定的 GVK。提供了 Kinds 与对应 Go types 的映射，也就是说给定 Go type 就知道他的 GVK，给定 GVK 就知道他的 Go type。</li>
+</ul>
+
+<blockquote>
+<p>设计一个api</p>
+</blockquote>
+
+<p>其实就是如何设计spec中的数据，这个是有一定的规范的</p>
+
+<ul>
+<li>所有序列化的字段必须是 驼峰式</li>
+<li>使用omitempty 标签来标记一个字段在空的时候应该在序列化的时候省略。</li>
+<li>字段可以使用大多数的基本类型。数字是个例外：出于 API 兼容性的目的，我们只允许三种数字类型。对于整数，需要使用 int32 和 int64 类型；对于小数，使用 resource.Quantity 类型。</li>
+<li>还有一个我们使用的特殊类型：metav1.Time。 它有一个稳定的、可移植的序列化格式的功能，其他与 time.Time 相同。</li>
+</ul>
+
+<blockquote>
+<p>实现一个控制器</p>
+</blockquote>
+
+<p>其实就是实现我们对这个自定义资源的crud操作，并且保持期待状态和实际状态的统一。主要是在控制器文件中修改</p>
+
+<blockquote>
+<p>main的注册</p>
+</blockquote>
+
+<p>在前面讲过，需要将我们关系的资源注册到scheme中去。</p>
+
+<p>到这里基本上一个crd资源就完成了定义和控制的所有开发，就可以使用了。</p>
+
+<h2 id="源码解析">源码解析</h2>
+
+<p>刚开始使用 Kubebuilder 的时候，因为封装程度很高，很多事情都是懵逼状态，剖析完之后很多问题就很明白了。</p>
+
+<blockquote>
+<p>main</p>
+</blockquote>
+
+<p>从 main.go 开始。Kubebuilder 创建的 main.go 是整个项目的入口，逻辑十分简单：</p>
+
+<pre><code>var (
+    scheme   = runtime.NewScheme()
+    setupLog = ctrl.Log.WithName(&quot;setup&quot;)
+)
+func init() {
+    appsv1alpha1.AddToScheme(scheme)
+    // +kubebuilder:scaffold:scheme
+}
+func main() {
+    ...
+        // 1、init Manager
+    mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{Scheme: scheme, MetricsBindAddress: metricsAddr})
+    if err != nil {
+        setupLog.Error(err, &quot;unable to start manager&quot;)
+        os.Exit(1)
+    }
+        // 2、init Reconciler（Controller）
+    err = (&amp;controllers.ApplicationReconciler{
+        Client: mgr.GetClient(),
+        Log:    ctrl.Log.WithName(&quot;controllers&quot;).WithName(&quot;Application&quot;),
+        Scheme: mgr.GetScheme(),
+    }).SetupWithManager(mgr)
+    if err != nil {
+        setupLog.Error(err, &quot;unable to create controller&quot;, &quot;controller&quot;, &quot;EDASApplication&quot;)
+        os.Exit(1)
+    }
+    // +kubebuilder:scaffold:builder
+    setupLog.Info(&quot;starting manager&quot;)
+        // 3、start Manager
+    if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+        setupLog.Error(err, &quot;problem running manager&quot;)
+        os.Exit(1)
+    }
+</code></pre>
+
+<p>可以看到在 init 方法里面我们将 appsv1alpha1 注册到 Scheme 里面去了，这样一来 Cache 就知道 watch 谁了，main 方法里面的逻辑基本都是 Manager 的：</p>
+
+<ul>
+<li>初始化了一个 Manager；</li>
+<li>将 Manager 的 Client 传给 Controller，并且调用 SetupWithManager 方法传入 Manager 进行 Controller 的初始化；</li>
+<li>启动 Manager。</li>
+</ul>
+
+<p>我们的核心就是看这 3 个流程。</p>
+
+<blockquote>
+<p>Manager 初始化</p>
+</blockquote>
+
+<p>Manager 初始化代码如下：</p>
+
+<pre><code>// New returns a new Manager for creating Controllers.
+func New(config *rest.Config, options Options) (Manager, error) {
+    ...
+    // Create the cache for the cached read client and registering informers
+    cache, err := options.NewCache(config, cache.Options{Scheme: options.Scheme, Mapper: mapper, Resync: options.SyncPeriod, Namespace: options.Namespace})
+    if err != nil {
+        return nil, err
+    }
+    apiReader, err := client.New(config, client.Options{Scheme: options.Scheme, Mapper: mapper})
+    if err != nil {
+        return nil, err
+    }
+    writeObj, err := options.NewClient(cache, config, client.Options{Scheme: options.Scheme, Mapper: mapper})
+    if err != nil {
+        return nil, err
+    }
+    ...
+    return &amp;controllerManager{
+        config:           config,
+        scheme:           options.Scheme,
+        errChan:          make(chan error),
+        cache:            cache,
+        fieldIndexes:     cache,
+        client:           writeObj,
+        apiReader:        apiReader,
+        recorderProvider: recorderProvider,
+        resourceLock:     resourceLock,
+        mapper:           mapper,
+        metricsListener:  metricsListener,
+        internalStop:     stop,
+        internalStopper:  stop,
+        port:             options.Port,
+        host:             options.Host,
+        leaseDuration:    *options.LeaseDuration,
+        renewDeadline:    *options.RenewDeadline,
+        retryPeriod:      *options.RetryPeriod,
+    }, nil
+}
+</code></pre>
+
+<p>可以看到主要是创建 Cache 与 Clients：</p>
+
+<blockquote>
+<p>创建 Cache</p>
+</blockquote>
+
+<p>Cache 初始化代码如下：</p>
+
+<pre><code>// New initializes and returns a new Cache.
+func New(config *rest.Config, opts Options) (Cache, error) {
+    opts, err := defaultOpts(config, opts)
+    if err != nil {
+        return nil, err
+    }
+    im := internal.NewInformersMap(config, opts.Scheme, opts.Mapper, *opts.Resync, opts.Namespace)
+    return &amp;informerCache{InformersMap: im}, nil
+}
+// newSpecificInformersMap returns a new specificInformersMap (like
+// the generical InformersMap, except that it doesn't implement WaitForCacheSync).
+func newSpecificInformersMap(...) *specificInformersMap {
+    ip := &amp;specificInformersMap{
+        Scheme:            scheme,
+        mapper:            mapper,
+        informersByGVK:    make(map[schema.GroupVersionKind]*MapEntry),
+        codecs:            serializer.NewCodecFactory(scheme),
+        resync:            resync,
+        createListWatcher: createListWatcher,
+        namespace:         namespace,
+    }
+    return ip
+}
+// MapEntry contains the cached data for an Informer
+type MapEntry struct {
+    // Informer is the cached informer
+    Informer cache.SharedIndexInformer
+    // CacheReader wraps Informer and implements the CacheReader interface for a single type
+    Reader CacheReader
+}
+func createUnstructuredListWatch(gvk schema.GroupVersionKind, ip *specificInformersMap) (*cache.ListWatch, error) {
+        ...
+    // Create a new ListWatch for the obj
+    return &amp;cache.ListWatch{
+        ListFunc: func(opts metav1.ListOptions) (runtime.Object, error) {
+            if ip.namespace != &quot;&quot; &amp;&amp; mapping.Scope.Name() != meta.RESTScopeNameRoot {
+                return dynamicClient.Resource(mapping.Resource).Namespace(ip.namespace).List(opts)
+            }
+            return dynamicClient.Resource(mapping.Resource).List(opts)
+        },
+        // Setup the watch function
+        WatchFunc: func(opts metav1.ListOptions) (watch.Interface, error) {
+            // Watch needs to be set to true separately
+            opts.Watch = true
+            if ip.namespace != &quot;&quot; &amp;&amp; mapping.Scope.Name() != meta.RESTScopeNameRoot {
+                return dynamicClient.Resource(mapping.Resource).Namespace(ip.namespace).Watch(opts)
+            }
+            return dynamicClient.Resource(mapping.Resource).Watch(opts)
+        },
+    }, nil
+}
+</code></pre>
+
+<p>可以看到 Cache 主要就是创建了 InformersMap，Scheme 里面的每个 GVK 都创建了对应的 Informer，通过 informersByGVK 这个 map 做 GVK 到 Informer 的映射，每个 Informer 会根据 ListWatch 函数对对应的 GVK 进行 List 和 Watch。</p>
+
+<blockquote>
+<p>创建 Clients</p>
+</blockquote>
+
+<p>创建 Clients 很简单：</p>
+
+<pre><code>// defaultNewClient creates the default caching client
+func defaultNewClient(cache cache.Cache, config *rest.Config, options client.Options) (client.Client, error) {
+    // Create the Client for Write operations.
+    c, err := client.New(config, options)
+    if err != nil {
+        return nil, err
+    }
+    return &amp;client.DelegatingClient{
+        Reader: &amp;client.DelegatingReader{
+            CacheReader:  cache,
+            ClientReader: c,
+        },
+        Writer:       c,
+        StatusClient: c,
+    }, nil
+}
+</code></pre>
+
+<p>读操作使用上面创建的 Cache，写操作使用 K8s go-client 直连。</p>
+
+<blockquote>
+<p>Controller 初始化</p>
+</blockquote>
+
+<p>下面看看 Controller 的启动：</p>
+
+<pre><code>func (r *EDASApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+    err := ctrl.NewControllerManagedBy(mgr).
+        For(&amp;appsv1alpha1.EDASApplication{}).
+        Complete(r)
+return err
+}
+</code></pre>
+
+<p>使用的是 Builder 模式，NewControllerManagerBy 和 For 方法都是给 Builder 传参，最重要的是最后一个方法 Complete，其逻辑是：</p>
+
+<pre><code>func (blder *Builder) Build(r reconcile.Reconciler) (manager.Manager, error) {
+...
+    // Set the Manager
+    if err := blder.doManager(); err != nil {
+        return nil, err
+    }
+    // Set the ControllerManagedBy
+    if err := blder.doController(r); err != nil {
+        return nil, err
+    }
+    // Set the Watch
+    if err := blder.doWatch(); err != nil {
+        return nil, err
+    }
+...
+    return blder.mgr, nil
+}
+</code></pre>
+
+<p>主要是看看 doController 和 doWatch 方法：</p>
+
+<blockquote>
+<p>doController 方法</p>
+</blockquote>
+
+<pre><code>func New(name string, mgr manager.Manager, options Options) (Controller, error) {
+    if options.Reconciler == nil {
+        return nil, fmt.Errorf(&quot;must specify Reconciler&quot;)
+    }
+    if len(name) == 0 {
+        return nil, fmt.Errorf(&quot;must specify Name for Controller&quot;)
+    }
+    if options.MaxConcurrentReconciles &lt;= 0 {
+        options.MaxConcurrentReconciles = 1
+    }
+    // Inject dependencies into Reconciler
+    if err := mgr.SetFields(options.Reconciler); err != nil {
+        return nil, err
+    }
+    // Create controller with dependencies set
+    c := &amp;controller.Controller{
+        Do:                      options.Reconciler,
+        Cache:                   mgr.GetCache(),
+        Config:                  mgr.GetConfig(),
+        Scheme:                  mgr.GetScheme(),
+        Client:                  mgr.GetClient(),
+        Recorder:                mgr.GetEventRecorderFor(name),
+        Queue:                   workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), name),
+        MaxConcurrentReconciles: options.MaxConcurrentReconciles,
+        Name:                    name,
+    }
+    // Add the controller as a Manager components
+    return c, mgr.Add(c)
+}
+</code></pre>
+
+<p>该方法初始化了一个 Controller，传入了一些很重要的参数：</p>
+
+<ul>
+<li>Do：Reconcile 逻辑；</li>
+<li>Cache：找 Informer 注册 Watch；</li>
+<li>Client：对 K8s 资源进行 CRUD；</li>
+<li>Queue：Watch 资源的 CUD 事件缓存；</li>
+<li>Recorder：事件收集。</li>
+</ul>
+
+<blockquote>
+<p>doWatch 方法</p>
+</blockquote>
+
+<pre><code>func (blder *Builder) doWatch() error {
+    // Reconcile type
+    src := &amp;source.Kind{Type: blder.apiType}
+    hdler := &amp;handler.EnqueueRequestForObject{}
+    err := blder.ctrl.Watch(src, hdler, blder.predicates...)
+    if err != nil {
+        return err
+    }
+    // Watches the managed types
+    for _, obj := range blder.managedObjects {
+        src := &amp;source.Kind{Type: obj}
+        hdler := &amp;handler.EnqueueRequestForOwner{
+            OwnerType:    blder.apiType,
+            IsController: true,
+        }
+        if err := blder.ctrl.Watch(src, hdler, blder.predicates...); err != nil {
+            return err
+        }
+    }
+    // Do the watch requests
+    for _, w := range blder.watchRequest {
+        if err := blder.ctrl.Watch(w.src, w.eventhandler, blder.predicates...); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+</code></pre>
+
+<p>可以看到该方法对本 Controller 负责的 CRD 进行了 watch，同时底下还会 watch 本 CRD 管理的其他资源，这个 managedObjects 可以通过 Controller 初始化 Buidler 的 Owns 方法传入，说到 Watch 我们关心两个逻辑：</p>
+
+<blockquote>
+<p>注册的 handler</p>
+</blockquote>
+
+<pre><code>type EnqueueRequestForObject struct{}
+// Create implements EventHandler
+func (e *EnqueueRequestForObject) Create(evt event.CreateEvent, q workqueue.RateLimitingInterface) {
+        ...
+    q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+        Name:      evt.Meta.GetName(),
+        Namespace: evt.Meta.GetNamespace(),
+    }})
+}
+// Update implements EventHandler
+func (e *EnqueueRequestForObject) Update(evt event.UpdateEvent, q workqueue.RateLimitingInterface) {
+    if evt.MetaOld != nil {
+        q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+            Name:      evt.MetaOld.GetName(),
+            Namespace: evt.MetaOld.GetNamespace(),
+        }})
+    } else {
+        enqueueLog.Error(nil, &quot;UpdateEvent received with no old metadata&quot;, &quot;event&quot;, evt)
+    }
+    if evt.MetaNew != nil {
+        q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+            Name:      evt.MetaNew.GetName(),
+            Namespace: evt.MetaNew.GetNamespace(),
+        }})
+    } else {
+        enqueueLog.Error(nil, &quot;UpdateEvent received with no new metadata&quot;, &quot;event&quot;, evt)
+    }
+}
+// Delete implements EventHandler
+func (e *EnqueueRequestForObject) Delete(evt event.DeleteEvent, q workqueue.RateLimitingInterface) {
+        ...
+    q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+        Name:      evt.Meta.GetName(),
+        Namespace: evt.Meta.GetNamespace(),
+    }})
+}
+</code></pre>
+
+<p>可以看到 Kubebuidler 为我们注册的 Handler 就是将发生变更的对象的 NamespacedName 入队列，如果在 Reconcile 逻辑中需要判断创建/更新/删除，需要有自己的判断逻辑。</p>
+
+<blockquote>
+<p>注册的流程</p>
+</blockquote>
+
+<pre><code>// Watch implements controller.Controller
+func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prct ...predicate.Predicate) error {
+    ...
+    log.Info(&quot;Starting EventSource&quot;, &quot;controller&quot;, c.Name, &quot;source&quot;, src)
+    return src.Start(evthdler, c.Queue, prct...)
+}
+// Start is internal and should be called only by the Controller to register an EventHandler with the Informer
+// to enqueue reconcile.Requests.
+func (is *Informer) Start(handler handler.EventHandler, queue workqueue.RateLimitingInterface,
+    ...
+    is.Informer.AddEventHandler(internal.EventHandler{Queue: queue, EventHandler: handler, Predicates: prct})
+    return nil
+}
+</code></pre>
+
+<p>我们的 Handler 实际注册到 Informer 上面，这样整个逻辑就串起来了，通过 Cache 我们创建了所有 Scheme 里面 GVKs 的 Informers，然后对应 GVK 的 Controller 注册了 Watch Handler 到对应的 Informer，这样一来对应的 GVK 里面的资源有变更都会触发 Handler，将变更事件写到 Controller 的事件队列中，之后触发我们的 Reconcile 方法。</p>
+
+<blockquote>
+<p>Manager 启动</p>
+</blockquote>
+
+<pre><code>func (cm *controllerManager) Start(stop &lt;-chan struct{}) error {
+    ...
+    go cm.startNonLeaderElectionRunnables()
+    ...
+}
+func (cm *controllerManager) startNonLeaderElectionRunnables() {
+    ...
+    // Start the Cache. Allow the function to start the cache to be mocked out for testing
+    if cm.startCache == nil {
+        cm.startCache = cm.cache.Start
+    }
+    go func() {
+        if err := cm.startCache(cm.internalStop); err != nil {
+            cm.errChan &lt;- err
+        }
+    }()
+        ...
+        // Start Controllers
+    for _, c := range cm.nonLeaderElectionRunnables {
+        ctrl := c
+        go func() {
+            cm.errChan &lt;- ctrl.Start(cm.internalStop)
+        }()
+    }
+    cm.started = true
+}
+</code></pre>
+
+<p>主要就是启动 Cache，Controller，将整个事件流运转起来，我们下面来看看启动逻辑。</p>
+
+<blockquote>
+<p>Cache 启动</p>
+</blockquote>
+
+<pre><code>func (ip *specificInformersMap) Start(stop &lt;-chan struct{}) {
+    func() {
+        ...
+        // Start each informer
+        for _, informer := range ip.informersByGVK {
+            go informer.Informer.Run(stop)
+        }
+    }()
+}
+func (s *sharedIndexInformer) Run(stopCh &lt;-chan struct{}) {
+        ...
+        // informer push resource obj CUD delta to this fifo queue
+    fifo := NewDeltaFIFO(MetaNamespaceKeyFunc, s.indexer)
+    cfg := &amp;Config{
+        Queue:            fifo,
+        ListerWatcher:    s.listerWatcher,
+        ObjectType:       s.objectType,
+        FullResyncPeriod: s.resyncCheckPeriod,
+        RetryOnError:     false,
+        ShouldResync:     s.processor.shouldResync,
+                // handler to process delta
+        Process: s.HandleDeltas,
+    }
+    func() {
+        s.startedLock.Lock()
+        defer s.startedLock.Unlock()
+                // this is internal controller process delta generate by reflector
+        s.controller = New(cfg)
+        s.controller.(*controller).clock = s.clock
+        s.started = true
+    }()
+        ...
+    wg.StartWithChannel(processorStopCh, s.processor.run)
+    s.controller.Run(stopCh)
+}
+func (c *controller) Run(stopCh &lt;-chan struct{}) {
+    ...
+    r := NewReflector(
+        c.config.ListerWatcher,
+        c.config.ObjectType,
+        c.config.Queue,
+        c.config.FullResyncPeriod,
+    )
+    ...
+        // reflector is delta producer
+    wg.StartWithChannel(stopCh, r.Run)
+        // internal controller's processLoop is comsume logic
+    wait.Until(c.processLoop, time.Second, stopCh)
+}
+</code></pre>
+
+<p>Cache 的初始化核心是初始化所有的 Informer，Informer 的初始化核心是创建了 reflector 和内部 controller，reflector 负责监听 Api Server 上指定的 GVK，将变更写入 delta 队列中，可以理解为变更事件的生产者，内部 controller 是变更事件的消费者，他会负责更新本地 indexer，以及计算出 CUD 事件推给我们之前注册的 Watch Handler。</p>
+
+<blockquote>
+<p>Controller 启动</p>
+</blockquote>
+
+<pre><code>// Start implements controller.Controller
+func (c *Controller) Start(stop &lt;-chan struct{}) error {
+    ...
+    for i := 0; i &lt; c.MaxConcurrentReconciles; i++ {
+        // Process work items
+        go wait.Until(func() {
+            for c.processNextWorkItem() {
+            }
+        }, c.JitterPeriod, stop)
+    }
+    ...
+}
+func (c *Controller) processNextWorkItem() bool {
+    ...
+    obj, shutdown := c.Queue.Get()
+    ...
+    var req reconcile.Request
+    var ok bool
+    if req, ok = obj.(reconcile.Request);
+        ...
+    // RunInformersAndControllers the syncHandler, passing it the namespace/Name string of the
+    // resource to be synced.
+    if result, err := c.Do.Reconcile(req); err != nil {
+        c.Queue.AddRateLimited(req)
+        ...
+    }
+        ...
+}
+</code></pre>
+
+<p>Controller 的初始化是启动 goroutine 不断地查询队列，如果有变更消息则触发到我们自定义的 Reconcile 逻辑。</p>
+
+<p>Kubebuilder 作为工具已经为我们做了很多，到最后我们只需要实现 Reconcile 方法即可，相比一开始更加的自动化，其实<a href="/post/cloud/paas/base/kubernetes/k8s-operator/">operator</a>也是一种特殊模式的控制器，也可以使用kubebuilder来开发。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-controller/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-controller/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/controller/">
+                            <i class="fa fa-tags"></i>
+                            controller
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-istio/">云计算K8s系列---- istio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">云计算K8s组件系列（二）---- K8s scheduler 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月24日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/distributed/store/fs/glusterfs/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/concurrence/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#k8s原生控制器">k8s原生控制器</a>
+<ul>
+<li><a href="#rc">RC</a></li>
+<li><a href="#depolymemt">depolymemt</a></li>
+<li><a href="#statefulset">StatefulSet</a></li>
+<li><a href="#daemonset">DaemonSet</a></li>
+<li><a href="#cronjob">CronJob</a></li>
+<li><a href="#job">job</a></li>
+<li><a href="#总结">总结</a></li>
+</ul></li>
+<li><a href="#k8s自定义控制器">k8s自定义控制器</a>
+<ul>
+<li><a href="#最初开发流程">最初开发流程</a>
+<ul>
+<li><a href="#定义crd">定义CRD</a></li>
+<li><a href="#crd控制器的原理">CRD控制器的原理</a></li>
+<li><a href="#将controller之外的informer-client等内容较为固定的代码通过工具生成">将controller之外的informer，client等内容较为固定的代码通过工具生成</a></li>
+<li><a href="#编写controller代码">编写controller代码</a></li>
+<li><a href="#部署验证">部署验证</a></li>
+</ul></li>
+<li><a href="#kubebuilder">kubebuilder</a>
+<ul>
+<li><a href="#依赖">依赖</a></li>
+<li><a href="#安装">安装</a></li>
+<li><a href="#使用">使用</a></li>
+<li><a href="#控制器开发">控制器开发</a></li>
+</ul></li>
+<li><a href="#源码解析">源码解析</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

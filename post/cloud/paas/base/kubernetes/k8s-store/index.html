@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Kubernetes 和 Docker 类似，也是通过 Volume 的方式提供对存储的支持。但是Kubernetes对容器存储做了一层自己的抽象，相比docker的存储来讲，K8S的存储抽象更全面，更面向应用，体现在如下几个方面：
+
+
+提供卷生命周期管理
+提供“声明”式定义，将使用者和提供者分离
+提供存储类型定义
+">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s组件系列（八）—- 存储 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s组件系列（八）—- 存储
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年04月19日 
+                </div>
+                <h1 class="post-title">云计算K8s组件系列（八）—- 存储</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Kubernetes 和 Docker 类似，也是通过 Volume 的方式提供对存储的支持。但是Kubernetes对容器存储做了一层自己的抽象，相比docker的存储来讲，K8S的存储抽象更全面，更面向应用，体现在如下几个方面：</p>
+
+<ul>
+<li>提供卷生命周期管理</li>
+<li>提供“声明”式定义，将使用者和提供者分离</li>
+<li>提供存储类型定义</li>
+</ul>
+
+<h1 id="存储系统架构">存储系统架构</h1>
+
+<p><img src="/media/cloud/k8s/store" alt="" /></p>
+
+<p>K8S里存储相关的组件，从顶层来讲，主要包含4大组件：</p>
+
+<ul>
+<li>Volume Plugins — 存储提供的扩展接口, 包含了各类存储提供者的plugin实现</li>
+<li>Volume Manager — 运行在kubelet 里让存储Ready的部件，主要提供“声明”式定义，将使用者和提供者分离，存储类型定义。</li>
+<li>PV/PVC Controller — 运行在Master上的部件，主要提供卷生命周期管理</li>
+<li>Attach/Detach — 运行在Master上，顾名思义，主要提供“声明”式定义，将使用者和提供者分离</li>
+</ul>
+
+<p>其中Volume Plugins是一个基础部件，后三个是逻辑部件，依赖于Volume Plugins。</p>
+
+<p>上诉其实就是K8S内部的基本逻辑架构，扩展出去再加上外部与这些部件有交互关系的部件(调用者和实现者)和内部可靠性保证的部件，就可以得出K8S的存储的架构全景。</p>
+
+<p><img src="/media/cloud/k8s/store2.png" alt="" /></p>
+
+<p>对于调用者，在master上主要是通过监听API Server来获取资源变化，从而触发卷的增删改查，在minion上，因为只有pod调度到这个node上才会有卷的相应操作，所以它的触发端是kubelet（严格讲是kubelet里的pod manager），根据Pod Manager里pod spec里申明的存储来触发卷的挂载操作。</p>
+
+<h1 id="核心流程">核心流程</h1>
+
+<p>无论是docker存储也好，K8S存储也好，亦或者是其它类的容器相关的存储抽象，其本质都是一样的——让存储在容器里ready，核心做三件工作：</p>
+
+<ul>
+<li>provision/delete</li>
+<li>attach/detach(可选).</li>
+<li>mount/unmount.</li>
+</ul>
+
+<h2 id="管理">管理</h2>
+
+<p>PV Controller和K8S其它组件一样监听API Server中的资源更新，对于卷管理主要是监听PV，PVC， SC三类资源，当监听到这些资源的创建、删除、修改时，PV Controller经过判断是需要做创建、删除、绑定、回收等动作（后续会展开介绍内部逻辑），然后根据需要调用Volume Plugins进行业务处理，大致调用逻辑如下图</p>
+
+<p><img src="/media/cloud/k8s/store3.png" alt="" /></p>
+
+<h2 id="挂载">挂载</h2>
+
+<p>卷的挂载，主要分两个阶段，attach/detach卷和mount/umount 卷，其中卷的attach/detach，有两个组件做这个工作，分别是Master上的AttachDetach Controller 和Minion上的VolumeManager。</p>
+
+<p>先来看看AttachDetach Controller（后简称ADController），ADController的处理流程和上面介绍的PV Controller基本类似，首先监听API Server的资源变化，主要监听的是node和pod资源，通过node和pod变更，触发ADController是否attach/detach操作，然后调用plugin做相应的业务处理，大致流程如下</p>
+
+<p><img src="/media/cloud/k8s/store4.png" alt="" /></p>
+
+<p>VolumeManager相比ADController最大的区别是事件触发的来源，VolumeManager不会监听API Server，在Minion端所有的资源监听都是Kubelet完成的，Kubelet会监听到调度到该节点上的pod声明，会把pod缓存到Pod Manager中，VolumeManager通过Pod Manager获取PV/PVC的状态，并进行分析出具体的attach/detach, 操作然后调用plugin进行相应的业务处理，流程如下</p>
+
+<p><img src="/media/cloud/k8s/store5.png" alt="" /></p>
+
+<h1 id="volume">Volume</h1>
+
+<p>先看一下Kubernetes 中 Volume 的 概念与Docker 中的 Volume 类似，但不完全相同。具体区别如下：</p>
+
+<ul>
+<li>Kubernetes 中的 Volume 与 Pod 的生命周期相同，但与容器的生命周期不相关。当容器终止或重启时，Volume 中的数据也不会丢失。</li>
+<li>当 Pod 被删除时，Volume 才会被清理。并且数据是否丢失取决于 Volume 的具体类型，比如：emptyDir 类型的 Volume 数据会丢失，而 PV 类型的数据则不会丢失。</li>
+</ul>
+
+<p>持久化卷Volume，支持两种类型：</p>
+
+<ul>
+<li>Mounted File Volume，Node 将会把 Volume 以指定的文件格式 Mount 到 Container 上，从 Container 的角度看到的是一个目录；</li>
+<li>Raw Block Volume, 直接将 Volume 以 Block Device（磁盘）的形态暴露给 Container，对于某些可以直接操作磁盘的服务，这个形态可以省去文件系统的开销获得更好的性能。</li>
+</ul>
+
+<h2 id="生命周期">生命周期</h2>
+
+<p>一个典型的 CSI Volume 生命周期如下图（来自 CSI SPEC）所示</p>
+
+<p><img src="/media/cloud/k8s/store20.png" alt="" /></p>
+
+<ul>
+<li>Volume 被创建后进入 CREATED 状态，此时 Volume 仅在存储系统中存在，对于所有的 Node 或者 Container 都是不可感知的；</li>
+<li>对 CREATED 状态的 Volume 进行 Controlller Publish 动作后在指定的 Node 上进入 NODE_READY 的状态，此时 Node 可以感知到 Volume，但是 Container 依然不可见；</li>
+<li>在 Node 对 Volume 进行 Stage 操作，进入 VOL_READY 的状态，此时 Node 已经与 Volume 建立连接。Volume 在 Node 上以某种形式存在；</li>
+<li>在 Node 上对 Volume 进行 Publish 操作，此时 Volume 将转化为 Node 上 Container 可见的形态被 Container 利用，进入正式服务的状态；</li>
+<li>当 Container 的生命周期结束或其他不再需要 Volume 情况发生时，Node 执行 Unpublish Volume 动作，将 Volume 与 Container 之间的连接关系解除，回退至 VOL_READY 状态；</li>
+<li>Node Unstage 操作将会把 Volume 与 Node 的连接断开，回退至 NODE_READY 状态；</li>
+<li>Controller Unpublish 操作则会取消 Node 对 Volume 的访问权限；</li>
+<li>Delete 则从存储系统中销毁 Volume。</li>
+</ul>
+
+<p>从这个图我们可以看出一个存储卷的供应分别调用了Controller Plugin的CreateVolume、ControllerPublishVolume及Node Plugin的NodeStageVolume、NodePublishVolume这4个gRPC接口，存储卷的销毁分别调用了Node Plugin的NodeUnpublishVolume、NodeUnstageVolume及Controller的ControllerUnpublishVolume、DeleteVolume这4个gRPC接口。</p>
+
+<p>提到存储，当然就要提到volume存储卷，volume存储卷是Pod中能够被多个容器访问的共享目录，用于存储数据。我们可以大体根据存储类型分为持久化和非持久化。</p>
+
+<h2 id="非持久化存储方式">非持久化存储方式</h2>
+
+<h3 id="emptydir">emptyDir</h3>
+
+<p>emptryDir，顾名思义是一个空目录，一个emptyDir 第一次创建是在一个pod被指定到具体node的时候，并且会一直存在在pod的生命周期当中，正如它的名字一样，它初始化是一个空的目录，pod中的容器都可以读写这个目录，这个目录可以被挂在到各个容器相同或者不相同的的路径下。当一个pod因为任何原因被移除的时候，这些数据会被永久删除。注意：一个容器崩溃了不会导致数据的丢失，因为容器的崩溃并不移除pod.</p>
+
+<p>主要用途：</p>
+
+<ul>
+<li>1、临时空间，例如用于某些应用程序运行时所需的临时目录，且无需永久保留</li>
+<li>2、长时间任务的中间过程checkpoint的临时保存目录</li>
+<li>3、一个容器需要从另一个容器中获取数据库的目录（多容器共享目录）</li>
+</ul>
+
+<p>注意：容器的crashing事件并不会导致emptyDir中的数据被删除。</p>
+
+<p>结构</p>
+
+<p><img src="/media/cloud/k8s/volume" alt="" /></p>
+
+<p>实例</p>
+
+<pre><code>[root@master ~]# cat test.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: serivce-mynginx
+  namespace: default
+spec:
+  type: NodePort
+  selector:
+    app: mynginx
+  ports:
+  - name: nginx
+    port: 80
+    targetPort: 80
+    nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deploy
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mynginx
+  template:
+    metadata:
+      labels:
+        app: mynginx
+    spec:
+      containers:
+      - name: mynginx
+        image: lizhaoqwe/nginx:v1
+        volumeMounts:
+        - mountPath: /usr/share/nginx/html/
+          name: share
+        ports:
+        - name: nginx
+          containerPort: 80
+      - name: busybox
+        image: busybox
+        command:
+        - &quot;/bin/sh&quot;
+        - &quot;-c&quot;
+        - &quot;sleep 4444&quot;
+        volumeMounts:
+        - mountPath: /data/
+          name: share
+      volumes:
+      - name: share
+        emptyDir: {}
+</code></pre>
+
+<p>创建Pod</p>
+
+<pre><code>[root@master ~]# kubectl create -f test.yaml
+</code></pre>
+
+<p>查看Pod</p>
+
+<pre><code>[root@master ~]# kubectl get pods
+NAME                      READY   STATUS    RESTARTS   AGE
+deploy-5cd657dd46-sx287   2/2     Running   0          2m1s
+</code></pre>
+
+<p>查看service</p>
+
+<pre><code>[root@master ~]# kubectl get svc
+NAME              TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE
+kubernetes        ClusterIP   10.96.0.1      &lt;none&gt;        443/TCP        6d10h
+serivce-mynginx   NodePort    10.99.110.43   &lt;none&gt;        80:30080/TCP   2m27s
+</code></pre>
+
+<p>我们进入到busybox容器当中创建一个index.html</p>
+
+<pre><code>[root@master ~]# kubectl exec -it deploy-5cd657dd46-sx287 -c busybox -- /bin/sh
+
+容器内部：
+/data # cd /data
+/data # echo &quot;fengzi&quot; &gt; index.html
+</code></pre>
+
+<p>打开浏览器验证一下。</p>
+
+<h3 id="hostpath">hostPath</h3>
+
+<p>hostPath为在Pod上挂载宿主机上的文件或目录，它通常可以用于以下几方面：</p>
+
+<ul>
+<li>1、容器应用程序生成的日志文件需要永久保存时，可以使用宿主机的告诉文件系统进行存储</li>
+<li>2、需要访问宿主机上Docker引擎内部数据结构的容器应用时，可以通过定义hostPath为宿主机/var/lib/docker目录，使容器内部应用可以直接访问Docker的文件系统</li>
+</ul>
+
+<p>在使用这种类型的volume时，需要注意以下几点：</p>
+
+<ul>
+<li>1、在不同的node上具有相同配置的Pod时，可能会因为宿主机上的目录和文件不同而导致对volume上的目录和文件访问结果不一致</li>
+<li>2、如果使用了资源配置，则kubernetes无法将hostPath在宿主机上使用的资源纳入管理</li>
+</ul>
+
+<p>结构</p>
+
+<p><img src="/media/cloud/k8s/volume1" alt="" /></p>
+
+<p>实例</p>
+
+<pre><code>[root@master ~]# cat test.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-deploy
+  namespace: default
+spec:
+  selector:
+    app: mynginx
+  type: NodePort
+  ports:
+  - name: nginx
+    port: 80
+    targetPort: 80
+    nodePort: 31111
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mydeploy
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mynginx
+  template:
+    metadata:
+      name: web
+      labels:
+        app: mynginx
+    spec:
+      containers:
+      - name: mycontainer
+        image: lizhaoqwe/nginx:v1
+        volumeMounts:
+        - mountPath: /usr/share/nginx/html
+          name: persistent-storage
+        ports:
+        - containerPort: 80
+      volumes:
+      - name: persistent-storage
+        hostPath:
+          type: DirectoryOrCreate
+          path: /mydata
+</code></pre>
+
+<p>类型</p>
+
+<pre><code>DirectoryOrCreate
+Directory
+FileOrCreate
+File
+Socket
+CharDevice
+BloakDevice
+</code></pre>
+
+<p>执行yaml文件</p>
+
+<pre><code>[root@master ~]# kubectl create -f test.yaml
+service/nginx-deploy created
+deployment.apps/mydeploy created
+</code></pre>
+
+<p>在目录里操作，都是能够看到的</p>
+
+<h3 id="总结">总结</h3>
+
+<p>emptyDir和hostPath在功能上的异同分析</p>
+
+<ul>
+<li>1、二者都是node节点的本地存储卷方式；</li>
+<li>2、emptyDir可以选择把数据存到tmpfs类型的本地文件系统中去，hostPath并不支持这一点；</li>
+<li>3、hostPath除了支持挂载目录外，还支持File、Socket、CharDevice和BlockDevice，既支持把已有的文件和目录挂载到容器中，也提供了“如果文件或目录不存在，就创建一个”的功能；</li>
+<li>4、emptyDir是临时存储空间，完全不提供持久化支持；</li>
+<li>5、hostPath的卷数据是持久化在node节点的文件系统中的，即便pod已经被删除了，volume卷中的数据还会留存在node节点上；</li>
+</ul>
+
+<h2 id="持久化存储方式">持久化存储方式</h2>
+
+<p>Kubernetes 目前可以使用 PersistentVolume、PersistentVolumeClaim、StorageClass 三种 API 资源来进行持久化存储。我们来看一下这几个之间的关系。</p>
+
+<p><img src="/media/cloud/k8s/pv" alt="" /></p>
+
+<p>其实PersistentVolume、StorageClass都是pv，基于vloume基础之上的，只不过是静态和动态的区别，PersistentVolumeClaim是连接前面两个和k8s的桥梁，使得存储和k8s分离，三个联合在一起使用和非持久化vloume是一样的道理，那么为什么还需要pv呢？</p>
+
+<ul>
+<li>1、pod 重建销毁，如用 Deployment 管理的 pod，在做镜像升级的过程中，会产生新的 pod 并且删除旧的 pod ，那新旧 pod 之间如何复用数据？</li>
+<li>2、宿主机宕机的时候，要把上面的 pod 迁移，这个时候 StatefulSet 管理的 pod，其实已经实现了带卷迁移的语义。这时通过 Pod Volumes 显然是做不到的；</li>
+<li>3、多个 pod 之间，如果想要共享数据，应该如何去声明呢？我们知道，同一个 pod 中多个容器想共享数据，可以借助 Pod Volumes 来解决；当多个 pod 想共享数据时，Pod Volumes 就很难去表达这种语义；</li>
+<li>4、如果要想对数据卷做一些功能扩展性，如：snapshot、resize 这些功能，又应该如何去做呢？</li>
+</ul>
+
+<p>以上场景中，通过 Pod Volumes 很难准确地表达它的复用 / 共享语义，对它的扩展也比较困难。因此 K8s 中又引入了 Persistent Volumes 概念，它可以将存储和计算分离，通过不同的组件来管理存储资源和计算资源，然后解耦 pod 和 Volume 之间生命周期的关联。这样，当把 pod 删除之后，它使用的 PV 仍然存在，还可以被新建的 pod 复用。其实就是一句话，实现隔离，完成持久化的存储。</p>
+
+<h3 id="pv">pv</h3>
+
+<p>PersistentVolume（持久化卷）可以理解成为kubernetes集群中的某个网络存储对应的一块存储，它与Volume类似，定义出来给pvc进行挂载的，只不过非持久化存储的都是不需要资源声明的，pv需要声明来才能被pvc挂载。</p>
+
+<p>pv和正常的挂载但有以下区别：</p>
+
+<ul>
+<li>pv只能是网络存储，不属于任何Node，但可以在每个Node上访问。</li>
+<li>pv并不是被定义在Pod上的，而是独立于Pod之外定义的，也是集群资源的一种。</li>
+</ul>
+
+<p>实例</p>
+
+<p>在nfs server服务器上创建nfs卷的映射并重启</p>
+
+<pre><code>[root@localhost ~]# cat /etc/exports
+/share_v1  192.168.254.0/24(insecure,rw,no_root_squash)
+/share_v2  192.168.254.0/24(insecure,rw,no_root_squash)
+/share_v3  192.168.254.0/24(insecure,rw,no_root_squash)
+/share_v4  192.168.254.0/24(insecure,rw,no_root_squash)
+/share_v5  192.168.254.0/24(insecure,rw,no_root_squash)
+
+[root@localhost ~]# service nfs restart
+</code></pre>
+
+<p>在nfs server服务器上创建响应目录</p>
+
+<pre><code>[root@localhost /]# mkdir /share_v{1,2,3,4,5}
+</code></pre>
+
+<p>在kubernetes集群中的master节点上创建pv，我这里创建了5个pv对应nfs server当中映射出来的5个目录</p>
+
+<pre><code>[root@master ~]# cat createpv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv01
+spec:
+  nfs:　　　　　　　　　　　　　　 #存储类型
+    path: /share_v1　　　　　　 #要挂在的nfs服务器的目录位置
+    server: 192.168.254.11　　 #nfs server地址，也可以是域名，前提是能被解析
+  accessModes: 　　　　　　　　　#访问模式：
+  - ReadWriteMany　　　　　　　　　　ReadWriteMany：读写权限，允许多个Node挂载 | ReadWriteOnce：读写权限，只能被单个Node挂在 | ReadOnlyMany：只读权限，允许被多个Node挂载
+  - ReadWriteOnce　　　　　　　　　
+  capacity:　　　　　　　　　　　　#存储容量　　　　　　　　　　　　
+    storage: 10Gi　　　　　　　　 #pv存储卷为10G
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv02
+spec:
+  nfs:
+    path: /share_v2
+    server: 192.168.254.11
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv03
+spec:
+  nfs:
+    path: /share_v3
+    server: 192.168.254.11
+  accessModes:
+  - ReadWriteMany
+  - ReadWriteOnce
+  capacity:
+    storage: 30Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv04
+spec:
+  nfs:
+    path: /share_v4
+    server: 192.168.254.11
+  accessModes:
+  - ReadWriteMany
+  - ReadWriteOnce
+  capacity:
+    storage: 40Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv05
+spec:
+  nfs:
+    path: /share_v5
+    server: 192.168.254.11
+  accessModes:
+  - ReadWriteMany
+  - ReadWriteOnce
+  capacity:
+    storage: 50Gi
+</code></pre>
+
+<p>执行yaml文件</p>
+
+<pre><code>[root@master ~]# kubectl create -f createpv.yaml
+persistentvolume/pv01 created
+persistentvolume/pv02 created
+persistentvolume/pv03 created
+persistentvolume/pv04 created
+persistentvolume/pv05 created
+</code></pre>
+
+<p>查看pv</p>
+
+<pre><code>[root@master ~]# kubectl get pv
+NAME   CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM   STORAGECLASS   REASON   AGE
+pv01   10Gi       RWO,RWX        Retain           Available                                   5m10s
+pv02   20Gi       RWX            Retain           Available                                   5m10s
+pv03   30Gi       RWO,RWX        Retain           Available                                   5m9s
+pv04   40Gi       RWO,RWX        Retain           Available                                   5m9s
+pv05   50Gi       RWO,RWX        Retain           Available                                   5m9s
+</code></pre>
+
+<p>解析</p>
+
+<pre><code>ACCESS MODES（pv访问模式，其实就是读写权限）:
+　　RWO:ReadWriteOnly：是最基本的方式，可读可写，但只支持被单个Pod挂载。
+　　RWX:ReadWriteMany：这种存储可以以读写的方式被多个Pod共享。
+　　ROX:ReadOnlyMany：可以以只读的方式被多个Pod挂载。
+</code></pre>
+
+<p>不是每一种存储都支持这三种方式</p>
+
+<p><img src="/media/cloud/k8s/store1" alt="" /></p>
+
+<pre><code>RECLAIM POLICY（重声明策略，其实就是pv使用的策略）:
+　　Retain：保护pvc释放的pv及其上的数据，将不会被其他pvc绑定
+　　recycle：保留pv但清空数据
+　　delete：删除pvc释放的pv及后端存储volume
+STATUS（阶段状态）:
+　　Available:空闲状态
+　　Bound：已经绑定到某个pvc上
+　　Released：对应的pvc已经被删除，但是资源没有被集群回收
+　　Failed：pv自动回收失败
+CLAIM:
+　　被绑定到了那个pvc上面格式为：NAMESPACE/PVC_NAME
+　　
+</code></pre>
+
+<p>四个PV选择器</p>
+
+<p>在PVC中绑定一个PV，可以根据下面几种条件组合选择</p>
+
+<pre><code>Access Modes， 按照访问模式选择pv
+Resources， 按照资源属性选择， 比如说请求存储大小为8个G的pv
+Selector， 按照pv的label选择
+Class， 根据StorageClass的class名称选择, 通过annotation指定了Storage Class的名字, 来绑定特定类型的后端存储
+</code></pre>
+
+<p>目前pv支持的插件类型</p>
+
+<pre><code>GCEPersistentDisk
+AWSElasticBlockStore
+AzureFile
+AzureDisk
+FC (Fibre Channel)
+FlexVolume
+Flocker
+NFS
+iSCSI
+RBD (Ceph Block Device)
+CephFS
+Cinder (OpenStack block storage)
+Glusterfs
+VsphereVolume
+Quobyte Volumes
+HostPath
+VMware Photon
+Portworx Volumes
+ScaleIO Volumes
+StorageOS
+</code></pre>
+
+<p>其中最常用的有NFS，ceph rbd，cephFS，HostPath等。</p>
+
+<h4 id="nfs">NFS</h4>
+
+<p>NFS是Network File System的缩写，就是网络文件系统，这里不详细解说了，可以重<a href="/post/distributed/fs/nfs/">这里</a>了解。</p>
+
+<p>直接编辑/etc/exports文件添加以下内容来共享/share</p>
+
+<pre><code>[root@localhost share]# vim /etc/exports
+    /share  192.168.254.0/24(insecure,rw,no_root_squash)
+</code></pre>
+
+<p>在kubernetes集群的master节点中创建yaml文件并写入</p>
+
+<pre><code>[root@master ~]# cat test.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-deploy
+  namespace: default
+spec:
+  selector:
+    app: mynginx
+  type: NodePort
+  ports:
+  - name: nginx
+    port: 80
+    targetPort: 80
+    nodePort: 31111
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mydeploy
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mynginx
+  template:
+    metadata:
+      name: web
+      labels:
+        app: mynginx
+    spec:
+      containers:
+      - name: mycontainer
+        image: lizhaoqwe/nginx:v1
+        volumeMounts:
+        - mountPath: /usr/share/nginx/html
+          name: nfs
+        ports:
+        - containerPort: 80
+      volumes:
+      - name: nfs
+        nfs:
+          server: 192.168.254.11       #nfs服务器地址
+          path: /share　　　　　　　　　　#nfs服务器共享目录
+</code></pre>
+
+<p>创建yaml文件</p>
+
+<pre><code>[root@master ~]# kubectl create -f test.yaml
+service/nginx-deploy created
+deployment.apps/mydeploy created
+</code></pre>
+
+<p>以nfs创建静态pv没有问题！！！</p>
+
+<p><img src="/media/cloud/k8s/volume2" alt="" /></p>
+
+<h4 id="glusterfs">glusterfs</h4>
+
+<p>GlusterFS (Gluster File System) 是一个开源的分布式文件系统，是 Scale-Out 存储解决方案 Gluster 的核心，具有强大的横向扩展能力，通过扩展能够支持数PB存储容量和处理数千客户端。详细了解可以到<a href="/post/distributed/store/glusterfs">这里</a>。</p>
+
+<p>GlusterFS中的volume的模式有很多中，包括以下几种：</p>
+
+<pre><code>1、分布卷（默认模式）：即DHT, 也叫 分布卷: 将文件以hash算法随机分布到 一台服务器节点中存储。
+2、复制模式：即AFR, 创建volume 时带 replica x 数量: 将文件复制到 replica x 个节点中。
+3、条带模式：即Striped, 创建volume 时带 stripe x 数量： 将文件切割成数据块，分别存储到 stripe x 个节点中 ( 类似raid 0 )。
+4、分布式条带模式：最少需要4台服务器才能创建。 创建volume 时 stripe 2 server = 4 个节点： 是DHT 与 Striped 的组合型。
+5、分布式复制模式：最少需要4台服务器才能创建。 创建volume 时 replica 2 server = 4 个节点：是DHT 与 AFR 的组合型。
+6、条带复制卷模式：最少需要4台服务器才能创建。 创建volume 时 stripe 2 replica 2 server = 4 个节点： 是 Striped 与 AFR 的组合型。
+7、三种模式混合： 至少需要8台 服务器才能创建。 stripe 2 replica 2 , 每4个节点 组成一个 组。
+</code></pre>
+
+<p>每一种卷都有不同的使用方式，最后都是以pv和pvc的使用方式。</p>
+
+<p>创建资源pv</p>
+
+<pre><code>$ cat glusterfs-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: gluster-dev-volume
+spec:
+  capacity:
+    storage: 8Gi
+  accessModes:
+    - ReadWriteMany
+  glusterfs:
+    endpoints: &quot;glusterfs-cluster&quot;---需要创建endpoints和service来暴露glusterfs
+    path: &quot;k8s-volume&quot;
+    readOnly: false
+</code></pre>
+
+<p>创建资源pvc</p>
+
+<pre><code>$ cat glusterfs-pvc.yaml
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: glusterfs-nginx
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 8Gi
+</code></pre>
+
+<p>实例挂载</p>
+
+<pre><code>$ vi nginx-deployment.yaml
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: nginx-dm
+spec:
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        name: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: gluster-dev-volume
+              mountPath: &quot;/usr/share/nginx/html&quot;
+      volumes:
+      - name: gluster-dev-volume
+        persistentVolumeClaim:
+          claimName: glusterfs-nginx
+</code></pre>
+
+<p>然后就可以共享glusterfs的存储了。</p>
+
+<h3 id="storageclass">StorageClass</h3>
+
+<p>由于不同的应用程序对于存储性能的要求也不尽相同，比如：读写速度、并发性能、存储大小等。如果只能通过 PVC 对 PV 进行静态申请，显然这并不能满足任何应用对于存储的各种需求。为了解决这一问题，Kubernetes 引入了一个新的资源对象：StorageClass，通过 StorageClass 的定义，集群管理员可以先将存储资源定义为不同类型的资源，比如快速存储、慢速存储等。</p>
+
+<p>当用户通过 PVC 对存储资源进行申请时，StorageClass 会使用 Provisioner（不同 Volume 对应不同的 Provisioner）来自动创建用户所需 PV。这样应用就可以随时申请到合适的存储资源，而不用担心集群管理员没有事先分配好需要的 PV。</p>
+
+<pre><code>自动创建的 PV 以 ${namespace}-${pvcName}-${pvName} 这样的命名格式创建在后端存储服务器上的共享数据目录中。
+自动创建的 PV 被回收后会以 archieved-${namespace}-${pvcName}-${pvName} 这样的命名格式存在后端存储服务器上。
+</code></pre>
+
+<p>其实StorageClass就是动态创建pv，声明一个StorageClass，只要在pvc中annotations中声明对应的标签就可以自动创建pvc中需要的pv</p>
+
+<p>实例</p>
+
+<p>1、创建 StorageClass 对象</p>
+
+<pre><code>$ vim nfs-client-class.yaml
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: course-nfs-storage
+provisioner: fuseim.pri/ifs # or choose another name, must match deployment's env PROVISIONER_NAME'
+</code></pre>
+
+<p>2、使用 Kubectl 命令建立这个 StorageClass。</p>
+
+<pre><code>$ kubectl create -f nfs-client-class.yaml
+storageclass.storage.k8s.io &quot;course-nfs-storage&quot; created
+</code></pre>
+
+<p>以上都创建完成后查看下相关资源的状态。</p>
+
+<pre><code>$ kubectl get pods|grep nfs-client
+NAME                                            READY     STATUS      RESTARTS   AGE
+nfs-client-provisioner-9d94b899c-nn4c7          1/1       Running     0          1m
+
+$ kubectl get storageclass
+NAME                 PROVISIONER      AGE
+course-nfs-storage   fuseim.pri/ifs   1m
+</code></pre>
+
+<p>3、手动创建的一个 PVC 对象</p>
+
+<p>新建一个 PVC 对象</p>
+
+<p>我们这里就来建立一个能使用 StorageClass 资源对象来动态建立 PV 的 PVC，要创建使用 StorageClass 资源对象的 PVC 有以下两种方法。</p>
+
+<p>方法一：在这个 PVC 对象中添加一个 Annotations 属性来声明 StorageClass 对象的标识。这里我们声明了一个 PVC 对象，采用 ReadWriteMany 的访问模式并向 PV 请求 100Mi 的空间。
+    $ vim test-pvc.yaml</p>
+
+<pre><code>kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: test-pvc
+  annotations:
+    volume.beta.kubernetes.io/storage-class: &quot;course-nfs-storage&quot;
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Mi
+</code></pre>
+
+<p>方法二：把名为 course-nfs-storage 的 StorageClass 设置为 Kubernetes 的默认后端存储。</p>
+
+<pre><code>$ kubectl patch storageclass course-nfs-storage -p '{&quot;metadata&quot;: {&quot;annotations&quot;:{&quot;storageclass.kubernetes.io/is-default-class&quot;:&quot;true&quot;}}}'
+storageclass.storage.k8s.io &quot;course-nfs-storage&quot; patched
+</code></pre>
+
+<p>上面这两种方法都是可以的。</p>
+
+<pre><code>$ kubectl create -f test-pvc.yaml
+persistentvolumeclaim &quot;test-pvc&quot; created
+</code></pre>
+
+<p>创建完成后，我们来看看对应的资源是否创建成功。</p>
+
+<pre><code>$ kubectl get pvc
+NAME       STATUS    VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS         AGE
+pvc1-nfs   Bound     pv1-nfs                                    1Gi        RWO                                 4h
+test-pvc   Bound     pvc-3d8d6ecf-9a13-11e8-9a96-001c42c61a79   100Mi      RWX            course-nfs-storage   41s
+
+$ kubectl get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM              STORAGECLASS         REASON    AGE
+pv1-nfs                                    1Gi        RWO            Recycle          Bound       default/pvc1-nfs                                  5h
+pv2-nfs                                    2Gi        RWO            Recycle          Available                                                     1h
+pvc-3d8d6ecf-9a13-11e8-9a96-001c42c61a79   100Mi      RWX            Delete           Bound       default/test-pvc   course-nfs-storage             2m
+</code></pre>
+
+<p>从上面的结果我们可以看到一个名为 test-pvc 的 PVC 对象创建成功并且状态已经是 Bound 了。对应也自动创建了一个名为 pvc-3d8d6ecf-9a13-11e8-9a96-001c42c61a79 的 PV 对象，其访问模式是 RWX，回收策略是 Delete。STORAGECLASS 栏中的值也正是我们创建的 StorageClass 对象 course-nfs-storage。</p>
+
+<p>ceph一把也是使用StorageClass来做pv的，我们来看一下：</p>
+
+<h4 id="ceph">ceph</h4>
+
+<p>ceph是一个linux PB级分布式文件存储系统，它是一个大容量并且简单扩容，高性能，高可靠等特性，详细了解可以到<a href="/post/distributed/store/ceph">这里</a>。</p>
+
+<p>直接看使用配置</p>
+
+<p>rbd</p>
+
+<p>1、配置 StorageClass</p>
+
+<pre><code># 如果使用kubeadm创建的集群 provisioner 使用如下方式
+# provisioner: ceph.com/rbd
+cat &gt;storageclass-ceph-rdb.yaml&lt;&lt;EOF
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: dynamic-ceph-rdb
+provisioner: ceph.com/rbd
+# provisioner: kubernetes.io/rbd
+parameters:
+  monitors: 11.11.11.111:6789,11.11.11.112:6789,11.11.11.113:6789
+  adminId: admin
+  adminSecretName: ceph-secret
+  adminSecretNamespace: kube-system
+  pool: kube
+  userId: kube
+  userSecretName: ceph-user-secret
+  fsType: ext4
+  imageFormat: &quot;2&quot;
+  imageFeatures: &quot;layering&quot;
+EOF
+</code></pre>
+
+<p>2、创建pvc</p>
+
+<pre><code>cat &gt;ceph-rdb-pvc-test.yaml&lt;&lt;EOF
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: ceph-rdb-claim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: dynamic-ceph-rdb
+  resources:
+    requests:
+      storage: 2Gi
+EOF
+</code></pre>
+
+<p>3、创建 nginx pod 挂载</p>
+
+<pre><code>cat &gt;nginx-pod.yaml&lt;&lt;EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-pod1
+  labels:
+    name: nginx-pod1
+spec:
+  containers:
+  - name: nginx-pod1
+    image: nginx:alpine
+    ports:
+    - name: web
+      containerPort: 80
+    volumeMounts:
+    - name: ceph-rdb
+      mountPath: /usr/share/nginx/html
+  volumes:
+  - name: ceph-rdb
+    persistentVolumeClaim:
+      claimName: ceph-rdb-claim
+EOF
+</code></pre>
+
+<p>fs</p>
+
+<p>1、配置 StorageClass</p>
+
+<pre><code>cat &gt;storageclass-cephfs.yaml&lt;&lt;EOF
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: dynamic-cephfs
+provisioner: ceph.com/cephfs
+parameters:
+    monitors: 11.11.11.111:6789,11.11.11.112:6789,11.11.11.113:6789
+    adminId: admin
+    adminSecretName: ceph-secret
+    adminSecretNamespace: &quot;kube-system&quot;
+    claimRoot: /volumes/kubernetes
+EOF
+
+2、创建pvc
+cat &gt;cephfs-pvc-test.yaml&lt;&lt;EOF
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: cephfs-claim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: dynamic-cephfs
+  resources:
+    requests:
+      storage: 2Gi
+EOF
+</code></pre>
+
+<p>3、创建 nginx pod 挂载</p>
+
+<pre><code>cat &gt;nginx-pod.yaml&lt;&lt;EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-pod1
+  labels:
+    name: nginx-pod1
+spec:
+  containers:
+  - name: nginx-pod1
+    image: nginx:alpine
+    ports:
+    - name: web
+      containerPort: 80
+    volumeMounts:
+    - name: cephfs
+      mountPath: /usr/share/nginx/html
+  volumes:
+  - name: cephfs
+    persistentVolumeClaim:
+      claimName: cephfs-claim
+EOF
+</code></pre>
+
+<h3 id="pvc">pvc</h3>
+
+<p>有了pv（包括StorageClass）之后我们就可以创建pvc了，pvc也是一种集群资源。</p>
+
+<p>PersistentVolumeClaim（持久化卷声明），PVC 是用户对存储资源的一种请求。可以说是连接k8s和pv的桥梁：</p>
+
+<pre><code>1、职责分离，pvc中只要声明自己需要的大小，访问方式等业务真心关心的存储需求
+2、pvc简化来user对存储的要求，pv才是存储的实际信息的承载体，，通过kube-controller-manager中的pv controller将pvc和合适的pv绑定在一起，完成存储。
+3、pvc是抽象的接口，pv是接口的实现
+</code></pre>
+
+<p>我们接着pv来继续创建pvc。</p>
+
+<pre><code>[root@master ~]# cat test.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-deploy
+  namespace: default
+spec:
+  selector:
+    app: mynginx
+  type: NodePort
+  ports:
+  - name: nginx
+    port: 80
+    targetPort: 80
+    nodePort: 31111
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mydeploy
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mynginx
+  template:
+    metadata:
+      name: web
+      labels:
+        app: mynginx
+    spec:
+      containers:
+      - name: mycontainer
+        image: nginx
+        volumeMounts:
+        - mountPath: /usr/share/nginx/html
+          name: html
+        ports:
+        - containerPort: 80
+      volumes:
+      - name: html
+        persistentVolumeClaim:
+          claimName: mypvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mypvc
+  namespace: default
+spec:
+  accessMode:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+</code></pre>
+
+<p>执行yaml文件</p>
+
+<pre><code>[root@master ~]# kubectl create -f test.yaml
+service/nginx-deploy created
+deployment.apps/mydeploy created
+persistentvolumeclaim/mypvc created
+</code></pre>
+
+<p>再次查看pv，已经显示pvc被绑定到了pv02上</p>
+
+<pre><code>[root@master ~]# kubectl get pv
+NAME   CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM           STORAGECLASS   REASON   AGE
+pv01   10Gi       RWO,RWX        Retain           Available                                           22m
+pv02   20Gi       RWX            Retain           Bound       default/mypvc                           22m
+pv03   30Gi       RWO,RWX        Retain           Available                                           22m
+pv04   40Gi       RWO,RWX        Retain           Available                                           22m
+pv05   50Gi       RWO,RWX        Retain           Available                                           22m
+</code></pre>
+
+<p>查看pvc</p>
+
+<pre><code>[root@master ~]# kubectl get pvc
+NAME    STATUS   VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+mypvc   Bound    pv02     20Gi       RWX                           113s
+</code></pre>
+
+<p>验证</p>
+
+<p>在nfs server服务器上找到相应的目录执行以下命令</p>
+
+<pre><code>[root@localhost share_v1]# echo 'test pvc' &gt; index.html
+</code></pre>
+
+<p>然后打开浏览器，OK,没问题。</p>
+
+<p><img src="/media/cloud/k8s/volume3" alt="" /></p>
+
+<h1 id="发展">发展</h1>
+
+<p>在CSI之前，K8S里提供存储服务都是原生集成在组件中的，提供了内嵌原生 Driver 的方式连接外部的常见存储系统例如 NFS、iSCSI、CephFS、RBD 等来满足不同业务的需求。这种方式需要将存储提供者的代码逻辑放到K8S的代码库中运行（如果要求不高，其实也能运行够用），调用引擎与插件间属于强耦合，这种方式会带来一些问题：</p>
+
+<ul>
+<li>存储插件需要一同随K8S发布。</li>
+<li>K8S社区需要对存储插件的测试、维护负责。</li>
+<li>存储插件的问题有可能会影响K8S部件正常运行。</li>
+<li>存储插件享有K8S部件同等的特权存在安全隐患。</li>
+<li>存储插件开发者必须遵循K8S社区的规则开发代码。</li>
+</ul>
+
+<p>所以和其他服务管理系统一样，K8s 逐渐的将存储系统的具体实现从主项目中分离出来，通过定义接口的方式允许第三方厂商自行接入存储服务。在这个道路上也经历了两个阶段：</p>
+
+<ul>
+<li>Flex Volume, 自 1.2 版本引入。第三方存储服务提供商直接在 K8s Server 上部署符合 Flex Volume 规范的 Driver，利用 K8s 暴露出的 mount/unmount/attach/detach 等关键 API 实现存储系统的接入。
+
+<ul>
+<li>这个模式主要的问题是，在这个形态下第三方厂商的 Driver 有权限接入物理节点的根文件系统，这会带来安全上的隐患</li>
+<li>存储插件在执行mount、attach这类操作时，往往需要到host去安装第三方工具或者加载一些依赖库，这样host的OS版本往往需要定制，不再是一个简单的linux发型版本，这样的情况太多，会使部署变得复杂。</li>
+</ul></li>
+<li><a href="/post/cloud/paas/base/kubernetes/k8s-store-csi/">Container Storage Interface (CSI)</a>, 自 1.9 版本引入，目前已经进入 GA 阶段（1.13）。CSI 定义了容器场景所需要的存储控制原语和完整的控制流程，并且在 K8s 的 CSI 实现中，所有的第三方 Driver 和 K8s 的其他服务扩展一样，以服务容器的形态的运行，不会直接影响到 K8s 的核心系统稳定性，是目前主要使用的模式。</li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-store/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-store/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/store/">
+                            <i class="fa fa-tags"></i>
+                            store
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-istio/">云计算K8s系列---- istio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月17日)</span></li><li id="li-rels"><a href="/post/distributed/store/store/">分布式系列---- 分布式存储</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月15日)</span></li><li id="li-rels"><a href="/post/distributed/store/fs/glusterfs/">分布式系列---- 文件存储系统glusterfs</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月15日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/safe/safe/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/base/docker/docker-principle/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#存储系统架构">存储系统架构</a></li>
+<li><a href="#核心流程">核心流程</a>
+<ul>
+<li><a href="#管理">管理</a></li>
+<li><a href="#挂载">挂载</a></li>
+</ul></li>
+<li><a href="#volume">Volume</a>
+<ul>
+<li><a href="#生命周期">生命周期</a></li>
+<li><a href="#非持久化存储方式">非持久化存储方式</a>
+<ul>
+<li><a href="#emptydir">emptyDir</a></li>
+<li><a href="#hostpath">hostPath</a></li>
+<li><a href="#总结">总结</a></li>
+</ul></li>
+<li><a href="#持久化存储方式">持久化存储方式</a>
+<ul>
+<li><a href="#pv">pv</a>
+<ul>
+<li><a href="#nfs">NFS</a></li>
+<li><a href="#glusterfs">glusterfs</a></li>
+</ul></li>
+<li><a href="#storageclass">StorageClass</a>
+<ul>
+<li><a href="#ceph">ceph</a></li>
+</ul></li>
+<li><a href="#pvc">pvc</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#发展">发展</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

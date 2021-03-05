@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="应用程序升级面临最大挑战是新旧业务切换，将软件从测试的最后阶段带到生产环境，同时要保证系统不间断提供服务。长期以来，业务升级渐渐形成了几个发布策略：蓝绿发布、金丝雀发布和滚动发布等灰度发布策略，目的是尽可能避免因发布导致的流量丢失或服务不可用问题。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算devops系列---- ops - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算devops系列---- ops
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年06月04日 
+                </div>
+                <h1 class="post-title">云计算devops系列---- ops</h1>
+            </header>
+
+            <div class="post-content">
+                <p>应用程序升级面临最大挑战是新旧业务切换，将软件从测试的最后阶段带到生产环境，同时要保证系统不间断提供服务。长期以来，业务升级渐渐形成了几个发布策略：蓝绿发布、金丝雀发布和滚动发布等灰度发布策略，目的是尽可能避免因发布导致的流量丢失或服务不可用问题。</p>
+
+<h1 id="蓝绿发布">蓝绿发布</h1>
+
+<p>项目逻辑上分为AB组，在项目系统时，首先把A组从负载均衡中摘除，进行新版本的部署。B组仍然继续提供服务。当A组升级完毕，负载均衡重新接入A组，再把B组从负载列表中摘除，进行新版本的部署。A组重新提供服务。</p>
+
+<p>在k8s中也是经常使用的蓝绿发布，应用版本 1 与版本 2 的后端 pod 都部署在环境中，通过控制流量切换来决定发布哪个版本。与滚动发布相比，蓝绿发布策略下的应用终态，是可以同时存在版本 1 和版本 2 两种 pod 的，我们可以通过 service 流量的切换来决定当前服务使用哪个版本的后端。</p>
+
+<p><img src="/media/cloud/ops/ops1" alt="" /></p>
+
+<p>特点</p>
+
+<ul>
+<li>基础设施无改动，增大升级稳定性。</li>
+<li>发布策略简单；</li>
+<li>用户无感知，平滑过渡；</li>
+<li>升级/回滚速度快。</li>
+</ul>
+
+<p>缺点</p>
+
+<ul>
+<li>如果出问题，影响范围较大；</li>
+<li>需要准备正常业务使用资源的两倍以上服务器，防止升级期间单组无法承载业务突发；</li>
+<li>短时间内浪费一定资源成本；</li>
+</ul>
+
+<p>蓝绿发布在早期物理服务器时代，还是比较昂贵的，由于云计算普及，成本也大大降低。使得蓝绿发布变的更加适合使用</p>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>1、通过go-demo-v1.yaml，go-demo-v2.yaml，service.yaml部署应用</p>
+
+<pre><code>go-demo-v1.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-demo-v1
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: go-demo
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: go-demo
+        version: v1
+    spec:
+      containers:
+      - name: go-demo
+        image: registry.cn-hangzhou.aliyuncs.com/haoshuwei24/go-demo:v1
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+
+go-demo-v2.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-demo-v2
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: go-demo
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: go-demo
+        version: v2
+    spec:
+      containers:
+      - name: go-demo
+        image: registry.cn-hangzhou.aliyuncs.com/haoshuwei24/go-demo:v2
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+
+service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-demo
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: go-demo
+  selector:
+    app: go-demo
+    version: v1
+  type: ClusterIP
+</code></pre>
+
+<p>2、部署以上 3 个资源</p>
+
+<pre><code>$ kubectl apply -f go-demo-v1.yaml -f go-demo-v2.yaml -f service.yaml
+</code></pre>
+
+<p>3、访问服务可以看到目前只访问到版本 1 的服务</p>
+
+<pre><code>$ while sleep 0.1; do curl http://172.19.8.137; done
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+</code></pre>
+
+<p>4、修改 service.yaml 的 spec.selector 下 version=v2</p>
+
+<pre><code>apiVersion: v1
+kind: Service
+metadata:
+  name: go-demo
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: go-demo
+  selector:
+    app: go-demo
+    version: v2
+  type: ClusterIP
+</code></pre>
+
+<p>5、重新部署</p>
+
+<pre><code>$ kubectl apply -f service.yaml
+</code></pre>
+
+<p>6、重新访问服务可以看到很快切换到了版本 2 上</p>
+
+<pre><code>$ [root@iZbp13u3z7d2tqx0cs6ovqZ blue-green]# while sleep 0.1; do curl http://172.19.8.137; done
+Version: v2
+Version: v2
+Version: v2
+</code></pre>
+
+<p>我们刚才说到滚动升级有一个过程需要时间，即使回滚，它也需要一定的时间才能回滚完毕，在新版本应用有缺陷的情况下，蓝绿发布的策略可以快速在 v1 和 v2 两个版本之前切流量，所以这个切换流量的时间跟滚动升级相比就缩短了很多了，但蓝绿发布的缺点跟滚动发布相同的就是这个缺陷会影响到整体用户，服务要么百分百切换到版本 2 上，要么百分百切换到版本 1 上，这是个非 0 即 100 的操作，即使蓝绿发布策略可以大大缩短故障恢复时间，但在某些场景下也是不可接受的。 而且集群环境中同时存在两个版本的 pod 副本，资源占用的话相比滚动发布是 2 倍的。</p>
+
+<h1 id="金丝雀发布">金丝雀发布</h1>
+
+<p>金丝雀发布只升级部分服务，即让一部分用户继续用老版本，一部分用户开始用新版本，如果用户对新版本没什么意见，那么逐步扩大范围，把所有用户都迁移到新版本上面来。</p>
+
+<p>金丝雀部署是应用版本 1 和版本 2 同时部署在环境中，并且用户请求有可能会路由到版本 1 的后端，也可能会路由到版本 2 的后端，从而达到让一部分新用户访问到版本 2 的应用。 这种发布策略下，我们可以通过调整流量百分比来逐步控制应用向新的版本切换，它与蓝绿部署相比，不仅继承了蓝绿部署的优点，而且占用资源优于蓝绿部署所需要的 2 倍资源，在新版本有缺陷的情况下只影响少部分用户，把损失降到最低。</p>
+
+<p><img src="/media/cloud/ops/ops2" alt="" /></p>
+
+<p>特点</p>
+
+<ul>
+<li>保证整体系统稳定性，在初始灰度的时候就可以发现、调整问题，影响范围可控；</li>
+<li>新功能逐步评估性能，稳定性和健康状况，如果出问题影响范围很小，相对用户体验也少；</li>
+<li>用户无感知，平滑过渡。</li>
+<li>继承了蓝绿部署的优点，而且占用资源优于蓝绿部署所需要的 2 倍资源</li>
+</ul>
+
+<p>缺点</p>
+
+<ul>
+<li>发布周期相对来说要慢很多</li>
+<li>自动化要求高</li>
+</ul>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>通过 pod 的数量来控制流量比例。</p>
+
+<p>1、go-demo-v1.yaml 设定副本数为 9</p>
+
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-demo-v1
+spec:
+  replicas: 9
+  selector:
+    matchLabels:
+      app: go-demo
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: go-demo
+        version: v1
+    spec:
+      containers:
+      - name: go-demo
+        image: registry.cn-hangzhou.aliyuncs.com/haoshuwei24/go-demo:v1
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+</code></pre>
+
+<p>2、go-demo-v2.yaml 设定副本数为 1</p>
+
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-demo-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: go-demo
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: go-demo
+        version: v2
+    spec:
+      containers:
+      - name: go-demo
+        image: registry.cn-hangzhou.aliyuncs.com/haoshuwei24/go-demo:v2
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+</code></pre>
+
+<p>3、通过service.yaml启动服务</p>
+
+<pre><code>apiVersion: v1
+kind: Service
+metadata:
+  name: go-demo
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: go-demo
+  selector:
+    app: go-demo
+  type: ClusterIP
+</code></pre>
+
+<p>4、部署以上 3 个资源</p>
+
+<pre><code>$ kubectl apply -f go-demo-v1.yaml -f go-demo-v2.yaml -f service.yaml
+</code></pre>
+
+<p>5、访问服务可以看到基本上是 10% 的流量切换到版本 2 上</p>
+
+<pre><code>$ while sleep 0.1; do curl http://172.19.8.248; done
+Version: v1
+Version: v2
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+</code></pre>
+
+<p>使用 nginx ingress controller 来控制流量切换，这个方式要更精准。</p>
+
+<p>1、go-demo-v1.yaml</p>
+
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-demo-v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: go-demo
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: go-demo
+        version: v1
+    spec:
+      containers:
+      - name: go-demo
+        image: registry.cn-hangzhou.aliyuncs.com/haoshuwei24/go-demo:v1
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+</code></pre>
+
+<p>2、go-demo-v2.yaml</p>
+
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-demo-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: go-demo
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: go-demo
+        version: v2
+    spec:
+      containers:
+      - name: go-demo
+        image: registry.cn-hangzhou.aliyuncs.com/haoshuwei24/go-demo:v2
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+</code></pre>
+
+<p>3、service-v1.yaml</p>
+
+<pre><code>apiVersion: v1
+kind: Service
+metadata:
+  name: go-demo-v1
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: go-demo
+  selector:
+    app: go-demo
+    version: v1
+  type: ClusterIP
+</code></pre>
+
+<p>4、service-v2.yaml</p>
+
+<pre><code>apiVersion: v1
+kind: Service
+metadata:
+  name: go-demo-v2
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: go-demo
+  selector:
+    app: go-demo
+    version: v2
+  type: ClusterIP
+</code></pre>
+
+<p>5、ingress.yaml， 设置 nginx.ingress.kubernetes.io/service-weight: | go-demo-v1: 100, go-demo-v2: 0， 版本1 - 100% 流量， 版本2 - 0% 流量</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/service-weight: |
+        go-demo-v1: 100, go-demo-v2: 0
+  name: go-demo
+  labels:
+    app: go-demo
+spec:
+  rules:
+    - host: go-demo.example.com
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: go-demo-v1
+              servicePort: 80
+          - path: /
+            backend:
+              serviceName: go-demo-v2
+              servicePort: 80
+</code></pre>
+
+<p>6、部署以上 4 个资源</p>
+
+<pre><code>$ kubectl apply -f go-demo-v1.yaml -f go-demo-v2.yaml -f service-v1.yaml -f service-v2.yaml -f nginx.yaml
+</code></pre>
+
+<p>7、访问服务可以看到流量 100% 到版本 1 上</p>
+
+<pre><code>$ while sleep 0.1; do curl http://go-demo.example.com; done
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+</code></pre>
+
+<p>8、更新 ingress.yaml， 设置流量比为 50:50</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/service-weight: |
+        go-demo-v1: 50, go-demo-v2: 50
+  name: go-demo
+  labels:
+    app: go-demo
+spec:
+  rules:
+    - host: go-demo.example.com
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: go-demo-v1
+              servicePort: 80
+          - path: /
+            backend:
+              serviceName: go-demo-v2
+              servicePort: 80
+</code></pre>
+
+<p>9、访问服务可以看到流量 50% 到版本 1 上， 50% 到版本 2 上</p>
+
+<pre><code>$ while sleep 0.1; do curl http://go-demo.example.com; done
+Version: v2
+Version: v1
+Version: v1
+Version: v1
+Version: v2
+Version: v2
+Version: v1
+Version: v1
+Version: v2
+Version: v2
+</code></pre>
+
+<p>这种比滚动升级更加容易控制，也是使用比较多的方式。</p>
+
+<h1 id="滚动发布">滚动发布</h1>
+
+<p>滚动发布是指每次只升级一个或多个服务，升级完成后加入生产环境，不断执行这个过程，直到集群中的全部旧版本升级新版本。</p>
+
+<p><img src="/media/cloud/ops/ops" alt="" /></p>
+
+<p>特点</p>
+
+<ul>
+<li>比较简单，用户无感知，平滑过渡</li>
+</ul>
+
+<p>缺点</p>
+
+<ul>
+<li>部署时间慢，取决于每阶段更新时间；</li>
+<li>发布策略较复杂，不易回滚</li>
+<li>无法控制</li>
+</ul>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>1、通过go-demo-v1.yaml部署应用</p>
+
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-demo
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: go-demo
+  template:
+    metadata:
+      labels:
+        app: go-demo
+    spec:
+      containers:
+      - name: go-demo
+        image: registry.cn-hangzhou.aliyuncs.com/haoshuwei24/go-demo:v1
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-demo
+spec:
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: go-demo
+  selector:
+    app: go-demo
+  type: ClusterIP
+</code></pre>
+
+<p>2、部署版本v1</p>
+
+<pre><code>$ kubectl apply -f go-demo-v1.yaml
+</code></pre>
+
+<p>3、查看 pod 运行状态</p>
+
+<pre><code>$ kubectl get po
+NAME                       READY   STATUS    RESTARTS   AGE
+go-demo-78bc65c564-2rhxp   1/1     Running   0          19s
+go-demo-78bc65c564-574z6   1/1     Running   0          19s
+go-demo-78bc65c564-sgl2s   1/1     Running   0          19s
+</code></pre>
+
+<p>4、访问应用服务</p>
+
+<pre><code>$ while sleep 0.1; do curl http://172.19.15.25; done
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+Version: v1
+</code></pre>
+
+<p>5、更新 go-demo-v1.yaml 为 go-demo-v2.yaml 并更新镜像 tag</p>
+
+<pre><code>...
+registry.cn-hangzhou.aliyuncs.com/haoshuwei24/go-demo:v2
+...
+</code></pre>
+
+<p>6、部署版本 v2</p>
+
+<pre><code>$ kubectl apply -f go-demo-v2.yaml
+</code></pre>
+
+<p>7、可以查看 pod 会被新版本 pod 逐个替换</p>
+
+<pre><code>$kubectl get po -w
+NAME                                READY   STATUS              RESTARTS   AGE
+application-demo-8594ff4967-85jsg   1/1     Running             0          3m24s
+application-demo-8594ff4967-d4sv8   1/1     Terminating         0          3m22s
+application-demo-8594ff4967-w6lpz   0/1     Terminating         0          3m20s
+application-demo-b98d94554-4mwqd    1/1     Running             0          3s
+application-demo-b98d94554-ng9wx    0/1     ContainerCreating   0          1s
+application-demo-b98d94554-pmc5g    1/1     Running             0          4s
+</code></pre>
+
+<p>8、访问服务会发现在应用滚动升级过程中，版本 v1 和 v2 都会被访问到，这个时间的长短取决于应用的启动速度</p>
+
+<pre><code>$ while sleep 0.1; do curl http://172.19.15.25; done
+Version: v1
+Version: v2
+Version: v1
+Version: v1
+Version: v2
+Version: v1
+Version: v1
+Version: v2
+</code></pre>
+
+<p>可见k8s默认使用的就是滚动升级的方式，直接使用apply就行，但是这种方式不可控，不能定制化，所以很多发布场景需要开发对应的控制器，比如阿里的kurise项目。</p>
+
+<h1 id="小结">小结</h1>
+
+<p>综上所述，三种方式均可以做到平滑式升级，在升级过程中服务仍然保持服务的连续性，升级对外界是无感知的。那生产上选择哪种部署方法最合适呢？这取决于哪种方法最适合你的业务和技术需求。如果你们运维自动化能力储备不够，肯定是越简单越好，建议蓝绿发布，如果业务对用户依赖很强，建议灰度发布。如果是K8S平台，滚动更新是现成的方案，建议先直接使用。</p>
+
+<p>蓝绿发布：两套环境交替升级，旧版本保留一定时间便于回滚。</p>
+
+<p>灰度发布：根据比例将老版本升级，例如80%用户访问是老版本，20%用户访问是新版本。</p>
+
+<p>滚动发布：按批次停止老版本实例，启动新版本实例。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/ops/ops/">https://kingjcy.github.io/post/cloud/paas/ops/ops/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/ops/">
+                            <i class="fa fa-tags"></i>
+                            ops
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月02日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-istio/">云计算K8s系列---- istio</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年12月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/golang/go-context/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/prometheus-principle/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#蓝绿发布">蓝绿发布</a></li>
+<li><a href="#金丝雀发布">金丝雀发布</a></li>
+<li><a href="#滚动发布">滚动发布</a></li>
+<li><a href="#小结">小结</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
