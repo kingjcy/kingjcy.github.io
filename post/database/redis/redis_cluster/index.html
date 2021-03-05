@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="redis基本上有三种使用方式：standalone，cluster，sentinel。下面进行一些总结。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="数据库redis系列---- Redis cluster - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    数据库redis系列---- Redis cluster
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2019年10月24日 
+                </div>
+                <h1 class="post-title">数据库redis系列---- Redis cluster</h1>
+            </header>
+
+            <div class="post-content">
+                <p>redis基本上有三种使用方式：standalone，cluster，sentinel。下面进行一些总结。</p>
+
+<h1 id="redis-standalone">redis standalone</h1>
+
+<p>standalone就是简单的redis的使用，正常单节点，也可以主从部署。</p>
+
+<p>单节点这边就不多说了，直接说主从部署，可以直接只一台机器上部署多个实例：</p>
+
+<pre><code>192.168.225.128:6379主，192.168.225.128:6380从，192.168.225.128:6381从
+</code></pre>
+
+<p>只要在从服务器的配置中加上</p>
+
+<pre><code>slaveof 192.168.225.128 6379
+</code></pre>
+
+<p>就可以了，然后就可以主从复制，数据一致（从库默认是只读的）了，然后正常会使用读写分离这种场景。</p>
+
+<p>当然这种情况下，当主数据库挂了，是不能进行主从切换的，需要手动进行主从切换</p>
+
+<pre><code>redis-cli -h 192.168.225.128 -p 6380 slaveof NO ONE
+</code></pre>
+
+<h1 id="redis-sentinel">redis sentinel</h1>
+
+<p>因为standalone不能实现高可用，自动进行主从切换，使用，我们需要再启动一个sentinel来进行主从切换。</p>
+
+<p>继续使用上面的三个节点，我们再启动三个Sentinel来控制</p>
+
+<pre><code>192.168.225.128:26379sentinel，192.168.225.128:26380sentinel，192.168.225.128:26381sentinel
+</code></pre>
+
+<p>配置</p>
+
+<pre><code>// Sentinel节点的端口
+port 26379  
+dir /var/redis/data/
+logfile &quot;26379.log&quot;
+
+// 当前Sentinel节点监控 192.168.225.128:6379 这个主节点
+// 2代表判断主节点失败至少需要2个Sentinel节点节点同意
+// mymaster是主节点的别名
+// 可以通过这个来设置多个主备redis的切换
+sentinel monitor mymaster 192.168.225.128 6379 2
+
+//确认确认mymater SDOWN时长
+//sentinel config-epoch chTEST 0
+//sentinel leader-epoch mymaster 18  ###同时一时间最多18个slave可同时更新配置,建议数字不要太大,以免影响正常对外提供服务
+//sentinel known-slave mymaster 192.168.65.129 6379   ###已知的redis slave
+//sentinel known-slave mymaster 192.168.65.130 6379   ###已知的redis slave
+//sentinel known-sentinel mymaster 192.168.65.130 26379 be964e6330ee1eaa9a6b5a97417e866448c0ae40    ###已知sentinel slave的唯一id
+//sentinel known-sentinel mymaster 192.168.65.129 26379 3e468037d5dda0bbd86adc3e47b29c04f2afe9e6  ###已知sentinel slave的唯一id
+//sentinel current-epoch 18  ####当前可同时同步的salve数最大同步阀值
+
+
+
+//每个Sentinel节点都要定期PING命令来判断Redis数据节点和其余Sentinel节点是否可达，如果超过30000毫秒且没有回复，则判定不可达
+sentinel down-after-milliseconds mymaster 30000
+
+//当Sentinel节点集合对主节点故障判定达成一致时，Sentinel领导者节点会做故障转移操作，选出新的主节点，原来的从节点会向新的主节点发起复制操作，限制每次向新的主节点发起复制操作的从节点个数为1
+sentinel parallel-syncs mymaster 1
+
+//故障转移超时时间为180000毫秒
+sentinel failover-timeout mymaster 180000
+</code></pre>
+
+<p>启动（两种方法）</p>
+
+<pre><code>redis-sentinel sentinel-26379.conf
+redis-server sentinel-26379.conf --sentinel
+</code></pre>
+
+<p>这个时候就可以进行主从切换了，当主shutdown了，会重从的里面选择一个出来做主，同事还会继续监控shutdown的那个，重启启动后变成从服务器。</p>
+
+<p>作用</p>
+
+<ul>
+<li>监控：Sentinel节点会定期检测Redis数据节点和其余Sentinel节点是否可达。</li>
+<li>通知：Sentinel节点会将故障转移通知给应用方。</li>
+<li>主节点故障转移：实现从节点晋升为主节点并维护后续正确的主从关系。</li>
+<li>配置提供者：在Redis Sentinel结构中，客户端在初始化的时候连接的是Sentinel节点集合，从中获取主节点信息。</li>
+</ul>
+
+<h1 id="redis-cluster">redis cluster</h1>
+
+<p>随着数据的越来越多，也迫切需求支持分布式集群。官方提供了集群的使用模式redis cluster，但是最后是使用ruby脚本来实现对应关系的，使用起来不太友好感觉，这边来进行一个简单部署</p>
+
+<pre><code>redis-cli --cluster create 127.0.0.1:7000 127.0.0.1:7001 \
+127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005 \
+--cluster-replicas 1
+
+
+./redis-trib.rb create --replicas 1 127.0.0.1:7000 127.0.0.1:7001 \
+127.0.0.1:7002 127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005
+</code></pre>
+
+<p>目前已经是比较普遍的使用方式了，具体看其<a href="/post/database/redis/redis_cluster_principle/">实现</a>。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/database/redis/redis_cluster/">https://kingjcy.github.io/post/database/redis/redis_cluster/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/database/">
+                            <i class="fa fa-tags"></i>
+                            database
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/redis/">
+                            <i class="fa fa-tags"></i>
+                            redis
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cluster/">
+                            <i class="fa fa-tags"></i>
+                            cluster
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/distributed/distributed/">分布式系列---- Distributed</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月26日)</span></li><li id="li-rels"><a href="/post/database/redis/redis-zset/">数据库redis系列---- redis zset</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月21日)</span></li><li id="li-rels"><a href="/post/database/redis/redis/">数据库redis系列---- redis tutorial</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年11月22日)</span></li><li id="li-rels"><a href="/post/database/redis/redis_cluster_principle/">数据库redis系列---- redis集群的原理</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年10月26日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/victoriametrics/">监控metrics系列----VictoriaMetrics</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/cortex/">监控metrics系列---- Cortex</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/remotestore/m3db/">监控metrics系列---- M3db</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年03月13日)</span></li><li id="li-rels"><a href="/post/database/redis/bloomfilter/">数据库redis系列---- 布隆过滤器</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月22日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/redis_exporter/">监控metrics系列---- Prometheus redis Exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年02月21日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/cluster/thanos/">监控metrics系统---- Thanos</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年07月13日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/database/redis/redis_cluster_principle/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/architecture/id/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#redis-standalone">redis standalone</a></li>
+<li><a href="#redis-sentinel">redis sentinel</a></li>
+<li><a href="#redis-cluster">redis cluster</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
