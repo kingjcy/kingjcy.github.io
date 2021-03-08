@@ -6,22 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <meta name="author" content="fatedier">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<meta name="description" content="ICMP全名为(INTERNET CONTROL MESSAGE PROTOCOL)网络控制消息协议，属于TCP/IP协议族，工作在网络层（第三层），用于在IP主机、路由器之间传递控制消息，主要用于主机探测,路由维护,路由选择,流量控制。
-基本概念 IP协议并不是一个可靠的协议，它不保证数据被送达，那么，自然的，保证数据送达的工作应该由其他的模块来完成，其中一个重要的模块就是ICMP(网络控制报文)协议。
-当传送IP数据包发生错误－－比如主机不可达，路由不可达等等，ICMP协议将会把错误信息封包，然后传送回给主机。给主机一个处理错误的机会，这 也就是为什么说建立在IP层以上的协议是可能做到安全的原因。ICMP数据包由8bit的错误类型和8bit的代码和16bit的校验和组成，而前16bit就组成了ICMP所要传递的信息。
-ICMP报文包含在IP数据报中，IP报头在ICMP报文的最前面。一个ICMP报文包括IP报头（至少20字节）、ICMP报头（至少八字节）和ICMP报文（属于ICMP报文的数据部分）。当IP报头中的协议字段值为1时，就说明这是一个ICMP报文。ICMP报头如下图所示。
- 类型： 占一字节，标识ICMP报文的类型，目前已定义了14种，从类型值来看ICMP报文可以分为两大类。第一类是取值为1~127的差错报文，第2类是取值128以上的信息报文。  代码： 占一字节，标识对应ICMP报文的代码。它与类型字段一起共同标识了ICMP报文的详细类型。 校验和： 这是对包括ICMP报文数据部分在内的整个ICMP数据报的校验和，以检验报文在传输过程中是否出现了差错。其计算方法与在我们介绍IP报头中的校验和计算方法是一样的。 标识： 占两字节，用于标识本ICMP进程，但仅适用于回显请求和应答ICMP报文，对于目标不可达ICMP报文和超时ICMP报文等，该字段的值为0。  ICMP协议大致分为两类，一种是查询报文，一种是差错报文。其中查询报文有以下几种用途:
-1、ping查询 2、子网掩码查询（用于无盘工作站在初始化自身的时候初始化子网掩码） 3、时间戳查询（可以用来同步时间）  尽管在大多数情况下，错误的包传送应该给出ICMP报文，但是在特殊情况下，是不产生ICMP错误报文的。如下
-1、ICMP差错报文不会产生ICMP差错报文（出IMCP查询报文）（防止IMCP的无限产生和传送） 2、目的地址是广播地址或多播地址的IP数据报。 3、作为链路层广播的数据报。 4、不是IP分片的第一片。 5、源地址不是单个主机的数据报。这就是说，源地址不能为零地址、环回地址、广播地 址或多播地址。  虽然里面的一些规定现在还不是很明白，但是所有的这一切规定，都是为了防止产生ICMP报文的无限传播而定义的。
-基本应用 ping ICMP的一个典型应用是Ping。Ping是检测网络连通性的常用工具，同时也能够收集其他相关信息。用户可以在Ping命令中指定不同参数，如ICMP报文长度、发送的ICMP报文个数、等待回复响应的超时时间等，设备根据配置的参数来构造并发送ICMP报文，进行Ping测试。
-ping程序是用来探测主机到主机之间是否可通信，如果不能ping到某台主机，表明不能和这台主机建立连接。ping 使用的是ICMP协议，它发送icmp回送请求消息给目的主机。ICMP协议规定：目的主机必须返回ICMP回送应答消息给源主机。如果源主机在一定时间内收到应答，则认为主机可达。
-Ping工作过程
-1、ping命令执行的时候，源主机首先会构建一个ICMP请求数据包，ICMP数据包内包含多个字段。最重要的是两个，第一个是类型字段，对于请求数据包而言该字段为8；另外一个是顺序号，主要用于区分连续ping的时候发出的多个数据包。每发出一个请求数据包，顺序号就会自动加1.为了能够计算往返时间RTT，它会在报文的数据部分插入发送时间。
-2、然后，由ICMP协议将这个数据包连同地址192.168.1.2一起交给IP层，IP层将以192.168.1.2作为目的地址，本机IP地址作为源地址，加上一些其它控制信息，构建一个IP数据包。
-3、接下来，需要加入MAC头。如果在本机ARP映射表中找出IP地址192.168.1.2所对应的MAC地址，则可以直接使用；如果没有，则需要发送ARP协议查询MAC地址，获得MAC地址后，由数据链路层构建一个数据帧，目的地址是IP层传过来的MAC地址，源地址则是本机的MAC地址；还要附加上一些控制信息，依据以太网的介质访问规则，将他们传送出去。
-4、主机B收到这个数据帧后，先检查它的目的MAC地址，并和本机的MAC地址对比，如果符合则接收，否则就丢弃。接收后检查该数据帧，将IP数据包从帧中提取出来，交给本机的IP层。同样IP层检查后，将有用的信息提取后交给ICMP协议。
-5、主机B会构建一个ICMP应答包，应答数据包的类型字段为0，顺序号为接收到的请求数据包中的顺序号，然后再发送出去给主机A。
-6、在规定的时间内，源主机如果没有接到ICMP的应答包，则说明目标主机不可达，如果接收到了ICMP应答包，则说明目标主机可达。">
+<meta name="description" content="ICMP全名为(INTERNET CONTROL MESSAGE PROTOCOL)网络控制消息协议，属于TCP/IP协议族，工作在网络层（第三层），用于在IP主机、路由器之间传递控制消息，主要用于主机探测,路由维护,路由选择,流量控制。">
 <meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
 <meta property="og:title" content="计算机网络系列（二）---- icmp - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
 
@@ -87,9 +72,7 @@ Ping工作过程
             </header>
 
             <div class="post-content">
-                
-
-<p>ICMP全名为(INTERNET CONTROL MESSAGE PROTOCOL)网络控制消息协议，属于TCP/IP协议族，工作在网络层（第三层），用于在IP主机、路由器之间传递控制消息，主要用于主机探测,路由维护,路由选择,流量控制。</p>
+                <p>ICMP全名为(INTERNET CONTROL MESSAGE PROTOCOL)网络控制消息协议，属于TCP/IP协议族，工作在网络层（第三层），用于在IP主机、路由器之间传递控制消息，主要用于主机探测,路由维护,路由选择,流量控制。</p>
 
 <h1 id="基本概念">基本概念</h1>
 
@@ -150,7 +133,6 @@ Ping工作过程
 <p>5、主机B会构建一个ICMP应答包，应答数据包的类型字段为0，顺序号为接收到的请求数据包中的顺序号，然后再发送出去给主机A。</p>
 
 <p>6、在规定的时间内，源主机如果没有接到ICMP的应答包，则说明目标主机不可达，如果接收到了ICMP应答包，则说明目标主机可达。</p>
-
             </div>
             
             <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
