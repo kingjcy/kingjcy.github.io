@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="RPC(Remote Procedure Call)是指远程过程调用，也就是说两台服务器A，B，一个应用部署在A服务器上，想要调用B服务器上应用提供的函数/方法，由于不在一个内存空间，不能直接调用，需要通过网络来表达调用的语义和传达调用的数据。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="计算机网络系列（十三）---- rpc - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    计算机网络系列（十三）---- rpc
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2018年02月19日 
+                </div>
+                <h1 class="post-title">计算机网络系列（十三）---- rpc</h1>
+            </header>
+
+            <div class="post-content">
+                <p>RPC(Remote Procedure Call)是指远程过程调用，也就是说两台服务器A，B，一个应用部署在A服务器上，想要调用B服务器上应用提供的函数/方法，由于不在一个内存空间，不能直接调用，需要通过网络来表达调用的语义和传达调用的数据。</p>
+
+<h1 id="基本概念">基本概念</h1>
+
+<h2 id="rpc模型">RPC模型</h2>
+
+<p><img src="/media/netprotocol/rpc/20180219.png" alt="" /></p>
+
+<p>RPC 服务端通过 RpcServer 去暴露服务接口，而客户端通过 RpcClient 去获取服务接口。客户端像调用本地方法一样去调用远程接口方法，RPC 框架提供接口的代理实现，实际的调用将委托给代理 RpcProxy。代理封装调用信息并将调用转交给 RpcInvoker 去实际执行。在客户端的 RpcInvoker 通过连接器 RpcConnector 去维持与服务端的通道 RpcChannel，并使用 RpcProtocol 执行协议编码（encode）并将编码后的请求消息通过通道发送给服务端。RPC 服务端接收器 RpcAcceptor接收客户端的调用请求，同样使用 RpcProtocol 执行协议解码（decode）。
+解码后的调用信息传递给 RpcProcessor 去控制处理调用过程，最后再委托调用给 RpcInvoker 去实际执行并返回调用结果。
+通过上述分析可知，这里面包括以下核心组件：</p>
+
+<pre><code>用于暴露服务接口的RpcServer
+用于发现服务接口的RpcClient
+远程接口的代理实现RpcProxy
+负责协议编解码的RpcProtocol（实际的rpc框架中一般会提供多种不同的实现）
+网络连接器
+（之前看过一篇文章说9个组件，对于咱们这个来说，部分模块可以集成在client和server中）
+</code></pre>
+
+<h2 id="解决问题">解决问题</h2>
+
+<p>RPC主要来解决三件事情：</p>
+
+<pre><code>1. 进程间通讯
+2. 提供和本地方法调用一样的调用机制
+3. 屏蔽程序员对远程调用的细节实现
+</code></pre>
+
+<p>首先是进程间的通信问题，对于分布式环境，rpc能够帮助我们解决不同服务器之间的通信及数据传输问题，即做好方法调用到数据的转换，然后借助网络进行数据传递；rpc客户端向rpc服务端发起远程服务调用，通过请求的封装，参数的封装，序列化、编码、约定协议传输、解析请求、处理请求、封装返回消息数据、在进行返回数据的序列化、编码、在通过网络返回给客户端。</p>
+
+<p>再者是提供和本地方法调用一样的调用机制，为什么这么说，对于业务系统来说，我们更多的关注点在于如何解决实际的业务需求问题，而不想花更多的时间和心思在诸如上述过程中关于网络传输及编解码过程，因此对于rpc来说，需要将这些编解码、协议约定、网络传输等进行一个整体的封装，然后只向业务系统提供最简单的调用方式。</p>
+
+<p>最后一个屏蔽程序员对远程调用的细节实现，其实也就是第二点中提到的那些功能的封装，我们不用去关系rpc到底是如何实现的，也不用关心它是如何运作的，对于业务开发人员来说，通过约定的方式进行类似于本地方法调用的形式来调用远程服务接口就可以了。</p>
+
+<h1 id="基本原理">基本原理</h1>
+
+<h2 id="call-id映射">Call ID映射</h2>
+
+<p>在本地调用中，函数体是直接通过函数指针来指定的，我们调用funA，编译器就自动帮我们调用它相应的函数指针。但是在远程调用中，函数指针是不行的，因为两个进程的地址空间是完全不一样的。</p>
+
+<p>所以，在RPC中，所有的函数都必须有自己的一个ID。这个ID在所有进程中都是唯一确定的。客户端在做远程过程调用时，必须附上这个ID。然后我们还需要在客户端和服务端分别维护一个 {函数 &lt;–&gt; Call ID} 的对应表。两者的表不一定需要完全相同，但相同的函数对应的Call ID必须相同。</p>
+
+<p>当客户端需要进行远程调用时，它就查一下这个表，找出相应的Call ID，然后把它传给服务端，服务端也通过查表，来确定客户端需要调用的函数，然后执行相应函数的代码。</p>
+
+<p><img src="/media/network/rpc/rpc.png" alt="" /></p>
+
+<h2 id="序列化和反序列化">序列化和反序列化</h2>
+
+<p>在本地调用中，我们只需要把参数压到栈里，然后让函数自己去栈里读就行。</p>
+
+<p>但是在远程过程调用时，客户端跟服务端是不同的进程，不能通过内存来传递参数。甚至有时候客户端和服务端使用的都不是同一种语言（比如服务端用C++，客户端用Java或者Python）。</p>
+
+<p>这时候就需要客户端把参数先转成一个字节流（编码），传给服务端后，再把字节流转成自己能读取的格式（解码）。这个过程叫序列化和反序列化。同理，从服务端返回的值也需要序列化反序列化的过程。</p>
+
+<h2 id="网络传输">网络传输</h2>
+
+<p>网络传输层需要把Call ID和序列化后的参数字节流传给服务端，然后再把序列化后的调用结果传回客户端。只要能完成这两者的，都可以作为传输层使用。因此，它所使用的协议其实是不限的，能完成传输就行。尽管大部分RPC框架都使用TCP协议，但其实UDP也可以，而gRPC干脆就用了HTTP2。</p>
+
+<h2 id="总结">总结</h2>
+
+<p>所以，要实现一个RPC框架，其实只需要把以上三点实现了就基本完成了。Call ID映射可以直接使用函数字符串，也可以使用整数ID。映射表一般就是一个哈希表。序列化反序列化可以自己写，也可以使用Protobuf或者FlatBuffers之类的。网络传输库可以自己写socket，或者用asio，ZeroMQ，Netty之类。</p>
+
+<p><img src="/media/network/rpc/rpc2.png" alt="" /></p>
+
+<p>从发起远程调用到接收到数据返回结果，大致过程是：</p>
+
+<pre><code>1）服务消费方（client）调用以本地调用方式调用服务；
+2）client stub接收到调用后负责将方法、参数等组装成能够进行网络传输的消息体；
+3）client stub找到服务地址，并将消息发送到服务端；
+4）server stub收到消息后进行解码；
+5）server stub根据解码结果调用本地的服务；
+6）本地服务执行并将结果返回给server stub；
+7）server stub将返回结果打包成消息并发送至消费方；
+8）client stub接收到消息，并进行解码；
+9）服务消费方得到最终结果。
+</code></pre>
+
+<p>那么rpc就相当于将step2-step8的步骤进行了封装。</p>
+
+<h1 id="常用框架">常用框架</h1>
+
+<p>1、<a href="/post/computerbase/network/rpc/grpc/">gRPC</a>是Google公布的开源软件，基于最新的HTTP2.0协议，并支持常见的众多编程语言。 我们知道HTTP2.0是基于二进制的HTTP协议升级版本，目前各大浏览器都在快马加鞭的加以支持。 这个RPC框架是基于HTTP协议实现的，底层使用到了Netty框架的支持。</p>
+
+<p>2、Thrift是Facebook的一个开源项目，主要是一个跨语言的服务开发框架。它有一个代码生成器来对它所定义的IDL定义文件自动生成服务代码框架。用户只要在其之前进行二次开发就行，对于底层的RPC通讯等都是透明的。不过这个对于用户来说的话需要学习特定领域语言这个特性，还是有一定成本的。</p>
+
+<p>3、Dubbo是阿里集团开源的一个极为出名的RPC框架，在很多互联网公司和企业应用中广泛使用。协议和序列化框架都可以插拔是及其鲜明的特色。同样的远程接口是基于Java Interface，并且依托于spring框架方便开发。可以方便的打包成单一文件，独立进程运行，和现在的微服务概念一致。</p>
+
+<p>4、  motan新浪微博开源的一个Java 框架。它诞生的比较晚，起于2013年，2016年5月开源。Motan 在微博平台中已经广泛应用，每天为数百个服务完成近千亿次的调用。</p>
+
+<p>5、rpcxGo语言生态圈的Dubbo， 比Dubbo更轻量，实现了Dubbo的许多特性，借助于Go语言优秀的并发特性和简洁语法，可以使用较少的代码实现分布式的RPC服务。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/computerbase/network/rpc/rpc/">https://kingjcy.github.io/post/computerbase/network/rpc/rpc/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/network/">
+                            <i class="fa fa-tags"></i>
+                            network
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/rpc/">
+                            <i class="fa fa-tags"></i>
+                            rpc
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/computerbase/network/http/">计算机网络系列（八）---- Http</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network/">云计算K8s组件系列（九）---- 网络</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月10日)</span></li><li id="li-rels"><a href="/post/computerbase/network/tc/">计算机网络系列（十七）---- tc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/route/">计算机网络系列（十六）---- route</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/rpc/grpc/">计算机网络系列---- Grpc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年02月19日)</span></li><li id="li-rels"><a href="/post/computerbase/network/webserver/">计算机网络系列（十五）---- webserver</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年05月01日)</span></li><li id="li-rels"><a href="/post/computerbase/network/websocket/">计算机网络系列（六）---- websocket</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年03月01日)</span></li><li id="li-rels"><a href="/post/computerbase/network/udp/">计算机网络系列（四）---- udp</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年01月21日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/computerbase/network/rpc/grpc/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/golang/go-ioutil/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本概念">基本概念</a>
+<ul>
+<li><a href="#rpc模型">RPC模型</a></li>
+<li><a href="#解决问题">解决问题</a></li>
+</ul></li>
+<li><a href="#基本原理">基本原理</a>
+<ul>
+<li><a href="#call-id映射">Call ID映射</a></li>
+<li><a href="#序列化和反序列化">序列化和反序列化</a></li>
+<li><a href="#网络传输">网络传输</a></li>
+<li><a href="#总结">总结</a></li>
+</ul></li>
+<li><a href="#常用框架">常用框架</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

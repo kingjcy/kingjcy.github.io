@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="SSL：（Secure Socket Layer，安全套接字层）/TLS(Transport Layer Security) 传输层安全性协议，为Netscape所研发，用以保障在Internet上数据传输之安全，利用数据加密(Encryption)技术，可确保数据在网络上之传输过程中不会被截取。当前版本为3.0。它已被广泛地用于Web浏览器与服务器之间的身份认证和加密数据传输。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="计算机网络系列（十一）---- tls/ssl - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    计算机网络系列（十一）---- tls/ssl
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年01月11日 
+                </div>
+                <h1 class="post-title">计算机网络系列（十一）---- tls/ssl</h1>
+            </header>
+
+            <div class="post-content">
+                <p>SSL：（Secure Socket Layer，安全套接字层）/TLS(Transport Layer Security) 传输层安全性协议，为Netscape所研发，用以保障在Internet上数据传输之安全，利用数据加密(Encryption)技术，可确保数据在网络上之传输过程中不会被截取。当前版本为3.0。它已被广泛地用于Web浏览器与服务器之间的身份认证和加密数据传输。</p>
+
+<p>直白的说，其实ssl/tls其实就是对http的数据流做各种处理，比如加密，和通信方进行协商加密的方式等，然后让数据以安全的形式传输出去，正常用于http协议上，所以说https就是在http协议上加了一层ssl/tls的协议，对数据进行安全处理。</p>
+
+<h1 id="ssl-tls位置">SSL/TLS位置</h1>
+
+<p>SSL是一个介于HTTP协议与TCP之间的一个可选层，只需配置浏览器和服务器相关设置开启 TLS，即可实现 HTTPS，TLS 高度解耦，可装可卸，与上层高级应用层协议相互协作又相互独立。</p>
+
+<p><img src="/media/network/https/tls1" alt="" /></p>
+
+<p>SSL/TLS涉及到加密，先简单了解一下有关密码学的知识。</p>
+
+<h1 id="加密">加密</h1>
+
+<h2 id="0-明文">0、明文</h2>
+
+<p>HTTP协议是明文传输的，明文就是未被加密过的原始数据。</p>
+
+<h2 id="1-密钥">1、密钥</h2>
+
+<p>通常是一个字符串或数字，进行加密/解密算法时使用。公钥和私钥都是密钥，只不过一般公钥是对外开放的，加密时使用；私钥是不公开的，解密时使用。</p>
+
+<h3 id="非对称加密算法-公钥加密">非对称加密算法（公钥加密）</h3>
+
+<p>有RSA、DSA/DSS、Elgamal、Rabin、D-H、ECC等。在客户端与服务器相互验证的过程中用的就是非对称加密算法
+RSA密码体制就是公钥密码体制，RSA的一对公钥和私钥都可以用来加密和解密。
+比如公钥加密后只能由私钥解密；私钥加密后只能由公钥解密。且一方加密的内容只能由对方进行解密。</p>
+
+<p><img src="media/network/http/http-5.JPG" alt="" /></p>
+
+<h3 id="对称加密算法-私钥加密">对称加密算法（私钥加密）</h3>
+
+<p>有AES、DES、3DES、TDEA、Blowfish、RC4、RC5、IDEA等。加密使用的密钥和解密使用的密钥是同一个密钥。由于加密算法是公开的，若要保证安全性，密钥不能对外公开。通常用来加密消息体。</p>
+
+<h2 id="2-hash算法">2、HASH算法</h2>
+
+<p>有MD5，SHA1，SHA256。用来确认信息没有被篡改。主要用来生成签名，签名是加在信息后面的，可以证明信息没有被修改过。一般对信息先做hash计算得到一个hash值，然后用私钥加密（这个加密一般是非对称加密）作为一个签名和信息一起发送。接收方收到信息后重新计算信息的hash值，且和信息所附带的hash值解密后进行对比。如果一样则认为没有被修改，反之则认为修改过，不做处理。可能有一种情况，黑客修改了信息并把hash值也改了，从而让他们相匹配。所以hash值一般都是加密后（生成签名）再和信息一起发送，确保hash值不会被修改。</p>
+
+<h2 id="3-数字证书">3、数字证书</h2>
+
+<p>主要包含证书发布机构，证书有效期，公钥，证书所有者，签名使用的算法，指纹以及指纹算法。数字证书可以保证里面的公钥一定是证书持有者的。</p>
+
+<h2 id="4-数字签名">4、数字签名</h2>
+
+<p>将明文通过Hash算法加密生成摘要，再将消息体摘要用私钥加密后就是签名了。当下一级证书或客户端需要时就返回这个整体。数字签名主要作用就是配合Hash算法保证信息没有被篡改。当https验证通过后，一般会改用对称加密方式通信，因为RSA公钥体制比较耗性能。所以数字签名只存在于验证阶段。</p>
+
+<h2 id="5-证书链">5、证书链</h2>
+
+<p>证书是分级的，证书链由多个证书一级一级组成，拿到上级证书的公钥才能解密本级证书。只有最底层的证书是自签名的，自己颁发给自己。</p>
+
+<h2 id="ssl-tls加密模式">SSL/TLS加密模式</h2>
+
+<p>由于非对称加密的速度比较慢，所以它一般用于密钥交换，双方通过公钥算法协商出一份密钥，然后通过对称加密来通信，当然，为了保证数据的完整性，在加密前要先经过HMAC的处理。</p>
+
+<p>SSL缺省只进行server端的认证，客户端的认证是可选的。</p>
+
+<p><img src="/media/network/https/tls2" alt="" /></p>
+
+<p>TLS/SSL 的功能实现主要依赖于三类基本算法</p>
+
+<pre><code>1、散列函数 Hash、对称加密和非对称加密，其利用非对称加密实现身份认证和密钥协商，
+2、对称加密算法采用协商的密钥对数据加密，
+3、基于散列函数验证信息的完整性。
+</code></pre>
+
+<h1 id="ssl和tls简介">SSL和TLS简介</h1>
+
+<p>SSL(Secure Sockets Layer) 安全套接层，是一种安全协议，经历了 SSL 1.0、2.0、3.0 版本后发展成了标准安全协议 - TLS(Transport Layer Security) 传输层安全性协议。TLS 有 1.0 (RFC 2246)、1.1(RFC 4346)、1.2(RFC 5246)、1.3(RFC 8446) 版本。</p>
+
+<p>SSL/TLS协议位于TCP/IP协议与各种应用层协议之间，为数据通讯提供安全支持，可分为两层：</p>
+
+<pre><code>SSL记录协议（SSL Record Protocol）：它建立在可靠的传输协议（如TCP）之上，为高层协议提供数据封装、压缩、加密等基本功能的支持。
+
+SSL握手协议（SSL Handshake Protocol）：它建立在SSL记录协议之上，用于在实际的数据传输开始前，通讯双方进行身份认证、协商加密算法、交换加密密钥等。含四个子协议: 握手协议 (handshake protocol)、更改加密规范协议 (change cipher spec protocol)、应用数据协议 (application data protocol) 和警告协议 (alert protocol)
+</code></pre>
+
+<p><img src="/media/network/https/tls" alt="" /></p>
+
+<p>SSL/TLS协议提供的服务主要有：</p>
+
+<pre><code>认证用户和服务器，确保数据发送到正确的客户机和服务器；
+加密数据以防止数据中途被窃取；
+维护数据的完整性，确保数据在传输过程中不被改变。
+</code></pre>
+
+<p>TLS的主要目标是使SSL更安全，并使协议的规范更精确和完善。TLS 在SSL v3.0 的基础上，提供了以下增强内容：</p>
+
+<pre><code>1、更安全的MAC算法
+2、更严密的警报
+3、“灰色区域”规范的更明确的定义
+</code></pre>
+
+<h2 id="记录协议-定义传输格式">记录协议（定义传输格式）</h2>
+
+<p>记录协议负责在传输连接上交换的所有底层消息，并且可以配置加密。每一条 TLS 记录以一个短标头开始。标头包含记录内容的类型 (或子协议)、协议版本和长度。原始消息经过分段 (或者合并)、压缩、添加认证码、加密转为 TLS 记录的数据部分。</p>
+
+<p><img src="/media/network/https/tls3" alt="" /></p>
+
+<blockquote>
+<p>分片</p>
+</blockquote>
+
+<p>记录层将信息块分割成携带 2^14 字节 (16KB) 或更小块的数据的 TLSPlaintext 记录。</p>
+
+<blockquote>
+<p>压缩</p>
+</blockquote>
+
+<p>压缩算法将 TLSPlaintext 结构转换为 TLSCompressed 结构。如果定义 CompressionMethod 为 null 表示不压缩</p>
+
+<pre><code>struct {
+  ContentType type; // same as TLSPlaintext.type
+  ProtocolVersion version; // same as TLSPlaintext.version
+  uint16 length; // TLSCompressed.fragment 的长度，不超过 2^14 + 1024
+  opaque fragment[TLSCompressed.length];
+} TLSCompressed;
+</code></pre>
+
+<blockquote>
+<p>加密</p>
+</blockquote>
+
+<h2 id="握手协议-协商密钥">握手协议（协商密钥）</h2>
+
+<pre><code>1、握手协议的职责是生成通信过程所需的共享密钥和进行身份认证。这部分使用无密码套件，为防止数据被窃听，通过公钥密码或 Diffie-Hellman 密钥交换技术通信。
+2、密码规格变更协议，用于密码切换的同步，是在握手协议之后的协议。握手协议过程中使用的协议是“不加密”这一密码套件，握手协议完成后则使用协商好的密码套件。
+3、警告协议，当发生错误时使用该协议通知通信对方，如握手过程中发生异常、消息认证码错误、数据无法解压缩等。
+4、应用数据协议，通信双方真正进行应用数据传输的协议，传送过程通过 TLS 应用数据协议和 TLS 记录协议来进行传输。
+</code></pre>
+
+<blockquote>
+<p>完整握手</p>
+</blockquote>
+
+<p>每一个 TLS 连接都会以握手开始。如果客户端此前并未与服务器建立会话，那么双方会执行一次完整的握手流程来协商 TLS 会话。握手过程中，客户端和服务器将进行以下四个主要步骤:</p>
+
+<pre><code>1、交换各自支持的功能，对需要的连接参数达成一致
+2、验证出示的证书，或使用其他方式进行身份验证
+3、对将用于保护会话的共享主密钥达成一致
+4、验证握手消息并未被第三方团体修改
+</code></pre>
+
+<p>下面介绍最常见的握手规则，一种不需要验证客户端身份但需要验证服务器身份的握手:</p>
+
+<p><img src="/media/network/https/tls4" alt="" /></p>
+
+<h3 id="客户端发出请求">客户端发出请求</h3>
+
+<p>1、ClientHello</p>
+
+<p>这条消息将客户端的功能和首选项传送给服务器。</p>
+
+<p>客户端首先要告知服务端，自己支持哪些加密算法，所以客户端需要将本地支持的加密套件(Cipher Suite)的列表传送给服务端。除此之外，客户端还要产生一个随机数，这个随机数一方面需要在客户端保存，另一方面需要传送给服务端，客户端的随机数需要跟服务端产生的随机数结合起来产生后面要讲到的 Master Secret 。</p>
+
+<p><img src="/media/network/https/tls5" alt="" /></p>
+
+<ul>
+<li>Version: 协议版本（protocol version）指示客户端支持的最佳协议版本</li>
+<li>Random: 一个 32 字节数据，28 字节是随机生成的 (图中的 Random Bytes)；剩余的 4 字节包含额外的信息，与客户端时钟有关 (图中使用的是 GMT Unix Time)。在握手时，客户端和服务器都会提供随机数，客户端的暂记作 random_C (用于后续的密钥的生成)。这种随机性对每次握手都是独一无二的，在身份验证中起着举足轻重的作用。它可以防止 重放攻击，并确认初始数据交换的完整性。</li>
+<li>Session ID: 在第一次连接时，会话 ID（session ID）字段是空的，这表示客户端并不希望恢复某个已存在的会话。典型的会话 ID 包含 32 字节随机生成的数据，一般由服务端生成通过 ServerHello 返回给客户端。</li>
+<li>Cipher Suites: 密码套件（cipher suite）块是由客户端支持的所有密码套件组成的列表，该列表是按优先级顺序排列的</li>
+<li>Compression: 客户端可以提交一个或多个支持压缩的方法。默认的压缩方法是 null，代表没有压缩</li>
+<li>Extensions: 扩展（extension）块由任意数量的扩展组成。这些扩展会携带额外数据</li>
+</ul>
+
+<p>综上，在这一步，客户端主要向服务器提供以下信息：</p>
+
+<pre><code>支持的协议版本，比如TLS 1.0版
+一个客户端生成的随机数，稍后用于生成&quot;对话密钥&quot;
+支持的加密方法，比如RSA公钥加密
+支持的压缩方法
+</code></pre>
+
+<h3 id="服务器回应">服务器回应</h3>
+
+<p>从Server Hello到Server Done，有些服务端的实现是每条单独发送，有服务端实现是合并到一起发送。Sever Hello和Server Done都是只有头没有内容的数据。</p>
+
+<p>2、ServerHello</p>
+
+<p>将服务器选择的连接参数传回客户端。</p>
+
+<p><img src="/media/network/https/tls6" alt="" /></p>
+
+<p>3、Certificate</p>
+
+<p>发送证书给客户端。</p>
+
+<p><img src="/media/network/https/tls7" alt="" /></p>
+
+<p>对于非常重要的保密数据，服务端还需要对客户端进行验证，以保证数据传送给了安全的合法的客户端。服务端可以向客户端发出 Cerficate Request 消息，要求客户端发送证书对客户端的合法性进行验证。比如，金融机构往往只允许认证客户连入自己的网络，就会向正式客户提供USB密钥，里面就包含了一张客户端证书。</p>
+
+<p>4、ServerKeyExchange</p>
+
+<p>携带密钥交换需要的额外数据。ServerKeyExchange 是可选的，消息内容对于不同的协商算法套件会存在差异。部分场景下，比如使用 RSA 算法时，服务器不需要发送此消息。</p>
+
+<p>ServerKeyExchange 仅在服务器证书消息（也就是上述 Certificate 消息）不包含足够的数据以允许客户端交换预主密钥（premaster secret）时才由服务器发送。</p>
+
+<p>比如基于 DH 算法的握手过程中，需要单独发送一条 ServerKeyExchange 消息带上 DH 参数:</p>
+
+<p><img src="/media/network/https/tls9" alt="" /></p>
+
+<p>5、ServerHelloDone</p>
+
+<p>表明服务器已经将所有预计的握手消息发送完毕。在此之后，服务器会等待客户端发送消息。</p>
+
+<p>综上，在这一步，服务器的回应包含以下内容：</p>
+
+<pre><code>1、确认使用的加密通信协议版本，比如TLS 1.0版本。如果浏览器与服务器支持的版本不一致，服务器关闭加密通信
+2、一个服务器生成的随机数，稍后用于生成&quot;对话密钥&quot;
+3、确认使用的加密方法，比如RSA公钥加密
+4、服务器证书
+</code></pre>
+
+<h3 id="客户端回应">客户端回应</h3>
+
+<p>然后即使客户端校验，发送客户端证书</p>
+
+<p>6、verify certificate</p>
+
+<p>客户端验证证书的合法性，如果验证通过才会进行后续通信，否则根据错误情况不同做出提示和操作，合法性验证内容包括如下:</p>
+
+<pre><code>证书链的可信性 trusted certificate path;
+证书是否吊销 revocation，有两类方式 - 离线 CRL 与在线 OCSP，不同的客户端行为会不同;
+有效期 expiry date，证书是否在有效时间范围;
+域名 domain，核查证书域名是否与当前的访问域名匹配;
+</code></pre>
+
+<p>由 PKI 体系 的内容可知，对端发来的证书签名是 CA 私钥加密的，接收到证书后，先读取证书中的相关的明文信息，采用相同的散列函数计算得到信息摘要，然后利用对应 CA 的公钥解密签名数据，对比证书的信息摘要，如果一致，则可以确认证书的合法性；然后去查询证书的吊销情况等</p>
+
+<p>如果证书没有问题，客户端就会从服务器证书中取出服务器的公钥。然后，向服务器发送下面三项信息：</p>
+
+<pre><code>1、一个随机数。该随机数用服务器公钥加密，防止被窃听
+2、编码改变通知，表示随后的信息都将用双方商定的加密方法和密钥发送
+3、客户端握手结束通知，表示客户端的握手阶段已经结束。这一项同时也是前面发送的所有内容的hash值，用来供服务器校验
+</code></pre>
+
+<p>7、ClientKeyExchange</p>
+
+<p>合法性验证通过之后，客户端计算产生随机数字的预主密钥（Pre-master），并用证书公钥加密，发送给服务器并携带客户端为密钥交换提供的所有信息。这个消息受协商的密码套件的影响，内容随着不同的协商密码套件而不同。</p>
+
+<p>此时客户端已经获取全部的计算协商密钥需要的信息: 两个明文随机数 random_C 和 random_S 与自己计算产生的 Pre-master，然后得到协商密钥(用于之后的消息加密)</p>
+
+<p><img src="/media/network/https/tls8" alt="" /></p>
+
+<p>图中使用的是 ECDHE 算法，ClientKeyExchange 传递的是 DH 算法的客户端参数，如果使用的是 RSA 算法则此处应该传递加密的预主密钥</p>
+
+<p>8、ChangeCipherSpec</p>
+
+<p>通知服务器后续的通信都采用协商的通信密钥和加密算法进行加密通信。</p>
+
+<p>ChangeCipherSpec是一个独立的协议，体现在数据包中就是一个字节的数据，用于告知服务端，客户端已经切换到之前协商好的加密套件（Cipher Suite）的状态，准备使用之前协商好的加密套件加密数据并传输了。</p>
+
+<p>在ChangecipherSpec传输完毕之后，客户端会使用之前协商好的加密套件和Session Secret加密一段 Finish 的数据传送给服务端，此数据是为了在正式传输应用数据之前对刚刚握手建立起来的加解密通道进行验证。</p>
+
+<p>9、Finished</p>
+
+<p>Finished 消息意味着握手已经完成。消息内容将加密，以便双方可以安全地交换验证整个握手完整性所需的数据。</p>
+
+<p>这个消息包含 verify_data 字段，它的值是握手过程中所有消息的散列值。这些消息在连接两端都按照各自所见的顺序排列，并以协商得到的主密钥 (enc_key) 计算散列。这个过程是通过一个伪随机函数（pseudorandom function，PRF）来完成的，这个函数可以生成任意数量的伪随机数据。
+两端的计算方法一致，但会使用不同的标签（finished_label）：客户端使用 client finished，而服务器则使用 server finished。</p>
+
+<pre><code>verify_data = PRF(master_secret, finished_label, Hash(handshake_messages))
+</code></pre>
+
+<p>复制代码因为 Finished 消息是加密的，并且它们的完整性由协商 MAC 算法保证，所以主动网络攻击者不能改变握手消息并对 vertify_data 的值造假。在 TLS 1.2 版本中，Finished 消息的长度默认是 12 字节（96 位），并且允许密码套件使用更长的长度。在此之前的版本，除了 SSL 3 使用 36 字节的定长消息，其他版本都使用 12 字节的定长消息。</p>
+
+<h3 id="服务器的最后回应">服务器的最后回应</h3>
+
+<p>下面就是服务端的最后一一次回应</p>
+
+<p>10、Server</p>
+
+<p>服务器用私钥解密加密的 Pre-master 数据，基于之前交换的两个明文随机数 random_C 和 random_S，同样计算得到协商密钥: enc_key = PRF(Pre_master, &ldquo;master secret&rdquo;, random_C + random_S);</p>
+
+<p>同样计算之前所有收发信息的 hash 值，然后用协商密钥解密客户端发送的 verify_data_C，验证消息正确性;</p>
+
+<p>11、change_cipher_spec</p>
+
+<p><img src="/media/network/https/tls10" alt="" /></p>
+
+<p>服务端验证通过之后，服务器同样发送 change_cipher_spec 以告知客户端后续的通信都采用协商的密钥与算法进行加密通信（图中多了一步 New Session Ticket，此为会话票证，会在会话恢复中解释）;</p>
+
+<p>12、Finished</p>
+
+<p>服务器也结合所有当前的通信参数信息生成一段数据 (verify_data_S) 并采用协商密钥 session secret (enc_key) 与算法加密并发送到客户端;</p>
+
+<h3 id="加密通信">加密通信</h3>
+
+<p>13、握手结束</p>
+
+<p>客户端计算所有接收信息的 hash 值，并采用协商密钥解密 verify_data_S，验证服务器发送的数据和密钥，验证通过则握手完成;</p>
+
+<p>14、加密通信</p>
+
+<p>开始使用协商密钥与算法进行加密通信。</p>
+
+<p><img src="/media/network/https/tls11" alt="" /></p>
+
+<h2 id="实例">实例</h2>
+
+<p>如果上面的说明不够清晰，这里我们用个形象的比喻，我们假设A与B通信，A是SSL客户端，B是SSL服务器端，加密后的消息放在方括号[]里，以突出明文消息的区别。双方的处理动作的说明用圆括号（）括起。</p>
+
+<p>A：我想和你安全的通话，我这里的对称加密算法有DES,RC5,密钥交换算法有RSA和DH，摘要算法有MD5和SHA。</p>
+
+<p>B：我们用DES－RSA－SHA这对组合好了。
+这是我的证书，里面有我的名字和公钥，你拿去验证一下我的身份（把证书发给A）。
+目前没有别的可说的了。</p>
+
+<p>A：（查看证书上B的名字是否无误，并通过手头早已有的CA的证书验证了B的证书的真实性，如果其中一项有误，发出警告并断开连接，这一步保证了B的公钥的真实性）
+（产生一份秘密消息，这份秘密消息处理后将用作加密密钥，加密初始化向量（IV）和hmac的密钥。将这份秘密消息-协议中称为per_master_secret-用B的公钥加密，封装成称作ClientKeyExchange的消息。由于用了B的公钥，保证了第三方无法窃听）
+我生成了一份秘密消息，并用你的公钥加密了，给你（把ClientKeyExchange发给B）
+注意，下面我就要用加密的办法给你发消息了！
+（将秘密消息进行处理，生成加密密钥，加密初始化向量和hmac的密钥）
+[我说完了]</p>
+
+<p>B：（用自己的私钥将ClientKeyExchange中的秘密消息解密出来，然后将秘密消息进行处理，生成加密密钥，加密初始化向量和hmac的密钥，这时双方已经安全的协商出一套加密办法了）
+注意，我也要开始用加密的办法给你发消息了！
+[我说完了]</p>
+
+<p>A: [我的秘密是&hellip;]</p>
+
+<p>B: [其它人不会听到的&hellip;]</p>
+
+<h1 id="ca认证">CA认证</h1>
+
+<p>在上面过程中，我们都讲到了证书的传输，那么证书是什么？</p>
+
+<p>证书一般包含</p>
+
+<pre><code>证书信息：过期时间和序列号
+所有者信息：姓名等
+所有者公钥
+</code></pre>
+
+<p><img src="/media/network/https/tls12" alt="" /></p>
+
+<p>我们常用的证书就是ca证书。证书可以是一些可信任的机构签发，也可以是自己签发。</p>
+
+<h3 id="可信任机构">可信任机构</h3>
+
+<p>HTTPS 通常主流的用途还是浏览器，浏览器是负责帮你访问资源的工具，服务端可以通过返回证书来表明自己的身份，这个证书是由某个 CA 签发，部分 CA 是可信的，浏览器可以通过这些 CA 确保他们签发的证书也是可信的。</p>
+
+<p>这些可信的 CA 一般是直接写在浏览器里的，通常都是知名的机构。它是采用PKI（Public Key Infrastructure）公开密钥基础架构技术，专门提供网络身份认证服务，CA可以是民间团体，也可以是政府机构。负责签发和管理数字证书，且具有权威性和公正性的第三方信任机构，它的作用就像我们现实生活中颁发证件的公司，如护照办理机构。目前国内的CA认证中心主要分为区域性CA认证中心和行业性CA认证中心。当然也可以是我们自己使用ssl工具生成签发给指定的 用户。</p>
+
+<p>CA: 证书授权中心( certificate authority)。 它呢，类似于国家出入境管理处一样，给别人颁发护照；也类似于国家工商管理局一样，给公司企业颁发营业执照。</p>
+
+<p>它有两大主要性质：</p>
+
+<pre><code>1) CA本身是受信任的 // 国际认可的
+
+2) 给他受信任的申请对象颁发证书 // 和办理护照一样，要确定你的合法身份，你不能是犯罪分子或造反派。当然，你需要被收保护费，同时，CA可以随时吊销你的证书。
+</code></pre>
+
+<p>如果我们的服务是对外提供的，那么就需要一些权威机构的ca证书了 ，但是我们在开发过程中服务端客户端都是我们自己的，我们就可以自己签发证书，然后在代码中做处理。</p>
+
+<h3 id="ssl工具签发">ssl工具签发</h3>
+
+<p>我们自己签发的证书，在浏览器的列表中肯定是不存在的，所以我们就是不受信任的证书，在浏览器上会显示不可信的警告，如果你把自己加进浏览器的可信 CA 中，那么就不会显示这个警告。</p>
+
+<p>这个证书能够通过验证，取决于验证的代码，这一块有一个概念需要理清楚，单向验证是客户端验证服务端的证书，我一直很直观的理解为服务端验证客户端的用户名密码，这个不是证书验证，是登陆认证，至于双向验证就是互相验证。</p>
+
+<p>所以单向验证的时候，也就是我们请求https网站的时候，是我们验证网站发来的证书，也就是客户端验证，如果不是可信的证书，浏览器一般都会给客户选择，是继续访问还是不访问，而我们在写客户端代码的时候，也可以指定拒绝或者忽略。</p>
+
+<h3 id="ca签发机制">ca签发机制</h3>
+
+<p>1、设置CA认证中心配置文件和请求文件</p>
+
+<p>2、SSL Server 自己生成一个 私钥/公钥对。ca-key.pem/ca.pem // 私钥加密，公钥解密！</p>
+
+<p>3、客户端或者服务端配置请求文件</p>
+
+<p>4、使用ca中心的私钥和公钥生成对应的私钥和公钥。</p>
+
+<p>在实际应用中：如果 SSL Client 想要校验 SSL server.那么 SSL server 必须要将他的证书 server.crt 传给 client.然后 client 用 ca.crt 去校验 server.crt 的合法性。如果是一个钓鱼网站，那么CA是不会给他颁发合法server.crt证书的，这样client 用ca.crt去校验，就会失败。比如浏览器作为一个 client,你想访问合法的淘宝网站<a href="https://www.taobao.com">https://www.taobao.com</a>, 结果不慎访问到 <a href="https://wwww.jiataobao.com">https://wwww.jiataobao.com</a> ,那么浏览器将会检验到这个假淘宝钓鱼网站的非法性，提醒用户不要继续访问！这样就可以保证了client的所有https访问都是安全的。</p>
+
+<h1 id="ssl-工具">ssl 工具</h1>
+
+<p>常用的ssl的工具，比如openssl，cfssl。</p>
+
+<h3 id="openssl">openssl</h3>
+
+<p>从openssl官网下载最新的稳定版本，<a href="https://www.openssl.org/source/">https://www.openssl.org/source/</a> 当前的稳定版是 openssl-fips-2.0.16.tar.gz（联邦信息处理标准（Federal Information Processing Standards，FIPS）是一套描述文件处理、加密算法和其他信息技术标准（在非军用政府机构和与这些机构合作的政府承包商和供应商中应用的标准）的标准。），下载后上传到服务器的/usr/local/src目录下。</p>
+
+<p>查看系统是否已安装gcc编译器</p>
+
+<pre><code>gcc -v
+</code></pre>
+
+<p>如果gcc版本较老，我们可以使用yum命令对其进行升级对其进行升级，</p>
+
+<pre><code>yum update gcc
+</code></pre>
+
+<p>如果需要安装的话，使用以下命令</p>
+
+<pre><code>yum -y install gcc
+</code></pre>
+
+<p>4，解压openssl包</p>
+
+<pre><code>tar -xzf openssl-fips-2.0.16.tar.gz
+</code></pre>
+
+<p>得到openssl-fips-2.0.16目录，然后进入openssl-fips-2.0.16目录中。</p>
+
+<p>5，检查是否已安装zlib库</p>
+
+<pre><code>whereis zlib
+</code></pre>
+
+<p>如果已安装，会打印出zlib的路径，如果没有打印出路径，则表示没有安装，需要我们下载安装。</p>
+
+<pre><code>yum -y install zlib
+</code></pre>
+
+<p>6，安装openssl到 /usr/local/openssl 目录，安装之后，编译；</p>
+
+<pre><code>./config shared zlib  --prefix=/usr/local/openssl &amp;&amp; make &amp;&amp; make install
+</code></pre>
+
+<p>安装结束后执行以下命令</p>
+
+<pre><code>./config -t／./config --prefix=/usr/local/openssl/
+make depend
+</code></pre>
+
+<p>进入/usr/local目录下，执行以下命令</p>
+
+<pre><code>ln -s openssl ssl
+</code></pre>
+
+<p>在/etc/ld.so.conf文件的最后面，添加如下内容：/usr/local/openssl/lib
+然后执行以下命令</p>
+
+<pre><code>ldconfig
+</code></pre>
+
+<p>添加OPESSL的环境变量,在etc／的profile的最后一行，添加：</p>
+
+<pre><code>export OPENSSL=/usr/local/openssl/bin
+export PATH=$OPENSSL:$PATH:$HOME/bin
+</code></pre>
+
+<p>退出命令界面，再从新登录，使配置生效。</p>
+
+<h3 id="cfssl">cfssl</h3>
+
+<p>安装</p>
+
+<pre><code>  wget https://pkg.cfssl.org/R1.2/cfssl_linux-amd64
+  wget https://pkg.cfssl.org/R1.2/cfssljson_linux-amd64
+  wget https://pkg.cfssl.org/R1.2/cfssl-certinfo_linux-amd64
+
+  sudo cp cfssl_linux-amd64 /usr/local/bin/cfssl 
+  sudo cp cfssljson_linux-amd64 /usr/local/bin/cfssljson
+  sudo cp cfssl-certinfo_linux-amd64 /usr/local/bin/cfssl-certinfo
+
+  cd /usr/local/bin/ 
+
+  chmod +x cfssl
+  chmod +x cfssljson
+  chmod +x cfssl-certinfo
+</code></pre>
+
+<p>初始化</p>
+
+<pre><code>mkdir ~/cfssl
+cd ~/cfssl
+cfssl print-defaults config &gt; ca-config.json
+cfssl print-defaults csr &gt; ca-csr.json
+</code></pre>
+
+<h3 id="使用">使用</h3>
+
+<p>创建自己的内部服务使用的CA认证中心</p>
+
+<p>运行认证中心需要一个CA证书和相应的私钥。后者是极其敏感的数据。任何知道私钥的人都可以充当CA颁发证书。因此，私钥的保护至关重要</p>
+
+<p><strong>为自签CA生成相应的配置文件</strong></p>
+
+<pre><code>cat &lt;&lt; EOF &gt; ca-config.json
+{
+  &quot;signing&quot;: {
+      &quot;default&quot;: {
+          &quot;expiry&quot;: &quot;87600h&quot;
+      },
+      &quot;profiles&quot;: {
+          &quot;server&quot;: {
+              &quot;expiry&quot;: &quot;87600h&quot;,
+              &quot;usages&quot;: [
+                  &quot;signing&quot;,
+                  &quot;key encipherment&quot;,
+                  &quot;server auth&quot;
+              ]
+          },
+          &quot;client&quot;: {
+              &quot;expiry&quot;: &quot;87600h&quot;,
+              &quot;usages&quot;: [
+                  &quot;signing&quot;,
+                  &quot;key encipherment&quot;,
+                  &quot;client auth&quot;
+              ]
+          },
+          &quot;peer&quot;: {
+              &quot;expiry&quot;: &quot;87600h&quot;,
+              &quot;usages&quot;: [
+                  &quot;signing&quot;,
+                  &quot;key encipherment&quot;,
+                  &quot;server auth&quot;,
+                  &quot;client auth&quot;
+              ]
+          }
+      }
+  }
+}
+EOF
+</code></pre>
+
+<p>说明</p>
+
+<pre><code>ca-config.json：可以定义多个 profiles，分别指定不同的过期时间、使用场景等参数；后续在签名证书时使用某个 profile；
+signing：表示该证书可用于签名其它证书；生成的 ca.pem 证书中 CA=TRUE；
+server auth：服务端证书；表示client可以用该 CA 对server提供的证书进行验证；server 由服务器使用，并由客户端验证服务器身份
+client auth：客户端证书；表示server可以用该CA对client提供的证书进行验证；client用于通过服务器验证客户端。
+peer 对等证书；就是server auth、client auth都有的。成员之间共用，供它们彼此之间通信使用
+</code></pre>
+
+<p><strong>为自签CA生成相应的请求文件</strong></p>
+
+<pre><code>cat &lt;&lt; EOF &gt; ca-csr.json
+{
+  &quot;CN&quot;: &quot;dudu_ca&quot;,
+  &quot;key&quot;: {
+    &quot;algo&quot;: &quot;rsa&quot;,
+    &quot;size&quot;: 2048
+  },
+  &quot;names&quot;: [
+    {
+      &quot;C&quot;: &quot;CN&quot;,
+      &quot;ST&quot;: &quot;BeiJing&quot;,
+      &quot;L&quot;: &quot;BeiJing&quot;,
+      &quot;O&quot;: &quot;dudu_ca&quot;,
+      &quot;OU&quot;: &quot;dudu_ca&quot;
+    }
+  ]
+}
+</code></pre>
+
+<p><strong>生成私钥和公钥</strong></p>
+
+<p>生成运行CA所必需的文件ca-key.pem（私钥）和ca.pem（公钥），还会生成ca.csr（证书签名请求），用于交叉签名或重新签名。</p>
+
+<p>请保持ca-key.pem文件的安全。此密钥允许在CA中创建任何类型的证书。*.csr 文件在整个过程中不会使用</p>
+
+<pre><code>cfssl gencert -initca ca-csr.json | cfssljson -bare ca
+</code></pre>
+
+<p>生成如下文件</p>
+
+<pre><code>ca.csr  ca-key.pem  ca.pem
+</code></pre>
+
+<p><strong>生成服务器证书</strong></p>
+
+<p>kubernetes服务的配置文件</p>
+
+<pre><code>cat &lt;&lt; EOF &gt; kubernetes-csr.json
+{
+  &quot;CN&quot;: &quot;kubernetes&quot;,
+  &quot;hosts&quot;: [
+    &quot;127.0.0.1&quot;,
+    &quot;10.29.167.233&quot;,
+    &quot;169.169.0.1&quot;,
+    &quot;kubernetes&quot;,
+    &quot;kubernetes.default&quot;,
+    &quot;kubernetes.default.svc&quot;,
+    &quot;kubernetes.default.svc.cluster&quot;,
+    &quot;kubernetes.default.svc.cluster.local&quot;
+  ],
+  &quot;key&quot;: {
+      &quot;algo&quot;: &quot;rsa&quot;,
+      &quot;size&quot;: 2048
+  },
+  &quot;names&quot;: [
+      {
+          &quot;C&quot;: &quot;CN&quot;,
+          &quot;ST&quot;: &quot;BeiJing&quot;,
+          &quot;L&quot;: &quot;BeiJing&quot;,
+          &quot;O&quot;: &quot;k8s&quot;,
+          &quot;OU&quot;: &quot;System&quot;
+      }
+  ]
+}
+EOF
+</code></pre>
+
+<p>说明</p>
+
+<pre><code>“O”：Organization，kube-apiserver 从证书中提取该字段作为请求用户所属的组 (Group)；
+
+&quot;CN&quot;: 字段 kube-apiserver 从证书中提取该字段作为请求的用户名 (User Name)；浏览器使用该字段验证网站是否合法
+
+如果 hosts 字段不为空则需要指定授权使用该证书的 IP 或域名列表，由于该证书后续被 etcd 集群和 kubernetes master 集群使用，所以上面分别指定了 etcd 集群、kubernetes master 集群的主机 IP 和 kubernetes 服务的服务 IP（一般是 kue-apiserver 指定的 service-cluster-ip-range 网段的第一个IP，如 10.254.0.1。
+</code></pre>
+
+<p>对等证书   生成kubernetes的证书和私钥。使用CA认证中心的私钥和证书签名生成机构的证书和私钥。</p>
+
+<pre><code>cfssl gencert -ca=ca.pem -ca-key=ca-key.pem -config=ca-config.json -profile=peer kubernetes-csr.json | cfssljson -bare kubernetes
+</code></pre>
+
+<p>注意事项</p>
+
+<p>设置所有私钥文件权限 chmod 600 *-key.pem</p>
+
+<p>不要把你的ca-key.pem放入容器的Linux配置，建议将其存放在安全的地方。该密钥允许生成尽可能多的证书</p>
+
+<p>使用通配符*地址生成的密钥和证书。将在任何机器上工作。它将简化证书例程，但会增加安全风险。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/computerbase/network/ssl/">https://kingjcy.github.io/post/computerbase/network/ssl/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/network/">
+                            <i class="fa fa-tags"></i>
+                            network
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/ssl/">
+                            <i class="fa fa-tags"></i>
+                            ssl
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/tls/">
+                            <i class="fa fa-tags"></i>
+                            tls
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/computerbase/network/http/">计算机网络系列（八）---- Http</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network/">云计算K8s组件系列（九）---- 网络</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月10日)</span></li><li id="li-rels"><a href="/post/computerbase/network/tc/">计算机网络系列（十七）---- tc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/route/">计算机网络系列（十六）---- route</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/rpc/rpc/">计算机网络系列（十三）---- rpc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年02月19日)</span></li><li id="li-rels"><a href="/post/computerbase/network/webserver/">计算机网络系列（十五）---- webserver</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年05月01日)</span></li><li id="li-rels"><a href="/post/computerbase/network/websocket/">计算机网络系列（六）---- websocket</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年03月01日)</span></li><li id="li-rels"><a href="/post/computerbase/network/udp/">计算机网络系列（四）---- udp</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年01月21日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/distributed/store/fs/nfs/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/computerbase/network/rest/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#ssl-tls位置">SSL/TLS位置</a></li>
+<li><a href="#加密">加密</a>
+<ul>
+<li><a href="#0-明文">0、明文</a></li>
+<li><a href="#1-密钥">1、密钥</a>
+<ul>
+<li><a href="#非对称加密算法-公钥加密">非对称加密算法（公钥加密）</a></li>
+<li><a href="#对称加密算法-私钥加密">对称加密算法（私钥加密）</a></li>
+</ul></li>
+<li><a href="#2-hash算法">2、HASH算法</a></li>
+<li><a href="#3-数字证书">3、数字证书</a></li>
+<li><a href="#4-数字签名">4、数字签名</a></li>
+<li><a href="#5-证书链">5、证书链</a></li>
+<li><a href="#ssl-tls加密模式">SSL/TLS加密模式</a></li>
+</ul></li>
+<li><a href="#ssl和tls简介">SSL和TLS简介</a>
+<ul>
+<li><a href="#记录协议-定义传输格式">记录协议（定义传输格式）</a></li>
+<li><a href="#握手协议-协商密钥">握手协议（协商密钥）</a>
+<ul>
+<li><a href="#客户端发出请求">客户端发出请求</a></li>
+<li><a href="#服务器回应">服务器回应</a></li>
+<li><a href="#客户端回应">客户端回应</a></li>
+<li><a href="#服务器的最后回应">服务器的最后回应</a></li>
+<li><a href="#加密通信">加密通信</a></li>
+</ul></li>
+<li><a href="#实例">实例</a></li>
+</ul></li>
+<li><a href="#ca认证">CA认证</a>
+<ul>
+<li>
+<ul>
+<li><a href="#可信任机构">可信任机构</a></li>
+<li><a href="#ssl工具签发">ssl工具签发</a></li>
+<li><a href="#ca签发机制">ca签发机制</a></li>
+</ul></li>
+</ul></li>
+<li><a href="#ssl-工具">ssl 工具</a>
+<ul>
+<li>
+<ul>
+<li><a href="#openssl">openssl</a></li>
+<li><a href="#cfssl">cfssl</a></li>
+<li><a href="#使用">使用</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

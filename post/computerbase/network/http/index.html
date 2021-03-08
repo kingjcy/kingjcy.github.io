@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="当今web程序的开发技术真是百家争鸣，ASP.NET, PHP, JSP，Perl, AJAX 等等。 无论Web技术在未来如何发展，理解Web程序之间通信的基本协议相当重要， 因为它让我们理解了Web应用程序的内部工作原理。其中http是网络的最基本协议，也是我们下面重点了解的协议之一。
+基本概念 各种协议 尽管我们会单独讲解其他协议，比如tcp/ip，但是讲解http肯定是离不开这些协议的。
+tcp/ip数据传输方式
+利用tcp/ip协议族通讯时，通过分层顺序通讯。
+1、发送端从应用层往下走，接收端从应用层往上走 2、发送端每经过一层都会被打上该层所属的首部信息，接收端每经过一层将把首部去掉  http在应用层决定了向用户提供应用服务时通讯的活动 应用层包括：FTP，DNS，HTTP等
+各种协议的关系
+1、DNS协议是应用层协议作用是提供域名到ip地址之间的解析服务
+2、TCP协议位于传输层 作用是提供可靠的字节流服务
+字节流服务：将大块数据分割成以报文段为单位的数据包 可靠：采用三次握手策略  3、ip位于网络层作用是把各种数据包传送给对方
+确保传送正确的两个条件
+IP地址：指明了节点被分配到的地址。可变。 MAC地址：网卡所属的固定地址。不可变。  4、http协议和tcp协议的区别与联系
+区别
+所属协议层不同：tcp属于传输层，http属于应用层 职责不同：tcp解决数据传输问题，http解决数据包装问题  联系
+http协议是构建在tcp协议之上的 打个比方：ip是高速公路，tcp是跑在高速公路上的卡车，http是卡车里面的包裹  5、URL与URI
+URL：统一资源定位符，资源的地址。是URI的子集 URI：统一资源标识符，用字符串标识某一互联网资源  URI的格式
+web web理念：文档之间相关关联，连成可相互参阅的万维网（www）
+web互连（通讯）的基础：tcp/ip协议族，http属于它内部的子集
+web（www）的三项构建技术：
+html：页面使用什么语言展示 URL：页面在什么位置 http：文档之间传递的协议是什么  Web服务器，浏览器，代理服务器 当我们打开浏览器，在地址栏中输入URL，然后我们就看到了网页。 原理是怎样的呢？
+实际上我们输入URL后，我们的浏览器给Web服务器发送了一个Request, Web服务器接到Request后进行处理，生成相应的Response，然后发送给浏览器， 浏览器解析Response中的HTML,这样我们就看到了网页，过程如下图所示
+client&lt;----------&gt;server  我们的Request 有可能是经过了代理服务器，最后才到达Web服务器的。 client&lt;----------&gt;proxy&lt;-----------&gt;server  代理服务器就是网络信息的中转站，有什么功能呢？
+ 提高访问速度， 大多数的代理服务器都有缓存功能。 突破限制， 也就是翻墙了 隐藏身份。  http 什么是HTTP协议 超文本传输协议(HTTP)是一种通信协议，是指计算机通信网络中两台计算机之间进行通信所必须共同遵守的规定或规则，它允许将超文本标记语言(HTML)文档从Web服务器传送到客户端的浏览器">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="计算机网络系列（八）---- Http - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    计算机网络系列（八）---- Http
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年10月13日 
+                </div>
+                <h1 class="post-title">计算机网络系列（八）---- Http</h1>
+            </header>
+
+            <div class="post-content">
+                
+
+<p>当今web程序的开发技术真是百家争鸣，ASP.NET, PHP, JSP，Perl, AJAX 等等。 无论Web技术在未来如何发展，理解Web程序之间通信的基本协议相当重要， 因为它让我们理解了Web应用程序的内部工作原理。其中http是网络的最基本协议，也是我们下面重点了解的协议之一。</p>
+
+<h1 id="基本概念">基本概念</h1>
+
+<h2 id="各种协议">各种协议</h2>
+
+<p>尽管我们会单独讲解其他协议，比如tcp/ip，但是讲解http肯定是离不开这些协议的。</p>
+
+<p>tcp/ip数据传输方式</p>
+
+<p><img src="/media/network/http/http-1.JPG" alt="" /></p>
+
+<p>利用tcp/ip协议族通讯时，通过分层顺序通讯。</p>
+
+<pre><code>1、发送端从应用层往下走，接收端从应用层往上走
+2、发送端每经过一层都会被打上该层所属的首部信息，接收端每经过一层将把首部去掉
+</code></pre>
+
+<p>http在应用层决定了向用户提供应用服务时通讯的活动 应用层包括：FTP，DNS，HTTP等</p>
+
+<p>各种协议的关系</p>
+
+<p><img src="/media/network/http/http-2.JPG" alt="" /></p>
+
+<p>1、DNS协议是应用层协议作用是提供域名到ip地址之间的解析服务</p>
+
+<p>2、TCP协议位于传输层 作用是提供可靠的字节流服务</p>
+
+<pre><code>字节流服务：将大块数据分割成以报文段为单位的数据包
+可靠：采用三次握手策略
+</code></pre>
+
+<p>3、ip位于网络层作用是把各种数据包传送给对方</p>
+
+<p>确保传送正确的两个条件</p>
+
+<pre><code>IP地址：指明了节点被分配到的地址。可变。
+MAC地址：网卡所属的固定地址。不可变。
+</code></pre>
+
+<p>4、http协议和tcp协议的区别与联系</p>
+
+<p>区别</p>
+
+<pre><code>所属协议层不同：tcp属于传输层，http属于应用层
+职责不同：tcp解决数据传输问题，http解决数据包装问题
+</code></pre>
+
+<p>联系</p>
+
+<pre><code>http协议是构建在tcp协议之上的
+打个比方：ip是高速公路，tcp是跑在高速公路上的卡车，http是卡车里面的包裹
+</code></pre>
+
+<p>5、URL与URI</p>
+
+<pre><code>URL：统一资源定位符，资源的地址。是URI的子集
+URI：统一资源标识符，用字符串标识某一互联网资源
+</code></pre>
+
+<p>URI的格式</p>
+
+<p><img src="/media/network/http/http-3.JPG" alt="" /></p>
+
+<h2 id="web">web</h2>
+
+<p>web理念：文档之间相关关联，连成可相互参阅的万维网（www）</p>
+
+<p>web互连（通讯）的基础：tcp/ip协议族，http属于它内部的子集</p>
+
+<p>web（www）的三项构建技术：</p>
+
+<pre><code>html：页面使用什么语言展示
+URL：页面在什么位置
+http：文档之间传递的协议是什么
+</code></pre>
+
+<h2 id="web服务器-浏览器-代理服务器">Web服务器，浏览器，代理服务器</h2>
+
+<p>当我们打开浏览器，在地址栏中输入URL，然后我们就看到了网页。 原理是怎样的呢？</p>
+
+<p>实际上我们输入URL后，我们的浏览器给Web服务器发送了一个Request, Web服务器接到Request后进行处理，生成相应的Response，然后发送给浏览器， 浏览器解析Response中的HTML,这样我们就看到了网页，过程如下图所示</p>
+
+<pre><code>client&lt;----------&gt;server
+</code></pre>
+
+<p>我们的Request 有可能是经过了代理服务器，最后才到达Web服务器的。
+　</p>
+
+<pre><code>client&lt;----------&gt;proxy&lt;-----------&gt;server
+</code></pre>
+
+<p>代理服务器就是网络信息的中转站，有什么功能呢？</p>
+
+<ol>
+<li>提高访问速度， 大多数的代理服务器都有缓存功能。</li>
+<li>突破限制， 也就是翻墙了</li>
+<li>隐藏身份。</li>
+</ol>
+
+<h1 id="http">http</h1>
+
+<h2 id="什么是http协议">什么是HTTP协议</h2>
+
+<p>超文本传输协议(HTTP)是一种通信协议，是指计算机通信网络中两台计算机之间进行通信所必须共同遵守的规定或规则，它允许将超文本标记语言(HTML)文档从Web服务器传送到客户端的浏览器</p>
+
+<p>目前我们使用的是HTTP/1.0，HTTP/1.1，HTTP2</p>
+
+<p>HTTP协议的主要特点可概括如下：</p>
+
+<pre><code>1.支持客户/服务器模式。
+2.简单快速：客户向服务器请求服务时，只需传送请求方法和路径。请求方法常用的有GET、HEAD、POST。每种方法规定了客户与服务器联系的类型不同。由于HTTP协议简单，使得HTTP服务器的程序规模小，因而通信速度很快。
+3.灵活：HTTP允许传输任意类型的数据对象。正在传输的类型由Content-Type加以标记。
+4.无连接：无连接的含义是限制每次连接只处理一个请求。服务器处理完客户的请求，并收到客户的应答后，即断开连接。采用这种方式可以节省传输时间。
+5.无状态：无状态是指协议对于事务处理没有记忆能力。缺少状态意味着如果后续处理需要前面的信息，则它必须重传，这样可能导致每次连接传送的数据量增大。另一方面，在服务器不需要先前信息时它的应答就较快。
+</code></pre>
+
+<p>后来为了解决无状态的缺点，使用了两种存储状态的技术，一个是cookie，在客户端记录状态，一种是session在服务端记录状态，具体看<a href="/post/golang/go-web-safe/">golang web的安全</a>。</p>
+
+<h2 id="url详解">URL详解</h2>
+
+<p>URL(Uniform Resource Locator) 地址用于描述一个网络上的资源，  基本格式如下</p>
+
+<pre><code>schema://host[:port#]/path/.../[;url-params][?query-string][#anchor]
+
+
+scheme               指定低层使用的协议(例如：http, https, ftp)
+host                   HTTP服务器的IP地址或者域名
+port#                 HTTP服务器的默认端口是80，这种情况下端口号可以省略。如果使用了别的端口，必须指明，例如 http://www.cnblogs.com:8080/
+path                   访问资源的路径
+url-params
+query-string       发送给http服务器的数据
+anchor-             锚
+</code></pre>
+
+<p>URL 的一个例子</p>
+
+<pre><code>http://www.mywebsite.com/sj/test;id=8079?name=sviergn&amp;x=true#stuff
+Schema: http
+host: www.mywebsite.com
+path: /sj/test
+URL params: id=8079
+Query String: name=sviergn&amp;x=true
+Anchor: stuff
+</code></pre>
+
+<p>　　</p>
+
+<h2 id="http消息的结构">HTTP消息的结构</h2>
+
+<p><img src="/media/network/http/http-4.JPG" alt="" /></p>
+
+<p>先看Request 消息的结构，Request 消息分为3部分，第一部分叫请求行， 第二部分叫http header, 第三部分是body. header和body之间有个空行， 结构如下</p>
+
+<pre><code>GET /domains/example/ HTTP/1.1 //请求行: 请求方法 请求URI HTTP协议/协议版本
+Host:www.iana.org //服务端的主机名
+User-Agent:Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.4 (KHTML, like Gecko) Chrome/22.0.1229.94 //产生请求浏览器的类型
+Accept:text/html,application/xhtml+xml,application/xml;q=0.9;q=0.8  //客户端可识别的响应类型
+Accept-Encoding:gzip,deflate,sdch Accept-Charset:UTF-8,*;q=0.5  //客户端可识别的编码方式
+Connection: close  //表示是否需要持久连接。（HTTP 1.1默认进行持久连接）（close或者keep-alive）
+Cookie: $Version=1; Skin=new;  //   HTTP请求发送时，会把保存在该请求域名下的所有cookie值一起发送给web服务器。
+Content-Length: 348   //    请求的内容长度
+Content-Type: application/x-www-form-urlencoded  //请求的与实体对应的MIME信息
+Referer: http://www.zcmhi.com/archives/71.html  //先前网页的地址，当前请求网页紧随其后,即来路
+If-Modified-Since: Sat, 29 Oct 2010 19:43:31 GMT //如果请求的部分在指定时间之后被修改则请求成功，未被修改则返回304代码
+//空行,用于分割请求头和消息体 
+//消息体,请求资源参数,例如POST传递的参数
+</code></pre>
+
+<p>第一行中的Method表示请求方法，比如&rdquo;POST&rdquo;，&rdquo;GET&rdquo;，  Path-to-resoure表示请求的资源， Http/version-number 表示HTTP协议的版本号</p>
+
+<pre><code>Method /pathname http/version_number
+</code></pre>
+
+<p>当使用的是&rdquo;GET&rdquo; 方法的时候， body是为空的</p>
+
+<p>比如我们打开博客园首页的request 如下</p>
+
+<pre><code>GET http://www.cnblogs.com/ HTTP/1.1
+Host: www.cnblogs.com
+</code></pre>
+
+<p>我们再看Response消息的结构， 和Request消息的结构基本一样。 同样也分为三部分，第一部分叫request line, 第二部分叫request header，第三部分是body. header和body之间也有个空行，  结构如下图</p>
+
+<pre><code>HTTP/1.1 200 OK //状态行
+Server: nginx/1.0.8 //服务器使用的WEB软件名及版本
+Date:Date: Tue, 30 Oct 2012 04:14:25 GMT //发送时间
+Content-Type: text/html         //服务器发送信息的类型
+Transfer-Encoding: chunked  //文件传输编码
+Connection: keep-alive      //保持连接状态
+Content-Length: 90          //主体内容长度
+Allow: GET, HEAD            对某网络资源的有效的请求行为和方法，不允许则返回405
+Refresh: 5; url=http://www.zcmhi.com/archives/94.html  //应用于重定向或一个新的资源被创造，在5秒之后重定向（由网景提出，被大部分浏览器支持）
+Cache-Control: no-cache  //告诉所有的缓存机制是否可以缓存及哪种类型，max-age表示x秒内再访问不会去服务器，no-cache会被缓存，每次会评估缓存的有效性，no-store才是代表不被缓存
+//空行 用来分割消息头和主体
+//消息体
+</code></pre>
+
+<p>HTTP/version-number表示HTTP协议的版本号，  status-code 和message 请看状态代码的详细解释.</p>
+
+<p>最后我们可以使用Fiddler工具非常方便地捕获HTTP Request和HTTP Response，获取上面对应协议的内容。</p>
+
+<h2 id="状态码">状态码</h2>
+
+<p>Response 消息中的第一行叫做状态行，由HTTP协议版本号， 状态码， 状态消息 三部分组成。</p>
+
+<p>状态码用来告诉HTTP客户端，HTTP服务器是否产生了预期的Response.</p>
+
+<pre><code>　　HTTP/1.1中定义了5类状态码， 状态码由三位数字组成，第一个数字定义了响应的类别
+　　1XX  提示信息 - 表示请求已被成功接收，继续处理
+　　2XX  成功 - 表示请求已被成功接收，理解，接受
+　　3XX  重定向 - 要完成请求必须进行更进一步的处理
+　　4XX  客户端错误 -  请求有语法错误或请求无法实现
+　　5XX  服务器端错误 -   服务器未能实现合法的请求
+</code></pre>
+
+<p>看看一些常见的状态码</p>
+
+<pre><code>　　200 OK
+　　最常见的就是成功响应状态码200了， 这表明该请求被成功地完成，所请求的资源发送回客户端
+
+　　302 Found
+　　重定向，新的URL会在response中的Location中返回，浏览器将会使用新的URL发出新的Request。
+　　例如在IE中输入http://www.google.com. HTTP服务器会返回304， IE取到Response中Location header的新URL, 又重新发送了一个Request.
+
+　　304 Not Modified
+　　代表上次的文档已经被缓存了， 还可以继续使用，
+　　例如打开博客园首页， 发现很多 Response 的status code 都是304
+　　提示：　如果你不想使用本地缓存可以用Ctrl+F5强制刷新页面
+
+
+　　400 Bad Request  客户端请求与语法错误，不能被服务器所理解
+　　403 Forbidden 服务器收到请求，但是拒绝提供服务
+　　404 Not Found
+　　请求资源不存在（输错了URL）
+　　比如在IE中输入一个错误的URL， http://www.cnblogs.com/tesdf.aspx
+
+　　500 Internal Server Error 服务器发生了不可预期的错误
+　　503 Server Unavailable 服务器当前不能处理客户端的请求，一段时间后可能恢复正常
+　
+</code></pre>
+
+<h2 id="get和post方法的区别">Get和Post方法的区别</h2>
+
+<p>Http协议定义了很多与服务器交互的方法，最基本的有4种，分别是GET,POST,PUT,DELETE. 一个URL地址用于描述一个网络上的资源，而HTTP中的GET, POST, PUT, DELETE就对应着对这个资源的查，改，增，删4个操作。 我们最常见的就是GET和POST了。GET一般用于获取/查询资源信息，而POST一般用于更新资源信息.</p>
+
+<p>我们看看GET和POST的区别</p>
+
+<ol>
+<li>GET提交的数据会放在URL之后，以?分割URL和传输数据，参数之间以&amp;相连，如EditPosts.aspx?name=test1&amp;id=123456.  POST方法是把提交的数据放在HTTP包的Body中.</li>
+<li>GET提交的数据大小有限制（因为浏览器对URL的长度有限制），而POST方法提交的数据没有限制.</li>
+<li>GET方式需要使用Request.QueryString来取得变量的值，而POST方式通过Request.Form来获取变量的值。</li>
+<li>GET方式提交数据，会带来安全问题，比如一个登录页面，通过GET方式提交数据时，用户名和密码将出现在URL上，如果页面可以被缓存或者其他人可以访问这台机器，就可以从历史记录获得该用户的账号和密码.</li>
+</ol>
+
+<p>请求方法（所有方法全为大写）有多种，各个方法的解释如下：</p>
+
+<pre><code>    GET     请求获取Request-URI所标识的资源
+    POST    在Request-URI所标识的资源后附加新的数据
+    HEAD    请求获取由Request-URI所标识的资源的响应消息报头
+    PUT     请求服务器存储一个资源，并用Request-URI作为其标识
+    DELETE  请求服务器删除Request-URI所标识的资源
+    TRACE   请求服务器回送收到的请求信息，主要用于测试或诊断
+    CONNECT 保留将来使用
+    OPTIONS 请求查询服务器的性能，或者查询与资源相关的选项和需求
+</code></pre>
+
+<h2 id="upgrade">Upgrade</h2>
+
+<p>HTTP协议 提供了一种特殊的机制，这一机制允许将一个已建立的连接升级成新的、不相容的协议。</p>
+
+<p>通常来说这一机制总是由客户端发起的 （不过也有例外，比如说可以由服务端发起升级到传输层安全协议（TLS））， 服务端可以选择是否要升级到新协议。借助这一技术，连接可以以常用的协议启动（如HTTP/1.1），随后再升级到HTTP2甚至是WebSockets.</p>
+
+<p>注意：HTTP/2 明确禁止使用此机制，这个机制只属于HTTP/1.1</p>
+
+<p>为了更方便地部署新协议，HTTP/1.1 引入了 Upgrade 机制，它使得客户端和服务端之间可以借助已有的 HTTP 语法升级到其它协议。</p>
+
+<p>要发起 HTTP/1.1 协议升级，客户端必须在请求头部中指定这两个字段：</p>
+
+<pre><code>Connection: Upgrade
+Upgrade: protocol-name[/protocol-version]
+</code></pre>
+
+<p>客户端通过 Upgrade 头部字段列出所希望升级到的协议和版本，多个协议之间用英文逗号和空格（0x2C, 0x20）隔开。除了这两个字段之外，一般每种新协议还会要求客户端发送额外的新字段</p>
+
+<p>如果服务端不同意升级或者不支持 Upgrade 所列出的协议，直接忽略即可（当成 HTTP/1.1 请求，以 HTTP/1.1 响应）；如果服务端同意升级，那么需要这样响应：</p>
+
+<pre><code>HTTP
+HTTP/1.1 101 Switching Protocols
+Connection: upgrade
+Upgrade: protocol-name[/protocol-version]
+
+[... data defined by new protocol ...]
+</code></pre>
+
+<p>可以看到，HTTP Upgrade 响应的状态码是 101，并且响应正文可以使用新协议定义的数据格式。</p>
+
+<p>举例</p>
+
+<p>如果大家之前使用过 WebSocket，应该已经对 HTTP Upgrade 机制有所了解。下面是建立 WebSocket 连接的 HTTP 请求：</p>
+
+<pre><code>GET ws://example.com/ HTTP/1.1
+Connection: Upgrade
+Upgrade: websocket
+Origin: http://example.com
+Sec-WebSocket-Version: 13
+Sec-WebSocket-Key: d4egt7snxxxxxx2WcaMQlA==
+Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits
+</code></pre>
+
+<p>这是服务端同意升级的 HTTP 响应：</p>
+
+<pre><code>HTTP
+HTTP/1.1 101 Switching Protocols
+Connection: Upgrade
+Upgrade: websocket
+Sec-WebSocket-Accept: gczJQPmQ4Ixxxxxx6pZO8U7UbZs=
+</code></pre>
+
+<p>在这之后，客户端和服务端之间就可以使用 WebSocket 协议进行双向数据通讯，跟 HTTP/1.1 没关系了。可以看到，WebSocket 连接的建立就是典型的 HTTP Upgrade 机制。</p>
+
+<p>显然，这个机制也可以用做 HTTP/1.1 到 HTTP/2 的协议升级。例如：</p>
+
+<pre><code>HTTP
+GET / HTTP/1.1
+Host: example.com
+Connection: Upgrade, HTTP2-Settings
+Upgrade: h2c
+HTTP2-Settings: &lt;base64url encoding of HTTP/2 SETTINGS payload&gt;
+</code></pre>
+
+<p>在 HTTP Upgrade 机制中，HTTP/2 的协议名称是 h2c，代表 HTTP/2 ClearText。如果服务端不支持 HTTP/2，它会忽略 Upgrade 字段，直接返回 HTTP/1.1 响应，例如：</p>
+
+<pre><code>HTTP
+HTTP/1.1 200 OK
+Content-Length: 243
+Content-Type: text/html
+
+...
+</code></pre>
+
+<p>如果服务端支持 HTTP/2，那就可以回应 101 状态码及对应头部，并且在响应正文中可以直接使用 HTTP/2 二进制帧：</p>
+
+<pre><code>HTTP
+HTTP/1.1 101 Switching Protocols
+Connection: Upgrade
+Upgrade: h2c
+
+[ HTTP/2 connection ... ]
+</code></pre>
+
+<h2 id="http各版本">http各版本</h2>
+
+<blockquote>
+<p>HTTP/1.1和HTTP/1.0的区别</p>
+</blockquote>
+
+<p>1、新增方法 PUT、PATCH、HEAD、OPTIONS、DELETE 。</p>
+
+<p>2、请求头新增Host字段 用来指定服务器的域名，有个该字段，就可以将请求发往同一台服务器上的不同网站，为虚拟主机的兴起打下了基础。请求消息中如果没有Host头域会报告一个错误（400 Bad Request）。</p>
+
+<p>3、持久连接 HTTP1.1默认使用长连接。即TCP连接默认不关闭，可以被多个请求复用，不像HTTP1.0需要声明Connection: keep-alive。当连接一段时间未使用时，则自动关闭。</p>
+
+<p>4、管道机制 HTTP1.1引入管道机制（pipelining）。即在同一个TCP连接里面，客户端可以同时发送多个请求，不过服务器还是按照顺序，先响应A请求，完成后再响应B请求。以前是在同一个TCP连接中，先发送A请求，等服务做出响应后，再发送B请求。（如果A需要处理很长时间，则会阻塞，HTTP/2 能解决这个问题）</p>
+
+<p>5、响应头新增Content-Length字段 由于一个TCP连接可以传送多个响应，所以需要该字段来声明本次响应的数据长度来区分数据包是属于哪一个响应的。</p>
+
+<p>6、缓存处理 在HTTP1.0中主要使用header里的If-Modified-Since,Expires来做为缓存判断的标准，HTTP1.1则引入了更多的缓存控制策略例如Entity tag，If-Unmodified-Since, If-Match, If-None-Match等更多可供选择的缓存头来控制缓存策略。</p>
+
+<p>7、带宽优化及网络连接的使用 HTTP1.0中，存在一些浪费带宽的现象，例如客户端只是需要某个对象的一部分，而服务器却将整个对象送过来了，并且不支持断点续传功能，HTTP1.1则在请求头引入了range头域，它允许只请求资源的某个部分，即返回码是206（Partial Content），这样就方便了开发者自由的选择以便于充分利用带宽和连接。</p>
+
+<p>8、错误通知的管理 在HTTP1.1中新增了24个错误状态响应码，如409（Conflict）表示请求的资源与资源的当前状态发生冲突；410（Gone）表示服务器上的某个资源被永久性的删除。</p>
+
+<blockquote>
+<p>HTTP/2和HTTP/1.1的区别</p>
+</blockquote>
+
+<p>1、二进制协议 HTTP/1.1的头信息是文本格式，数据体可以是文本，也可以是二进制。HTTP/2的头信息和数据体均为二进制，并且统称为“帧（frame）“：头信息帧和数据帧。</p>
+
+<p>2、头信息压缩 HTTP是无状态协议，每次请求都要带上头信息，请求的很多字段都是重复的，会浪费很多带宽。HTTP/2 对这一点做了优化，引入了头信息压缩机制（header compression）。一方面，头信息使用gzip或compress压缩后再发送；另一方面，客户端和服务器同时维护一张头信息表，所有字段都会存入这个表，生成一个索引号，以后就不发送同样字段了，只发送索引号，这样就提高速度了。</p>
+
+<p>3、多路复用 即在一个连接里，客户端可以同时发送多个请求，服务器可以同时发送多个响应，而且不用按照顺序一一对应，这样就避免了“队头阻塞”。
+举例来说，在一个TCP连接里面，服务器同时收到了A请求和B请求，于是先回应A请求，结果发现处理过程非常耗时，于是就发送A请求已经处理好的部分， 接着回应B请求，完成后，再发送A请求剩下的部分。</p>
+
+<pre><code>http1.0 没有keep_alive 每次请求都要建立连接，依次请求处理
+http1.1 keep_alive 每次请求都使用同一个长连接，虽然不用建立连接来，但是依然串行依次请求处理，一个阻塞可能整个请求队列就阻塞了。
+http2 使用多路复用  HTTP/2引入二进制数据帧和流的概念，其中帧对数据进行顺序标识，这样浏览器收到数据之后，就可以按照序列对数据进行合并，而不会出现合并后数据错乱的情况。就不会阻塞了，可以并行的处理问题，处理完就进行响应。
+</code></pre>
+
+<p>4、数据流 HTTP/2 将每个请求或回应的所有数据包，称为一个数据流（stream）。每个数据流都有一个独一无二的编号。数据包发送的时候，都必须标记数据流ID，用来区分它属于哪个数据流。另外还规定，客户端发出的数据流，ID一律为奇数，服务器发出的，ID为偶数。</p>
+
+<p>数据流发送到一半的时候，客户端和服务器都可以发送信号（RST_STREAM帧），取消这个数据流。1.1版取消数据流的唯一方法，就是关闭TCP连接。这就是说，HTTP/2 可以取消某一次请求，同时保证TCP连接还打开着，可以被其他请求使用。</p>
+
+<p>客户端还可以指定数据流的优先级。优先级越高，服务器就会越早回应。</p>
+
+<p>5、服务器推送 常见场景是客户端请求一个网页，这个网页里面包含很多静态资源。正常情况下，客户端必须收到网页后，解析HTML源码，发现有静态资源，再发出静态资源请求。其实，服务器可以预期到客户端请求网页后，很可能会再请求静态资源，所以就主动把这些静态资源随着网页一起发给客户端了。</p>
+
+<p>HTTP/2 更简单,高效,强大.它在传输层解决了以前我们HTTP1.x中一直存在的问题.使用它可以优化我们的应用。但是还没有大规模使用，目前使用最多的还是http1.1。</p>
+
+<blockquote>
+<p>HTTP/3</p>
+</blockquote>
+
+<p>HTTP/3就是http/2使用底层的quic协议进行通信，底层quic其实就是使用UDP协议实现的。</p>
+
+<h1 id="应用">应用</h1>
+
+<blockquote>
+<p>背压</p>
+</blockquote>
+
+<p>在数据流从上游生产者向下游消费者传输的过程中，上游生产速度大于下游消费速度，导致下游的 Buffer 溢出，这种现象就叫做 Backpressure 出现。需要强调的是：这句话的重点不在于「上游生产速度大于下游消费速度」，而在于「Buffer 溢出」</p>
+
+<blockquote>
+<p>如何判断一个请求是http请求，只要数据流的前三位属于下面的就是</p>
+</blockquote>
+
+<pre><code>    // From https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods
+    var httpHeadBytes = map[string]struct{}{
+        &quot;GET&quot;: struct{}{},
+        &quot;HEA&quot;: struct{}{},
+        &quot;POS&quot;: struct{}{},
+        &quot;PUT&quot;: struct{}{},
+        &quot;DEL&quot;: struct{}{},
+        &quot;CON&quot;: struct{}{},
+        &quot;OPT&quot;: struct{}{},
+        &quot;TRA&quot;: struct{}{},
+        &quot;PAT&quot;: struct{}{},
+    }
+</code></pre>
+
+<blockquote>
+<p>持久连接</p>
+</blockquote>
+
+<p>Connection: keep-alive 开启长连接，以后这个客户端的请求都是走这个连接，http1。1默认就开启了。</p>
+
+<p>虽然保持了长连接的机制,避免了连接的不断重新建立，但是还是有很多的问题</p>
+
+<p>1、如何判断连接是否还需要</p>
+
+<pre><code>Connection: keep-alive;timeout=5;max=100
+</code></pre>
+
+<p>可以这样设置，表示保持5s，最多可以处理100次请求。</p>
+
+<p>2、长连接的情况下何时表示传输结束了</p>
+
+<pre><code>1、可以根据报文中的length来判断
+2、如果动态文件没有length，本身就是分块传输的，就需要根据chunked编码来判断，最后一个编码为空
+</code></pre>
+
+<blockquote>
+<p>断点续传</p>
+</blockquote>
+
+<p>HTTP1.1协议（RFC2616）中定义了断点续传相关的HTTP头 Range和Content-Range字段，一个最简单的断点续传实现大概如下：</p>
+
+<p>1.客户端下载一个1024K的文件，已经下载了其中512K</p>
+
+<p>2.网络中断，客户端请求续传，因此需要在HTTP头中申明本次需要续传的片段：</p>
+
+<pre><code>Range:bytes=512000-
+</code></pre>
+
+<p>这个头通知服务端从文件的512K位置开始传输文件</p>
+
+<p>3.服务端收到断点续传请求，从文件的512K位置开始传输，并且在HTTP头中增加：</p>
+
+<pre><code>Content-Range:bytes 512000-/1024000
+</code></pre>
+
+<p>并且此时服务端返回的HTTP状态码应该是206，而不是200。</p>
+
+<p>但是在实际场景中，会出现一种情况，即在终端发起续传请求时，URL对应的文件内容在服务端已经发生变化，此时续传的数据肯定是错误的。如何解决这个问题了？显然此时我们需要有一个标识文件唯一性的方法。在RFC2616中也有相应的定义，比如实现Last-Modified来标识文件的最后修改时间，这样即可判断出续传文件时是否已经发生过改动。同时RFC2616中还定义有一个ETag的头，可以使用ETag头来放置文件的唯一标识，比如文件的MD5值。</p>
+
+<p>终端在发起续传请求时应该在HTTP头中申明If-Match 或者If-Modified-Since 字段，帮助服务端判别文件变化。</p>
+
+<p>另外RFC2616中同时定义有一个If-Range头，终端如果在续传是使用If-Range。If-Range中的内容可以为最初收到的ETag头或者是Last-Modfied中的最后修改时候。服务端在收到续传请求时，通过If-Range中的内容进行校验，校验一致时返回206的续传回应，不一致时服务端则返回200回应，回应的内容为新的文件的全部数据。</p>
+
+<blockquote>
+<p>http的幂等性</p>
+</blockquote>
+
+<p>幂等性是数学中的一个概念，表达的是N次变换与1次变换的结果相同</p>
+
+<p>HTTP方法的幂等性是指一次和多次请求某一个资源应该具有同样的副作用</p>
+
+<p>所以get，put，delete都是具有幂等性的，操作n次和第一次操作一样都是一样的结果，post是不具有幂等性的，多次操作会有不同的结果</p>
+
+<p>幂等设计可以解决分布式的问题，就是多次操作一样就不用担心事务的问题了。</p>
+
+<h1 id="附录详解">附录详解</h1>
+
+<h2 id="http-header">http header</h2>
+
+<p>使用header字段是为了给浏览器和服务器提供报文主题大小、所使用的语言、认证信息等。</p>
+
+<p>1、首部字段结构</p>
+
+<pre><code>首部字段名: 字段值
+</code></pre>
+
+<p>HTTP 首部字段是由首部字段名和字段值构成的，中间用冒号 : 分隔。</p>
+
+<p>思考：如果 HTTP 首部字段重复了会如何?</p>
+
+<p>答：这种情况的处理操作尚未被明确，根据浏览器内部处理逻辑的不同，结构可能并不一致。有些可能会有限处理第一次出现的首部字段，有些可能会优先处理最后出现的字段。</p>
+
+<p>2、4种 HTTP 首部字段类型</p>
+
+<p>HTTP 首部字段根据实际用途被分为以下4种类型。</p>
+
+<pre><code>类型          作用
+通用首部字段  请求报文和响应报文两方都会使用的首部。
+请求首部字段  从客户端向服务器发送请求报文时使用的首部。补充了请求的附加内容、客户端信息、响应内容相关优先级等信息。
+响应首部字段  从服务器向客户端返回响应报文时使用的首部。补充了响应的附加内容，也会要求客户端附加额外的内容信息。
+实体首部字段  针对请求报文和响应报文的实体部分使用的首部。补充了资源内容更新时间等与实体有关的信息。
+</code></pre>
+
+<p>3、HTTP/1.1 首部字段一览</p>
+
+<p>1.通用首部字段</p>
+
+<pre><code>首部字段名   说明
+Cache-Control   控制缓存的行为
+Connection  逐跳首部、连接的管理
+Date    创建报文的日期时间
+Pragma  报文指令
+Trailer 报文末端的首部一览
+Transfer-Encoding   指定报文主体的传输编码方式
+Upgrade 升级为其他协议
+Via 代理服务器的相关信息
+Warning
+
+
+ Remote Address  请求的远程地址
+ Request URL     请求的域名
+ Request Method  页面请求的方式：GET/POST
+ Status Code     请求的返回状态
+</code></pre>
+
+<p>2.请求首部字段</p>
+
+<pre><code>首部字段名   说明
+Accept  用户代理可处理的媒体类型
+Accept-Charset  优先的字符集
+Accept-Encoding 优先的内容编码
+Accept-Language 优先的语言
+Authorization   Web 认证信息
+Expect  期待服务器的特定行为
+From    用户的电子邮箱地址
+Host    请求资源所在服务器
+If-Match    比较实体标记（ETag）
+If-Modified-Since   比较资源的更新时间
+If-None-Match   比较实体标记（与 If-Match 相反）
+If-Range    资源未更新时发送实体 Byte 的范围请求
+If-Unmodified-Since 比较资源的更新时间（与 If-Modified-Since 相反）
+Max-Forwards    最大传输逐跳数
+Proxy-Authorization 代理服务器要求客户端的认证信息
+Range   实体的字节范围请求
+Referer 对请求中 URI 的原始获取方
+TE  传输编码的优先级
+User-Agent  HTTP 客户端程序的信息
+</code></pre>
+
+<p>3.响应首部字段</p>
+
+<pre><code>首部字段名   说明
+Accept-Ranges   是否接受字节范围请求
+Age 推算资源创建经过时间
+ETag    资源的匹配信息
+Location    令客户端重定向至指定URI
+Proxy-Authenticate  代理服务器对客户端的认证信息
+Retry-After 对再次发起请求的时机要求
+Server  HTTP 服务器的安装信息
+Vary    代理服务器缓存的管理信息
+WWW-Authenticate    服务器对客户端的认证信息
+</code></pre>
+
+<p>4.实体首部字段</p>
+
+<pre><code>首部字段名   说明
+Allow   资源可支持的 HTTP 方法
+Content-Encoding    实体主体适用的编码方式
+Content-Language    实体主体的自然语言
+Content-Length  实体主体的大小（单位：字节）
+Content-Location    替代对应资源的 URI
+Content-MD5 实体主体的报文摘要
+Content-Range   实体主体的位置范围
+Content-Type    实体主体的媒体类型
+Expires 实体主体过期的日期时间
+Last-Modified   资源的最后修改日期时间
+</code></pre>
+
+<p>5、扩展字段</p>
+
+<pre><code>X-Forwarded-For
+</code></pre>
+
+<p>如果一个 HTTP 请求到达服务器之前，经过了三个代理 Proxy1、Proxy2、Proxy3，IP 分别为 IP1、IP2、IP3，用户真实 IP 为 IP0，那么按照 XFF 标准，服务端最终会收到以下信息：</p>
+
+<pre><code>X-Forwarded-For: IP0, IP1, IP2
+</code></pre>
+
+<p>Proxy3 直连服务器，它会给 XFF 追加 IP2，表示它是在帮 Proxy2 转发请求。列表中并没有 IP3，IP3 可以在服务端通过 Remote Address 字段获得。我们知道 HTTP 连接基于 TCP 连接，HTTP 协议中没有 IP 的概念，Remote Address 来自 TCP 连接，表示与服务端建立 TCP 连接的设备 IP，在这个例子里就是 IP3</p>
+
+<p>6、End-to-end 首部和 Hop-by-hop 首部</p>
+
+<p>HTTP 首部字段将定义成缓存代理和非缓存代理的行为，分成 2 种类型。</p>
+
+<p>端到端首部（End-to-end Header）</p>
+
+<p>此类别中的首部会转发给请求/响应对应的最终接收目标，且必须保存在由缓存生成的响应中，另外规定它必须被转发。</p>
+
+<p>逐跳首部（Hop-by-hop Header）</p>
+
+<p>此类别中的首部只对单次转发有效，会因通过缓存或代理而不再转发。 HTTP/1.1 和之后的版本中，如果要使用逐跳首部，需要提供 Connection 首部字段。</p>
+
+<p>下面列举了HTTP/1.1中的逐跳首部字段。除这8个首部字段之外，其他所有字段都属于端到端首部。</p>
+
+<p>逐跳首部字段</p>
+
+<pre><code>Connection
+Keep-Alive
+Proxy-Authenticate
+Proxy-Authorization
+Trailer
+TE
+Transfer-Encoding
+Upgrade
+</code></pre>
+
+<h2 id="http-request-header">HTTP Request header</h2>
+
+<p>　　
+使用Fiddler 能很方便的查看Reques header, 点击Inspectors tab -&gt; Request tab -&gt; headers。</p>
+
+<p>header 有很多，比较难以记忆，我们也按照Fiddler那样把header 进行分类，这样比较清晰也容易记忆。</p>
+
+<p>　　
+Cache 头域</p>
+
+<p>　　If-Modified-Since
+　　作用： 把浏览器端缓存页面的最后修改时间发送到服务器去，服务器会把这个时间与服务器上实际文件的最后修改时间进行对比。如果时间一致，那么返回304，客户端就直接使用本地缓存文件。如果时间不一致，就会返回200和新的文件内容。客户端接到之后，会丢弃旧文件，把新文件缓存起来，并显示在浏览器中。
+　　例如：If-Modified-Since: Thu, 09 Feb 2012 09:07:57 GMT</p>
+
+<p>　　If-None-Match
+　　作用: If-None-Match和ETag一起工作，工作原理是在HTTP Response中添加ETag信息。 当用户再次请求该资源时，将在HTTP Request 中加入If-None-Match信息(ETag的值)。如果服务器验证资源的ETag没有改变（该资源没有更新），将返回一个304状态告诉客户端使用本地缓存文件。否则将返回200状态和新的资源和Etag.  使用这样的机制将提高网站的性能
+　　例如: If-None-Match: &ldquo;03f2b33c0bfcc1:0&rdquo;</p>
+
+<p>　　Pragma
+　　作用： 防止页面被缓存， 在HTTP/1.1版本中，它和Cache-Control:no-cache作用一模一样
+　　Pargma只有一个用法， 例如： Pragma: no-cache
+　　注意: 在HTTP/1.0版本中，只实现了Pragema:no-cache, 没有实现Cache-Control
+　　Cache-Control
+　　作用: 这个是非常重要的规则。 这个用来指定Response-Request遵循的缓存机制。各个指令含义如下
+　　Cache-Control:Public   可以被任何缓存所缓存（）
+　　Cache-Control:Private     内容只缓存到私有缓存中
+　　Cache-Control:no-cache  所有内容都不会被缓存
+　　还有其他的一些用法， 我没搞懂其中的意思， 请大家参考其他的资料</p>
+
+<p>Client 头域</p>
+
+<p>　　Accept
+　　作用： 浏览器端可以接受的媒体类型,
+　　例如：  Accept: text/html  代表浏览器可以接受服务器回发的类型为 text/html  也就是我们常说的html文档,
+　　如果服务器无法返回text/html类型的数据，服务器应该返回一个406错误(non acceptable)
+　　通配符 * 代表任意类型
+　　例如  Accept: <em>/</em>  代表浏览器可以处理所有类型，(一般浏览器发给服务器都是发这个)
+　　Accept-Encoding：
+　　作用： 浏览器申明自己接收的编码方法，通常指定压缩方法，是否支持压缩，支持什么压缩方法（gzip，deflate），（注意：这不是只字符编码）;
+　　例如： Accept-Encoding: gzip, deflate
+　　Accept-Language
+　　作用： 浏览器申明自己接收的语言。
+　　语言跟字符集的区别：中文是语言，中文有多种字符集，比如big5，gb2312，gbk等等；
+　　例如： Accept-Language: en-us
+　　User-Agent
+　　作用：告诉HTTP服务器， 客户端使用的操作系统和浏览器的名称和版本.
+　　我们上网登陆论坛的时候，往往会看到一些欢迎信息，其中列出了你的操作系统的名称和版本，你所使用的浏览器的名称和版本，这往往让很多人感到很神奇，实际上，服务器应用程序就是从User-Agent这个请求报头域中获取到这些信息User-Agent请求报头域允许客户端将它的操作系统、浏览器和其它属性告诉服务器。
+　　例如： User-Agent: Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 5.1; Trident/4.0; CIBA; .NET CLR 2.0.50727; .NET CLR 3.0.4506.2152; .NET CLR 3.5.30729; .NET4.0C; InfoPath.2; .NET4.0E)
+　　Accept-Charset
+　　作用：浏览器申明自己接收的字符集，这就是本文前面介绍的各种字符集和字符编码，如gb2312，utf-8（通常我们说Charset包括了相应的字符编码方案）；
+　　例如：</p>
+
+<p>Cookie/Login 头域</p>
+
+<p>　　Cookie:
+　　作用： 最重要的header, 将cookie的值发送给HTTP 服务器</p>
+
+<p>Entity头域</p>
+
+<p>　　Content-Length
+　　作用：发送给HTTP服务器数据的长度。
+　　例如： Content-Length: 38
+　　Content-Type
+　　作用：
+　　例如：Content-Type: application/x-www-form-urlencoded
+　　Miscellaneous 头域
+　　Referer:
+　　作用： 提供了Request的上下文信息的服务器，告诉服务器我是从哪个链接过来的，比如从我主页上链接到一个朋友那里，他的服务器就能够从HTTP Referer中统计出每天有多少用户点击我主页上的链接访问他的网站。
+　　例如: Referer:<a href="http://translate.google.cn/?hl=zh-cn&amp;tab=wT">http://translate.google.cn/?hl=zh-cn&amp;tab=wT</a></p>
+
+<p>Transport 头域</p>
+
+<p>　　Connection
+　　例如：　Connection: keep-alive   当一个网页打开完成后，客户端和服务器之间用于传输HTTP数据的TCP连接不会关闭，如果客户端再次访问这个服务器上的网页，会继续使用这一条已经建立的连接
+　　例如：  Connection: close  代表一个Request完成后，客户端和服务器之间用于传输HTTP数据的TCP连接会关闭， 当客户端再次发送Request，需要重新建立TCP连接。
+　　Host（发送请求时，该报头域是必需的）
+　　作用: 请求报头域主要用于指定被请求资源的Internet主机和端口号，它通常从HTTP URL中提取出来的
+　　例如: 我们在浏览器中输入：<a href="http://www.guet.edu.cn/index.html">http://www.guet.edu.cn/index.html</a>
+　　浏览器发送的请求消息中，就会包含Host请求报头域，如下：
+　　Host：<a href="http://www.guet.edu.cn">http://www.guet.edu.cn</a>
+　　此处使用缺省端口号80，若指定了端口号，则变成：Host：指定端口号</p>
+
+<h2 id="http-response-header">HTTP Response header</h2>
+
+<p>同样使用Fiddler 查看Response header, 点击Inspectors tab -&gt;Response tab-&gt; headers。</p>
+
+<p>　　我们也按照Fiddler那样把header 进行分类，这样比较清晰也容易记忆。</p>
+
+<p>Cache头域</p>
+
+<p>　　Date
+　　作用:  生成消息的具体时间和日期
+　　例如：　Date: Sat, 11 Feb 2012 11:35:14 GMT
+　　Expires
+　　作用: 浏览器会在指定过期时间内使用本地缓存
+　　例如: Expires: Tue, 08 Feb 2022 11:35:14 GMT
+　　Vary
+　　作用：
+　　例如: Vary: Accept-Encoding
+　　Cookie/Login 头域
+　　P3P
+　　作用: 用于跨域设置Cookie, 这样可以解决iframe跨域访问cookie的问题
+　　例如: P3P: CP=CURa ADMa DEVa PSAo PSDo OUR BUS UNI PUR INT DEM STA PRE COM NAV OTC NOI DSP COR
+　　Set-Cookie
+　　作用： 非常重要的header, 用于把cookie 发送到客户端浏览器， 每一个写入cookie都会生成一个Set-Cookie.
+　　例如: Set-Cookie: sc=4c31523a; path=/; domain=.acookie.taobao.com</p>
+
+<p>Entity头域</p>
+
+<p>　　ETag
+　　作用:  和If-None-Match 配合使用。 （实例请看上节中If-None-Match的实例）
+　　例如: ETag: &ldquo;03f2b33c0bfcc1:0&rdquo;
+　　Last-Modified:
+　　作用： 用于指示资源的最后修改日期和时间。（实例请看上节的If-Modified-Since的实例）
+　　例如: Last-Modified: Wed, 21 Dec 2011 09:09:10 GMT
+　　Content-Type
+　　作用：WEB服务器告诉浏览器自己响应的对象的类型和字符集,
+　　例如:
+　　Content-Type: text/html; charset=utf-8
+　　Content-Type:text/html;charset=GB2312
+　　Content-Type: image/jpeg
+　　Content-Length
+　　指明实体正文的长度，以字节方式存储的十进制数字来表示。在数据下行的过程中，Content-Length的方式要预先在服务器中缓存所有数据，然后所有数据再一股脑儿地发给客户端。
+　　例如: Content-Length: 19847
+　　Content-Encoding
+　　WEB服务器表明自己使用了什么压缩方法（gzip，deflate）压缩响应中的对象。
+　　例如：Content-Encoding：gzip
+　　Content-Language
+　　作用： WEB服务器告诉浏览器自己响应的对象的语言者
+　　例如： Content-Language:da</p>
+
+<p>Miscellaneous 头域</p>
+
+<p>　　Server:
+　　作用：指明HTTP服务器的软件信息
+　　例如:Server: Microsoft-IIS/7.5
+　　X-AspNet-Version:
+　　作用：如果网站是用ASP.NET开发的，这个header用来表示ASP.NET的版本
+　　例如: X-AspNet-Version: 4.0.30319
+　　X-Powered-By:
+　　作用：表示网站是用什么技术开发的
+　　例如： X-Powered-By: ASP.NET</p>
+
+<p>Transport头域</p>
+
+<p>　　Connection
+　　例如：　Connection: keep-alive   当一个网页打开完成后，客户端和服务器之间用于传输HTTP数据的TCP连接不会关闭，如果客户端再次访问这个服务器上的网页，会继续使用这一条已经建立的连接
+　　例如：  Connection: close  代表一个Request完成后，客户端和服务器之间用于传输HTTP数据的TCP连接会关闭， 当客户端再次发送Request，需要重新建立TCP连接。</p>
+
+<p>Location头域</p>
+
+<p>　　Location
+　　作用： 用于重定向一个新的位置， 包含新的URL地址
+　　实例请看304状态实例</p>
+
+<p>HTTP协议是无状态的和Connection: keep-alive的区别</p>
+
+<p>无状态是指协议对于事务处理没有记忆能力，服务器不知道客户端是什么状态。从另一方面讲，打开一个服务器上的网页和你之前打开这个服务器上的网页之间没有任何联系。</p>
+
+<p>HTTP是一个无状态的面向连接的协议，无状态不代表HTTP不能保持TCP连接，更不能代表HTTP使用的是UDP协议（无连接）。</p>
+
+<p>从HTTP/1.1起，默认都开启了Keep-Alive，保持连接特性，简单地说，当一个网页打开完成后，客户端和服务器之间用于传输HTTP数据的TCP连接不会关闭，如果客户端再次访问这个服务器上的网页，会继续使用这一条已经建立的连接。</p>
+
+<p>Keep-Alive不会永久保持连接，它有一个保持时间，可以在不同的服务器软件（如Apache）中设定这个时间。</p>
+
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/computerbase/network/http/">https://kingjcy.github.io/post/computerbase/network/http/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/network/">
+                            <i class="fa fa-tags"></i>
+                            network
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/http/">
+                            <i class="fa fa-tags"></i>
+                            http
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network/">云计算K8s组件系列（九）---- 网络</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月10日)</span></li><li id="li-rels"><a href="/post/golang/go-net-http-pporf/">golang使用系列---- net/http/pprof</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年12月26日)</span></li><li id="li-rels"><a href="/post/golang/go-net-http/">Golang使用系列---- Net/Http 应用层</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年09月26日)</span></li><li id="li-rels"><a href="/post/computerbase/network/tc/">计算机网络系列（十七）---- tc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/route/">计算机网络系列（十六）---- route</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/rpc/rpc/">计算机网络系列（十三）---- rpc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年02月19日)</span></li><li id="li-rels"><a href="/post/computerbase/network/webserver/">计算机网络系列（十五）---- webserver</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年05月01日)</span></li><li id="li-rels"><a href="/post/computerbase/network/websocket/">计算机网络系列（六）---- websocket</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年03月01日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/base/docker/docker-network/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本概念">基本概念</a>
+<ul>
+<li><a href="#各种协议">各种协议</a></li>
+<li><a href="#web">web</a></li>
+<li><a href="#web服务器-浏览器-代理服务器">Web服务器，浏览器，代理服务器</a></li>
+</ul></li>
+<li><a href="#http">http</a>
+<ul>
+<li><a href="#什么是http协议">什么是HTTP协议</a></li>
+<li><a href="#url详解">URL详解</a></li>
+<li><a href="#http消息的结构">HTTP消息的结构</a></li>
+<li><a href="#状态码">状态码</a></li>
+<li><a href="#get和post方法的区别">Get和Post方法的区别</a></li>
+<li><a href="#upgrade">Upgrade</a></li>
+<li><a href="#http各版本">http各版本</a></li>
+</ul></li>
+<li><a href="#应用">应用</a></li>
+<li><a href="#附录详解">附录详解</a>
+<ul>
+<li><a href="#http-header">http header</a></li>
+<li><a href="#http-request-header">HTTP Request header</a></li>
+<li><a href="#http-response-header">HTTP Response header</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

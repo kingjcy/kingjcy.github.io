@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="UDP是User Datagram Protocol的简称，中文名是用户数据报协议，是OSI参考模型中的传输层协议，它是一种无连接的传输层协议，提供面向事务的简单不可靠信息传送服务。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="计算机网络系列（四）---- udp - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    计算机网络系列（四）---- udp
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2016年01月21日 
+                </div>
+                <h1 class="post-title">计算机网络系列（四）---- udp</h1>
+            </header>
+
+            <div class="post-content">
+                <p>UDP是User Datagram Protocol的简称，中文名是用户数据报协议，是OSI参考模型中的传输层协议，它是一种无连接的传输层协议，提供面向事务的简单不可靠信息传送服务。</p>
+
+<h1 id="基本概念">基本概念</h1>
+
+<blockquote>
+<p>特点</p>
+</blockquote>
+
+<p>UDP的主要特点是：</p>
+
+<ul>
+<li>1.UDP是无连接的，即发送数据之前不需要建立连接，因此减少了开销和发送数据之前的时延。</li>
+<li>2.UDP使用尽最大努力交付，即不保证可靠交付，因此主机不需要维持复杂的连接状态表</li>
+<li>3.UDP是面向报文的。发送方的UDP对应程序交下来的报文，在添加首部后就向下交付IP层。UDP对应用层交下来的报文既不合并也不拆分，而是保留这些报文的边界。</li>
+<li>4.UDP没有拥塞控制</li>
+<li>5.UDP支持一对一，一对多，多对一和多对多交换通信。</li>
+<li>6.UDP的首部开销小，只有8个字节，比TCP的20个字节的首部要短。</li>
+</ul>
+
+<blockquote>
+<p>协议</p>
+</blockquote>
+
+<p><img src="/media/network/udp/udp" alt="" /></p>
+
+<p>UDP报头由4个部分组成：</p>
+
+<p>1、各16bit的来源端口和目的端口用来标记发送和接受的应用进程。因为UDP不需要应答，所以来源端口是可选的，如果来源端口不用，那么置为零。</p>
+
+<p>2、在目的端口后面是长度固定的以字节为单位的报文长度域，用来指定UDP数据报包括数据部分的长度，长度最小值为8byte。</p>
+
+<p>3、首部剩下地16bit是用来对首部和数据部分一起做校验和（Checksum）的，这部分是可选的，但在实际应用中一般都使用这一功能。</p>
+
+<p>4、UDP和TCP的校验和都覆盖到了他们的首部和数据，而之前介绍的IP首部的校验和只覆盖了IP首部。</p>
+
+<blockquote>
+<p>为什么要封装tcp/udp协议</p>
+</blockquote>
+
+<p>IP协议中并没有端口(port)的概念。IP协议进行的是IP地址到IP地址的传输，这意味者两台计算机之间的对话。但每台计算机中需要有多个通信通道，并将多个通信通道分配给不同的进程使用，一个端口就代表了这样的一个通信通道。</p>
+
+<p>所以端口(port)是伴随着传输层诞生的概念，有了ip和port我们就可以构建socket来进行编程通信。</p>
+
+<h1 id="基本使用">基本使用</h1>
+
+<p>1.需要资源少，在网络情况比较好的内网，或者对于丢包不敏感的应用。如DHCP协议就是基于UDP的。一般的获取IP地址都是内网请求，而且一次获取不到IP又没事。</p>
+
+<p>2.不需要一对一沟通，建立连接，而是可以广播的应用。DHCP就是一种广播的形式。VXLAN也是需要用到组播，也是基于UDP协议的。</p>
+
+<p>3.需要处理速度快，时延低，可以容忍少数丢包，但是要求即便网络拥塞，也毫不退缩，一往无前的时候。</p>
+
+<p>4.QUIC是Google提出的一种基于UDP改进的通信协议，其目的是降低网络通信的延迟，提供更好的用户互动体验。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/computerbase/network/udp/">https://kingjcy.github.io/post/computerbase/network/udp/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/network/">
+                            <i class="fa fa-tags"></i>
+                            network
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/udp/">
+                            <i class="fa fa-tags"></i>
+                            udp
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/computerbase/network/http/">计算机网络系列（八）---- Http</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network/">云计算K8s组件系列（九）---- 网络</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月10日)</span></li><li id="li-rels"><a href="/post/computerbase/network/tc/">计算机网络系列（十七）---- tc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/route/">计算机网络系列（十六）---- route</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/rpc/rpc/">计算机网络系列（十三）---- rpc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年02月19日)</span></li><li id="li-rels"><a href="/post/computerbase/network/webserver/">计算机网络系列（十五）---- webserver</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年05月01日)</span></li><li id="li-rels"><a href="/post/computerbase/network/websocket/">计算机网络系列（六）---- websocket</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年03月01日)</span></li><li id="li-rels"><a href="/post/computerbase/network/ssl/">计算机网络系列（十一）---- tls/ssl</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年01月11日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/computerbase/network/websocket/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/distributed/store/fs/nfs/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#基本使用">基本使用</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

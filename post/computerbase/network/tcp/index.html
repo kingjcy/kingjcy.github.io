@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="传输控制协议（TCP，Transmission Control Protocol）是一种面向连接的、可靠的、基于字节流的传输层通信协议。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="计算机网络系列（三）---- tcp - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    计算机网络系列（三）---- tcp
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2015年09月29日 
+                </div>
+                <h1 class="post-title">计算机网络系列（三）---- tcp</h1>
+            </header>
+
+            <div class="post-content">
+                <p>传输控制协议（TCP，Transmission Control Protocol）是一种面向连接的、可靠的、基于字节流的传输层通信协议。</p>
+
+<h1 id="基本概念">基本概念</h1>
+
+<blockquote>
+<p>tcp连接的特点</p>
+</blockquote>
+
+<pre><code>提供面向连接的，可靠的字节流服务（流式服务，TCP模块先将这些数据放入TCP发送缓冲区中。当TCP模块真正开始发送数据的时候，发送缓冲区中这些等待发送的数据可能被封装成一个或多个TCP报文段发出。）
+tcp提供可靠的传输服务
+tcp可以全双工通信也可以半双工通信
+tcp连接是基于套接字的点对点的（IP：port）
+</code></pre>
+
+<blockquote>
+<p>tcp的可靠性如何保证</p>
+</blockquote>
+
+<pre><code>分块传送：数据被分割成最合适的数据块（UDP的数据报长度不变）
+等待确认：通过定时器等待接收端发送确认请求，收不到确认则重发
+确认回复：收到确认后发送确认回复(不是立即发送，通常推迟几分之一秒)
+数据校验：保持首部和数据的校验和，检测数据传输过程有无变化
+乱序排序：接收端能重排序数据，以正确的顺序交给应用端
+重复丢弃：接收端能丢弃重复的数据包
+流量缓冲：两端有固定大小的缓冲区（滑动窗口），防止速度不匹配丢数据
+</code></pre>
+
+<blockquote>
+<p>tcp报文首部格式</p>
+</blockquote>
+
+<p><img src="/media/network/tcp/tcp-2.JPG" alt="" /></p>
+
+<p>tcp首部数据通常包含20个字节（不包括任选字段）</p>
+
+<ul>
+<li><p>第1-2两个字节：源端口号</p></li>
+
+<li><p>第3-4两个字节：目的端口号</p>
+
+<p>端口号的分配：</p>
+
+<pre><code>知名端口号一般位于：1 --- 255 之间
+256 --- 1023的端口号，通常是由Unix系统占用（系统占用）
+1024 ---5000 是大多数TCP、IP实现的临时分配
+大于5000的一般是给其他服务预留的（Internet上并不常用的服务）
+</code></pre>
+
+<p>源端口号+ip首部中的源ip地址+目的端口号+ip首部中的目的ip地址，唯一的确定了一个tcp连接。对应编码级别的socket。</p></li>
+
+<li><p>第5-8四个字节：32位序号。tcp提供全双工服务，两端都有各自的序号。编号：解决网络包乱序的问题</p>
+
+<p>序号如何生成：不能是固定写死的，否则断网重连时序号重复使用会乱套。tcp基于时钟生成一个序号，每4微秒加一，到2^32-1时又从0开始</p></li>
+
+<li><p>第9-12四个字节：32位确认序列号。上次成功收到数据字节序号加1，ack为1才有效。确认号：解决丢包的问题</p>
+
+<p>占 4 个字节，表示期望收到对方下一个报文段的序号值。 TCP 的可靠性，是建立在「每一个数据报文都需要确认收到」的基础之上的。</p>
+
+<p>就是说，通讯的任何一方在收到对方的一个报文之后，都要发送一个相对应的「确认报文」，来表达确认收到。 那么，确认报文，就会包含确认号。 例如，通讯的一方收到了第一个 25kb 的报文，该报文的 序号值=0，那么就需要回复一个确认报文，其中的确认号 = 25600.</p></li>
+
+<li><p>第13位字节：首部长度。因为任选字段长度可变</p></li>
+
+<li><p>后面6bite：保留</p></li>
+
+<li><p>随后6bite：标识位。控制各种状态</p>
+
+<p>标识位说明</p>
+
+<pre><code>URG：为1时，表示紧急指针有效
+ACK：确认标识，连接建立成功后，总为1。为1时确认号有效
+PSH：接收方应尽快把这个报文交给应用层tcp
+RST：复位标识，重建连接
+SYN：建立新连接时，该位为0
+FIN：关闭连接标识
+</code></pre></li>
+
+<li><p>第15-16两个字节：窗口大小。接收端期望接收的字节数。解决流量控制的问题</p></li>
+
+<li><p>第17-18两个字节：校验和。由发送端计算和存储，由接收端校验。解决数据正确性问题</p></li>
+
+<li><p>第19-20两个字节：紧急指针</p></li>
+
+<li><p>tcp选项格式</p></li>
+</ul>
+
+<p><img src="/media/network/tcp/tcp-3.JPG" alt="" /></p>
+
+<p>每个选项开始是1字节kind字段，说明选项的类型
+kind为0和1的选项，只占一个字节
+其他kind后有一字节len，表示该选项总长度（包括kind和len）
+kind为11，12，13表示tcp事务</p>
+
+<ul>
+<li>数据就是正在发送的数据</li>
+</ul>
+
+<h1 id="基本操作原理">基本操作原理</h1>
+
+<blockquote>
+<p>连接的建立与释放</p>
+</blockquote>
+
+<p><img src="/media/network/tcp/tcp-13.png" alt="" /></p>
+
+<p>1、连接建立的“三次握手”</p>
+
+<pre><code>三次握手流程
+</code></pre>
+
+<p><img src="/media/network/tcp/tcp-4.JPG" alt="" /></p>
+
+<pre><code>1、客户端发送SYN，表明要向服务器建立连接。同时带上序列号ISN
+2、服务器返回ACK（序号为客户端序列号+1）作为确认。同时发送SYN作为应答（SYN的序列号为服务端唯一的序号）
+3、客户端发送ACK确认收到回复（序列号为服务端序列号+1）
+</code></pre>
+
+<p>为什么是三次握手</p>
+
+<pre><code>tcp连接是全双工的，数据在两个方向上能同时传递。
+所以要确保双方，同时能发数据和收数据
+第一次握手：证明了发送方能发数据
+第二次握手：ack确保了接收方能收数据，syn确保了接收方能发数据
+第三次握手：确保了发送方能收数据
+实际上是四个维度的信息交换，不过中间两步合并为一次握手了。
+四次握手浪费，两次握手不能保证“双方同时具备收发功能”
+</code></pre>
+
+<p>2、连接关闭的“四次挥手”</p>
+
+<p>四次握手流程</p>
+
+<p><img src="/media/network/tcp/tcp-5.JPG" alt="" /></p>
+
+<pre><code>1、主动关闭的一方发送FIN，表示要单方面关闭数据的传输
+2、服务端收到FIN后，发送一个ACK作为确认（序列号为收到的序列号+1）
+3、等服务器数据传输完毕，也发送一个FIN标识，表示关闭这个方向的数据传输
+4、客户端回复ACK以确认回复
+</code></pre>
+
+<p>为什么是四次挥手</p>
+
+<pre><code>因为tcp连接是全双工的，数据在两个方向上能同时传递。
+同时tcp支持半关闭（发送一方结束发送还能接收数据的功能）。
+因此每个方向都要单独关闭，且收到关系通知需要发送确认回复
+</code></pre>
+
+<p>为什么要支持半关闭</p>
+
+<pre><code>客户端需要通知服务端，它的数据已经传输完毕，同时仍要接收来自服务端的数据。
+使用半关闭的单连接效率要比使用两个tcp连接更好。
+</code></pre>
+
+<blockquote>
+<p>连接和关闭对应的状态</p>
+</blockquote>
+
+<p><img src="/media/network/tcp/tcp-6.JPG" alt="" /></p>
+
+<p>1、状态说明</p>
+
+<pre><code>服务端等待客户端连接时，处于Listen监听状态
+客户端主动打开请求，发送SYN时处于SYN_SENT发送状态
+客户端收到syn和ack，并回复ack时，处与Established状态等待发送报文
+服务端收到ack确认后，也处于Established状态等待发送报文
+客户端发送fin后，处于fin_wait_1状态
+服务端收到fin并发送ack时，处于close_wait状态
+客户端收到ack确认后，处于fin_wait_2状态
+服务端发送fin后，处于last_ack状态
+客户端收到fin后发送ack，处于time_wait状态
+服务端收到ack后，处于closed状态
+</code></pre>
+
+<p>2、time_wait状态</p>
+
+<p>也称为2MSL等待状态，MSL=Maximum Segment LifetIme，报文段最大生存时间，根据不同的tcp实现自行设定。常用值为30s，1min，2min。linux一般为30s。
+主动关闭的一方发送最后一个ack所处的状态
+这个状态必须维持2MSL等待时间</p>
+
+<p>3、为什么需要time_wait状态，然后等待回收？</p>
+
+<p>设想一个场景，最后这个ack丢失了，接收方没有收到
+这时候接收方会重新发送fin给发送方
+这个等待时间就是为了防止这种情况发生，让发送方重新发送ack
+总结：预留足够的时间给接收端收ack。同时保证，这个连接不会和后续的连接乱套（有些路由器会缓存数据包）</p>
+
+<p>4、这么做的会有什么坏处？</p>
+
+<p>在这2MSL等待时间内，该连接（socket，ip+port）将不能被使用
+很多时候linux上报too many open files，说端口不够用了，就需要检查一些代码里面是不是创建大量的socket连接，而这些socket连接并不是关闭后就立马释放的
+客户端连接服务器的时候，一般不指定客户端的端口。因为客户端关闭然后立马启动，按照理论来说是会提示端口被占用。同样的道理，主动关闭服务器，2MSL时间内立马启动是会报端口被占用的错误
+多并发的短连接情况下，会出现大量的Time_wait状态。通过这两个参数可以解决问题，但是它违背了tcp协议，是有风险的。参数为：tcp_tw_reuse和tcp_tw_recycle
+如果是服务端开发，可设置keep-alive，让客户端主动关闭连接解决这个问题</p>
+
+<blockquote>
+<p>同时打开和同时关闭</p>
+</blockquote>
+
+<p>1、同时打开</p>
+
+<p><img src="/media/network/tcp/tcp-7.JPG" alt="" /></p>
+
+<p>两个应用程序同时执行主动打开，称为“同时打开“
+这种情况极少发生
+两端同时发送SYN，同时进入SYN_SENT状态
+打开一条连接而不是两条
+要进行四次报文交换过程，“四次握手”</p>
+
+<p>2、同时关闭</p>
+
+<p><img src="/media/network/tcp/tcp-8.JPG" alt="" /></p>
+
+<p>双方同时执行主动关闭
+进行四次报文交换
+状态和正常关闭不一样</p>
+
+<blockquote>
+<p>数据传输</p>
+</blockquote>
+
+<pre><code>|&lt;-IP报文       -&gt;|
+      |&lt;-tcp报文段 -&gt;|
+ip首部|tcp首部|tcp数据
+20字节|20字节
+</code></pre>
+
+<p><img src="/media/network/tcp/tcp-1.JPG" alt="" /></p>
+
+<p>从应用层-&gt;传输层-&gt;网络层-&gt;链路层，每经过一次都会在报文中增加相应的首部。TCP数据被封装在IP数据报中</p>
+
+<p>tcp处理的数据包括两类，有不同的特点，需要不同的传输技术</p>
+
+<pre><code>1、成块数据传输：量大，报文段常常满
+2、交互数据传输：量小，报文段为微小分组，大量微小分组，在广域网传输会增加拥堵的出现
+</code></pre>
+
+<p>1、交互数据的传输技术</p>
+
+<pre><code>概念：tcp收到数据时，并不立马发送ack确认，而是稍后发送
+目的：将ack与需要沿该方向发送的数据一起发送，以减少开销
+特点：接收方不必确认每一个收到的分组，ACk是累计的，它表示接收方已经正确收到了一直到确认序号-1的所有字节
+延时时间：绝大多数为200ms。不能超过500ms
+</code></pre>
+
+<p>2、成块数据的传输技术：滑动窗口协议</p>
+
+<pre><code>解决了什么问题：发送方和接收方速率不匹配时，保证可靠传输和包乱序的问题
+机制：接收方根据目前缓冲区大小，通知发送方目前能接收的最大值。发送方根据接收方的处理能力来发送数据。通过这种协调机制，防止接收端处理不过来。
+窗口大小：接收方发给发送端的这个值称为窗口大小
+</code></pre>
+
+<p>tcp缓冲区的数据结构</p>
+
+<p><img src="/media/network/tcp/tcp-9.JPG" alt="" /></p>
+
+<p>接收端：</p>
+
+<pre><code>LastByteRead: 缓冲区读取到的位置
+NextByteExpected：收到的连续包的最后一个位置
+LastByteRcvd：收到的包的最后一个位置
+中间空白区：数据没有到达
+</code></pre>
+
+<p>发送端：</p>
+
+<pre><code>LastByteAcked: 被接收端ack的位置，表示成功发送确认
+LastByteSent：发出去了，还没有收到成功确认的Ack
+LastByteWritten：上层应用正在写的地方
+</code></pre>
+
+<p>初始时示意图</p>
+
+<p><img src="/media/network/tcp/tcp-10.JPG" alt="" /></p>
+
+<p>黑框表示滑动窗口</p>
+
+<pre><code>#1表示收到ack确认的数据
+#2表示还没收到ack的数据
+#3表示在窗口中还没有发出的（接收方还有空间）
+#4窗口以外的数据（接收方没空间）
+</code></pre>
+
+<p>滑动过程示意图</p>
+
+<p><img src="/media/network/tcp/tcp-11.JPG" alt="" /></p>
+
+<p>收到36的ack，并发出46-51的字节</p>
+
+<p>拥塞窗口</p>
+
+<pre><code>解决什么问题：发送方发送速度过快，导致中转路由器拥堵的问题
+机制：发送方增加一个拥塞窗口（cwnd），每次受到ack，窗口值加1。发送时，取拥塞窗口和接收方发来的窗口大小取最小值发送
+起到发送方流量控制的作用
+</code></pre>
+
+<p>滑动窗口会引发的问题</p>
+
+<p>1 零窗口</p>
+
+<pre><code>如何发生： 接收端处理速度慢，发送端发送速度快。窗口大小慢慢被调为0
+如何解决：ZWP技术。发送zwp包给接收方，让接收方ack他的窗口大小。
+</code></pre>
+
+<p>2 糊涂窗口综合征</p>
+
+<pre><code>如何发生：接收方太忙，取不完数据，导致发送方越来越小。最后只让发送方传几字节的数据。
+缺点：数据比tcp和ip头小太多，网络利用率太低。
+如何解决：避免对小的窗口大小做响应。
+</code></pre>
+
+<blockquote>
+<p>超时</p>
+</blockquote>
+
+<p>1、超时时间的确定</p>
+
+<p>动态改变</p>
+
+<p>每次重传的时间间隔为上次的一倍，直到最大间隔为64s，称为“指数退避”
+首次重传到最后放弃重传的时间间隔一般为9min
+依赖以往的往返时间计算（RTT）动态的计算</p>
+
+<p>2、重传机制</p>
+
+<p>接收端给发送端的Ack确认只会确认最后一个连续的包
+比如发送1,2,3,4,5共五份数据，接收端收到1,2，于是回ack3，然后收到4（还没收到3），此时tcp不会跳过3直接确认4，否则发送端以为3也收到了。这时你能想到的方法是什么呢？tcp又是怎么处理的呢？</p>
+
+<p>1、被动等待的超时重传策略</p>
+
+<p>直观的方法是：接收方不做任何处理，等待发送方超时，然后重传。</p>
+
+<p>缺点：发送端不知道该重发3，还是重发3,4,5,浪费宽带,所以tcp不采用此方法</p>
+
+<p>2、主动的快速重传机制</p>
+
+<p>不以实际驱动，而以数据驱动重传，
+如果包没有送达，就一直ack最后那个可能被丢的包
+发送方连续收到3相同的ack，就重传。不用等待超时</p>
+
+<p><img src="/media/network/tcp/tcp-12.JPG" alt="" /></p>
+
+<p>图中发生1,2,3,4,5数据
+数据1到达，发生ack2
+数据2因为某些原因没有送到
+后续收到3的时候，接收端并不是ack4，也不是等待。而是主动ack2
+收到4,5同理，一直主动ack2
+客户端收到三次ack2，就重传2
+2收到后，结合之前收到的3,4,5，直接ack6</p>
+
+<p>缺点</p>
+
+<p>解决了被动等待timeout的问题
+无法解决重传之前的一个，还是所有的问题。
+上面的例子中是重传2，还是重传2,3,4,5。因为并不清楚ack2是谁传回来的</p>
+
+<p>3、SACK方法</p>
+
+<p>为了解决快速重传的缺点，一种更好的SACK重传策略被提出
+基于快速重传，同时在tcp头里加了一个SACK的东西，SACK记录一个数值范围，表示哪些数据收到了，使用SACK标识的范围，还可以知道告知发送方，有哪些数据被重复接收了
+可以让发送方知道：是发出去的包丢了，还是回来的ack包丢了</p>
+
+<blockquote>
+<p>连接复用</p>
+</blockquote>
+
+<p>连接复用其实就是检测服务器是否存在空闲的长连接，如果不存在，服务器将建立一个新连接。其实这个完全是连接池的概念。</p>
+
+<p>还有一种叫做http复用，它与TCP连接复用最根本的区别在于，TCP连接复用是将多个客户端的HTTP请求复用到一个服务器端TCP连接上，而HTTP复用则是一个客户端的多个HTTP请求通过一个TCP连接进行处理。前者是负载均衡设备的独特功能；而后者是HTTP 1.1协议所支持的新功能，目前被大多数浏览器所支持。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/computerbase/network/tcp/">https://kingjcy.github.io/post/computerbase/network/tcp/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/network/">
+                            <i class="fa fa-tags"></i>
+                            network
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/tcp/">
+                            <i class="fa fa-tags"></i>
+                            tcp
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/computerbase/network/http/">计算机网络系列（八）---- Http</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network/">云计算K8s组件系列（九）---- 网络</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月10日)</span></li><li id="li-rels"><a href="/post/computerbase/network/tc/">计算机网络系列（十七）---- tc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/route/">计算机网络系列（十六）---- route</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/rpc/rpc/">计算机网络系列（十三）---- rpc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年02月19日)</span></li><li id="li-rels"><a href="/post/golang/go-net/">Golang使用系列---- Go Net 协议层</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年07月11日)</span></li><li id="li-rels"><a href="/post/computerbase/network/webserver/">计算机网络系列（十五）---- webserver</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年05月01日)</span></li><li id="li-rels"><a href="/post/computerbase/network/websocket/">计算机网络系列（六）---- websocket</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年03月01日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/computerbase/network/https/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/computerbase/network/ip/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#基本操作原理">基本操作原理</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+

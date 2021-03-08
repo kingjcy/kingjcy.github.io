@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="HTTPS实际上就是HTTP穿上了SSL/TLS的外套，我们都知道HTTP属于应用层的协议，是离程序员比较近的，而SSL（安全套接字）与TLS（运输层安全）都属于运输层协议。其实SSL与TLS都是上个世纪的产物，最新版本的TLS建立在SSL 3.0协议规范之上。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="计算机网络系列（十）---- https - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    计算机网络系列（十）---- https
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2015年10月23日 
+                </div>
+                <h1 class="post-title">计算机网络系列（十）---- https</h1>
+            </header>
+
+            <div class="post-content">
+                <p>HTTPS实际上就是HTTP穿上了SSL/TLS的外套，我们都知道HTTP属于应用层的协议，是离程序员比较近的，而SSL（安全套接字）与TLS（运输层安全）都属于运输层协议。其实SSL与TLS都是上个世纪的产物，最新版本的TLS建立在SSL 3.0协议规范之上。</p>
+
+<h1 id="tls-ssl">TLS/SSl</h1>
+
+<p>需要先知道TLS/SSL，才能知道如何在http上加了一层tls/ssl，可以从<a href="/post/computerbase/network/ssl">这里</a>了解到。</p>
+
+<h1 id="https">HTTPS</h1>
+
+<p>先声明一个个人容易混淆的概念，https中的安全验证是验证证书的可信性，比如单向验证，是客户端端验证服务端发来的证书是不是可靠，而服务端验证客户端的信息是否正确也是一种验证，也就是我们常用的登陆认证方式，可以是用户名密码，也可以是令牌等。当然也存在一种特殊的方式，就是使用证书可以完成登陆认证的一种特例。</p>
+
+<p>所以SSL/TLS不一定和TOKEN等信息有关系，不使用https，还是可以使用token来认证，使用https，就是增加了一个证书的验证过程，SSL/TLS主要还是完成加密传输的验证，完成安全性保证，当然证书可以包含一些认证信息，具体可以看上面的证书的签发过程。</p>
+
+<h2 id="概述">概述</h2>
+
+<pre><code>https = http + 加密 + 认证 + 完整性保护
+https并非应用层新协议，只是通信接口部分用SSL和TLS协议代替而已
+http直接和tcp通信。使用ssl时，http先和ssl通信，再由ssl和tcp通信
+</code></pre>
+
+<p><img src="/media/network/https/tls1" alt="" /></p>
+
+<h2 id="https单向认证">HTTPS单向认证</h2>
+
+<p>单向认证的过程</p>
+
+<p><img src="/media/network/https/https" alt="" /></p>
+
+<p>从上图可以看出，服务端拥有一对非对称密钥：B_公钥和B_私钥。详细过程如下：</p>
+
+<pre><code>（1）客户端发起HTTPS请求，将SSL协议版本的信息发送给服务端。
+（2）服务端去CA机构申请来一份CA证书，在前面提过，证书里面有服务端公钥和签名。将CA证书发送给客户端
+（3）客户端读取CA证书的明文信息，采用相同的hash散列函数计算得到信息摘要（hash目的：验证防止内容被修改），然后用操作系统带的CA的公钥去解密签名（因为签名是用CA的私钥加密的），对比证书中的信息摘要。如果一致，则证明证书是可信的，然后取出了服务端公钥
+（4）客户端生成一个随机数（密钥F），用刚才等到的服务端B_公钥去加密这个随机数形成密文，发送给服务端。
+（5）服务端用自己的B_私钥去解密这个密文，得到了密钥F
+（6）服务端和客户端在后续通讯过程中就使用这个密钥F进行通信了。和之前的非对称加密不同，这里开始就是一种对称加密的方式
+</code></pre>
+
+<p>分析</p>
+
+<p>先来看看数字证书都有哪些内容？</p>
+
+<pre><code>Issuer--证书的发布机构
+发布证书的机构，指明证书是哪个公司创建的（并不是指使用证书的公司）。出了问题具体的颁发机构是要负责的
+
+Valid from，Valid to--证书的有效期
+证书的使用期限。过了这个期限证书就会作废，不能使用。
+
+Public key--公钥
+刚开始的时候介绍过公钥的概念，用于对消息加密的。
+
+Subject--主题
+证书是颁发给谁了，一般是个人或公司名称或机构名称或公司网站的网址。
+
+Signature algorithm--签名所使用的算法
+数字证书的数字签名所使用的加密算法，根据这个算法可以对指纹解密。指纹加密的结果就是数字签名。
+
+Thumbprint，Thumbprint algorithm--指纹以及指纹算法（一种HASH算法）
+指纹和指纹算法会使用证书机构的私钥加密后和证书放在一起。主要用来保证证书的完整性，确保证书没有修改过。使用者在打开证书时根据指纹算法计算证书的hash值，和刚开始的值一样，则表示没有被修改过。
+</code></pre>
+
+<p>a)
+问题回来了，客户端如何检测数字证书是合法的并是所要请求的公司的？</p>
+
+<p>首先应用程序读取证书中的Issuer（发布机构），然后会在操作系统或浏览器内置的受信任的发布机构中去找该机构的证书（为什么操作系统会有受信任机构的证书？先看完这个流程再来回答）。如果找不到就说明证书是水货，证书有问题，程序给错误信息。如果找到了，或用户确认使用该证书。就会拿上级证书的公钥，解密本级证书，得到数字指纹。然后对本级证书的公钥进行数字摘要算法（证书中提供的指纹加密算法）计算结果，与解密得到的指纹对比。如果一样，说明证书没有被修改过。公钥可以放心使用，可以开始握手通信了。</p>
+
+<p>b)
+接下来解答操作系统为什么会有证书发布机构的证书？</p>
+
+<p>其实证书发布机构除了给别人发布证书外，自己也有自己的证书。在操作系统安装好时，受信任的证书发布机构的数字证书就已经被微软安装在操作系统中了，根据一些权威安全机构的评估，选取一些信誉很好并且通过一定安全认证的证书发布机构，把这些证书默认安装在操作系统中并设为信任的数字证书。发布机构持有与自己数字证书对应的私钥，会用这个私钥加密所有他发布的证书及指纹整体作为数字签名。</p>
+
+<p>c)
+客户端生成随机数并用公钥加密，让服务端用私钥解密来确保对方是否真的持有私钥。但是，黑客也可以发送字符串让服务器用私钥加密，并得到加密后的信息，从而找到规律，导致私钥的安全性下降。如何解决？</p>
+
+<p>服务端并不是真的加密这个字符串，而是把字符串进行hash计算后再进行加密后发送给客户端。客户端收到后再解密这个hash值与原来字符串的hash值对比，从而确定对方是否持有私钥。</p>
+
+<p>d)
+在通信的过程中，黑客可以截获加密内容，虽不能理解具体内容，但可以捣乱，修改内容或重复发送该内容，如何解决？</p>
+
+<p>给通信的内容加版本号或随机值，如果接收到版本号或随机值不相同的信息，双方立刻停止通信。若一直捣乱就无法正常通信，因为有人控制了你的路由器，可以针对你。所以一些对于安全性较强的部门来说就不使用公网，而是内部网络，一般不会被破环通信。</p>
+
+<p>总结</p>
+
+<p>最重要的就是RSA加密体制，还有用于验证服务器是否持有私钥的步骤，又能牵涉到HASH算法。验证成功后，通过对消息体的摘要进行HASH加密就能得到RSA签名了（为了保证信息没被篡改），给服务器解密，确认，正常通信。</p>
+
+<h2 id="https双向认证">HTTPS双向认证</h2>
+
+<p>双向认证和单向认证原理基本差不多，单向认证客户端需要认证服务端，而在双向认证中增加了服务端对客户端的认证</p>
+
+<p><img src="/media/network/https/https1" alt="" /></p>
+
+<p>双向认证详细过程如下：</p>
+
+<pre><code>（1）客户端发起HTTPS请求，将SSL协议版本的信息发送给服务端。
+（2）服务端去CA机构申请来一份CA证书，在前面提过，证书里面有服务端公钥和签名。将CA证书发送给客户端
+（3）客户端读取CA证书的明文信息，采用相同的hash散列函数计算得到信息摘要（hash目的：验证防止内容被修改），然后用操作系统带的CA的公钥去解密签名（因为签名是用CA的私钥加密的），对比证书中的信息摘要。如果一致，则证明证书是可信的，然后取出了服务端公钥
+（4）客户端发送自己的客户端证书给服务端，证书里面有客户端的公钥：C_公钥
+（5）客户端发送支持的对称加密方案给服务端，供其选择
+（6）服务端选择完加密方案后，用刚才得到的C_公钥去加密选好的加密方案
+（7）客户端用自己的C_私钥去解密选好的加密方案，客户端生成一个随机数（密钥F），用刚才等到的服务端B_公钥去加密这个随机数形成密文，发送给服务端。
+（8）服务端和客户端在后续通讯过程中就使用这个密钥F进行通信了。和之前的非对称加密不同，这里开始就是一种对称加密的方式
+</code></pre>
+
+<p>双向认证的客户端证书一般都可以是如openssl生成的自签名证书，包括 client.crt 和 client.key，这两部分内容可以集成在 p12 证书中, p12 证书可以设置打开密码。</p>
+
+<h2 id="http-https登陆认证">http/https登陆认证</h2>
+
+<p>登陆认证就是不同于上面的认证方式，不管是http还是https都可以使用下面的登陆认证的方式。</p>
+
+<p>http1.1使用的认证方式有：</p>
+
+<blockquote>
+<p>Basic认证</p>
+</blockquote>
+
+<p>http1.0就定义的认证方式</p>
+
+<p>原理：将”用户名：密码”字符串做base64加密，然后作为首部Authorization字段的值传给服务端</p>
+
+<p>缺点：没有加密，安全等级低</p>
+
+<p>使用率：并不常用</p>
+
+<blockquote>
+<p>Digest认证</p>
+</blockquote>
+
+<p>http1.1定义的认证，为了弥补basic认证的不足</p>
+
+<p>原理：发送方请求认证-&gt;接收方返回质询码-&gt;发送方根据质询码计算响应码发给接收方做验证</p>
+
+<p>优点：提供防止密码被窃听的保护机制</p>
+
+<p>缺点：无法保证用户被伪装</p>
+
+<p>使用率：仍达不到web网站安全要求，使用受限</p>
+
+<blockquote>
+<p>SSL客户端认证</p>
+</blockquote>
+
+<p>借助客户端的证书完成认证</p>
+
+<p>双因素认证方式：密码+证书。</p>
+
+<p>使用率：web应用常用的认证方式</p>
+
+<blockquote>
+<p>FormBase认证</p>
+</blockquote>
+
+<p>web应用程序各自实现的认证方式</p>
+
+<p>使用率：web应用常用的认证方式</p>
+
+<h1 id="应用">应用</h1>
+
+<h2 id="http和https对比">HTTP和HTTPS对比</h2>
+
+<p>1、HTTP协议运行在TCP之上，所有传输的内容都是明文，HTTPS运行在SSL/TLS之上，SSL/TLS运行在TCP之上，所有传输的内容都经过SSL/TLS协议加密的，所以SSL/TLS主要还是加密，保证安全性。</p>
+
+<p>2、HTTPS协议需要到CA申请证书。</p>
+
+<p>3、HTTP默认使用80端口，HTTPS默认使用443端口。</p>
+
+<p>4、HTTPS用户访问速度较慢、服务端资源压力较大（因为要进行大量的密钥算法计算，消耗CPU、内存）。因此使用HTTPS的话，需要做好足够的优化。</p>
+
+<h2 id="实现http和https共用一个端口原理">实现http和https共用一个端口原理</h2>
+
+<p>1、HTTP与HTTPS都属于应用层协议，所以只要我们在底层协议中进行反向代理，就可以解决这个问题! 因此我们可以选择底层的tcp服务进行代理！</p>
+
+<p>2、https数据流的第一位是十六进制“16”，转换成十进制就是22，通过数据流的第一位置，决定最终反向代理给http\https服务</p>
+
+<h2 id="跳过https的证书验证">跳过https的证书验证</h2>
+
+<p>重点是设置    InsecureSkipVerify: true</p>
+
+<pre><code>    tr := &amp;http.Transport{
+        TLSClientConfig: &amp;tls.Config{InsecureSkipVerify: true},
+    }
+
+    rp := &amp;httputil.ReverseProxy{
+        Director: func(req *http.Request) {
+            req.URL.Scheme = &quot;https&quot;
+            req.URL.Host = p.localAddr
+            if p.hostHeaderRewrite != &quot;&quot; {
+                req.Host = p.hostHeaderRewrite
+            }
+            for k, v := range p.headers {
+                req.Header.Set(k, v)
+            }
+        },
+        Transport: tr,
+    }
+
+    p.s = &amp;http.Server{
+        Handler: rp,
+    }
+
+    go p.s.Serve(listener)
+</code></pre>
+
+<h2 id="go和https">go和https</h2>
+
+<h3 id="http-server">http server</h3>
+
+<p>使用Go创建一个HTTP Server十分Easy，十几行代码就能搞定：</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;net/http&quot;
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintf(w,
+     &quot;Hi, This is an example of http service in golang!&quot;)
+}
+
+func main() {
+    http.HandleFunc(&quot;/&quot;, handler)
+    http.ListenAndServe(&quot;:8080&quot;, nil)
+}
+</code></pre>
+
+<p>执行这段代码：</p>
+
+<pre><code>$ go run server.go
+</code></pre>
+
+<p>打开浏览器，在地址栏输入&rdquo;<a href="http://localhost:8080&quot;，">http://localhost:8080&quot;，</a> 你会看到“ Hi, This is an example of http service in golang!&ldquo;输出到浏览器窗口。</p>
+
+<p>不过HTTP毕竟是明文的，在这样一个不安全的世界里，随时存在着窃听（sniffer工具可以简单办到）、篡改甚至是冒充等风险，因此对于一些 对安全比较care的站点或服务，它们需要一种安全的HTTP协议，于是就有了HTTPS。</p>
+
+<h3 id="实现一个最简单的https-web-server">实现一个最简单的HTTPS Web Server</h3>
+
+<p>Golang的标准库net/http提供了https server的基本实现，我们修改两行代码就能将上面的HTTP Server改为一个HTTPS Web Server:</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;net/http&quot;
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintf(w,
+        &quot;Hi, This is an example of https service in golang!&quot;)
+}
+
+func main() {
+    http.HandleFunc(&quot;/&quot;, handler)
+    http.ListenAndServeTLS(&quot;:8081&quot;, &quot;server.crt&quot;,
+                           &quot;server.key&quot;, nil)
+}
+</code></pre>
+
+<p>我们用http.ListenAndServeTLS替换掉了http.ListenAndServe，就将一个HTTP Server转换为HTTPS Web Server了。不过ListenAndServeTLS 新增了两个参数certFile和keyFile，需要我们传入两个文件路径。为了让这个例子能先Run起来，我们先执行下面命令，利用openssl生成server.crt和server.key文件，供程序使用，原 理后续详述：</p>
+
+<pre><code>$openssl genrsa -out server.key 2048
+
+Generating RSA private key, 2048 bit long modulus
+…………….+++
+……………+++
+e is 65537 (0×10001)
+
+$openssl req -new -x509 -key server.key -out server.crt -days 365
+
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+—–
+Country Name (2 letter code) [AU]:
+State or Province Name (full name) [Some-State]:
+Locality Name (eg, city) []:
+Organization Name (eg, company) [Internet Widgits Pty Ltd]:
+Organizational Unit Name (eg, section) []:
+Common Name (e.g. server FQDN or YOUR name) []:localhost
+Email Address []:
+</code></pre>
+
+<p>主要上面的localhost需要填写，不然会出错，执行程序：</p>
+
+<pre><code>go run server.go
+</code></pre>
+
+<p>通过浏览器访问：<a href="https://localhost:8081，">https://localhost:8081，</a> chrome浏览器会显示如下画面：</p>
+
+<p><img src="/media/network/https/https2" alt="" /></p>
+
+<p>说明这个服务端证书不在你的客户端的可信列表中，客户端对服务端的认证没有通过，浏览器将选择权交到了你的手里，是拒绝访问还是忽略。</p>
+
+<p>忽略继续后，才能看到&rdquo;Hi, This is an example of https service in golang!&ldquo;这个结果输出在窗口上。</p>
+
+<p>也可以使用curl工具验证这个HTTPS server：</p>
+
+<pre><code>curl -k https://localhost:8081
+Hi, This is an example of http service in golang!
+</code></pre>
+
+<p>注意如果不加-k，curl会报如下错误：</p>
+
+<pre><code>$curl https://localhost:8081
+curl: (60) SSL certificate problem: Invalid certificate chain
+More details here: http://curl.haxx.se/docs/sslcerts.html
+
+curl performs SSL certificate verification by default, using a &quot;bundle&quot;
+ of Certificate Authority (CA) public keys (CA certs). If the default
+ bundle file isn't adequate, you can specify an alternate file
+ using the –cacert option.
+If this HTTPS server uses a certificate signed by a CA represented in
+ the bundle, the certificate verification probably failed due to a
+ problem with the certificate (it might be expired, or the name might
+ not match the domain name in the URL).
+If you'd like to turn off curl's verification of the certificate, use
+ the -k (or –insecure) option.
+</code></pre>
+
+<h3 id="服务端私钥与证书">服务端私钥与证书</h3>
+
+<p>现在我们来说说服务端私钥与证书的生成。</p>
+
+<p>go的http.ListenAndServeTLS需要两个特别参数，一个是服务端的私钥 文件路径，另外一个是服务端的数字证书文件路径。在测试环境，我们没有必要花钱去购买什么证书，利用openssl工具，我们可以自己生成相 关私钥和自签发的数字证书。</p>
+
+<p>openssl genrsa -out server.key 2048 用于生成服务端私钥文件server.key，后面的参数2048单位是bit，是私钥的长度。</p>
+
+<p>openssl生成的私钥中包含了公钥的信息，我们可以根据私钥生成公钥：</p>
+
+<pre><code>$openssl rsa -in server.key -out server.key.public
+</code></pre>
+
+<p>我们也可以根据私钥直接生成自签发的数字证书：</p>
+
+<pre><code>$openssl req -new -x509 -key server.key -out server.crt -days 365
+</code></pre>
+
+<p>server.key和server.crt将作为ListenAndServeTLS的两个输入参数。</p>
+
+<p>我们编写一个Go程序来尝试与这个HTTPS server建立连接并通信。</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;io/ioutil&quot;
+    &quot;net/http&quot;
+)
+
+func main() {
+    resp, err := http.Get(&quot;https://localhost:8081&quot;)
+    if err != nil {
+        fmt.Println(&quot;error:&quot;, err)
+        return
+    }
+    defer resp.Body.Close()
+    body, err := ioutil.ReadAll(resp.Body)
+    fmt.Println(string(body))
+}
+</code></pre>
+
+<p>运行这个client，我们得到如下错误：</p>
+
+<pre><code>$go run client1.go
+error: Get https://localhost:8081: x509: certificate signed by unknown authority
+</code></pre>
+
+<p>此时服务端也给出了错误日志提示：</p>
+
+<pre><code>2015/04/30 16:03:31 http: TLS handshake error from 127.0.0.1:62004: remote error: bad certificate
+</code></pre>
+
+<p>显然从客户端日志来看，go实现的Client端默认也是要对服务端传过来的数字证书进行校验的，但客户端提示：这个证书是由不知名CA签发的！</p>
+
+<p>我们可以修改一下client1.go的代码，让client端略过对证书的校验：</p>
+
+<pre><code>package main
+
+import (
+    &quot;crypto/tls&quot;
+    &quot;fmt&quot;
+    &quot;io/ioutil&quot;
+    &quot;net/http&quot;
+)
+
+func main() {
+    tr := &amp;http.Transport{
+        TLSClientConfig:    &amp;tls.Config{InsecureSkipVerify: true},
+    }
+    client := &amp;http.Client{Transport: tr}
+    resp, err := client.Get(&quot;https://localhost:8081&quot;)
+
+    if err != nil {
+        fmt.Println(&quot;error:&quot;, err)
+        return
+    }
+    defer resp.Body.Close()
+    body, err := ioutil.ReadAll(resp.Body)
+    fmt.Println(string(body))
+}
+</code></pre>
+
+<p>通过设置tls.Config的InsecureSkipVerify为true，client将不再对服务端的证书进行校验。执行后的结果 也证实了这一点：</p>
+
+<pre><code>$go run client2.go
+Hi, This is an example of http service in golang!
+</code></pre>
+
+<h3 id="双向校验">双向校验</h3>
+
+<p>多数时候，我们需要对服务端的证书进行校验，而不是忽略这个校验。大部分产品需要服务端和客户端双向校验。</p>
+
+<blockquote>
+<p>我们先来看看如何能让client端实现对Server端证书的校验呢？</p>
+</blockquote>
+
+<p>为了保证CA证书的真实性，浏览器是在出厂时就内置了这些CA证书的，而不是后期通过通信的方式获取的。CA证书就是用来校验由该CA颁发的数字证书的。</p>
+
+<p>那么如何使用CA证书校验Server证书的呢？这就涉及到数字证书到底是什么了！</p>
+
+<p>我们可以通过浏览器中的&rdquo;https/ssl证书管理&rdquo;来查看证书的内容，一般服务器证书都会包含诸如站点的名称和主机名、公钥、签发机构 (CA)名称和来自签发机构的签名等。我们重点关注这个来自签发机构的签名，因为对于证书的校验，就是使用客户端CA证书来验证服务端证书的签名是否这个CA签的。</p>
+
+<p>通过签名验证我们可以来确认两件事：</p>
+
+<pre><code>1、服务端传来的数字证书是由某个特定CA签发的（如果是self-signed，也无妨），数字证书中的签名类似于日常生活中的签名，首先 验证这个签名签的是jcy，而不是jby， jay等。
+2、服务端传来的数字证书没有被中途篡改过。这类似于&quot;jcy&quot;有无数种写法，这里验证必须是我自己的那种写法，而不是张三、李四写的&quot;jcy&quot;。
+</code></pre>
+
+<p>一旦签名验证通过，我们因为信任这个CA，从而信任这个服务端证书。由此也可以看出，CA机构的最大资本就是其信用度。</p>
+
+<p>CA在为客户签发数字证书时是这样在证书上签名的：</p>
+
+<p>数字证书由两部分组成：</p>
+
+<pre><code>1、C：证书相关信息（对象名称+过期时间+证书发布者+证书签名算法….）
+2、S：证书的数字签名
+</code></pre>
+
+<p>其中的数字签名是通过公式S = F(Digest&copy;)得到的。</p>
+
+<p>Digest为摘要函数，也就是 md5、sha-1或sha256等单向散列算法，用于将无限输入值转换为一个有限长度的“浓缩”输出值。比如我们常用md5值来验证下载的大文件是否完 整。大文件的内容就是一个无限输入。大文件被放在网站上用于下载时，网站会对大文件做一次md5计算，得出一个128bit的值作为大文件的 摘要一同放在网站上。用户在下载文件后，对下载后的文件再进行一次本地的md5计算，用得出的值与网站上的md5值进行比较，如果一致，则大 文件下载完好，否则下载过程大文件内容有损坏或源文件被篡改。</p>
+
+<p>F为签名函数。CA自己的私钥是唯一标识CA签名的，因此CA用于生成数字证书的签名函数一定要以自己的私钥作为一个输入参数。在RSA加密 系统中，发送端的解密函数就是一个以私钥作 为参数的函数，因此常常被用作签名函数使用。签名算法是与证书一并发送给接收 端的，比如apple的一个服务的证书中关于签名算法的描述是“带 RSA 加密的 SHA-256 ( 1.2.840.113549.1.1.11 )”。因此CA用私钥解密函数作为F，对C的摘要进行运算得到了客户数字证书的签名，好比大学毕业证上的校长签名，所有毕业证都是校长签发的。</p>
+
+<p>接收端接收服务端数字证书后，如何验证数字证书上携带的签名是这个CA的签名呢？接收端会运用下面算法对数字证书的签名进行校验：</p>
+
+<pre><code>F'(S) ?= Digest(C)
+</code></pre>
+
+<p>接收端进行两个计算，并将计算结果进行比对：</p>
+
+<pre><code>1、首先通过Digest(C)，接收端计算出证书内容（除签名之外）的摘要。
+2、数字证书携带的签名是CA通过CA密钥加密摘要后的结果，因此接收端通过一个解密函数F'对S进行“解密”。RSA系统中，接收端使用 CA公钥对S进行“解密”，这恰是CA用私钥对S进行“加密”的逆过程。
+</code></pre>
+
+<p>将上述两个运算的结果进行比较，如果一致，说明签名的确属于该CA，该证书有效，否则要么证书不是该CA的，要么就是中途被人篡改了。</p>
+
+<p>但对于self-signed(自签发)证书来说，接收端并没有你这个self-CA的数字证书，也就是没有CA公钥，也就没有办法对数字证 书的签名进行验证。因此如果要编写一个可以对self-signed证书进行校验的接收端程序的话，首先我们要做的就是建立一个属于自己的 CA，用该CA签发我们的server端证书，并将该CA自身的数字证书随客户端一并发布。</p>
+
+<p>接下来我们来验证一下客户端对服务端数字证书进行验证（gohttps/5-verify-server-cert）！</p>
+
+<p>首先我们来建立我们自己的CA，需要生成一个CA私钥和一个CA的数字证书:</p>
+
+<pre><code>$openssl genrsa -out ca.key 2048
+Generating RSA private key, 2048 bit long modulus
+……….+++
+………………………….+++
+e is 65537 (0×10001)
+
+$openssl req -x509 -new -nodes -key ca.key -subj &quot;/CN=tonybai.com&quot; -days 5000 -out ca.crt
+</code></pre>
+
+<p>接下来，生成server端的私钥，生成数字证书请求，并用我们的ca私钥签发server的数字证书：</p>
+
+<pre><code>openssl genrsa -out server.key 2048
+Generating RSA private key, 2048 bit long modulus
+….+++
+…………………….+++
+e is 65537 (0×10001)
+
+$openssl req -new -key server.key -subj &quot;/CN=localhost&quot; -out server.csr
+
+$openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 5000
+Signature ok
+subject=/CN=localhost
+Getting CA Private Key
+</code></pre>
+
+<p>现在我们的工作目录下有如下一些私钥和证书文件：</p>
+
+<pre><code>CA:
+    私钥文件 ca.key
+    数字证书 ca.crt
+
+Server:
+    私钥文件 server.key
+    数字证书 server.crt
+</code></pre>
+
+<p>接下来，我们就来完成我们的程序。</p>
+
+<p>Server端的程序几乎没有变化：</p>
+
+<pre><code>package main
+
+import (
+    &quot;fmt&quot;
+    &quot;net/http&quot;
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintf(w,
+        &quot;Hi, This is an example of http service in golang!&quot;)
+}
+
+func main() {
+    http.HandleFunc(&quot;/&quot;, handler)
+    http.ListenAndServeTLS(&quot;:8081&quot;,
+        &quot;server.crt&quot;, &quot;server.key&quot;, nil)
+}
+</code></pre>
+
+<p>client端程序变化较大，由于client端需要验证server端的数字证书，因此client端需要预先加载ca.crt，以用于服务端数字证书的校验：</p>
+
+<pre><code>package main
+
+import (
+    &quot;crypto/tls&quot;
+    &quot;crypto/x509&quot;
+    &quot;fmt&quot;
+    &quot;io/ioutil&quot;
+    &quot;net/http&quot;
+)
+
+func main() {
+    pool := x509.NewCertPool()
+    caCertPath := &quot;ca.crt&quot;
+
+    caCrt, err := ioutil.ReadFile(caCertPath)
+    if err != nil {
+        fmt.Println(&quot;ReadFile err:&quot;, err)
+        return
+    }
+    pool.AppendCertsFromPEM(caCrt)
+
+    tr := &amp;http.Transport{
+        TLSClientConfig: &amp;tls.Config{RootCAs: pool},
+    }
+    client := &amp;http.Client{Transport: tr}
+    resp, err := client.Get(&quot;https://localhost:8081&quot;)
+    if err != nil {
+        fmt.Println(&quot;Get error:&quot;, err)
+        return
+    }
+    defer resp.Body.Close()
+    body, err := ioutil.ReadAll(resp.Body)
+    fmt.Println(string(body))
+}
+</code></pre>
+
+<p>运行server和client:</p>
+
+<pre><code>$go run server.go
+
+go run client.go
+Hi, This is an example of http service in golang!
+</code></pre>
+
+<blockquote>
+<p>对客户端的证书进行校验(双向证书校验）</p>
+</blockquote>
+
+<p>服务端可以要求对客户端的证书进行校验，以更严格识别客户端的身份，限制客户端的访问。</p>
+
+<p>要对客户端数字证书进行校验，首先客户端需要先有自己的证书。我们以上面的例子为基础，生成客户端的私钥与证书。</p>
+
+<pre><code>$openssl genrsa -out client.key 2048
+Generating RSA private key, 2048 bit long modulus
+………………..+++
+………………..+++
+e is 65537 (0×10001)
+$openssl req -new -key client.key -subj &quot;/CN=tonybai_cn&quot; -out client.csr
+$openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out client.crt -days 5000
+Signature ok
+subject=/CN=tonybai_cn
+Getting CA Private Key
+</code></pre>
+
+<p>接下来我们来改造我们的程序，首先是server端。</p>
+
+<p>首先server端需要要求校验client端的数字证书，并且加载用于校验数字证书的ca.crt，因此我们需要对server进行更加灵活的控制：</p>
+
+<pre><code>package main
+
+import (
+    &quot;crypto/tls&quot;
+    &quot;crypto/x509&quot;
+    &quot;fmt&quot;
+    &quot;io/ioutil&quot;
+    &quot;net/http&quot;
+)
+
+type myhandler struct {
+}
+
+func (h *myhandler) ServeHTTP(w http.ResponseWriter,
+                   r *http.Request) {
+    fmt.Fprintf(w,
+        &quot;Hi, This is an example of http service in golang!\n&quot;)
+}
+
+func main() {
+    pool := x509.NewCertPool()
+    caCertPath := &quot;ca.crt&quot;
+
+    caCrt, err := ioutil.ReadFile(caCertPath)
+    if err != nil {
+        fmt.Println(&quot;ReadFile err:&quot;, err)
+        return
+    }
+    pool.AppendCertsFromPEM(caCrt)
+
+    s := &amp;http.Server{
+        Addr:    &quot;:8081&quot;,
+        Handler: &amp;myhandler{},
+        TLSConfig: &amp;tls.Config{
+            ClientCAs:  pool,
+            ClientAuth: tls.RequireAndVerifyClientCert,
+        },
+    }
+
+    err = s.ListenAndServeTLS(&quot;server.crt&quot;, &quot;server.key&quot;)
+    if err != nil {
+        fmt.Println(&quot;ListenAndServeTLS err:&quot;, err)
+    }
+}
+</code></pre>
+
+<p>可以看出代码通过将tls.Config.ClientAuth赋值为tls.RequireAndVerifyClientCert来实现Server强制校验client端证书。ClientCAs是用来校验客户端证书的ca certificate。</p>
+
+<p>Client端变化也很大，需要加载client.key和client.crt用于server端连接时的证书校验：</p>
+
+<pre><code>package main
+import (
+    &quot;crypto/tls&quot;
+    &quot;crypto/x509&quot;
+    &quot;fmt&quot;
+    &quot;io/ioutil&quot;
+    &quot;net/http&quot;
+)
+
+func main() {
+    pool := x509.NewCertPool()
+    caCertPath := &quot;ca.crt&quot;
+
+    caCrt, err := ioutil.ReadFile(caCertPath)
+    if err != nil {
+        fmt.Println(&quot;ReadFile err:&quot;, err)
+        return
+    }
+    pool.AppendCertsFromPEM(caCrt)
+
+    cliCrt, err := tls.LoadX509KeyPair(&quot;client.crt&quot;, &quot;client.key&quot;)
+    if err != nil {
+        fmt.Println(&quot;Loadx509keypair err:&quot;, err)
+        return
+    }
+
+    tr := &amp;http.Transport{
+        TLSClientConfig: &amp;tls.Config{
+            RootCAs:      pool,
+            Certificates: []tls.Certificate{cliCrt},
+        },
+    }
+    client := &amp;http.Client{Transport: tr}
+    resp, err := client.Get(&quot;https://localhost:8081&quot;)
+    if err != nil {
+        fmt.Println(&quot;Get error:&quot;, err)
+        return
+    }
+    defer resp.Body.Close()
+    body, err := ioutil.ReadAll(resp.Body)
+    fmt.Println(string(body))
+}
+</code></pre>
+
+<p>好了，让我们来试着运行一下这两个程序，结果如下：</p>
+
+<pre><code>$go run server.go
+2015/04/30 22:13:33 http: TLS handshake error from 127.0.0.1:53542:
+tls: client's certificate's extended key usage doesn't permit it to be
+used for client authentication
+
+$go run client.go
+Get error: Get https://localhost:8081: remote error: handshake failure
+</code></pre>
+
+<p>失败了！从server端的错误日志来看，似乎是client端的client.crt文件不满足某些条件。</p>
+
+<p>根据server端的错误日志，搜索了Golang的源码，发现错误出自crypto/tls/handshake_server.go。</p>
+
+<pre><code>k := false
+for _, ku := range certs[0].ExtKeyUsage {
+    if ku == x509.ExtKeyUsageClientAuth {
+        ok = true
+        break
+    }
+}
+if !ok {
+    c.sendAlert(alertHandshakeFailure)
+    return nil, errors.New(&quot;tls: client's certificate's extended key usage doesn't permit it to be used for client authentication&quot;)
+}
+</code></pre>
+
+<p>大致判断是证书中的ExtKeyUsage信息应该包含clientAuth。翻看openssl的相关资料，了解到自CA签名的数字证书中包含的都是一些basic的信息，根本没有ExtKeyUsage的信息。我们可以用命令来查看一下当前client.crt的内容：</p>
+
+<pre><code>$ openssl x509 -text -in client.crt -noout
+Certificate:
+    Data:
+        Version: 1 (0×0)
+        Serial Number:
+            d6:e3:f6:fa:ae:65:ed:df
+        Signature Algorithm: sha1WithRSAEncryption
+        Issuer: CN=tonybai.com
+        Validity
+            Not Before: Apr 30 14:11:34 2015 GMT
+            Not After : Jan  6 14:11:34 2029 GMT
+        Subject: CN=tonybai_cn
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+            RSA Public Key: (2048 bit)
+                Modulus (2048 bit):
+                    00:e4:12:22:50:75:ae:b2:8a:9e:56:d5:f3:7d:31:
+                    7b:aa:75:5d:3f:90:05:4e:ff:ed:9a:0a:2a:75:15:
+                    … …
+                Exponent: 65537 (0×10001)
+    Signature Algorithm: sha1WithRSAEncryption
+        76:3b:31:3e:9d:b0:66:ad:c0:03:d4:19:c6:f2:1a:52:91:d6:
+        13:31:3a:c5:d5:58:ea:42:1d:b7:33:b8:43:a8:a8:28:91:ac:
+         … …
+</code></pre>
+
+<p>而偏偏golang的tls又要校验ExtKeyUsage，如此我们需要重新生成client.crt，并在生成时指定extKeyUsage。经过摸索，可以用如下方法重新生成client.crt：</p>
+
+<p>1、创建文件client.ext</p>
+
+<p>内容：</p>
+
+<pre><code>extendedKeyUsage=clientAuth
+</code></pre>
+
+<p>2、重建client.crt</p>
+
+<pre><code>$openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -extfile client.ext -out client.crt -days 5000
+Signature ok
+subject=/CN=tonybai_cn
+Getting CA Private Key
+</code></pre>
+
+<p>再通过命令查看一下新client.crt：</p>
+
+<p>看到输出的文本中多了这么几行：</p>
+
+<pre><code>        X509v3 extensions:
+            X509v3 Extended Key Usage:
+                TLS Web Client Authentication
+</code></pre>
+
+<p>这说明client.crt的extended key usage已经添加成功了。我们再来执行一下server和client：</p>
+
+<pre><code>$ go run client.go
+Hi, This is an example of http service in golang!
+</code></pre>
+
+<p>client端证书验证成功，也就是说双向证书验证均ok了。</p>
+
+<p>通过上面的例子可以看出，使用golang开发https相关程序十分便利，Golang标准库已经实现了TLS 1.2版本协议。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/computerbase/network/https/">https://kingjcy.github.io/post/computerbase/network/https/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/network/">
+                            <i class="fa fa-tags"></i>
+                            network
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/https/">
+                            <i class="fa fa-tags"></i>
+                            https
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/computerbase/network/http/">计算机网络系列（八）---- Http</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network/">云计算K8s组件系列（九）---- 网络</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年04月10日)</span></li><li id="li-rels"><a href="/post/computerbase/network/tc/">计算机网络系列（十七）---- tc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/route/">计算机网络系列（十六）---- route</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年09月29日)</span></li><li id="li-rels"><a href="/post/computerbase/network/rpc/rpc/">计算机网络系列（十三）---- rpc</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2018年02月19日)</span></li><li id="li-rels"><a href="/post/computerbase/network/webserver/">计算机网络系列（十五）---- webserver</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年05月01日)</span></li><li id="li-rels"><a href="/post/computerbase/network/websocket/">计算机网络系列（六）---- websocket</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年03月01日)</span></li><li id="li-rels"><a href="/post/computerbase/network/udp/">计算机网络系列（四）---- udp</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2016年01月21日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/computerbase/network/connect/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/computerbase/network/tcp/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#tls-ssl">TLS/SSl</a></li>
+<li><a href="#https">HTTPS</a>
+<ul>
+<li><a href="#概述">概述</a></li>
+<li><a href="#https单向认证">HTTPS单向认证</a></li>
+<li><a href="#https双向认证">HTTPS双向认证</a></li>
+<li><a href="#http-https登陆认证">http/https登陆认证</a></li>
+</ul></li>
+<li><a href="#应用">应用</a>
+<ul>
+<li><a href="#http和https对比">HTTP和HTTPS对比</a></li>
+<li><a href="#实现http和https共用一个端口原理">实现http和https共用一个端口原理</a></li>
+<li><a href="#跳过https的证书验证">跳过https的证书验证</a></li>
+<li><a href="#go和https">go和https</a>
+<ul>
+<li><a href="#http-server">http server</a></li>
+<li><a href="#实现一个最简单的https-web-server">实现一个最简单的HTTPS Web Server</a></li>
+<li><a href="#服务端私钥与证书">服务端私钥与证书</a></li>
+<li><a href="#双向校验">双向校验</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
