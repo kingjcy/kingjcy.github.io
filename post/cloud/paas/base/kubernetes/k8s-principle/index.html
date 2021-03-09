@@ -163,7 +163,7 @@
 
 <p><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">k8s组件系列（五）&mdash;- proxy详解</a></p>
 
-<p><a href="/posts/cloud/paas/base/docker/docker">k8s组件系列（六）&mdash;- docker详解</a></p>
+<p><a href="/post/cloud/paas/base/docker/docker">k8s组件系列（六）&mdash;- docker详解</a></p>
 
 <h2 id="数据库">数据库</h2>
 
@@ -2633,6 +2633,315 @@ Pod的容器目前分为三大类：短生命周期容器、初始化容器、�
 如果容器配置了PostStart钩子，则会在此处进行对应钩子的执行，如果钩子的类型是Exec类则会调用CNI的EXec接口完成在容器内的执行</p></li>
 </ul></li>
 </ul>
+
+<h1 id="配置和可扩展">配置和可扩展</h1>
+
+<p>Kubernetes 是高度可配置和可扩展的。因此，极少需要分发或提交补丁代码给 Kubernetes 项目，我们的大部分开发也是基于可扩展来进行的。</p>
+
+<p>配置 一般就是更改标志参数、本地配置文件或 API 资源。这个可以参考官方文档各种组件的启动参数的<a href="https://kubernetes.io/docs/reference/command-line-tools-reference/">配置</a>，不用详细说明，主要还是高度可扩展的这种设计模式，使得k8s十分灵活。</p>
+
+<p>整个k8s集群的基本各个点都是支持可扩展的，如何扩展，我们可以看官方这幅图：</p>
+
+<p><img src="/media/cloud/k8s/Expand" alt="" /></p>
+
+<ul>
+<li>用户通常使用 kubectl 与 Kubernetes API 进行交互。kubectl 插件扩展了 kubectl 二进制程序。它们只影响个人用户的本地环境，因此不能执行站点范围的策略。</li>
+<li>apiserver 处理所有请求。apiserver 中的几种类型的扩展点允许对请求进行身份认证或根据其内容对其进行阻止、编辑内容以及处理删除操作。 API 访问扩展。</li>
+<li>apiserver 提供各种内置的资源种类 ，如 pods，由 Kubernetes 项目定义，不能更改。但是可以添加您自己定义的资源或其他项目已定义的资源来进行扩展。自定义资源通常与 API 访问扩展一起使用。</li>
+<li>Kubernetes 调度器决定将 Pod 放置到哪个节点。有几种方法可以扩展调度器。调度器可扩展。</li>
+<li>Kubernetes 的大部分行为都是由称为控制器的程序实现的。自定义控制器通常与自定义资源一起使用来完成扩展。</li>
+<li>kubelet 在主机上运行，并帮助 pod 看起来就像在集群网络上拥有自己的 IP 的虚拟服务器。网络插件让您可以实现不同的 pod 网络的扩展。</li>
+<li>kubelet 也挂载和卸载容器的卷。新的存储类型可以通过存储插件支持扩展。</li>
+</ul>
+
+<h2 id="kubectl-插件扩展">kubectl 插件扩展</h2>
+
+<p>kubectl 插件在 v1.8.0 版本中正式作为 alpha 特性引入。它们已经在 v1.12.0 版本中工作，以支持更广泛的用例，建议使用 1.12.0 或更高版本的 <code>kubectl</code>。</p>
+
+<p>1、安装 kubectl 插件</p>
+
+<p>插件只不过是一个独立的可执行文件，名称以 kubectl- 开头，Kubernetes 不提供包管理器或任何类似于安装或更新插件的东西，所以我们只要将此可执行文件放置到系统路径下就可以</p>
+
+<p>目前无法创建覆盖现有 kubectl 命令的插件，例如，创建一个插件 kubectl-version 将导致该插件永远不会被执行，因为现有的 kubectl-version 命令总是优先于它执行。</p>
+
+<p>2、发现插件</p>
+
+<p>kubectl 提供一个命令 kubectl plugin list，用于搜索系统路径查找有效的插件可执行文件。 执行此命令将遍历路径中的所有文件。任何以 kubectl- 开头的可执行文件都将在这个命令的输出中以它们在路径中出现的顺序显示。 任何以 kubectl- 开头的文件如果不可执行，都将包含一个警告。 对于任何相同的有效插件文件，都将包含一个警告。</p>
+
+<p>3、编写 kubectl 插件</p>
+
+<p>你可以用任何编程语言或脚本编写插件，允许您编写命令行命令，最总就是一个二进制文件，不需要安装插件或预加载，直接执行即可，比如一个插件想要提供一个新的命令 kubectl foo，它将被简单地命名为 kubectl-foo</p>
+
+<pre><code>#!/bin/bash
+
+# optional argument handling
+if [[ &quot;$1&quot; == &quot;version&quot; ]]
+then
+    echo &quot;1.0.0&quot;
+    exit 0
+fi
+
+# optional argument handling
+if [[ &quot;$1&quot; == &quot;config&quot; ]]
+then
+    echo $KUBECONFIG
+    exit 0
+fi
+
+echo &quot;I am a plugin named kubectl-foo&quot;
+</code></pre>
+
+<p>4、使用插件</p>
+
+<p>要使用上面的插件，只需使其可执行：</p>
+
+<pre><code>sudo chmod +x ./kubectl-foo
+</code></pre>
+
+<p>并将它放在你的路径中的任何地方：</p>
+
+<pre><code>sudo mv ./kubectl-foo /usr/local/bin
+</code></pre>
+
+<p>你现在可以调用你的插件作为 kubectl 命令：</p>
+
+<pre><code>kubectl foo
+I am a plugin named kubectl-foo
+</code></pre>
+
+<p>所有参数和标记按原样传递给可执行文件：</p>
+
+<pre><code>kubectl foo version
+1.0.0
+</code></pre>
+
+<p>5、命名规则</p>
+
+<p>虽然 kubectl 插件机制在插件文件名中使用破折号（-）分隔插件处理的子命令序列，但是仍然可以通过在文件名中使用下划线（-）来创建命令行中包含破折号的插件命令。</p>
+
+<pre><code># create a plugin containing an underscore in its filename
+echo -e '#!/bin/bash\n\necho &quot;I am a plugin with a dash in my name&quot;' &gt; ./kubectl-foo_bar
+sudo chmod +x ./kubectl-foo_bar
+
+# move the plugin into your PATH
+sudo mv ./kubectl-foo_bar /usr/local/bin
+
+# our plugin can now be invoked from `kubectl` like so:
+kubectl foo-bar
+</code></pre>
+
+<p>对于插件文件名而言还有另一种弊端，给定用户路径中的两个插件 kubectl-foo-bar 和 kubectl-foo-bar-baz ，kubectl 插件机制总是为给定的用户命令选择尽可能长的插件名称。</p>
+
+<pre><code># for a given kubectl command, the plugin with the longest possible filename will always be preferred
+kubectl foo bar baz
+Plugin kubectl-foo-bar-baz is executed
+kubectl foo bar
+Plugin kubectl-foo-bar is executed
+kubectl foo bar baz buz
+Plugin kubectl-foo-bar-baz is executed, with &quot;buz&quot; as its first argument
+kubectl foo bar buz
+Plugin kubectl-foo-bar is executed, with &quot;buz&quot; as its first argument
+</code></pre>
+
+<h2 id="custom-resource-自定义资源">custom resource（自定义资源）</h2>
+
+<p>自定义资源是k8s api的扩展。</p>
+
+<p>资源就是api对象的一种，比如pod就是一种资源，自定义就是自己定义一种这样的在原生集群中没有的类型。</p>
+
+<p>自定义资源只是一种数据结构对象，只有结合控制器才能提供真正的声明式api。一个声明式API 允许你声明或指定的资源的理想状态，控制器将结构化数据同步到为用户所需状态的记录，并持续保持该状态。</p>
+
+<p>声明式api和命令式api</p>
+
+<ul>
+<li>Declarative（声明式设计）指的是这么一种软件设计理念和做法：我们向一个工具描述我们想要让一个事物达到的目标状态，由这个工具自己内部去figure out如何令这个事物达到目标状态。</li>
+<li>Imperative（命令式设计）模式中，我们描述的是一系列的动作。这一系列的动作如果被正确的顺利执行，最终结果是这个事物达到了我们期望的目标状态的。</li>
+</ul>
+
+<p>Kubernetes提供了两种向集群添加自定义资源的方法</p>
+
+<ul>
+<li><a href="/post/cloud/paas/base/kubernetes/k8s-api/#crd-自定义资源类型">CRD</a>很简单，无需任何编程即可通过CustomResourceDefinition API资源类型进行创建。</li>
+<li><a href="/post/cloud/paas/base/kubernetes/k8s-api/#kubernetes-aggregated-api-servers">API聚合</a>需要编程，但可以更好地控制API行为，例如如何存储数据以及在API版本之间进行转换。</li>
+</ul>
+
+<p>CRD更易于使用，聚合的API更灵活。</p>
+
+<p>我们在来聊聊api group 和 api version</p>
+
+<pre><code>$ kubectl api-versions
+admissionregistration.k8s.io/v1
+admissionregistration.k8s.io/v1beta1
+apiextensions.k8s.io/v1
+apiextensions.k8s.io/v1beta1
+apiregistration.k8s.io/v1
+apiregistration.k8s.io/v1beta1
+apps.kruise.io/v1alpha1
+apps/v1
+authentication.k8s.io/v1
+authentication.k8s.io/v1beta1
+authorization.k8s.io/v1
+authorization.k8s.io/v1beta1
+autoscaling/v1
+autoscaling/v2beta1
+autoscaling/v2beta2
+batch/v1
+batch/v1beta1
+certificates.k8s.io/v1beta1
+coordination.k8s.io/v1
+coordination.k8s.io/v1beta1
+custom.metrics.k8s.io/v1beta1
+discovery.k8s.io/v1beta1
+events.k8s.io/v1beta1
+extensions/v1beta1
+metrics.k8s.io/v1beta1
+monitoring.coreos.com/v1
+networking.k8s.io/v1
+networking.k8s.io/v1beta1
+node.k8s.io/v1beta1
+policy/v1beta1
+rbac.authorization.k8s.io/v1
+rbac.authorization.k8s.io/v1beta1
+scheduling.k8s.io/v1
+scheduling.k8s.io/v1beta1
+storage.k8s.io/v1
+storage.k8s.io/v1beta1
+v1
+</code></pre>
+
+<p>第一个 admissionregistration.k8s.io/v1beta1 中，admissionregistration.k8s.io 是 api group，v1beta1 表示它的版本。所以api都是有APIgroup/apiversion组成的，如果 api group 为空表示核心 api。</p>
+
+<p>每个api其实都是通过apiservice这种类型进行注册的</p>
+
+<pre><code>$ kubectl get apiservice
+NAME                                   SERVICE                                   AVAILABLE                  AGE
+v1.                                    Local                                     True                       20d
+v1.admissionregistration.k8s.io        Local                                     True                       20d
+v1.apiextensions.k8s.io                Local                                     True                       20d
+v1.apps                                Local                                     True                       20d
+v1.authentication.k8s.io               Local                                     True                       20d
+v1.authorization.k8s.io                Local                                     True                       20d
+v1.autoscaling                         Local                                     True                       20d
+v1.batch                               Local                                     True                       20d
+v1.coordination.k8s.io                 Local                                     True                       20d
+v1.monitoring.coreos.com               Local                                     True                       2d20h
+v1.networking.k8s.io                   Local                                     True                       20d
+v1.rbac.authorization.k8s.io           Local                                     True                       20d
+v1.scheduling.k8s.io                   Local                                     True                       20d
+v1.storage.k8s.io                      Local                                     True                       20d
+v1alpha1.apps.kruise.io                Local                                     True                       2d20h
+v1beta1.admissionregistration.k8s.io   Local                                     True                       20d
+v1beta1.apiextensions.k8s.io           Local                                     True                       20d
+v1beta1.authentication.k8s.io          Local                                     True                       20d
+v1beta1.authorization.k8s.io           Local                                     True                       20d
+v1beta1.batch                          Local                                     True                       20d
+v1beta1.certificates.k8s.io            Local                                     True                       20d
+v1beta1.coordination.k8s.io            Local                                     True                       20d
+v1beta1.custom.metrics.k8s.io          custom-metrics/custom-metrics-apiserver   False (MissingEndpoints)   3h18m
+v1beta1.discovery.k8s.io               Local                                     True                       20d
+v1beta1.events.k8s.io                  Local                                     True                       20d
+v1beta1.extensions                     Local                                     True                       20d
+v1beta1.metrics.k8s.io                 monitoring/prometheus-adapter             True                       18h
+v1beta1.networking.k8s.io              Local                                     True                       20d
+v1beta1.node.k8s.io                    Local                                     True                       20d
+v1beta1.policy                         Local                                     True                       20d
+v1beta1.rbac.authorization.k8s.io      Local                                     True                       20d
+v1beta1.scheduling.k8s.io              Local                                     True                       20d
+v1beta1.storage.k8s.io                 Local                                     True                       20d
+v2beta1.autoscaling                    Local                                     True                       20d
+v2beta2.autoscaling                    Local                                     True                       20d
+</code></pre>
+
+<p>kubernetes 的资源都是由 api group 提供的。那么如何知道哪些资源是由哪些 api group 提供的呢？</p>
+
+<pre><code>$ kubectl api-resources
+NAME                              SHORTNAMES   APIGROUP                       NAMESPACED   KIND
+bindings                                                                      true         Binding
+componentstatuses                 cs                                          false        ComponentStatus
+configmaps                        cm                                          true         ConfigMap
+endpoints                         ep                                          true         Endpoints
+events                            ev                                          true         Event
+limitranges                       limits                                      true         LimitRange
+namespaces                        ns                                          false        Namespace
+nodes                             no                                          false        Node
+persistentvolumeclaims            pvc                                         true         PersistentVolumeClaim
+persistentvolumes                 pv                                          false        PersistentVolume
+pods                              po                                          true         Pod
+podtemplates                                                                  true         PodTemplate
+replicationcontrollers            rc                                          true         ReplicationController
+resourcequotas                    quota                                       true         ResourceQuota
+secrets                                                                       true         Secret
+serviceaccounts                   sa                                          true         ServiceAccount
+services                          svc                                         true         Service
+mutatingwebhookconfigurations                  admissionregistration.k8s.io   false        MutatingWebhookConfiguration
+validatingwebhookconfigurations                admissionregistration.k8s.io   false        ValidatingWebhookConfiguration
+customresourcedefinitions         crd,crds     apiextensions.k8s.io           false        CustomResourceDefinition
+apiservices                                    apiregistration.k8s.io         false        APIService
+controllerrevisions                            apps                           true         ControllerRevision
+daemonsets                        ds           apps                           true         DaemonSet
+deployments                       deploy       apps                           true         Deployment
+replicasets                       rs           apps                           true         ReplicaSet
+statefulsets                      sts          apps                           true         StatefulSet
+broadcastjobs                     bj           apps.kruise.io                 true         BroadcastJob
+clonesets                         clone        apps.kruise.io                 true         CloneSet
+sidecarsets                                    apps.kruise.io                 false        SidecarSet
+statefulsets                      sts          apps.kruise.io                 true         StatefulSet
+uniteddeployments                 ud           apps.kruise.io                 true         UnitedDeployment
+tokenreviews                                   authentication.k8s.io          false        TokenReview
+localsubjectaccessreviews                      authorization.k8s.io           true         LocalSubjectAccessReview
+selfsubjectaccessreviews                       authorization.k8s.io           false        SelfSubjectAccessReview
+selfsubjectrulesreviews                        authorization.k8s.io           false        SelfSubjectRulesReview
+subjectaccessreviews                           authorization.k8s.io           false        SubjectAccessReview
+horizontalpodautoscalers          hpa          autoscaling                    true         HorizontalPodAutoscaler
+cronjobs                          cj           batch                          true         CronJob
+jobs                                           batch                          true         Job
+certificatesigningrequests        csr          certificates.k8s.io            false        CertificateSigningRequest
+leases                                         coordination.k8s.io            true         Lease
+endpointslices                                 discovery.k8s.io               true         EndpointSlice
+events                            ev           events.k8s.io                  true         Event
+ingresses                         ing          extensions                     true         Ingress
+nodes                                          metrics.k8s.io                 false        NodeMetrics
+pods                                           metrics.k8s.io                 true         PodMetrics
+alertmanagers                                  monitoring.coreos.com          true         Alertmanager
+podmonitors                                    monitoring.coreos.com          true         PodMonitor
+prometheuses                                   monitoring.coreos.com          true         Prometheus
+prometheusrules                                monitoring.coreos.com          true         PrometheusRule
+servicemonitors                                monitoring.coreos.com          true         ServiceMonitor
+thanosrulers                                   monitoring.coreos.com          true         ThanosRuler
+ingressclasses                                 networking.k8s.io              false        IngressClass
+ingresses                         ing          networking.k8s.io              true         Ingress
+networkpolicies                   netpol       networking.k8s.io              true         NetworkPolicy
+runtimeclasses                                 node.k8s.io                    false        RuntimeClass
+poddisruptionbudgets              pdb          policy                         true         PodDisruptionBudget
+podsecuritypolicies               psp          policy                         false        PodSecurityPolicy
+clusterrolebindings                            rbac.authorization.k8s.io      false        ClusterRoleBinding
+clusterroles                                   rbac.authorization.k8s.io      false        ClusterRole
+rolebindings                                   rbac.authorization.k8s.io      true         RoleBinding
+roles                                          rbac.authorization.k8s.io      true         Role
+priorityclasses                   pc           scheduling.k8s.io              false        PriorityClass
+csidrivers                                     storage.k8s.io                 false        CSIDriver
+csinodes                                       storage.k8s.io                 false        CSINode
+storageclasses                    sc           storage.k8s.io                 false        StorageClass
+volumeattachments                              storage.k8s.io                 false        VolumeAttachment
+</code></pre>
+
+<p>NAME 列就是资源名，它的功能由 APIGROUP 列的 api group 提供。SHORTNAMES 列就是这些资源的缩写了，缩写在使用 kubectl 时非常好用。同样APIGROUP 都为空，表示这些资源都是核心 api 提供的。</p>
+
+<p>所以对于自定义api，我们就需要用到他们的 api group 和 api version 进行注册，就可以同样的作用了。</p>
+
+<p>这边只是资源定义，实现还是要依赖于<a href="/post/cloud/paas/base/kubernetes/k8s-controller/">controller</a>。</p>
+
+<h2 id="schedulers">Schedulers</h2>
+
+<p><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">调度扩展</a>主要是通过调度框架来实现。</p>
+
+<h2 id="网络插件">网络插件</h2>
+
+<p><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">网络扩展</a>主要通过CNI接口来实现。</p>
+
+<h2 id="存储插件">存储插件</h2>
+
+<p><a href="/post/cloud/paas/base/kubernetes/k8s-network-csi/">存储扩展</a>主要通过CSI接口来实现。</p>
             </div>
             
             <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
@@ -2754,6 +3063,14 @@ Pod的容器目前分为三大类：短生命周期容器、初始化容器、�
 <li><a href="#服务发现">服务发现</a></li>
 <li><a href="#安全机制">安全机制</a></li>
 <li><a href="#k8s的pod创建流程">k8s的pod创建流程</a></li>
+</ul></li>
+<li><a href="#配置和可扩展">配置和可扩展</a>
+<ul>
+<li><a href="#kubectl-插件扩展">kubectl 插件扩展</a></li>
+<li><a href="#custom-resource-自定义资源">custom resource（自定义资源）</a></li>
+<li><a href="#schedulers">Schedulers</a></li>
+<li><a href="#网络插件">网络插件</a></li>
+<li><a href="#存储插件">存储插件</a></li>
 </ul></li>
 </ul>
 </nav>
