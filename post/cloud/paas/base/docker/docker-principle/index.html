@@ -185,15 +185,21 @@
 
 <h1 id="原理">原理</h1>
 
-<h2 id="docker引擎原理">docker引擎原理</h2>
-
-<p>docker在版本0.9之前是以lxc（linux container）为基础的，0.9以后又引入了自己开发的libcontainer，试图设计出更加通用的容器化技术。</p>
+<p>docker在版本0.9之前是以lxc（linux container）为基础的，0.9以后又引入了自己开发的libcontainer，也就是现在的containerd的前生，试图设计出更加通用的容器化技术。</p>
 
 <p>docker采用c/s架构，服务端默认在后台运行，进行容器的创建等相关操作，客户端就是我们调用的命令行操作，每次客户端运行完就会退出等待再次调用，客户端和服务端是通过socket进行通信的，默认是unix:///var/run/docker.sock,可以通过-H参数修改端口。</p>
 
 <p>docker是一种轻量级的操作系统虚拟化方案，基于LXC，相对于传统的vm，它只虚拟来操作系统而没有虚拟内核，基于docker engine共享内核，即虚拟出运行库即可运行app，而传统的vm都是虚拟出完整的内核和运行库文件的操作系统。即虚拟出运行库即可运行app，而传统的vm都是虚拟出完整的内核和运行库文件的操作系统。</p>
 
-<p>docker都是独立的系统，是对操作系统的一种虚拟化。所以需要对其内核，文件系统，网络，PID，UID，IPC，内存，硬盘，cpu进行限制隔离，我们就是通过命名空间namespace，控制组cgroup，联合文件系统UFS，虚拟网络来完成的隔离独立运行。</p>
+<h2 id="docker引擎原理">docker引擎原理</h2>
+
+<p>一旦“程序”被执行起来，它就从磁盘上的二进制文件，变成了计算机内存中的数据、寄存器里的值、堆栈中的指令、被打开的文件，以及各种设备的状态信息的一个集合，这就是进程。</p>
+
+<p>容器技术的核心功能，就是通过约束和修改进程的动态表现，从而为其创造出一个“边界”，同时切换拷贝设置其根文件系统。</p>
+
+<p>一个“容器”，实际上是一个由 Linux Namespace、Linux Cgroups 和 rootfs 三种技术构建出来的进程的隔离环境。</p>
+
+<p>对于 Docker 等大多数 Linux 容器来说，Cgroups 技术是用来制造约束的主要手段，而 Namespace 技术则是用来修改进程视图的主要方法。</p>
 
 <p><img src="/media/cloud/docker/docker3" alt="" /></p>
 
@@ -220,13 +226,50 @@ mnt namespace：管理文件系统挂载点（MNT: Mount）
 uts namespace：隔离内核和版本标识符（UTS: Unix Timesharing System）
 </code></pre>
 
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>让我们首先创建一个容器来试试。</p>
+
+<pre><code>$ docker run -it busybox /bin/sh
+/ #
+</code></pre>
+
+<p>此时，如果我们在容器里执行一下 ps 指令，就会发现一些更有趣的事情：</p>
+
+<pre><code>/ # ps
+PID  USER   TIME COMMAND
+  1 root   0:00 /bin/sh
+  10 root   0:00 ps
+</code></pre>
+
+<p>可以看到，我们在 Docker 里最开始执行的 /bin/sh，就是这个容器内部的第 1 号进程（PID=1），而这个容器里一共只有两个进程在运行。这就意味着，前面执行的 /bin/sh，以及我们刚刚执行的 ps，已经被 Docker 隔离在了一个跟宿主机完全不同的世界当中。</p>
+
+<p>这种机制，其实就是对被隔离应用的进程空间做了手脚，使得这些进程只能看到重新计算过的进程编号，比如 PID=1。可实际上，他们在宿主机的操作系统里，还是原来的第 100 号进程。</p>
+
+<blockquote>
+<p>总结</p>
+</blockquote>
+
+<p>虚拟机是完整的虚拟出文件系统和内核，在geustos的基础上有很好的隔离性，所以一个虚拟机的镜像都是几个G。</p>
+
+<p>docker其实是在虚拟机的基础，进行namespaces的隔离，和虚拟机是共享操作系统内核的，所以一个docker镜像只有几十M到几百M，但是隔离性远不如虚拟机，</p>
+
+<ul>
+<li>容器之间是共享内核的，宿主机内核不能兼容的docker肯定也是不能兼容的</li>
+<li>很多资源是无法隔离的，比如时间是无法用namespace来隔离的，你修改一个namespace的时间会影响宿主机上的时间。</li>
+</ul>
+
+<p>所以docker引擎其实只是做了隔离和虚拟机的hypervisor并不是一个级别的。在理解了 Namespace 的工作方式之后，你就会明白，跟真实存在的虚拟机不同，在使用 Docker 的时候，并没有一个真正的“Docker 容器”运行在宿主机里面。Docker 项目帮助用户启动的，还是原来的应用进程，只不过在创建这些进程时，Docker 为它们加上了各种各样的 Namespace 参数。这时，这些进程就会觉得自己是各自 PID Namespace 里的第 1 号进程，只能看到各自 Mount Namespace 里挂载的目录和文件，只能访问到各自 Network Namespace 里的网络设备，就仿佛运行在一个个“容器”里面，与世隔绝。</p>
+
+<p>虚拟机是真是存在的，docker容器并不是真实存在的，而是一个被隔离和约束的特殊的进程。</p>
+
 <h3 id="cgroup">cgroup</h3>
 
-<p>Linux 上的 Docker 引擎依赖的另外一项技术叫 control groups （ cgroups ）</p>
+<p>Linux 上的 Docker 引擎依赖的另外一项技术叫 control groups （ cgroups ），cgroup和namespace类似，也是将进程进行分组，但它的目的和namespace不一样，namespace是为了隔离进程组之间的资源，而cgroup是为了对一组进程进行统一的资源监控和限制，这些资源主要包括CPU、内存、block I/O和网络带宽。资源限制的意思就是如设定应用运行时使用内存的上限，一旦超过这个配额就发出OOM（Out of Memory）。</p>
 
-<p>cgroup和namespace类似，也是将进程进行分组，但它的目的和namespace不一样，namespace是为了隔离进程组之间的资源，而cgroup是为了对一组进程进行统一的资源监控和限制。</p>
-
-<p>用于限制和隔离一组进程对系统资源的使用，也就是做资源QoS，这些资源主要包括CPU、内存、block I/O和网络带宽。资源限制的意思就是如设定应用运行时使用内存的上限，一旦超过这个配额就发出OOM（Out of Memory）。</p>
+<p>虽然容器内的第 1 号进程在“障眼法”的干扰下只能看到容器里的情况，但是宿主机上，它作为第 100 号进程与其他所有进程之间依然是平等的竞争关系。这就意味着，虽然第 100 号进程表面上被隔离了起来，但是它所能够使用到的资源（比如 CPU、内存），却是可以随时被宿主机上的其他进程（或者其他容器）占用的。当然，这个 100 号进程自己也可能把所有资源吃光。这些情况，显然都不是一个“沙盒”应该表现出来的合理行为。</p>
 
 <p>Cgroups提供了以下四大功能:</p>
 
@@ -262,11 +305,253 @@ huge_tlb：限制HugeTLB的使用。
 perf_event：允许Perf工具基于Cgroup分组做性能监测。
 </code></pre>
 
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>我们在来看看具体的cpu文件</p>
+
+<pre><code>$ ls /sys/fs/cgroup/cpu
+cgroup.clone_children cpu.cfs_period_us cpu.rt_period_us  cpu.shares notify_on_release
+cgroup.procs      cpu.cfs_quota_us  cpu.rt_runtime_us cpu.stat  tasks
+</code></pre>
+
+<p>如果熟悉 Linux CPU 管理的话，你就会在它的输出里注意到 cfs_period 和 cfs_quota 这样的关键词。这两个参数需要组合使用，可以用来限制进程在长度为 cfs_period 的一段时间内，只能被分配到总量为 cfs_quota 的 CPU 时间。</p>
+
+<p>我们现在进入 /sys/fs/cgroup/cpu 目录下：</p>
+
+<pre><code>root@ubuntu:/sys/fs/cgroup/cpu$ mkdir container
+root@ubuntu:/sys/fs/cgroup/cpu$ ls container/
+cgroup.clone_children cpu.cfs_period_us cpu.rt_period_us  cpu.shares notify_on_release
+cgroup.procs      cpu.cfs_quota_us  cpu.rt_runtime_us cpu.stat  tasks
+</code></pre>
+
+<p>这个目录就称为一个“控制组”。你会发现，操作系统会在你新创建的 container 目录下，自动生成该子系统对应的资源限制文件。</p>
+
+<p>现在，我们在后台执行这样一条脚本：</p>
+
+<pre><code>$ while : ; do : ; done &amp;
+[1] 226
+</code></pre>
+
+<p>显然，它执行了一个死循环，可以把计算机的 CPU 吃到 100%，根据它的输出，我们可以看到这个脚本在后台运行的进程号（PID）是 226。这样，我们可以用 top 指令来确认一下 CPU 有没有被打满：</p>
+
+<pre><code>$ top
+%Cpu0 :100.0 us, 0.0 sy, 0.0 ni, 0.0 id, 0.0 wa, 0.0 hi, 0.0 si, 0.0 st
+</code></pre>
+
+<p>在输出里可以看到，CPU 的使用率已经 100% 了（%Cpu0 :100.0 us）。而此时，我们可以通过查看 container 目录下的文件，看到 container 控制组里的 CPU quota 还没有任何限制（即：-1），CPU period 则是默认的 100 ms（100000 us）：</p>
+
+<pre><code>$ cat /sys/fs/cgroup/cpu/container/cpu.cfs_quota_us
+-1
+$ cat /sys/fs/cgroup/cpu/container/cpu.cfs_period_us
+100000
+</code></pre>
+
+<p>我们可以通过修改这些文件的内容来设置限制。比如，向 container 组里的 cfs_quota 文件写入 20 ms（20000 us）：</p>
+
+<pre><code>$ echo 20000 &gt; /sys/fs/cgroup/cpu/container/cpu.cfs_quota_us
+</code></pre>
+
+<p>它意味着在每 100 ms 的时间里，被该控制组限制的进程只能使用 20 ms 的 CPU 时间，也就是说这个进程只能使用到 20% 的 CPU 带宽。接下来，我们把被限制的进程的 PID 写入 container 组里的 tasks 文件，上面的设置就会对该进程生效了：</p>
+
+<pre><code>$ echo 226 &gt; /sys/fs/cgroup/cpu/container/tasks
+</code></pre>
+
+<p>我们可以用 top 指令查看一下</p>
+
+<pre><code>$ top
+%Cpu0 : 20.3 us, 0.0 sy, 0.0 ni, 79.7 id, 0.0 wa, 0.0 hi, 0.0 si, 0.0 st
+</code></pre>
+
+<p>可以看到，计算机的 CPU 使用率立刻降到了 20%（%Cpu0 : 20.3 us）。</p>
+
+<blockquote>
+<p>总结</p>
+</blockquote>
+
+<p>容器是一个“单进程”模型。由于一个容器的本质就是一个进程，用户的应用进程实际上就是容器里 PID=1 的进程，也是其他后续创建的所有进程的父进程。这就意味着，在一个容器中，你没办法同时运行两个不同的应用，除非你能事先找到一个公共的 PID=1 的程序来充当两个不同应用的父进程，这也是为什么很多人都会用 systemd 或者 supervisord 这样的软件来代替应用本身作为容器的启动进程。还有其他更好的解决办法。这是因为容器本身的设计，就是希望容器和应用能够同生命周期，这个概念对后续的容器编排非常重要。否则，一旦出现类似于“容器是正常运行的，但是里面的应用早已经挂了”的情况，编排系统处理起来就非常麻烦了。</p>
+
+<p>linux cgroups就是一个子系统目录加上一组资源限制文件的组合。</p>
+
+<blockquote>
+<p>不足</p>
+</blockquote>
+
+<p>跟 Namespace 的情况类似，Cgroups 对资源的限制能力也有很多不完善的地方，被提及最多的自然是 /proc 文件系统的问题。众所周知，Linux 下的 /proc 目录存储的是记录当前内核运行状态的一系列特殊文件，用户可以通过访问这些文件，查看系统以及当前正在运行的进程的信息，比如 CPU 使用情况、内存占用率等，这些文件也是 top 指令查看系统信息的主要数据来源。但是，你如果在容器里执行 top 指令，就会发现，它显示的信息居然是宿主机的 CPU 和内存数据，而不是当前容器的数据。造成这个问题的原因就是，/proc 文件系统并不知道用户通过 Cgroups 给这个容器做了什么样的资源限制，即：/proc 文件系统不了解 Cgroups 限制的存在。在生产环境中，这个问题必须进行修正，否则应用程序在容器里读取到的 CPU 核数、可用内存等信息都是宿主机上的数据，这会给应用的运行带来非常大的困惑和风险。这也是在企业中，容器化应用碰到的一个常见问题，也是容器相较于虚拟机另一个不尽如人意的地方。</p>
+
+<p>一般使用最新版本的cgroup namespace来隔离。</p>
+
 <h3 id="rootfs">rootfs</h3>
 
-<p>Linux 和 Unix 操作系统可以通过 chroot 系统调用将子目录变成根目录，达到视图级别的隔离，进程在 chroot 的帮助下可以具有独立的文件系统，对于这样的文件系统进行增删改查不会影响到其他进程。</p>
+<p>Mount Namespace对容器进程视图的改变，一定是伴随着挂载操作（mount）才能生效，可是，作为一个普通用户，我们希望的是一个更友好的情况：每当创建一个新容器时，我希望容器进程看到的文件系统就是一个独立的隔离环境，而不是继承自宿主机的文件系统。怎么才能做到这一点呢？不难想到，我们可以在容器进程启动之前重新挂载它的整个根目录“/”。而由于 Mount Namespace 的存在，这个挂载对宿主机不可见，所以容器进程就可以在里面随便折腾了。在 Linux 操作系统里，有一个名为 chroot 的命令可以帮助你在 shell 中方便地完成这个工作。顾名思义，它的作用就是帮你“change root file system”，即改变进程的根目录到你指定的位置。</p>
+
+<p>实际上，Mount Namespace 正是基于对 chroot 的不断改良才被发明出来的，它也是 Linux 操作系统里的第一个 Namespace。为了能够让容器的这个根目录看起来更“真实”，我们一般会在这个容器的根目录下挂载一个完整操作系统的文件系统，比如 Ubuntu16.04 的 ISO。这样，在容器启动之后，我们在容器里通过执行 &ldquo;ls /&rdquo; 查看根目录下的内容，就是 Ubuntu 16.04 的所有目录和文件。而这个挂载在容器根目录上、用来为容器进程提供隔离后执行环境的文件系统，就是所谓的“容器镜像”。它还有一个更为专业的名字，叫作：rootfs（根文件系统）。所以，一个最常见的 rootfs，或者说容器镜像，会包括如下所示的一些目录和文件，比如 /bin，/etc，/proc 等等：</p>
+
+<pre><code>$ ls /
+bin dev etc home lib lib64 mnt opt proc root run sbin sys tmp usr var
+</code></pre>
+
+<p>所以进入容器之后执行的 /bin/bash，就是 /bin 目录下的可执行文件，与宿主机的 /bin/bash 完全不同。</p>
+
+<p>rootfs 只是一个操作系统所包含的文件、配置和目录，并不包括操作系统内核。在 Linux 操作系统中，这两部分是分开存放的，操作系统只有在开机启动时才会加载指定版本的内核镜像，同一台机器上的所有容器，都共享宿主机操作系统的内核。</p>
+
+<p>通过结合使用 Mount Namespace 和 rootfs，容器就能够为进程构建出一个完善的文件系统隔离环境。</p>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>假设，我们现在有一个 $HOME/test 目录，想要把它作为一个 /bin/bash 进程的根目录。首先，创建一个 test 目录和几个 lib 文件夹：</p>
+
+<pre><code>$ mkdir -p $HOME/test
+$ mkdir -p $HOME/test/{bin,lib64,lib}
+</code></pre>
+
+<p>然后，把 bash 命令拷贝到 test 目录对应的 bin 路径下：</p>
+
+<pre><code>$ cp -v /bin/{bash,ls} $HOME/test/bin
+</code></pre>
+
+<p>接下来，把 bash 命令需要的所有 so 文件，也拷贝到 test 目录对应的 lib 路径下。找到 so 文件可以用 ldd 命令：</p>
+
+<pre><code>$ T=$HOME/test
+$ list=&quot;$(ldd /bin/ls | egrep -o '/lib.*\.[0-9]')&quot;
+$ for i in $list; do cp -v &quot;$i&quot; &quot;${T}${i}&quot;; done
+</code></pre>
+
+<p>最后，执行 chroot 命令，告诉操作系统，我们将使用 $HOME/test 目录作为 /bin/bash 进程的根目录：</p>
+
+<pre><code>$ chroot $HOME/test /bin/bash
+</code></pre>
+
+<p>这时，你如果执行 &ldquo;ls /&ldquo;，就会看到，它返回的都是 $HOME/test 目录下面的内容，而不是宿主机的内容。</p>
+
+<blockquote>
+<p>一致性</p>
+</blockquote>
+
+<p>正是由于 rootfs 的存在，容器才有了一个被反复宣传至今的重要特性：一致性。</p>
+
+<p>由于 rootfs 里打包的不只是应用，而是整个操作系统的文件和目录，也就意味着，应用以及它运行所需要的所有依赖，都被封装在了一起。</p>
+
+<p>有了容器镜像“打包操作系统”的能力，这个最基础的依赖环境也终于变成了应用沙盒的一部分。这就赋予了容器所谓的一致性：无论在本地、云端，还是在一台任何地方的机器上，用户只需要解压打包好的容器镜像，那么这个应用运行所需要的完整的执行环境就被重现出来了。这种深入到操作系统级别的运行环境一致性，打通了应用在本地开发和远端执行环境之间难以逾越的鸿沟。</p>
 
 <h2 id="images">images</h2>
+
+<p>Docker 在镜像的设计中，引入了层（layer）的概念。也就是说，用户制作镜像的每一步操作，都会生成一个层，也就是一个增量 rootfs。当然，这个想法不是凭空臆造出来的，而是用到了一种叫作联合文件系统（Union File System）的能力。</p>
+
+<h3 id="ufs">UFS</h3>
+
+<p>Union File System 也叫 UnionFS，最主要的功能是将多个不同位置的目录联合挂载（union mount）到同一个目录下。比如，我现在有两个目录 A 和 B，它们分别有两个文件：</p>
+
+<pre><code>$ tree
+.
+├── A
+│  ├── a
+│  └── x
+└── B
+  ├── b
+  └── x
+</code></pre>
+
+<p>然后，我使用联合挂载的方式，将这两个目录挂载到一个公共的目录 C 上：</p>
+
+<pre><code>$ mkdir C
+$ mount -t aufs -o dirs=./A:./B none ./C
+</code></pre>
+
+<p>这时，我再查看目录 C 的内容，就能看到目录 A 和 B 下的文件被合并到了一起：</p>
+
+<pre><code>$ tree ./C
+./C
+├── a
+├── b
+└── x
+</code></pre>
+
+<p>可以看到，在这个合并后的目录 C 里，有 a、b、x 三个文件，并且 x 文件只有一份。这，就是“合并”的含义。此外，如果你在目录 C 里对 a、b、x 文件做修改，这些修改也会在对应的目录 A、B 中生效。</p>
+
+<p>AuFS 的全称是 Another UnionFS，后改名为 Alternative UnionFS，再后来干脆改名叫作 Advance UnionFS，它是对 Linux 原生 UnionFS 的重写和改进。对于 AuFS 来说，它最关键的目录结构在 /var/lib/docker 路径下的 diff 目录：</p>
+
+<pre><code>/var/lib/docker/aufs/diff/&lt;layer_id&gt;
+</code></pre>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>我们启动一个容器，比如：</p>
+
+<pre><code>$ docker run -d ubuntu:latest sleep 3600
+</code></pre>
+
+<p>这时候，Docker 就会从 Docker Hub 上拉取一个 Ubuntu 镜像到本地。这个所谓的“镜像”，实际上就是一个 Ubuntu 操作系统的 rootfs，它的内容是 Ubuntu 操作系统的所有文件和目录。不过，与之前我们讲述的 rootfs 稍微不同的是，Docker 镜像使用的 rootfs，往往由多个“层”组成：</p>
+
+<pre><code>$ docker image inspect ubuntu:latest
+...
+     &quot;RootFS&quot;: {
+      &quot;Type&quot;: &quot;layers&quot;,
+      &quot;Layers&quot;: [
+        &quot;sha256:f49017d4d5ce9c0f544c...&quot;,
+        &quot;sha256:8f2b771487e9d6354080...&quot;,
+        &quot;sha256:ccd4d61916aaa2159429...&quot;,
+        &quot;sha256:c01d74f99de40e097c73...&quot;,
+        &quot;sha256:268a067217b5fe78e000...&quot;
+      ]
+    }
+</code></pre>
+
+<p>可以看到，这个 Ubuntu 镜像，实际上由五个层组成。这五个层就是五个增量 rootfs，每一层都是 Ubuntu 操作系统文件与目录的一部分；而在使用镜像时，Docker 会把这些增量联合挂载在一个统一的挂载点上（等价于前面例子里的“/C”目录）。这个挂载点就是 /var/lib/docker/aufs/mnt/，比如：</p>
+
+<pre><code>/var/lib/docker/aufs/mnt/6e3be5d2ecccae7cc0fcfa2a2f5c89dc21ee30e166be823ceaeba15dce645b3e
+</code></pre>
+
+<p>不出意外的，这个目录里面正是一个完整的 Ubuntu 操作系统：</p>
+
+<pre><code>$ ls /var/lib/docker/aufs/mnt/6e3be5d2ecccae7cc0fcfa2a2f5c89dc21ee30e166be823ceaeba15dce645b3e
+bin boot dev etc home lib lib64 media mnt opt proc root run sbin srv sys tmp usr var
+</code></pre>
+
+<p>那么，前面提到的五个镜像层，又是如何被联合挂载成这样一个完整的 Ubuntu 文件系统的呢？这个信息记录在 AuFS 的系统目录 /sys/fs/aufs 下面。首先，通过查看 AuFS 的挂载信息，我们可以找到这个目录对应的 AuFS 的内部 ID（也叫：si）：</p>
+
+<pre><code>$ cat /proc/mounts| grep aufs
+none /var/lib/docker/aufs/mnt/6e3be5d2ecccae7cc0fc... aufs rw,relatime,si=972c6d361e6b32ba,dio,dirperm1 0 0
+</code></pre>
+
+<p>即，si=972c6d361e6b32ba。然后使用这个 ID，你就可以在 /sys/fs/aufs 下查看被联合挂载在一起的各个层的信息：</p>
+
+<pre><code>$ cat /sys/fs/aufs/si_972c6d361e6b32ba/br[0-9]*
+/var/lib/docker/aufs/diff/6e3be5d2ecccae7cc...=rw
+/var/lib/docker/aufs/diff/6e3be5d2ecccae7cc...-init=ro+wh
+/var/lib/docker/aufs/diff/32e8e20064858c0f2...=ro+wh
+/var/lib/docker/aufs/diff/2b8858809bce62e62...=ro+wh
+/var/lib/docker/aufs/diff/20707dce8efc0d267...=ro+wh
+/var/lib/docker/aufs/diff/72b0744e06247c7d0...=ro+wh
+/var/lib/docker/aufs/diff/a524a729adadedb90...=ro+wh
+</code></pre>
+
+<p>这些信息里，我们可以看到，镜像的层都放置在 /var/lib/docker/aufs/diff 目录下，然后被联合挂载在 /var/lib/docker/aufs/mnt 里面。</p>
+
+<blockquote>
+<p>总结</p>
+</blockquote>
+
+<p><img src="/media/cloud/docker/ufs.png" alt="" /></p>
+
+<p>rootfs 由三部分组成：只读层，可读写层，init层</p>
+
+<ul>
+<li>只读层是这个容器的 rootfs 最下面的五层，对应的正是 ubuntu:latest 镜像的五层。可以看到，它们的挂载方式都是只读的，这些层，都以增量的方式分别包含了 Ubuntu 操作系统的一部分。</li>
+<li>可读写层是这个容器的 rootfs 最上面的一层（6e3be5d2ecccae7cc），它的挂载方式为：rw，即 read write。在没有写入文件之前，这个目录是空的。而一旦在容器里做了写操作，你修改产生的内容就会以增量的方式出现在这个层中。如果是删除也不会删除底层的文件，只会做一个标记来屏蔽，叫做白障，最上面这个可读写层的作用，就是专门用来存放你修改 rootfs 后产生的增量，无论是增、删、改，都发生在这里。而当我们使用完了这个被修改过的容器之后，还可以使用 docker commit 和 push 指令，保存这个被修改过的可读写层，并上传到 Docker Hub 上，供其他人使用；而与此同时，原先的只读层里的内容则不会有任何变化。这，就是增量 rootfs 的好处。</li>
+<li>Init 层是 Docker 项目单独生成的一个内部层，专门用来存放 /etc/hosts、/etc/resolv.conf 等信息。</li>
+</ul>
+
+<p>最终，这 7 个层都被联合挂载到 /var/lib/docker/aufs/mnt 目录下，表现为一个完整的 Ubuntu 操作系统供容器使用。</p>
+
+<h3 id="镜像">镜像</h3>
+
+<p>通过“分层镜像”的设计，以 Docker 镜像为核心，来自不同公司、不同团队的技术人员被紧密地联系在了一起。而且，由于容器镜像的操作是增量式的，这样每次镜像拉取、推送的内容，比原本多个完整的操作系统的大小要小得多；而共享层的存在，可以使得所有这些容器镜像需要的总空间，也比每个镜像的总和要小。这样就使得基于容器镜像的团队协作，要比基于动则几个 GB 的虚拟机磁盘镜像的协作要敏捷得多。更重要的是，一旦这个镜像被发布，那么你在全世界的任何一个地方下载这个镜像，得到的内容都完全一致，可以完全复现这个镜像制作者当初的完整环境。这，就是容器技术“强一致性”的重要体现。。容器镜像的发明，不仅打通了“开发 - 测试 - 部署”流程的每一个环节，更重要的是：容器镜像将会成为未来软件的主流发布方式。</p>
 
 <p>容器镜像，是容器分发的载体，很多时候讲容器镜像比作成集装箱，镜像里面包含了应用以及应用运行所需要的依赖，容器镜像采用分层存储，最底层是bootfs/rootfs, bootfs是最底层，类似于linux的引导文件系统，rootfs是基础镜像，比如这里基础镜像是ubuntu:15.04的系统，之后再基础镜像的基础上去做修改，比如增加应用bin文件，以及对环境变量的设置，每种改动最后在镜像中的表现是依次往上进行叠加的image layer。每一层是只读的，</p>
 
@@ -274,9 +559,42 @@ perf_event：允许Perf工具基于Cgroup分组做性能监测。
 
 <p><img src="/media/cloud/docker/image.png" alt="" /></p>
 
-<p>容器运行的时候会加载镜像中的文件系统，利用联合挂载（union mount）技术在已经有的只读文件系统中再挂载一个读写层,容器运行中的对文件系统的改动都会写到该层中，下面的只读层是保持不变，采用了COPY-ON-Writer。当容器删掉之后，这个可读写的层也会消失。</p>
+<p>容器运行的时候会加载镜像中的文件系统，利用联合挂载（union mount）技术在已经有的只读文件系统中再挂载一个读写层,容器运行中的对文件系统的改动都会COPY-ON-Writer复制到该层中进行修改，下面的只读层是保持不变，这就是COPY-ON-Writer。当容器删掉之后，这个可读写的层也会消失。</p>
 
 <p><img src="/media/cloud/docker/container.png" alt="" /></p>
+
+<h2 id="数据卷">数据卷</h2>
+
+<p>Docker 又是如何做到把一个宿主机上的目录或者文件，挂载到容器里面去呢？</p>
+
+<p>当容器进程被创建之后，尽管开启了 Mount Namespace，但是在它执行 chroot（或者 pivot_root）之前，容器进程一直可以看到宿主机上的整个文件系统。</p>
+
+<p>而宿主机上的文件系统，也自然包括了我们要使用的容器镜像。这个镜像的各个层，保存在 /var/lib/docker/aufs/diff 目录下，在容器进程启动后，它们会被联合挂载在 /var/lib/docker/aufs/mnt/ 目录中，这样容器所需的 rootfs 就准备好了。所以，我们只需要在 rootfs 准备好之后，在执行 chroot 之前，把 Volume 指定的宿主机目录（比如 /home 目录），挂载到指定的容器目录（比如 /test 目录）在宿主机上对应的目录（即 /var/lib/docker/aufs/mnt/[可读写层 ID]/test）上，这个 Volume 的挂载工作就完成了。</p>
+
+<p>更重要的是，由于执行这个挂载操作时，“容器进程”已经创建了，也就意味着此时 Mount Namespace 已经开启了。所以，这个挂载事件只在这个容器里可见。你在宿主机上，是看不见容器内部的这个挂载点的。这就保证了容器的隔离性不会被 Volume 打破。这里提到的&rdquo;容器进程&rdquo;，是 Docker 创建的一个容器初始化进程 (dockerinit)，而不是应用进程 (ENTRYPOINT + CMD)。dockerinit 会负责完成根目录的准备、挂载设备和目录、配置 hostname 等一系列需要在容器内进行的初始化操作。最后，它通过 execv() 系统调用，让应用进程取代自己，成为容器里的 PID=1 的进程。</p>
+
+<p>其实，如果你了解 Linux 内核的话，就会明白，绑定挂载实际上是一个 inode 替换的过程。在 Linux 操作系统中，inode 可以理解为存放文件内容的“对象”，而 dentry，也叫目录项，就是访问这个 inode 所使用的“指针”。正如上图所示，mount &ndash;bind /home /test，会将 /home 挂载到 /test 上。其实相当于将 /test 的 dentry，重定向到了 /home 的 inode。这样当我们修改 /test 目录时，实际修改的是 /home 目录的 inode。这也就是为何，一旦执行 umount 命令，/test 目录原先的内容就会恢复：因为修改真正发生在的，是 /home 目录里。</p>
+
+<h2 id="总结">总结</h2>
+
+<p><img src="/media/cloud/docker/layer.jpg" alt="" /></p>
+
+<p>这个容器进程“python app.py”，运行在由 Linux Namespace 和 Cgroups 构成的隔离环境里；而它运行所需要的各种文件，比如 python，app.py，以及整个操作系统文件，则由多个联合挂载在一起的 rootfs 层提供。</p>
+
+<p>这些 rootfs 层的最下层，是来自 Docker 镜像的只读层。</p>
+
+<p>在只读层之上，是 Docker 自己添加的 Init 层，用来存放被临时修改过的 /etc/hosts 等文件。</p>
+
+<p>而 rootfs 的最上层是一个可读写层，它以 Copy-on-Write 的方式存放任何对只读层的修改，容器声明的 Volume 的挂载点，也出现在这一层。</p>
+
+<p>一个正在运行的 Linux 容器，其实可以被“一分为二”地看待：</p>
+
+<ul>
+<li>一组联合挂载在 /var/lib/docker/aufs/mnt 上的 rootfs，这一部分我们称为“容器镜像”（Container Image），是容器的静态视图；</li>
+<li>一个由 Namespace+Cgroups 构成的隔离环境，这一部分我们称为“容器运行时”（Container Runtime），是容器的动态视图。</li>
+</ul>
+
+<p>docker最大的成功就是在容器镜像的制作，使得容器镜像成为发布的事实标准。</p>
 
 <h2 id="docker网络原理">docker网络原理</h2>
 
@@ -391,7 +709,13 @@ perf_event：允许Perf工具基于Cgroup分组做性能监测。
 <li><a href="#cgroup">cgroup</a></li>
 <li><a href="#rootfs">rootfs</a></li>
 </ul></li>
-<li><a href="#images">images</a></li>
+<li><a href="#images">images</a>
+<ul>
+<li><a href="#ufs">UFS</a></li>
+<li><a href="#镜像">镜像</a></li>
+</ul></li>
+<li><a href="#数据卷">数据卷</a></li>
+<li><a href="#总结">总结</a></li>
 <li><a href="#docker网络原理">docker网络原理</a></li>
 </ul></li>
 </ul>

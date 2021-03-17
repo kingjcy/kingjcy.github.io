@@ -657,6 +657,24 @@ spec:
 
 <p>探针这一块后端部署都是上面的物理部署一样的，包括cadvisor-proxy，node-exporter，kube-state-metrics等，因为这些本来就是部署在k8s上面的，使用的也是一样的，这这边要解决的就是上面部署在物理机上的组件，包含prometheus，thanos，grafana，alertmanager等还有服务发现的方式。</p>
 
+<h1 id="metrics">metrics</h1>
+
+<p>我们就可以按照 Metrics 数据的来源，来对 Kubernetes 的监控体系做一个汇总了。</p>
+
+<ul>
+<li>第一种 Metrics，是宿主机的监控数据。这部分数据的提供，需要借助一个由 Prometheus 维护的Node Exporter 工具。一般来说，Node Exporter 会以 DaemonSet 的方式运行在宿主机上。其实，所谓的 Exporter，就是代替被监控对象来对 Prometheus 暴露出可以被“抓取”的 Metrics 信息的一个辅助进程。而 Node Exporter 可以暴露给 Prometheus 采集的 Metrics 数据， 也不单单是节点的负载（Load）、CPU 、内存、磁盘以及网络这样的常规信息，它的 Metrics 指标可以说是“包罗万象”。</li>
+<li>第二种 Metrics，是来自于 Kubernetes 的 API Server、kubelet 等组件的 /metrics API。除了常规的 CPU、内存的信息外，这部分信息还主要包括了各个组件的核心监控指标。比如，对于 API Server 来说，它就会在 /metrics API 里，暴露出各个 Controller 的工作队列（Work Queue）的长度、请求的 QPS 和延迟数据等等。这些信息，是检查 Kubernetes 本身工作情况的主要依据。</li>
+<li>第三种 Metrics，是 Kubernetes 相关的监控数据。这部分数据，一般叫作 Kubernetes 核心监控数据（core metrics）。这其中包括了 Pod、Node、容器、Service 等主要 Kubernetes 核心概念的 Metrics。其中，容器相关的 Metrics 主要来自于 kubelet 内置的 cAdvisor 服务。在 kubelet 启动后，cAdvisor 服务也随之启动，而它能够提供的信息，可以细化到每一个容器的 CPU 、文件系统、内存、网络等资源的使用情况。</li>
+</ul>
+
+<p>这里提到的 Kubernetes 核心监控数据，其实使用的是 Kubernetes 的一个非常重要的扩展能力，叫作 Metrics Server。它主要就是采集core metrics，提供mertrics.k8s.io来查询</p>
+
+<p>提到core metrics，就要提Custom Metrics，自定义监控指标，这个也是通过Aggregator APIServer扩展实现的，Custom Metrics APIServer 的实现，其实就是一个 Prometheus 项目的 Adaptor。当你把 Custom Metrics APIServer 启动之后，Kubernetes 里就会出现一个叫作custom.metrics.k8s.io的 API。而当你访问这个 URL 时，Aggregator 就会把你的请求转发给 Custom Metrics APIServer 。</p>
+
+<p>这两种api的提供，都是基于k8s强大的 API 扩展机制Aggregator APIServer，我们在k8s API的扩展中有讲到过，当 Kubernetes 的 API Server 开启了 Aggregator 模式之后，你再访问 apis/metrics.k8s.io/v1beta1 的时候，实际上访问到的是一个叫作 kube-aggregator 的代理。而 kube-apiserver，正是这个代理的一个后端；而 Metrics Server，则是另一个后端。而且，在这个机制下，你还可以添加更多的后端给这个 kube-aggregator。所以 kube-aggregator 其实就是一个根据 URL 选择具体的 API 后端的代理服务器。通过这种方式，我们就可以很方便地扩展 Kubernetes 的 API 了。</p>
+
+<p><img src="/media/monitor/prometheus/monitor-scheme/api.png" alt="" /></p>
+
 <h2 id="手动部署">手动部署</h2>
 
 <h3 id="部署prometheus">部署prometheus</h3>
@@ -1541,7 +1559,8 @@ prometheus.io/scheme 默认http，如果为了安全设置了https，此处需�
 </ul></li>
 <li><a href="#问题处理">问题处理</a></li>
 </ul></li>
-<li><a href="#k8s部署promehteus监控k8s">k8s部署promehteus监控K8s</a>
+<li><a href="#k8s部署promehteus监控k8s">k8s部署promehteus监控K8s</a></li>
+<li><a href="#metrics">metrics</a>
 <ul>
 <li><a href="#手动部署">手动部署</a>
 <ul>

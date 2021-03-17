@@ -9,7 +9,7 @@
 <meta name="description" content="容器网络的建立和控制是一种结合了network namespace、iptables、linux网桥、route table等多种Linux内核技术的综合方案,在宿主机和容器内分别创建虚拟接口，并让它们彼此连通。
 
 
-network namespace：主要提供了关于网络资源的隔离，包括网络设备、IPv4和IPv6协议栈、IP路由表、防火墙、/proc/net目录、/sys/class/net目录、端口（socket）等。
+network namespace：主要提供了关于网络资源的隔离，在网络栈中，包括网卡（Network Interface）、回环设备（Loopback Device）、路由表（Routing Table）和 iptables 规则、IPv4和IPv6协议栈、/proc/net目录、/sys/class/net目录、端口（socket）等。
 linux Bridge：功能相当于物理交换机，为连在其上的设备（容器）转发数据帧。如docker0网桥。
 iptables：主要为容器提供NAT以及容器网络安全。
 veth pair：两个虚拟网卡组成的数据通道。在Docker中，用于连接Docker容器和Linux Bridge。一端在容器中作为eth0网卡，另一端在Linux Bridge中作为网桥的一个端口。
@@ -82,7 +82,7 @@ veth pair：两个虚拟网卡组成的数据通道。在Docker中，用于连�
                 <p>容器网络的建立和控制是一种结合了network namespace、iptables、linux网桥、route table等多种Linux内核技术的综合方案,在宿主机和容器内分别创建虚拟接口，并让它们彼此连通。</p>
 
 <ul>
-<li>network namespace：主要提供了关于网络资源的隔离，包括网络设备、IPv4和IPv6协议栈、IP路由表、防火墙、/proc/net目录、/sys/class/net目录、端口（socket）等。</li>
+<li>network namespace：主要提供了关于网络资源的隔离，在网络栈中，包括网卡（Network Interface）、回环设备（Loopback Device）、路由表（Routing Table）和 iptables 规则、IPv4和IPv6协议栈、/proc/net目录、/sys/class/net目录、端口（socket）等。</li>
 <li>linux Bridge：功能相当于物理交换机，为连在其上的设备（容器）转发数据帧。如docker0网桥。</li>
 <li>iptables：主要为容器提供NAT以及容器网络安全。</li>
 <li>veth pair：两个虚拟网卡组成的数据通道。在Docker中，用于连接Docker容器和Linux Bridge。一端在容器中作为eth0网卡，另一端在Linux Bridge中作为网桥的一个端口。</li>
@@ -176,9 +176,33 @@ veth pair：两个虚拟网卡组成的数据通道。在Docker中，用于连�
 
 <h1 id="基本概念">基本概念</h1>
 
+<h2 id="主机网络">主机网络</h2>
+
+<p>可以声明直接使用宿主机的网络栈（–net=host），即：不开启 Network Namespace，这样就和主机使用同一个网络。</p>
+
+<p>像这样直接使用宿主机网络栈的方式，虽然可以为容器提供良好的网络性能，但也会不可避免地引入共享网络资源的问题，比如端口冲突。所以，在大多数情况下，我们都希望容器进程能使用自己 Network Namespace 里的网络栈，即：拥有属于自己的 IP 地址和端口。</p>
+
 <h2 id="桥接网络">桥接网络</h2>
 
 <p>桥接网络(Bridge Network)，在同一宿主机上的多个容器可以连接到同一桥接网络来实现彼此网络通信，之前提到了Docker默认的虚拟网桥为docker0，当然也可以创建自定义的网络生成新的虚拟网桥，而将容器连接到的该虚拟网桥上形成的网络称为桥接网络。在运行容器时可指定&ndash;net=bridge使用桥接模式，将容器桥接到宿主机的虚拟网桥上，从虚拟网桥的空闲网段中划分出一个子网私有IP分配给该容器。</p>
+
+<p>这里的网桥起到的是虚拟交换机的作用，它是一个工作在数据链路层（Data Link）的设备，主要功能是根据 MAC 地址学习来将数据包转发到网桥的不同端口（Port）上，它会维护一个 CAM 表即交换机通过 MAC 地址学习维护的端口和 MAC 地址的对应表。</p>
+
+<p>桥接网络的基本实现下面我们<a href="#bridge模式">详细说明</a>。</p>
+
+<p>这边的桥接网络其实是我们的单机容器网络，也是我们跨主网络通信的基础，在单层网络中，直接是通过二层的mac通信的，docker0和宿主机的eth0也是直连的，所以我们可以直接访问主机以及和主机相关连的其他主机，因为我们会在容器中配置二层路由，
+如果是跨主通信，也就是不同docker0之间的通信，我们会有一条默认的网关路由，意思就是我们只要跨主也就是跨网端通信就要走网关，删除这条路由就会no route，并不会广播走二层来通信。</p>
+
+<p><strong>所以默认二层三层两条路由</strong>。</p>
+
+<p>跨主通信的路由</p>
+
+<pre><code>$ ip route
+default via 10.168.0.1 dev eth0
+100.96.0.0/16 dev flannel0  proto kernel  scope link  src 100.96.1.0
+100.96.1.0/24 dev docker0  proto kernel  scope link  src 100.96.1.1
+10.168.0.0/24 dev eth0  proto kernel  scope link  src 10.168.0.2
+</code></pre>
 
 <h2 id="覆盖网络">覆盖网络</h2>
 
@@ -208,7 +232,7 @@ veth pair：两个虚拟网卡组成的数据通道。在Docker中，用于连�
 
 <p>使用&ndash;net=bridge指定，为默认模式，连接到默认的网桥docker0，docker0是虚拟网桥，使用软件技术模拟的一套内部网络。我们此模式会为每个容器分配一个独立的网络命名空间，使用该设置可以看到在容器中创建了eth0。</p>
 
-<p>当Docker进程启动时，会在主机上创建一个名为docker0的虚拟网桥，此主机上启动的Docker容器会连接到这个虚拟网桥上，所以有默认地址172.17.0.0/16的地址。</p>
+<p>当Docker进程启动时，会在主机上创建一个名为docker0的虚拟网桥，此主机上启动的Docker容器会连接到这个虚拟网桥上，默认地址172.17.0.0/16的地址。</p>
 
 <p>从docker0子网中分配一个IP给容器使用，并设置docker0的IP地址为容器的默认网关。在主机上创建一对虚拟网卡veth pair设备，Docker将veth pair设备的一端放在新创建的容器中，并命名为eth0（容器的网卡），另一端放在主机中，以vethxxx这样类似的名字命名，并将这个网络设备加入到docker0网桥中。可以通过brctl show命令查看。所以Docker创建一个容器的时候，会执行如下操作：</p>
 
@@ -742,6 +766,7 @@ alpine sleep 1d
 </ul></li>
 <li><a href="#基本概念">基本概念</a>
 <ul>
+<li><a href="#主机网络">主机网络</a></li>
 <li><a href="#桥接网络">桥接网络</a></li>
 <li><a href="#覆盖网络">覆盖网络</a></li>
 </ul></li>

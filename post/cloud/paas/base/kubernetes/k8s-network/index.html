@@ -292,20 +292,21 @@ Racher：IPsec
 </code></pre>
 
 <blockquote>
-<p>路由方案</p>
-</blockquote>
-
-<p>路由方案一般是从3层或者2层实现隔离和跨主机容器互通的，出了问题也很容易排查。</p>
-
-<pre><code>Calico：基于BGP协议的路由方案，支持很细致的ACL控制，对混合云亲和度比较高。
-Macvlan：从逻辑和Kernel层来看隔离性和性能最优的方案，基于二层隔离，所以需要二层路由器支持，大多数云服务商不支持，所以混合云上比较难以实现。
-</code></pre>
-
-<blockquote>
 <p>底层网络（Underlay Networking）</p>
 </blockquote>
 
-<p>vpc网络，也就是路由表，是指在交换机上直接配置对应的ip转发到对应的node，一般私有云都会使用vpc方案。</p>
+<p>underlay的一般是从3层或者2层实现隔离和跨主机容器互通的，出了问题也很容易排查。</p>
+
+<ul>
+<li>二层主要是mac的识别，一般二层交换机只要在一个lan中都能通信，使用vlan的话需要在同一个vlan中，如果跨网段进行通信就需要网关，网关其实就是一个中转的三层交换机，在二层的基础上有路由功能</li>
+<li>三层主要是ip的路由，我们一般使用三层交换机作为网关，先和网关进行通信，在和目的进行通信</li>
+</ul>
+
+<p>常用的产品</p>
+
+<pre><code>Calico：基于BGP协议的路由方案，支持很细致的ACL控制，对混合云亲和度比较高，是一个三层的实现方案。
+Macvlan：从逻辑和Kernel层来看隔离性和性能最优的方案，基于二层隔离，所以需要二层路由器支持，大多数云服务商不支持，所以混合云上比较难以实现。
+</code></pre>
 
 <h2 id="组件">组件</h2>
 
@@ -348,9 +349,7 @@ Macvlan：从逻辑和Kernel层来看隔离性和性能最优的方案，基于�
 
 <p>Flannel实质上是一种“覆盖网络(overlaynetwork)”，也就是将TCP数据包装在另一种网络包里面进行路由转发和通信，目前已经支持udp、vxlan、host-gw、aws-vpc、gce和alloc路由等数据转发方式，默认的节点间数据通信方式是UDP转发。</p>
 
-<blockquote>
-<p>flannel网络模型</p>
-</blockquote>
+<h4 id="flannel网络模型">flannel网络模型</h4>
 
 <p>1、互补冲突的ip</p>
 
@@ -374,81 +373,212 @@ Macvlan：从逻辑和Kernel层来看隔离性和性能最优的方案，基于�
 <li>flannel利用各种backend mechanism，例如udp，vxlan等等，跨主机转发容器间的网络流量，完成容器间的跨主机通信。</li>
 </ul>
 
-<blockquote>
-<p>flannel架构</p>
-</blockquote>
+<h4 id="flannel架构">flannel架构</h4>
 
-<p><img src="/media/cloud/k8s/flannel2" alt="" />
-<img src="/media/cloud/k8s/flannel3" alt="" /></p>
-
-<p>详解</p>
+<p>Flannel 项目本身只是一个框架，真正为我们提供容器网络功能的，是 Flannel 的后端实现，flannnel主要支持的后端实现</p>
 
 <ul>
-<li>创建pod，分配ip，由于k8s更改了docker的DOCKER_OPTS，显式指定了–bip，这个值与分配给该node上的subnet的范围是一致的。这样一来，docker引擎每次创建一个Docker container，该container被分配到的ip都在flannel subnet范围内。</li>
-<li>数据包到达docker0网桥，docker0的内核栈处理程序发现这个数据包的目的地址是172.16.57.15，并不是真的要送给自己，于是开始为该数据包找下一hop。</li>
-
-<li><p>flannel.1收到数据包后，由于自己不是目的地，也要尝试将数据包重新发送出去。数据包沿着网络协议栈向下流动，在二层时需要封二层以太包，填写目的mac地址，这时一般应该发出arp：”who is 172.16.57.15″。但vxlan设备的特殊性就在于它并没有真正在二层发出这个arp包，因为下面的这个内核参数设置，而是由linux kernel引发一个”L3 MISS”事件并将arp请求发到用户空间的flanned程序。flanned程序收到”L3 MISS”内核事件以及arp请求(who is 172.16.57.15)后，并不会向外网发送arp request，而是尝试从etcd查找该地址匹配的子网的vtep信息。在前面章节我们曾经展示过etcd中Flannel network的配置信息，flanneld从etcd中找到了，接下来，flanned将查询到的信息放入master node host的arp cache表中，flanneld完成这项工作后，linux kernel就可以在arp table中找到 172.16.57.15对应的mac地址并封装二层以太包了。不过这个封包还不能在物理网络上传输，因为它实际上只是vxlan tunnel上的packet。</p>
-
-<pre><code>  # cat /proc/sys/net/ipv4/neigh/flannel.1/app_solicit
-  3
-</code></pre></li>
-
-<li><p>我们需要将上述的packet再次封包。这个任务在backend为vxlan的flannel network中由linux kernel来完成。flannel.1为vxlan设备，linux kernel可以自动识别，并将上面的packet进行vxlan封包处理。在这个封包过程中，kernel需要知道该数据包究竟发到哪个node上去。kernel需要查看node上的fdb(forwarding database)以获得上面对端vtep设备（已经从arp table中查到其mac地址：d6:51:2e:80:5c:69）所在的node地址。如果fdb中没有这个信息，那么kernel会向用户空间的flanned程序发起”L2 MISS”事件。flanneld收到该事件后，会查询etcd，获取该vtep设备对应的node的”Public IP“，并将信息注册到fdb中。这样Kernel就可以顺利查询到该信息并封包了。</p></li>
-
-<li><p>收到上述vxlan包，kernel将识别出这是一个vxlan包，于是拆包后将flannel.1 packet转给minion node上的vtep（flannel.1）。minion node上的flannel.1再将这个数据包转到minion node上的docker0，继而由docker0传输到Pod3的某个容器里。</p></li>
+<li>UDP</li>
+<li>VXLAN</li>
+<li>host-gw</li>
 </ul>
 
-<blockquote>
-<p>flannel后端支持网络</p>
-</blockquote>
+<h5 id="udp">UDP</h5>
 
-<p>Flannel可以指定不同的转发后端网络，常用的有hostgw，udp，vxlan等。</p>
+<p>UDP 模式，是 Flannel 项目最早支持的一种方式，却也是性能最差的一种方式。所以，这个模式目前已经被弃用。</p>
 
-<ul>
-<li><p>hostgw</p>
+<p><img src="/media/cloud/k8s/network.jpg" alt="" /></p>
 
-<p>hostgw是最简单的backend，它的原理非常简单，直接添加路由，将目的主机当做网关，直接路由原始封包。</p>
-
-<p>例如，我们从etcd中监听到一个EventAdded事件subnet为10.1.15.0/24被分配给主机Public IP 192.168.0.100，hostgw要做的工作就是在本主机上添加一条目的地址为10.1.15.0/24，网关地址为192.168.0.100，输出设备为上文中选择的集群间交互的网卡即可。</p>
-
-<p>优点：简单，直接，效率高</p>
-
-<p>缺点：要求所有的pod都在一个子网中，如果跨网段就无法通信。</p></li>
-
-<li><p>udp</p>
-
-<p>如何应对Pod不在一个子网里的场景呢？将Pod的网络包作为一个应用层的数据包，使用UDP封装之后在集群里传输。即overlay。</p>
+<p>可以看到，Flannel UDP 模式提供的其实是一个三层的 Overlay 网络，即：它首先对发出端的 IP 包进行 UDP 封装，然后在接收端进行解封装拿到原始的 IP 包，进而把这个 IP 包转发给目标容器。这就好比，Flannel 在不同宿主机上的两个容器之间打通了一条“隧道”，使得这两个容器可以直接使用 IP 地址进行通信，而无需关心容器和宿主机的分布情况。</p>
 
 <ul>
-<li>因为该封包的目的地不在本主机subnet内，因此封包会首先通过网桥转发到主机中。</li>
-<li>在主机上经过路由匹配，进入网卡flannel.1。(需要注意的是flannel.1是一个tun设备，它是一种工作在三层的虚拟网络设备，而flanneld是一个proxy，它会监听flannel.1并转发流量。)</li>
-<li>当封包进入flannel.1时，flanneld就可以从flanne.1中将封包读出，由于flanne.1是三层设备，所以读出的封包仅仅包含IP层的报头及其负载。</li>
+<li>首先容器发出包，因为该封包的目的地不在本主机subnet内，因此封包会首先通过网桥转发到主机中。</li>
+<li>在主机上经过路由匹配，进入网卡flannel0。(需要注意的是flannel0是一个tun设备，它是一种工作在三层的虚拟网络设备，而flanneld是一个proxy，它会监听flannel0并转发流量。)</li>
+<li>当封包进入flannel0时，flanneld就可以从flanne0中将封包读出，由于flanne0是三层设备，所以读出的封包仅仅包含IP层的报头及其负载。</li>
 <li>最后flanneld会将获取的封包作为负载数据，通过udp socket发往目的主机。</li>
-<li>在目的主机的flanneld会监听Public IP所在的设备，从中读取udp封包的负载，并将其放入flannel.1设备内。</li>
+<li>在目的主机的flanneld会监听Public IP所在的设备，从中读取udp封包的负载，并将其放入flannel0设备内。</li>
 <li>容器网络封包到达目的主机，之后就可以通过网桥转发到目的容器了。</li>
 </ul>
 
 <p>优点：Pod能够跨网段访问</p>
 
-<p>缺点：隔离性不够，udp不能隔离两个网段。</p>
-
-<p>其实也就是我们上面的基本架构原理，因为是默认使用的方式。</p></li>
-
-<li><p>vxlan</p>
-
-<p>vxlan和上文提到的udp backend的封包结构是非常类似的，不同之处是多了一个vxlan header，以及原始报文中多了个二层的报头。</p></li>
-</ul>
+<p>缺点：隔离性不够，udp不能隔离两个网段，性能差。</p>
 
 <blockquote>
-<p>总结</p>
+<p>实例</p>
 </blockquote>
 
-<p>flannel更像是经典的桥接模式的扩展。我们知道，在桥接模式中，每台主机的容器都将使用一个默认的网段，容器与容器之间，主机与容器之间都能互相通信。要是，我们能手动配置每台主机的网段，使它们互不冲突。接着再想点办法，将目的地址为非本机容器的流量送到相应主机：如果集群的主机都在一个子网内，就搞一条路由转发过去；若是不在一个子网内，就搞一条隧道转发过去。这样以来，容器的跨网络通信问题就解决了。而flannel做的，其实就是将这些工作自动化了而已。他也存在这个明显的缺点：</p>
+<p>我有两台宿主机。</p>
 
 <ul>
-<li>不支持pod之间的网络隔离。Flannel设计思想是将所有的pod都放在一个大的二层网络中，所以pod之间没有隔离策略。</li>
-<li>设备复杂，效率不高。Flannel模型下有三种设备，数量经过多种设备的封装、解析，势必会造成传输效率的下降。</li>
+<li>宿主机 Node 1 上有一个容器 container-1，它的 IP 地址是 100.96.1.2，对应的 docker0 网桥的地址是：100.96.1.1/24。</li>
+<li>宿主机 Node 2 上有一个容器 container-2，它的 IP 地址是 100.96.2.3，对应的 docker0 网桥的地址是：100.96.2.1/24。</li>
 </ul>
+
+<p>我们现在的任务，就是让 container-1 访问 container-2。</p>
+
+<p>这种情况下，container-1 容器里的进程发起的 IP 包，其源地址就是 100.96.1.2，目的地址就是 100.96.2.3。由于目的地址 100.96.2.3 并不在 Node 1 的 docker0 网桥的网段里，所以这个 IP 包会被交给默认路由规则，通过容器的网关进入 docker0 网桥（如果是同一台宿主机上的容器间通信，走的是直连规则），从而出现在宿主机上。</p>
+
+<p>这时候，这个 IP 包的下一个目的地，就取决于宿主机上的路由规则了。此时，Flannel 已经在宿主机上创建出了一系列的路由规则，以 Node 1 为例，如下所示：</p>
+
+<pre><code># 在Node 1上
+$ ip route
+default via 10.168.0.1 dev eth0
+100.96.0.0/16 dev flannel0  proto kernel  scope link  src 100.96.1.0
+100.96.1.0/24 dev docker0  proto kernel  scope link  src 100.96.1.1
+10.168.0.0/24 dev eth0  proto kernel  scope link  src 10.168.0.2
+</code></pre>
+
+<p>可以看到，由于我们的 IP 包的目的地址是 100.96.2.3，它匹配不到本机 docker0 网桥对应的 100.96.1.0/24 网段，只能匹配到第二条、也就是 100.96.0.0/16 对应的这条路由规则，从而进入到一个叫作 flannel0 的设备中。</p>
+
+<p>flannel0是一个 TUN 设备（Tunnel 设备）。在 Linux 中，TUN 设备是一种工作在三层（Network Layer）的虚拟网络设备。TUN 设备的功能非常简单，即：在操作系统内核和用户应用程序之间传递 IP 包。</p>
+
+<p>像上面提到的情况，当操作系统将一个 IP 包发送给 flannel0 设备之后，flannel0 就会把这个 IP 包，交给创建这个设备的应用程序，也就是 Flannel 进程。这是一个从内核态（Linux 操作系统）向用户态（Flannel 进程）的流动方向。</p>
+
+<p>所以，当 IP 包从容器经过 docker0 出现在宿主机，然后又根据路由表进入 flannel0 设备后，宿主机上的 flanneld 进程（Flannel 项目在每个宿主机上的主进程），就会收到这个 IP 包。然后，flanneld 看到了这个 IP 包的目的地址，是 100.96.2.3，就把它发送给了 Node 2 宿主机。</p>
+
+<p>flanneld 进程在处理由 flannel0 传入的 IP 包时，就可以根据目的 IP 的地址（比如 100.96.2.3），匹配到对应的子网（比如 100.96.2.0/24），从 Etcd 中找到这个子网对应的宿主机的 IP 地址是 10.168.0.3。</p>
+
+<p>在由 Flannel 管理的容器网络里，一台宿主机上的所有容器，都属于该宿主机被分配的一个“子网”。在我们的例子中，Node 1 的子网是 100.96.1.0/24，container-1 的 IP 地址是 100.96.1.2。Node 2 的子网是 100.96.2.0/24，container-2 的 IP 地址是 100.96.2.3。而这些子网与宿主机的对应关系，正是保存在 Etcd 当中，如下所示：</p>
+
+<pre><code>$ etcdctl ls /coreos.com/network/subnets
+/coreos.com/network/subnets/100.96.1.0-24
+/coreos.com/network/subnets/100.96.2.0-24
+/coreos.com/network/subnets/100.96.3.0-24
+</code></pre>
+
+<p>Docker Daemon 启动时配置如下所示的 bip 参数即可配置对应的子网</p>
+
+<pre><code>$ FLANNEL_SUBNET=100.96.1.1/24
+$ dockerd --bip=$FLANNEL_SUBNET ...
+</code></pre>
+
+<p>而对于 flanneld 来说，只要 Node 1 和 Node 2 是互通的，那么 flanneld 作为 Node 1 上的一个普通进程，就一定可以通过上述 IP 地址（10.168.0.3）访问到 Node 2，这没有任何问题。</p>
+
+<p>所以说，flanneld 在收到 container-1 发给 container-2 的 IP 包之后，就会把这个 IP 包直接封装在一个 UDP 包里，然后发送给 Node 2。不难理解，这个 UDP 包的源地址，就是 flanneld 所在的 Node 1 的地址，而目的地址，则是 container-2 所在的宿主机 Node 2 的地址，其实就是宿主机之间的通信。</p>
+
+<p>每台宿主机上的 flanneld，都监听着一个 8285 端口，所以 flanneld 只要把 UDP 包发往 Node 2 的 8285 端口即可。</p>
+
+<p>到Node 2上就是反向的处理，由于这个 IP 包的目的地址是 100.96.2.3，它跟第三条、也就是 100.96.2.0/24 网段对应的路由规则匹配更加精确。所以，Linux 内核就会按照这条路由规则，把这个 IP 包转发给 docker0 网桥，然后到容器。</p>
+
+<pre><code># 在Node 2上
+$ ip route
+default via 10.168.0.1 dev eth0
+100.96.0.0/16 dev flannel0  proto kernel  scope link  src 100.96.2.0
+100.96.2.0/24 dev docker0  proto kernel  scope link  src 100.96.2.1
+10.168.0.0/24 dev eth0  proto kernel  scope link  src 10.168.0.3
+</code></pre>
+
+<blockquote>
+<p>性能问题</p>
+</blockquote>
+
+<p>实际上，相比于两台宿主机之间的直接通信，基于 Flannel UDP 模式的容器通信多了一个额外的步骤，即 flanneld 的处理过程。而这个过程，由于使用到了 flannel0 这个 TUN 设备，仅在发出 IP 包的过程中，就需要经过三次用户态与内核态之间的数据拷贝，如下所示：</p>
+
+<p><img src="/media/cloud/k8s/network1.png" alt="" /></p>
+
+<p>我们可以看到：</p>
+
+<ul>
+<li>用户态的容器进程发出的 IP 包经过 docker0 网桥进入内核态；</li>
+<li>IP 包根据路由表进入 TUN（flannel0）设备，从而回到用户态的 flanneld 进程；</li>
+<li>flanneld 进行 UDP 封包之后重新进入内核态，将 UDP 包通过宿主机的 eth0 发出去。</li>
+</ul>
+
+<p>此外，我们还可以看到，Flannel 进行 UDP 封装（Encapsulation）和解封装（Decapsulation）的过程，也都是在用户态完成的。在 Linux 操作系统中，上述这些上下文切换和用户态操作的代价其实是比较高的，这也正是造成 Flannel UDP 模式性能不好的主要原因。所以说，我们在进行系统级编程的时候，有一个非常重要的优化原则，<strong>就是要减少用户态到内核态的切换次数，并且把核心的处理逻辑都放在内核态进行</strong>。这也是为什么，Flannel 后来支持的VXLAN 模式，逐渐成为了主流的容器网络方案的原因。</p>
+
+<h5 id="vxlan">VXLAN</h5>
+
+<p>VXLAN，即 Virtual Extensible LAN（虚拟可扩展局域网），是 Linux 内核本身就支持的一种网络虚似化技术。所以说，VXLAN 可以完全在内核态实现上述封装和解封装的工作，从而通过与前面相似的“隧道”机制，构建出覆盖网络（Overlay Network）。</p>
+
+<p><img src="/media/cloud/k8s/network1.jpg" alt="" /></p>
+
+<p>VXLAN 的覆盖网络的设计思想是：在现有的三层网络之上，“覆盖”一层虚拟的、由内核 VXLAN 模块负责维护的二层网络，使得连接在这个 VXLAN 二层网络上的“主机”（虚拟机或者容器都可以）之间，可以像在同一个局域网（LAN）里那样自由通信。当然，实际上，这些“主机”可能分布在不同的宿主机上，甚至是分布在不同的物理机房里。</p>
+
+<p>而为了能够在二层网络上打通“隧道”，VXLAN 会在宿主机上设置一个特殊的网络设备作为“隧道”的两端。这个设备就叫作 VTEP，即：VXLAN Tunnel End Point（虚拟隧道端点）。</p>
+
+<p>而 VTEP 设备的作用，其实跟前面的 flanneld 进程非常相似。只不过，它进行封装和解封装的对象，是二层数据帧（Ethernet frame）；而且这个工作的执行流程，全部是在内核里完成的（因为 VXLAN 本身就是 Linux 内核中的一个模块）。</p>
+
+<p>每台宿主机上名叫 flannel.1 的设备，就是 VXLAN 所需的 VTEP 设备，它既有 IP 地址，也有 MAC 地址。</p>
+
+<p>优点：效率高</p>
+
+<p>缺点：隔离差</p>
+
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>上图，我们的 container-1 的 IP 地址是 10.1.15.2，要访问的 container-2 的 IP 地址是 10.1.16.3。</p>
+
+<p>与前面 UDP 模式的流程类似，当 container-1 发出请求之后，这个目的地址是 10.1.16.3 的 IP 包，会先出现在 docker0 网桥，然后被路由到本机 flannel.1 设备进行处理。</p>
+
+<p>为了能够将“原始 IP 包”封装并且发送到正确的宿主机，VXLAN 就需要找到这条“隧道”的出口，即：目的宿主机的 VTEP 设备。</p>
+
+<p>而这个设备的信息，正是每台宿主机上的 flanneld 进程负责维护的。比如，当 Node 2 启动并加入 Flannel 网络之后，在 Node 1（以及所有其他节点）上，flanneld 就会添加一条如下所示的路由规则：</p>
+
+<pre><code>$ route -n
+Kernel IP routing table
+Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+...
+10.1.16.0       10.1.16.0       255.255.255.0   UG    0      0        0 flannel.1
+</code></pre>
+
+<p>这条规则的意思是：凡是发往 10.1.16.0/24 网段的 IP 包，都需要经过 flannel.1 设备发出，并且，它最后被发往的网关地址是：10.1.16.0。10.1.16.0 正是 Node 2 上的 VTEP 设备（也就是 flannel.1 设备）的 IP 地址。</p>
+
+<p>“源 VTEP 设备”收到“原始 IP 包”后，就要想办法把“原始 IP 包”加上一个目的 MAC 地址，封装成一个二层数据帧，然后发送给“目的 VTEP 设备”（当然，这么做还是因为这个 IP 包的目的地址不是本机）。</p>
+
+<p>根据前面的路由记录，我们已经知道了“目的 VTEP 设备”的 IP 地址。而要根据三层 IP 地址查询对应的二层 MAC 地址，这正是 ARP（Address Resolution Protocol ）表的功能。而这里要用到的 ARP 记录，也是 flanneld 进程在 Node 2 节点启动时，自动添加在 Node 1 上的。我们可以通过 ip 命令看到它，如下所示：</p>
+
+<pre><code># 在Node 1上
+$ ip neigh show dev flannel.1
+10.1.16.0 lladdr 5e:f8:4f:00:e3:37 PERMANENT
+</code></pre>
+
+<p>这条记录的意思非常明确，即：IP 地址 10.1.16.0，对应的 MAC 地址是 5e:f8:4f:00:e3:37。</p>
+
+<p>可以看到，最新版本的 Flannel 并不依赖 L3 MISS 事件和 ARP 学习，而会在每台节点启动时把它的 VTEP 设备对应的 ARP 记录，直接下放到其他每台宿主机上。</p>
+
+<p>有了这个“目的 VTEP 设备”的 MAC 地址，Linux 内核就可以开始二层封包工作了。这个二层帧的格式，如下所示：</p>
+
+<p><img src="/media/cloud/k8s/network2.jpg" alt="" /></p>
+
+<p>可以看到，Linux 内核会把“目的 VTEP 设备”的 MAC 地址，填写在图中的 Inner Ethernet Header 字段，得到一个二层数据帧。需要注意的是，上述封包过程只是加一个二层头，不会改变“原始 IP 包”的内容。所以图中的 Inner IP Header 字段，依然是 container-2 的 IP 地址，即 10.1.16.3。</p>
+
+<p>但是，上面提到的这些 VTEP 设备的 MAC 地址，对于宿主机网络来说并没有什么实际意义。所以上面封装出来的这个数据帧，并不能在我们的宿主机二层网络里传输。为了方便叙述，我们把它称为“内部数据帧”（Inner Ethernet Frame）。所以接下来，Linux 内核还需要再把“内部数据帧”进一步封装成为宿主机网络里的一个普通的数据帧，好让它“载着”“内部数据帧”，通过宿主机的 eth0 网卡进行传输。我们把这次要封装出来的、宿主机对应的数据帧称为“外部数据帧”（Outer Ethernet Frame）。为了实现这个“搭便车”的机制，Linux 内核会在“内部数据帧”前面，加上一个特殊的 VXLAN 头，用来表示这个“乘客”实际上是一个 VXLAN 要使用的数据帧。而这个 VXLAN 头里有一个重要的标志叫作 VNI，它是 VTEP 设备识别某个数据帧是不是应该归自己处理的重要标识。而在 Flannel 中，VNI 的默认值是 1，这也是为何，宿主机上的 VTEP 设备都叫作 flannel.1 的原因，这里的“1”，其实就是 VNI 的值。</p>
+
+<p>然后，Linux 内核会把这个数据帧封装进一个 UDP 包里发出去。所以，跟 UDP 模式类似，在宿主机看来，它会以为自己的 flannel.1 设备只是在向另外一台宿主机的 flannel.1 设备，发起了一次普通的 UDP 链接。它哪里会知道，这个 UDP 包里面，其实是一个完整的二层数据帧。</p>
+
+<p>不过，不要忘了，一个 flannel.1 设备只知道另一端的 flannel.1 设备的 MAC 地址，却不知道对应的宿主机地址是什么。也就是说，这个 UDP 包该发给哪台宿主机呢？在这种场景下，flannel.1 设备实际上要扮演一个“网桥”的角色，在二层网络进行 UDP 包的转发。而在 Linux 内核里面，“网桥”设备进行转发的依据，来自于一个叫作 FDB（Forwarding Database）的转发数据库。不难想到，这个 flannel.1“网桥”对应的 FDB 信息，也是 flanneld 进程负责维护的。它的内容可以通过 bridge fdb 命令查看到，如下所示：</p>
+
+<pre><code># 在Node 1上，使用“目的VTEP设备”的MAC地址进行查询
+$ bridge fdb show flannel.1 | grep 5e:f8:4f:00:e3:37
+5e:f8:4f:00:e3:37 dev flannel.1 dst 10.168.0.3 self permanent
+</code></pre>
+
+<p>可以看到，在上面这条 FDB 记录里，指定了这样一条规则，即：发往我们前面提到的“目的 VTEP 设备”（MAC 地址是 5e:f8:4f:00:e3:37）的二层数据帧，应该通过 flannel.1 设备，发往 IP 地址为 10.168.0.3 的主机。显然，这台主机正是 Node 2，UDP 包要发往的目的地就找到了。所以接下来的流程，就是一个正常的、宿主机网络上的封包工作。</p>
+
+<p>接下来，Node 1 上的 flannel.1 设备就可以把这个数据帧从 Node 1 的 eth0 网卡发出去。显然，这个帧会经过宿主机网络来到 Node 2 的 eth0 网卡。这时候，Node 2 的内核网络栈会发现这个数据帧里有 VXLAN Header，并且 VNI=1。所以 Linux 内核会对它进行拆包，拿到里面的内部数据帧，然后根据 VNI 的值，把它交给 Node 2 上的 flannel.1 设备。而 flannel.1 设备则会进一步拆包，取出“原始 IP 包”，最终，IP 包就进入到了 container-2 容器的 Network Namespace 里。</p>
+
+<blockquote>
+<p>数据格式</p>
+</blockquote>
+
+<p>我们知道，UDP 包是一个四层数据包，所以 Linux 内核会在它前面加上一个 IP 头，即原理图中的 Outer IP Header，组成一个 IP 包。并且，在这个 IP 头里，会填上前面通过 FDB 查询出来的目的主机的 IP 地址，即 Node 2 的 IP 地址 10.168.0.3。然后，Linux 内核再在这个 IP 包前面加上二层数据帧头，即原理图中的 Outer Ethernet Header，并把 Node 2 的 MAC 地址填进去。这个 MAC 地址本身，是 Node 1 的 ARP 表要学习的内容，无需 Flannel 维护。这时候，我们封装出来的“外部数据帧”的格式，如下所示：</p>
+
+<p><img src="/media/cloud/k8s/network3.jpg" alt="" /></p>
+
+<blockquote>
+<p>问题</p>
+</blockquote>
+
+<p>如果集群的规模变大，按着每个节点之间都会建立一对vtep，规模会越来越大，性能会是很严重的问题，可以使用vxlan网关来解决，使用分布式vxlan网关也是现在比较流行的解决方案。</p>
+
+<h5 id="host-gw">host-gw</h5>
+
+<h5 id="总结">总结</h5>
+
+<p>flannel更像是经典的桥接模式的扩展。我们知道，在桥接模式中，每台主机的容器都将使用一个默认的网段，容器与容器之间，主机与容器之间都能互相通信。要是，我们能手动配置每台主机的网段，使它们互不冲突。接着再想点办法，将目的地址为非本机容器的流量送到相应主机：如果集群的主机都在一个子网内，就搞一条路由转发过去；若是不在一个子网内，就搞一条隧道转发过去。这样以来，容器的跨网络通信问题就解决了。而flannel做的，其实就是将这些工作自动化了而已。</p>
 
 <h3 id="weave">Weave</h3>
 
@@ -670,7 +800,17 @@ Macvlan：从逻辑和Kernel层来看隔离性和性能最优的方案，基于�
 <li><a href="#组件">组件</a>
 <ul>
 <li><a href="#kubenet">kubenet</a></li>
-<li><a href="#flannel">flannel</a></li>
+<li><a href="#flannel">flannel</a>
+<ul>
+<li><a href="#flannel网络模型">flannel网络模型</a></li>
+<li><a href="#flannel架构">flannel架构</a>
+<ul>
+<li><a href="#udp">UDP</a></li>
+<li><a href="#vxlan">VXLAN</a></li>
+<li><a href="#host-gw">host-gw</a></li>
+<li><a href="#总结">总结</a></li>
+</ul></li>
+</ul></li>
 <li><a href="#weave">Weave</a></li>
 <li><a href="#calico">calico</a></li>
 <li><a href="#contiv">contiv</a></li>

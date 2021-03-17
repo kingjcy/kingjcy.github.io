@@ -316,7 +316,18 @@ setools-libs-3.3.8-1.1.el7.x86_64.rpm
 
 <p>option:-a 作者信息  -m 提交信息  -p 提交时暂停容器运行</p>
 
-<p>例如：docker commit -a &ldquo;jcy&rdquo; -m &ldquo;redisconfigload&rdquo; 01758f83ddb2 redisconfigload</p></li>
+<p>例如：docker commit -a &ldquo;jcy&rdquo; -m &ldquo;redisconfigload&rdquo; 01758f83ddb2 redisconfigload</p>
+
+<p>还可以基于正在运行的容器，比如做了一些操作，保存为一个镜像</p>
+
+<pre><code>$ docker exec -it 4ddf4638572d /bin/sh
+# 在容器内部新建了一个文件
+root@4ddf4638572d:/app# touch test.txt
+root@4ddf4638572d:/app# exit
+
+#将这个新建的文件提交到镜像中保存
+$ docker commit 4ddf4638572d geektime/helloworld:v2
+</code></pre></li>
 
 <li><p>基于本地模板的导出导入 docker export/import</p>
 
@@ -400,8 +411,9 @@ docker push user/test:latest
 
 <p>私有库的搭建以及上传管理在下面详细讲解。</p></li>
 
-<li><p>镜像下载
-Docker默认拉取镜像是从<a href="https://hub.docker.com/">这里</a>拉取,拉取的速度让人。。。，所以是配置国内镜像源，拉取速度十分惊人,可以自己去阿里云申请一个免费的加速器，我们一般会自己免费申请一下阿里云的镜像加速器，其实就是换了阿里的镜像源。</p>
+<li><p>镜像下载</p>
+
+<p>Docker默认拉取镜像是从<a href="https://hub.docker.com/">这里</a>拉取,拉取的速度让人。。。，所以是配置国内镜像源，拉取速度十分惊人,可以自己去阿里云申请一个免费的加速器，我们一般会自己免费申请一下阿里云的镜像加速器，其实就是换了阿里的镜像源。</p>
 
 <p>针对Docker客户端版本大于 1.10.0 的用户</p>
 
@@ -445,7 +457,31 @@ sudo systemctl restart docker
 <ul>
 <li><p>docker attach  name 这个是docker自带的命令，但是在多个终端一起链接到该容器的时候，他们是同步的，当其中一个出现问题时，其他的也会一样出现该问题</p></li>
 
-<li><p>docker exec -ti   id /bin/bash 这个也是docker自带的，在docker1.3之后，它在容器中启动来一个bash,但是并不是所有的容器都是在linux系统上建立起来的，并不一定能启动bash</p></li>
+<li><p>docker exec -ti   id /bin/bash 这个也是docker自带的，在docker1.3之后，它在容器中启动来一个bash,但是并不是所有的容器都是在linux系统上建立起来的，并不一定能启动bash</p>
+
+<p>docker exec 是怎么做到进入容器里的呢？实际上，Linux Namespace 创建的隔离空间虽然看不见摸不着，但一个进程的 Namespace 信息在宿主机上是确确实实存在的，并且是以一个文件的方式存在。比如，通过如下指令，你可以看到当前正在运行的 Docker 容器的进程号（PID）是 25686：</p>
+
+<pre><code>$ docker inspect --format '{{ .State.Pid }}'  4ddf4638572d
+25686
+</code></pre>
+
+<p>这时，你可以通过查看宿主机的 proc 文件，看到这个 25686 进程的所有 Namespace 对应的文件：</p>
+
+<pre><code>$ ls -l  /proc/25686/ns
+total 0
+lrwxrwxrwx 1 root root 0 Aug 13 14:05 cgroup -&gt; cgroup:[4026531835]
+lrwxrwxrwx 1 root root 0 Aug 13 14:05 ipc -&gt; ipc:[4026532278]
+lrwxrwxrwx 1 root root 0 Aug 13 14:05 mnt -&gt; mnt:[4026532276]
+lrwxrwxrwx 1 root root 0 Aug 13 14:05 net -&gt; net:[4026532281]
+lrwxrwxrwx 1 root root 0 Aug 13 14:05 pid -&gt; pid:[4026532279]
+lrwxrwxrwx 1 root root 0 Aug 13 14:05 pid_for_children -&gt; pid:[4026532279]
+lrwxrwxrwx 1 root root 0 Aug 13 14:05 user -&gt; user:[4026531837]
+lrwxrwxrwx 1 root root 0 Aug 13 14:05 uts -&gt; uts:[4026532277]
+</code></pre>
+
+<p>可以看到，一个进程的每种 Linux Namespace，都在它对应的 /proc/[进程号]/ns 下有一个对应的虚拟文件，并且链接到一个真实的 Namespace 文件上。有了这样一个可以“hold 住”所有 Linux Namespace 的文件，我们就可以对 Namespace 做一些很有意义事情了，比如：加入到一个已经存在的 Namespace 当中。这也就意味着：一个进程，可以选择加入到某个进程已有的 Namespace 当中，从而达到“进入”这个进程所在容器的目的，这正是 docker exec 的实现原理。而这个操作所依赖的，乃是一个名叫 setns() 的 Linux 系统调用。</p>
+
+<p>通过 open() 系统调用打开了指定的 Namespace 文件，并把这个文件的描述符 fd 交给 setns() 使用。它一共接收两个参数，第一个参数是 argv[1]，即当前进程要加入的 Namespace 文件的路径，比如 /proc/25686/ns/net；而第二个参数，则是你要在这个 Namespace 里运行的进程，比如 /bin/bash。一个进程加入到了另一个 Namespace 当中了。</p></li>
 
 <li><p>可以用工具nsenter，是一个需要安装的工具。</p></li>
 </ul></li>
@@ -695,7 +731,9 @@ sudo service docker restart
 ＃在docker中会有/data目录，这个目录不归属于层级文件系统
 ls /data -d
 /data
-</code></pre></li>
+</code></pre>
+
+<p>由于你并没有显示声明宿主机目录，那么 Docker 就会默认在宿主机上创建一个临时目录 /var/lib/docker/volumes/[VOLUME_ID]/_data，然后把它挂载到容器的 /data 目录上。</p></li>
 
 <li><p>将宿主机的一个目录，挂在到容器里，这种方式，数据可以保存在宿主机中</p>
 
