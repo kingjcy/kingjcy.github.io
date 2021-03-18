@@ -576,6 +576,29 @@ $ bridge fdb show flannel.1 | grep 5e:f8:4f:00:e3:37
 
 <h5 id="host-gw">host-gw</h5>
 
+<p><img src="/media/cloud/k8s/flannel.png" alt="" /></p>
+
+<p>假设现在，Node 1 上的 Infra-container-1，要访问 Node 2 上的 Infra-container-2。当你设置 Flannel 使用 host-gw 模式之后，flanneld 会在宿主机上创建这样一条规则，以 Node 1 为例：</p>
+
+<pre><code>$ ip route
+...
+10.244.1.0/24 via 10.168.0.3 dev eth0
+</code></pre>
+
+<p>这条路由规则的含义是：目的 IP 地址属于 10.244.1.0/24 网段的 IP 包，应该经过本机的 eth0 设备发出去（即：dev eth0）；并且，它下一跳地址（next-hop）是 10.168.0.3（即：via 10.168.0.3）。所谓下一跳地址就是：如果 IP 包从主机 A 发到主机 B，需要经过路由设备 X 的中转。那么 X 的 IP 地址就应该配置为主机 A 的下一跳地址。而从 host-gw 示意图中我们可以看到，这个下一跳地址对应的，正是我们的目的宿主机 Node 2。</p>
+
+<p>一旦配置了下一跳地址，那么接下来，当 IP 包从网络层进入链路层封装成帧的时候，eth0 设备就会使用下一跳地址对应的 MAC 地址，作为该数据帧的目的 MAC 地址。显然，这个 MAC 地址，正是 Node 2 的 MAC 地址。这样，这个数据帧就会从 Node 1 通过宿主机的二层网络顺利到达 Node 2 上。而 Node 2 的内核网络栈从二层数据帧里拿到 IP 包后，会“看到”这个 IP 包的目的 IP 地址是 10.244.1.3，即 Infra-container-2 的 IP 地址。这时候，根据 Node 2 上的路由表，该目的地址会匹配到第二条路由规则（也就是 10.244.1.0 对应的路由规则），从而进入 cni0 网桥，进而进入到 Infra-container-2 当中。</p>
+
+<p>host-gw 模式的工作原理，其实就是将每个 Flannel 子网（Flannel Subnet，比如：10.244.1.0/24）的“下一跳”，设置成了该子网对应的宿主机的 IP 地址。也就是说，这台“主机”（Host）会充当这条容器通信路径里的“网关”（Gateway）。这也正是“host-gw”的含义。</p>
+
+<p>Flannel 子网和主机的信息，都是保存在 Etcd 当中的。flanneld 只需要 WACTH 这些数据的变化，然后实时更新路由表即可。注意：在 Kubernetes v1.7 之后，类似 Flannel、Calico 的 CNI 网络插件都是可以直接连接 Kubernetes 的 APIServer 来访问 Etcd 的，无需额外部署 Etcd 给它们使用。</p>
+
+<p>Flannel host-gw 模式必须要求集群宿主机之间是二层连通的。</p>
+
+<p>在这种模式下，容器通信的过程就免除了额外的封包和解包带来的性能损耗。根据实际的测试，host-gw 的性能损失大约在 10% 左右，而其他所有基于 VXLAN“隧道”机制的网络方案，性能损失都在 20%~30% 左右。</p>
+
+<p>但是宿主机之间二层不连通的情况也是广泛存在的。比如，宿主机分布在了不同的子网（VLAN）里。这个时候就需要一个三层的方案，也就是我们常说的<a href="#calico">calico</a>。</p>
+
 <h5 id="总结">总结</h5>
 
 <p>flannel更像是经典的桥接模式的扩展。我们知道，在桥接模式中，每台主机的容器都将使用一个默认的网段，容器与容器之间，主机与容器之间都能互相通信。要是，我们能手动配置每台主机的网段，使它们互不冲突。接着再想点办法，将目的地址为非本机容器的流量送到相应主机：如果集群的主机都在一个子网内，就搞一条路由转发过去；若是不在一个子网内，就搞一条隧道转发过去。这样以来，容器的跨网络通信问题就解决了。而flannel做的，其实就是将这些工作自动化了而已。</p>
@@ -607,81 +630,136 @@ $ bridge fdb show flannel.1 | grep 5e:f8:4f:00:e3:37
 
 <h3 id="calico">calico</h3>
 
-<p>Calico 是一种容器之间互通的网络方案。在虚拟化平台中，比如 OpenStack、Docker 等都需要实现 workloads 之间互连，但同时也需要对容器做隔离控制，就像在 Internet 中的服务仅开放80端口、公有云的多租户一样，提供隔离和管控机制。而在多数的虚拟化平台实现中，通常都使用二层隔离技术来实现容器的网络，这些二层的技术有一些弊端，比如需要依赖 VLAN、bridge 和隧道等技术，其中 bridge 带来了复杂性，vlan 隔离和 tunnel 隧道则消耗更多的资源并对物理环境有要求，随着网络规模的增大，整体会变得越加复杂。我们尝试把 Host 当作 Internet 中的路由器，同样使用 BGP 同步路由，并使用 iptables 来做安全访问策略，最终设计出了 Calico 方案。</p>
+<p>三层网络方案得以正常工作的核心，是为每个容器的 IP 地址，找到它所对应的、“下一跳”的网关。</p>
 
-<p>架构</p>
+<p>Calico 项目提供的网络解决方案，与 Flannel 的 host-gw 模式，几乎是完全一样的。也就是说，Calico 也会在每台宿主机上，添加一个格式如下所示的路由规则：</p>
+
+<pre><code>&lt;目的容器IP地址段&gt; via &lt;网关的IP地址&gt; dev eth0
+</code></pre>
+
+<p>其中，网关的 IP 地址，正是目的容器所在宿主机的 IP 地址。</p>
+
+<p>不同于 Flannel 通过 Etcd 和宿主机上的 flanneld 来维护路由信息的做法，Calico 项目使用了BGP（BGP 的全称是 Border Gateway Protocol，即：边界网关协议。它是一个 Linux 内核原生就支持的、专门用在大规模数据中心里维护不同的“自治系统”之间路由信息的、无中心的路由协议。）来自动地在整个集群中分发路由信息。</p>
+
+<h4 id="bgp">BGP</h4>
+
+<p>BGP 的全称是 Border Gateway Protocol，即：边界网关协议。它是一个 Linux 内核原生就支持的、专门用在大规模数据中心里维护不同的“自治系统”之间路由信息的、无中心的路由协议。</p>
+
+<p><img src="/media/cloud/k8s/bgp.jpg" alt="" /></p>
+
+<p>我们有两个自治系统（Autonomous System，简称为 AS）：AS 1 和 AS 2。而所谓的一个自治系统，指的是一个组织管辖下的所有 IP 网络和路由器的全体。你可以把它想象成一个小公司里的所有主机和路由器。在正常情况下，自治系统之间不会有任何“来往”。但是，如果这样两个自治系统里的主机，要通过 IP 地址直接进行通信，我们就必须使用路由器把这两个自治系统连接起来。</p>
+
+<p>AS 1 里面的主机 10.10.0.2，要访问 AS 2 里面的主机 172.17.0.3 的话。它发出的 IP 包，就会先到达自治系统 AS 1 上的路由器 Router 1。而在此时，Router 1 的路由表里，有这样一条规则，即：目的地址是 172.17.0.2 包，应该经过 Router 1 的 C 接口，发往网关 Router 2（即：自治系统 AS 2 上的路由器）。所以 IP 包就会到达 Router 2 上，然后经过 Router 2 的路由表，从 B 接口出来到达目的主机 172.17.0.3。但是反过来，如果主机 172.17.0.3 要访问 10.10.0.2，那么这个 IP 包，在到达 Router 2 之后，就不知道该去哪儿了。因为在 Router 2 的路由表里，并没有关于 AS 1 自治系统的任何路由规则。所以这时候，网络管理员就应该给 Router 2 也添加一条路由规则，比如：目标地址是 10.10.0.2 的 IP 包，应该经过 Router 2 的 C 接口，发往网关 Router 1。</p>
+
+<p>把自治系统连接在一起的路由器，我们就把它形象地称为：<strong>边界网关</strong>。</p>
+
+<p>但是网络拓扑结构非常复杂，每个自治系统都有成千上万个主机、无数个路由器，甚至是由多个公司、多个网络提供商、多个自治系统组成的复合自治系统，如果还要依靠人工来对边界网关的路由表进行配置和维护，那是绝对不现实的。</p>
+
+<p>在使用了 BGP 之后，你可以认为，在每个边界网关上都会运行着一个小程序，它们会将各自的路由表信息，通过 TCP 传输给其他的边界网关。而其他边界网关上的这个小程序，则会对收到的这些数据进行分析，然后将需要的信息添加到自己的路由表里。这就是BGP，就是在大规模网络中实现节点路由信息共享的一种协议。</p>
+
+<h4 id="架构">架构</h4>
 
 <p><img src="/media/cloud/k8s/calico" alt="" /></p>
 
 <p>Calico网络模型主要工作组件：</p>
 
 <ul>
-<li>Felix：运行在每一台 Host 的 agent 进程，主要负责网络接口管理和监听、路由、ARP 管理、ACL 管理和同步、状态上报等。
+<li>Felix：运行在每一台 Host 的 agent 进程，一般用deamonset的模式部署在node上，主要负责网络接口管理和监听、在宿主机上插入路由规则、ARP 管理、ACL 管理和同步、状态上报等。
 
 <ul>
 <li>Felix会监听ECTD中心的存储，从它获取事件，比如说用户在这台机器上加了一个IP，或者是创建了一个容器等。用户创建pod后，Felix负责将其网卡、IP、MAC都设置好，然后在内核的路由表里面写一条，注明这个IP应该到这张网卡。同样如果用户制定了隔离策略，Felix同样会将该策略创建到ACL中，以实现隔离。</li>
 </ul></li>
 <li>etcd：分布式键值存储，主要负责网络元数据一致性，确保Calico网络状态的准确性，可以与kubernetes共用；</li>
-<li>BGP Client（BIRD）：Calico 为每一台 Host 部署一个 BGP Client，使用 BIRD 实现，BIRD 是一个单独的持续发展的项目，实现了众多动态路由协议比如 BGP、OSPF、RIP 等。在 Calico 的角色是监听 Host 上由 Felix 注入的路由信息，然后通过 BGP 协议广播告诉剩余 Host 节点，从而实现网络互通。
+<li>BGP Client（BIRD）：Calico 为每一台 Host 部署一个 BGP Client，使用 BIRD 实现，BIRD 是一个单独的持续发展的项目，实现了众多动态路由协议比如 BGP、OSPF、RIP 等。在 Calico 的角色是监听 Host 上由 Felix 注入的路由信息，然后通过 BGP 协议广播告诉剩余 Host 节点，然后其他的node节点就会指定这个网段的ip的下一跳就是这个主机ip，从而实现网络互通。
 
 <ul>
 <li>BIRD是一个标准的路由程序，它会从内核里面获取哪一些IP的路由发生了变化，然后通过标准BGP的路由协议扩散到整个其他的宿主机上，让外界都知道这个IP在这里，你们路由的时候得到这里来。</li>
 </ul></li>
 <li>BGP Route Reflector：在大型网络规模中，如果仅仅使用 BGP client 形成 mesh 全网互联的方案就会导致规模限制，因为所有节点之间俩俩互联，需要 N^2 个连接，为了解决这个规模问题，可以采用 BGP 的 Router Reflector 的方法，使所有 BGP Client 仅与特定 RR 节点互联并做路由同步，从而大大减少连接数。</li>
+<li>CNI插件：二进制文件放在每个node上对应的目录下，给kubelet调用。</li>
 </ul>
+
+<h4 id="实现">实现</h4>
 
 <p>由于Calico是一种纯三层的实现，因此可以避免与二层方案相关的数据包封装的操作，中间没有任何的NAT，没有任何的overlay，所以它的转发效率可能是所有方案中最高的，因为它的包直接走原生TCP/IP的协议栈，它的隔离也因为这个栈而变得好做。因为TCP/IP的协议栈提供了一整套的防火墙的规则，所以它可以通过IPTABLES的规则达到比较复杂的隔离逻辑。</p>
 
+<p><img src="/media/cloud/k8s/bgp1.jpg" alt="" /></p>
+
+<p>其中的绿色实线标出的路径，就是一个 IP 包从 Node 1 上的 Container 1，到达 Node 2 上的 Container 4 的完整路径。可以看到，Calico 的 CNI 插件会为每个容器设置一个 Veth Pair 设备，然后把其中的一端放置在宿主机上（它的名字以 cali 前缀开头）。此外，由于 Calico 没有使用 CNI 的网桥模式，Calico 的 CNI 插件还需要在宿主机上为每个容器的 Veth Pair 设备配置一条路由规则，用于接收传入的 IP 包。比如，宿主机 Node 2 上的 Container 4 对应的路由规则，如下所示：</p>
+
+<pre><code>10.233.2.3 dev cali5863f3 scope link
+</code></pre>
+
+<p>即：发往 10.233.2.3 的 IP 包，应该进入 cali5863f3 设备。基于上述原因，Calico 项目在宿主机上设置的路由规则，肯定要比 Flannel 项目多得多。</p>
+
+<p>有了这样的 Veth Pair 设备之后，容器发出的 IP 包就会经过 Veth Pair 设备出现在宿主机上。然后，宿主机网络栈就会根据路由规则的下一跳 IP 地址，把它们转发给正确的网关。接下来的流程就跟 Flannel host-gw 模式完全一致了。</p>
+
+<p>最核心的“下一跳”路由规则，就是由 Calico 的 Felix 进程负责维护的。这些路由规则信息，则是通过 BGP Client 也就是 BIRD 组件，使用 BGP 协议传输而来的。</p>
+
+<p>BGP 协议传输的消息，你可以简单地理解为如下格式：</p>
+
+<pre><code>[BGP消息]
+我是宿主机192.168.1.3
+10.233.2.0/24网段的容器都在我这里
+这些容器的下一跳地址是我
+</code></pre>
+
+<p>Calico 项目实际上将集群里的所有节点，都当作是边界路由器来处理，它们一起组成了一个全连通的网络，互相之间通过 BGP 协议交换路由规则。这些节点，我们称为 BGP Peer。</p>
+
+<p>Calico 维护的网络在默认配置下，是一个被称为“Node-to-Node Mesh”的模式。这时候，每台宿主机上的 BGP Client 都需要跟其他所有节点的 BGP Client 进行通信以便交换路由信息。但是，随着节点数量 N 的增加，这些连接的数量就会以 N²的规模快速增长，从而给集群本身的网络带来巨大的压力。所以，Node-to-Node Mesh 模式一般推荐用在少于 100 个节点的集群里。而在更大规模的集群中，你需要用到的是一个叫作 Route Reflector 的模式。在这种模式下，Calico 会指定一个或者几个专门的节点，来负责跟所有节点建立 BGP 连接从而学习到全局的路由规则。而其他节点，只需要跟这几个专门的节点交换路由信息，就可以获得整个集群的路由规则信息了。这些专门的节点，就是所谓的 Route Reflector 节点，它们实际上扮演了“中间代理”的角色，从而把 BGP 连接的规模控制在 N 的数量级上。</p>
+
+<p>calico也是要求所有的node是二层相通的，如果不通，就算设置了对应主机的ip为网关，也是不通的，但是我们有办法解决这个问题，就是使用ipip模式，开通overlay通道。</p>
+
 <blockquote>
-<p>网络模式</p>
+<p>IPIP</p>
 </blockquote>
 
-<p>1、IPIP</p>
+<p><img src="/media/cloud/k8s/ip.jpg" alt="" /></p>
 
-<p>从字面来理解，就是把一个IP数据包又套在一个IP包里，即把 IP 层封装到 IP 层的一个 tunnel。它的作用其实基本上就相当于一个基于IP层的网桥！一般来说，普通的网桥是基于mac层的，根本不需 IP，而这个 ipip 则是通过两端的路由做一个 tunnel，把两个本来不通的网络通过点对点连接起来。</p>
+<p>在 Calico 的 IPIP 模式下，Felix 进程在 Node 1 上添加的路由规则，会稍微不同，如下所示：</p>
 
-<p><img src="/media/cloud/k8s/calico1" alt="" /></p>
+<pre><code>10.233.2.0/24 via 192.168.2.2 tunl0
+</code></pre>
 
-<p>其实这还是一种Overlay模式，需要使用把 IP 层封装到 IP 层的一个 tunnel。在主机的路由上route -n可以看到这个通道tunX。</p>
+<p>可以看到，尽管这条规则的下一跳地址仍然是 Node 2 的 IP 地址，但这一次，要负责将 IP 包发出去的设备，变成了 tunl0。注意，是 T-U-N-L-0，而不是 Flannel UDP 模式使用的 T-U-N-0（tun0），这两种设备的功能是完全不一样的。Calico 使用的这个 tunl0 设备，是一个 IP 隧道（IP tunnel）设备。</p>
 
-<p>2、BGP</p>
+<p>IP 包进入 IP 隧道设备之后，就会被 Linux 内核的 IPIP 驱动接管。IPIP 驱动会将这个 IP 包直接封装在一个宿主机网络的 IP 包中，如下所示：</p>
 
-<p>在安装calico网络时，默认安装是IPIP网络。calico.yaml文件中，将CALICO_IPV4POOL_IPIP的值修改成 &ldquo;off&rdquo;，就能够替换成BGP网络。</p>
+<p><img src="/media/cloud/k8s/ip1.jpg" alt="" /></p>
 
-<p>BGP网络相比较IPIP网络，最大的不同之处就是没有了隧道设备 tunl0。 前面介绍过IPIP网络pod之间的流量发送tunl0，然后tunl0发送对端设备。BGP网络中，pod之间的流量直接从网卡发送目的地，减少了tunl0这个环节。</p>
+<p>其中，经过封装后的新的 IP 包的目的地址（图 5 中的 Outer IP Header 部分），正是原 IP 包的下一跳地址，即 Node 2 的 IP 地址：192.168.2.2。而原 IP 包本身，则会被直接封装成新 IP 包的 Payload。这样，原先从容器到 Node 2 的 IP 包，就被伪装成了一个从 Node 1 到 Node 2 的 IP 包。由于宿主机之间已经使用路由器配置了三层转发，也就是设置了宿主机之间的“下一跳”。所以这个 IP 包在离开 Node 1 之后，就可以经过路由器，最终“跳”到 Node 2 上。这时，Node 2 的网络内核栈会使用 IPIP 驱动进行解包，从而拿到原始的 IP 包。然后，原始 IP 包就会经过路由规则和 Veth Pair 设备到达目的容器内部。</p>
 
-<p><img src="/media/cloud/k8s/calico2" alt="" /></p>
+<p>当 Calico 使用 IPIP 模式的时候，集群的网络性能会因为额外的封包和解包工作而下降。在实际测试中，Calico IPIP 模式与 Flannel VXLAN 模式的性能大致相当。所以，在实际使用时，如非硬性需求，我建议你将所有宿主机节点放在一个子网里，避免使用 IPIP。</p>
 
-<p>总结对比</p>
+<p>为了解决减少ipip这种模式，我们在私有云上可以使用将宿主机和宿主机网关都发展为BGP Peer 来解决，当然这个在公有云上基本是接触不到对应的网关的。</p>
 
-<p>IPIP网络：</p>
+<p>这种方案下，Node 1 和 Node 2 就需要主动跟宿主机网关 Router 1 和 Router 2 建立 BGP 连接。从而将类似于 10.233.2.0/24 这样的路由信息同步到网关上去。需要注意的是，这种方式下，Calico 要求宿主机网关必须支持一种叫作 Dynamic Neighbors 的 BGP 配置方式。这是因为，在常规的路由器 BGP 配置里，运维人员必须明确给出所有 BGP Peer 的 IP 地址。考虑到 Kubernetes 集群可能会有成百上千个宿主机，而且还会动态地添加和删除节点，这时候再手动管理路由器的 BGP 配置就非常麻烦了。而 Dynamic Neighbors 则允许你给路由器配置一个网段，然后路由器就会自动跟该网段里的主机建立起 BGP Peer 关系。</p>
 
-<ul>
-<li>流量：tunlo设备封装数据，形成隧道，承载流量。</li>
-<li>适用网络类型：适用于互相访问的pod不在同一个网段中，跨网段访问的场景。外层封装的ip能够解决跨网段的路由问题。</li>
-<li>效率：流量需要tunl0设备封装，效率略低</li>
-</ul>
-
-<p>BGP网络：</p>
-
-<ul>
-<li>流量：使用路由信息导向流量</li>
-<li>适用网络类型：适用于互相访问的pod在同一个网段，适用于大型网络。</li>
-<li>效率：原生hostGW，效率高</li>
-</ul>
-
-<p>缺点</p>
-
-<ul>
-<li>租户隔离问题：Calico 的三层方案是直接在 host 上进行路由寻址，那么对于多租户如果使用同一个 CIDR 网络就面临着地址冲突的问题。</li>
-<li>路由规模问题：通过路由规则可以看出，路由规模和 pod 分布有关，如果 pod离散分布在 host 集群中，势必会产生较多的路由项。</li>
-<li>iptables 规则规模问题：1台 Host 上可能虚拟化十几或几十个容器实例，过多的 iptables 规则造成复杂性和不可调试性，同时也存在性能损耗。</li>
-<li>跨子网时的网关路由问题：当对端网络不为二层可达时，需要通过三层路由机时，需要网关支持自定义路由配置，即 pod 的目的地址为本网段的网关地址，再由网关进行跨三层转发。</li>
-</ul>
+<p>当然，在大规模集群中，Calico 本身就推荐使用 Route Reflector 节点的方式进行组网。所以，这里负责跟宿主机网关进行沟通的独立组件，直接由 Route Reflector 兼任即可。更重要的是，这种情况下网关的 BGP Peer 个数是有限并且固定的。所以我们就可以直接把这些独立组件配置成路由器的 BGP Peer，而无需 Dynamic Neighbors 的支持。当然，这些独立组件的工作原理也很简单：它们只需要 WATCH Etcd 里的宿主机和对应网段的变化信息，然后把这些信息通过 BGP 协议分发给网关即可。</p>
 
 <h3 id="contiv">contiv</h3>
 
 <p>Contiv是思科开源的容器网络方案，是一个用于跨虚拟机、裸机、公有云或私有云的异构容器部署的开源容器网络架构，并与主流容器编排系统集成。Contiv最主要的优势是直接提供了多租户网络，并支持L2(VLAN), L3(BGP), Overlay (VXLAN)以及思科自家的ACI。</p>
+
+<p><img src="/media/cloud/k8s/contiv" alt="" /></p>
+
+<ul>
+<li>图中是多个Kubernetes Master架构。</li>
+<li>图中所示Netmaster、Netplugin、Auth_proxy都是以容器形式存在的，网络链接方式通过Contianer link方式到pause容器。</li>
+<li>Auth_proxy作为认证代理，提供基于RBAC认证，通过认证后，将请求转发给Netmaster。</li>
+<li>在Contiv原生版本中，并不支持多Netmaster存在，我们多配置文件做了些修改，使Netmaster和Netplugin都是以DaemonSet资源形式存在。</li>
+<li>Contiv开源版本中默认使用的OVS Driver，我们也做了改造，使其支持多网络驱动，比如SR-IOV，DPDK。</li>
+<li>最后Kubernetes和Contiv的数据都会写到ectd分布式存储中。</li>
+</ul>
+
+<p>contiv支持多种网络模式</p>
+
+<ul>
+<li>L2（VLAN）</li>
+<li>L3(BGP)</li>
+<li>Overlay（VXLAN）</li>
+<li>Cisco SDN Solution（ACI）</li>
+</ul>
 
 <h3 id="其他">其他</h3>
 
@@ -812,7 +890,12 @@ $ bridge fdb show flannel.1 | grep 5e:f8:4f:00:e3:37
 </ul></li>
 </ul></li>
 <li><a href="#weave">Weave</a></li>
-<li><a href="#calico">calico</a></li>
+<li><a href="#calico">calico</a>
+<ul>
+<li><a href="#bgp">BGP</a></li>
+<li><a href="#架构">架构</a></li>
+<li><a href="#实现">实现</a></li>
+</ul></li>
 <li><a href="#contiv">contiv</a></li>
 <li><a href="#其他">其他</a></li>
 </ul></li>
