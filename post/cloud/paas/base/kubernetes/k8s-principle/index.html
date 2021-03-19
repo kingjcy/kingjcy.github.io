@@ -6,7 +6,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <meta name="author" content="fatedier">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<meta name="description" content="kubernetes是一种以容器为核心的，自动化部署应用程序的分布式的容器管理系统。">
+<meta name="description" content="很多的集群管理项目（比如 Yarn、Mesos，以及 Swarm）所擅长的，都是把一个容器，按照某种规则，放置在某个最佳节点上运行起来。这种功能，我们称为“调度”。
+
+Kubernetes 项目所擅长的，是按照用户的意愿和整个系统的规则，使用声明式api，完全自动化地处理好容器之间的各种关系。这种功能，就是我们经常听到的一个概念：编排。
+
+所以说，Kubernetes 项目的本质，是为用户提供一个具有普遍意义的容器编排工具。">
 <meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
 <meta property="og:title" content="云计算K8s系列---- K8s Principle - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
 
@@ -72,7 +76,11 @@
             </header>
 
             <div class="post-content">
-                <p>kubernetes是一种以容器为核心的，自动化部署应用程序的分布式的容器管理系统。</p>
+                <p>很多的集群管理项目（比如 Yarn、Mesos，以及 Swarm）所擅长的，都是把一个容器，按照某种规则，放置在某个最佳节点上运行起来。这种功能，我们称为“调度”。</p>
+
+<p>Kubernetes 项目所擅长的，是按照用户的意愿和整个系统的规则，使用声明式api，完全自动化地处理好容器之间的各种关系。这种功能，就是我们经常听到的一个概念：编排。</p>
+
+<p>所以说，Kubernetes 项目的本质，是为用户提供一个具有普遍意义的容器编排工具。</p>
 
 <h1 id="架构">架构</h1>
 
@@ -95,7 +103,12 @@
 </blockquote>
 
 <ul>
-<li>kubelet: 负责维护容器的生命周期，同时也负责Volume（CVI）和网络（CNI）的管理；主要干活的对象，负责和docker进行交互，创建容器，维护容器。</li>
+<li>kubelet: 负责和docker进行交互，创建容器，负责维护容器的生命周期。
+
+<ul>
+<li>kubelet 还通过 gRPC 协议同一个叫作 Device Plugin 的插件进行交互。这个插件，是 Kubernetes 项目用来管理 GPU 等宿主机物理设备的主要组件，也是基于 Kubernetes 项目进行机器学习训练、高性能作业支持等工作必须关注的功能。</li>
+<li>kubelet 的另一个重要功能，则是调用网络插件和存储插件为容器配置网络和持久化存储。这两个插件与 kubelet 进行交互的接口，分别是 CNI（Container Networking Interface）和 CSI（Container Storage Interface）。</li>
+</ul></li>
 <li>kube-proxy: 负责为Service提供cluster内部的服务发现和负载均衡；提供了一种网络模式。</li>
 <li>docker engine:  docker引擎，负责docker的创建和管理，containerd已经快速崛起了。</li>
 </ul>
@@ -188,45 +201,65 @@
 <h2 id="pod">pod</h2>
 
 <blockquote>
+<p>思想</p>
+</blockquote>
+
+<p><img src="/media/cloud/k8s/idea.png" alt="" /></p>
+
+<p>按照这幅图的线索，我们从容器这个最基础的概念出发，首先遇到了容器间“紧密协作”关系的难题，于是就扩展到了 Pod；有了 Pod 之后，我们希望能一次启动多个应用的实例，这样就需要 Deployment 这个 Pod 的多实例管理器；而有了这样一组相同的 Pod 后，我们又需要通过一个固定的 IP 地址和端口以负载均衡的方式访问它，于是就有了 Service。</p>
+
+<p>所以说k8s的思想很先进，经验很多，直接在上层就做好的架构设计，对于其他的paas简直就是降维打击，所以k8s得天下是必然的。</p>
+
+<blockquote>
 <p>pod</p>
 </blockquote>
 
-<p>1、为什么需要pod？pause父容器是做什么的？</p>
+<p>1、pod是什么？</p>
 
-<p>Pod的概念，主要是在多个容器中，隐藏了docker中复杂的标志位以及管理docker容器、共享卷及其他docker资源的复杂性。同时也隐藏了不同容器运行环境的差异。</p>
+<p>Pod，其实是一组共享了某些资源（网络，存储）的容器。</p>
 
-<p>原则上，任何人只需要创建一个父容器就可以配置docker来管理容器组之间的共享问题。这个父容器需要能够准确的知道如何去创建共享运行环境的容器，还能管理这些容器的生命周期。为了实现这个父容器的构想，kubernetes中，用pause容器来作为一个pod中所有容器的父容器。这个pause容器有两个核心的功能：</p>
+<p>pod是kubernetes定义的一种操作单位。</p>
 
-<ul>
-<li>它提供整个pod的Linux命名空间的基础。业务容器共享pause的ip（pod_ip）和挂载的volume（存储空间）</li>
-<li>启用PID命名空间，它在每个pod中都作为PID为1进程，并回收僵尸进程。</li>
-</ul>
+<p>pod的只是一个逻辑概念，Kubernetes 真正处理的，还是宿主机操作系统上 Linux 容器的 Namespace 和 Cgroups，而并不存在一个所谓的 Pod 的边界或者隔离环境。</p>
 
-<p><img src="/media/cloud/k8s/pod.png" alt="" />
-<img src="/media/cloud/k8s/pod2.png" alt="" /></p>
+<p>2、pod实现原理</p>
 
-<p>2、pod是什么？</p>
+<p>在 Kubernetes 项目里，Pod 的实现需要使用一个中间容器，这个容器叫作 Infra 容器。在这个 Pod 中，Infra 容器永远都是第一个被创建的容器，而其他用户定义的容器，则通过 Join Network Namespace 的方式，与 Infra 容器关联在一起。</p>
 
-<p>pod是kubernetes定义的一种操作单位。连接了容器和管理。</p>
+<p><img src="/media/cloud/k8s/pod4.png" alt="" /></p>
 
-<p>pod可以用一个或者多个容器组成。</p>
+<p>在 Kubernetes 项目里，Infra 容器一定要占用极少的资源，所以它使用的是一个非常特殊的镜像，叫作：k8s.gcr.io/pause。这个镜像是一个用汇编语言编写的、永远处于“暂停”状态的容器，解压后的大小也只有 100~200 KB 左右。而在 Infra 容器“Hold 住”Network Namespace 后，用户容器就可以加入到 Infra 容器的 Network Namespace 当中了。所以，如果你查看这些容器在宿主机上的 Namespace 文件，它们指向的值一定是完全一样的。</p>
+
+<p>这也就意味着，对于 Pod 里的容器 A 和容器 B 来说：</p>
 
 <ul>
-<li>多个容器（sidecar模式）：在一个Pod中同时运行多个容器。一个Pod中也可以同时封装几个需要紧密耦合互相协作的容器，它们之间共享资源。这些在同一个Pod中的容器可以互相协作成为一个service单位——一个容器共享文件，另一个“sidecar”容器来更新这些文件。Pod将这些容器的存储资源作为一个实体来管理。比如：一种应用的实例，例如一个web站点，包含前端，后端，数据库这三个容器，放在一个pod中对外就是一个web服务。</li>
-<li>单个容器：一个Pod中运行一个容器。“每个Pod中一个容器”的模式是最常见的用法；在这种使用方式中，你可以把Pod想象成是单个容器的封装，kuberentes管理的是Pod而不是直接管理容器。</li>
+<li>它们可以直接使用 localhost 进行通信；</li>
+<li>它们看到的网络设备跟 Infra 容器看到的完全一样；</li>
+<li>一个 Pod 只有一个 IP 地址，也就是这个 Pod 的 Network Namespace 对应的 IP 地址；</li>
+<li>当然，其他的所有网络资源，都是一个 Pod 一份，并且被该 Pod 中的所有容器共享；</li>
+<li>Pod 的生命周期只跟 Infra 容器一致，而与容器 A 和 B 无关。</li>
 </ul>
 
-<p>pod内部共享资源</p>
+<p>3、为什么需要pod？</p>
 
-<ol>
-<li><p>Pod中可以共享两种资源：网络和存储（挂载的volume）。</p></li>
+<ul>
+<li><p>pod作为k8s原子调度单位，主要解决批调度的问题，主要解决需要调度到一个节点上的conrainer能够分配到全部符合要求的资源。</p></li>
 
-<li><p>Pod内部的容器可以使用localhost互相通信。</p></li>
+<li><p>符合容器设计模式也就是超亲密关系的容器设计思想，实际上就是希望，当用户想在一个容器里跑多个功能并不相关的应用时，应该优先考虑它们是不是更应该被描述成一个 Pod 里的多个容器。</p>
 
-<li><p>可以Pod指定多个共享的Volume。Pod中的所有容器都可以访问共享的volume。Volume也可以用来持久化Pod中的存储资源，以防容器重启后文件丢失。</p></li>
-</ol>
+<p>亲密关系可以通过调度来解决，超亲密关系可以通过原子单位来解决</p></li>
+</ul>
 
-<p>3、pod的特性</p>
+<p>4、pod和容器的关系</p>
+
+<p>pod和container之间的关系类似于进程和进程组。容器本质就是进程，pod就是容器组也就是进程组。</p>
+
+<p>其实我们经常将容器对比虚拟机，其实这根本就不是一个对等的关系，容器的本质是进程，所以这样对比很容易造成容器化的困难，因为本身就是不对等的，如果需要一个对比的话，pod更加适合对比成虚拟机，如果把pod对比成虚拟机，那么很多pod上的思想就很容易理解了，凡是调度、网络、存储，以及安全相关的属性，基本上是 Pod 级别的。凡是跟容器的 Linux Namespace 相关的属性，也一定是 Pod 级别的。
+这些属性的共同特征是，它们描述的是“机器”这个整体，而不是里面运行的“程序”。比如，配置这个“机器”的网卡（即：Pod 的网络定义），配置这个“机器”的磁盘（即：Pod 的存储定义），配置这个“机器”的防火墙（即：Pod 的安全定义）。更不用说，这台“机器”运行在哪个服务器之上（即：Pod 的调度）。</p>
+
+<p>你就可以把整个虚拟机想象成为一个 Pod，把这些进程分别做成容器镜像，把有顺序关系的容器，定义为 Init Container。这才是更加合理的、松耦合的容器编排诀窍，也是从传统应用架构，到“微服务架构”最自然的过渡方式。</p>
+
+<p>5、pod的特性</p>
 
 <ol>
 <li><p>你很少会直接在kubernetes中创建单个Pod。因为Pod的生命周期是短暂的，用后即焚的实体。</p></li>
@@ -238,19 +271,21 @@
 <p>状态</p>
 </blockquote>
 
-<p>pod的五种状态</p>
+<p>pod的五种状态，主要定义的status.phase</p>
 
 <ul>
-<li>pending pod已经创建，但是内部镜像还没有完全创建</li>
+<li>pending pod已经创建，yaml资源已经被存储到etcd中，但是内部镜像还没有完全创建</li>
 <li>running 容器已经创建，至少有一个容器处于运行状态</li>
-<li>succeeded  pod内容器都成功终止，且不会重启</li>
+<li>succeeded  pod内容器都成功并且终止，且不会重启，一般在job这种一次性任务中出现</li>
 <li>failed  所有容器已经退出，至少有一个是因为发生错误而退出</li>
-<li>Unkown：由于某中原因apiserver无法获取到Pod的状态。通常是由于Master与pod所在的主机失去连接了。</li>
+<li>Unkown：由于某中原因apiserver无法获取到Pod的状态。通常是由于Master与pod所在的主机失去连接了，也就是kubelet出现问题了。</li>
 </ul>
 
-<p>还有一下其他的状态</p>
+<p>还有一下更加细分的状态，在condition中</p>
 
-<pre><code>CrashLoopBackOff： 容器退出，kubelet正在将它重启
+<pre><code>Unschedulable，这就意味着它的调度出现了问题。
+Ready 这个细分状态非常值得我们关注：它意味着 Pod 不仅已经正常启动（Running 状态），而且已经可以对外提供服务了。
+CrashLoopBackOff： 容器退出，kubelet正在将它重启
 InvalidImageName： 无法解析镜像名称
 ImageInspectError： 无法校验镜像
 ErrImageNeverPull： 策略禁止拉取镜像
@@ -278,7 +313,7 @@ Terminating： 退出中
 <p>pod的重启策略：kubelet将根据RestartPolicy的设置来进行相应的操作</p>
 
 <ul>
-<li>Always: 当容器失效时, 由kubelet自动重启该容器</li>
+<li>Always: 当容器失效时, 由kubelet自动重启该容器,这个是默认值</li>
 <li>OnFailure: 当容器终止运行且退出码不为0时, 由kubelet自动重启该容器</li>
 <li>Never: 不论容器运行状态如何, kubelet都不会重启该容器</li>
 </ul>
@@ -290,7 +325,7 @@ Terminating： 退出中
 <p>支持三种ImagePullPolicy</p>
 
 <ul>
-<li>Always：不管镜像是否存在都会进行一次拉取。</li>
+<li>Always：不管镜像是否存在都会进行一次拉取。默认值</li>
 <li>Never：不管镜像是否存在都不会进行拉取</li>
 <li>IfNotPresent：只有镜像不存在时，才会进行镜像拉取。</li>
 </ul>
@@ -299,6 +334,7 @@ Terminating： 退出中
 
 <ul>
 <li>默认为IfNotPresent，但:latest标签的镜像默认为Always。</li>
+<li>不加标签也是默认为Always。</li>
 <li>拉取镜像时docker会进行校验，如果镜像中的MD5码没有变，则不会拉取镜像数据。</li>
 <li>生产环境中应该尽量避免使用:latest标签，而开发环境中可以借助:latest标签自动拉取最新的镜像。</li>
 </ul>
@@ -326,7 +362,7 @@ spec.containers[].resources.requests.memory：内存请求，可以超过；但�
 <p>容器生命周期钩子（Container Lifecycle Hooks）监听容器生命周期的特定事件，并在事件发生时执行已注册的回调函数。支持两种钩子：</p>
 
 <ul>
-<li>postStart： 容器启动后执行，注意由于是异步执行，它无法保证一定在ENTRYPOINT之后运行。如果失败，容器会被杀死，并根据RestartPolicy决定是否重启</li>
+<li>postStart： 容器启动后执行，注意由于是异步执行，它无法保证一定在ENTRYPOINT之后运行，也就是不一定在容器程序之后完成，可能在之前就完成了。如果失败，容器会被杀死，并根据RestartPolicy决定是否重启</li>
 <li>preStop：容器停止前执行，常用于资源清理。如果失败，容器同样也会被杀死</li>
 </ul>
 
@@ -395,6 +431,57 @@ spec:
 </blockquote>
 
 <p>其实就是我们声明式操作的资源配置清单，具体参数详解可以查看k8s权威指南的第二章第四节。</p>
+
+<p>其实我们很少用pod来创建，一般都是用资源来控制，这边主要说几个重点的字段</p>
+
+<ul>
+<li>NodeSelector：是一个供用户将 Pod 与 Node 进行绑定的字段，意味着这个 Pod 永远只能运行在携带了类似“disktype: ssd”标签（Label）的节点上；否则，它将调度失败。</li>
+<li>NodeName：一旦 Pod 的这个字段被赋值，Kubernetes 项目就会被认为这个 Pod 已经经过了调度，调度的结果就是赋值的节点名字。所以，这个字段一般由调度器负责设置，但用户也可以设置它来“骗过”调度器，当然这个做法一般是在测试或者调试的时候才会用到。</li>
+
+<li><p>HostAliases：定义了 Pod 的 hosts 文件（比如 /etc/hosts）里的内容，在这个 Pod 的 YAML 文件中，我设置了一组 IP 和 hostname 的数据。这样，这个 Pod 启动后，会写入/etc/hosts 文件的内容，在 Kubernetes 项目中，如果要设置 hosts 文件里的内容，一定要通过这种方法。否则，如果直接修改了 hosts 文件的话，在 Pod 被删除重建之后，kubelet 会自动覆盖掉被修改的内容。</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+...
+spec:
+  hostAliases:
+  - ip: &quot;10.1.2.3&quot;
+    hostnames:
+    - &quot;foo.remote&quot;
+    - &quot;bar.remote&quot;
+...
+</code></pre></li>
+
+<li><p>共享namespace，比如我定义了共享宿主机的 Network、IPC 和 PID Namespace。</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+spec:
+  hostNetwork: true
+  hostIPC: true
+  hostPID: true
+  containers:
+  - name: nginx
+    image: nginx
+  - name: shell
+    image: busybox
+    stdin: true
+    tty: true
+</code></pre></li>
+
+<li><p>Containers是对容器的定义，Init Containers 的生命周期，会先于所有的 Containers，并且严格按照定义的顺序执行。Kubernetes 项目中对 Container 的定义，和 Docker 相比并没有什么太大区别。 Image（镜像）、Command（启动命令）、workingDir（容器的工作目录）、Ports（容器要开发的端口），以及 volumeMounts（容器要挂载的 Volume）都是构成 Kubernetes 项目中 Container 的主要字段。不过在这里，还有这么几个属性值得你额外关注。</p>
+
+<ul>
+<li>ImagePullPolicy 字段。它定义了镜像拉取的策略。上面已经介绍</li>
+<li>Lifecycle 字段。它定义的是 Container Lifecycle Hooks。顾名思义，Container Lifecycle Hooks 的作用，是在容器状态发生变化时触发一系列“钩子”。上面已经介绍</li>
+</ul></li>
+
+<li><p>Pod 生命周期的变化，主要体现在 Pod API 对象的 Status 部分，这是它除了 Metadata 和 Spec 之外的第三个重要字段。其中，pod.status.phase，就是 Pod 的当前状态，上面已经介绍。</p></li>
+
+<li><p>volume主要是卷的挂载，比如<a href="#projectd volume">projectvolume</a></p></li>
+</ul>
 
 <blockquote>
 <p>pod的配置管理</p>
@@ -482,7 +569,7 @@ FirstSeen LastSeen    Count   From            SubobjectPath           Type      
 2s        2s      1   {kubelet worker0}   spec.containers{liveness}   Warning     Unhealthy   Liveness probe failed: cat: can't open '/tmp/healthy': No such file or directory
 </code></pre>
 
-<p>再等30秒，确认容器已经重启：从输出结果来RESTARTS值加1了。</p>
+<p>再等30秒，确认容器已经重启：从输出结果来RESTARTS值加1了。如果你注意到 RESTARTS 字段从 0 到 1 的变化，就明白原因了：这个异常的容器已经被 Kubernetes 重启了。在这个过程中，Pod 保持 Running 状态不变。Kubernetes 中并没有 Docker 的 Stop 语义。所以虽然是 Restart（重启），但实际却是重新创建了容器。这个功能就是 Kubernetes 里的 Pod 恢复机制，也叫 restartPolicy。它是 Pod 的 Spec 部分的一个标准字段（pod.spec.restartPolicy），默认值是 Always，即：任何时候这个容器发生了异常，它一定会被重新创建。但一定要强调的是，Pod 的恢复过程，永远都是发生在当前节点上，而不会跑到别的节点上去。事实上，一旦一个 Pod 与一个节点（Node）绑定，除非这个绑定发生了变化（pod.spec.node 字段被修改），否则它永远都不会离开这个节点。这也就意味着，如果这个宿主机宕机了，这个 Pod 也不会主动迁移到其他节点上去。而如果你想让 Pod 出现在其他的可用节点上，就必须使用 Deployment 这样的“控制器”来管理 Pod，哪怕你只需要一个 Pod 副本。</p>
 
 <pre><code>kubectl get pod liveness-exec
 NAME            READY     STATUS    RESTARTS   AGE
@@ -638,273 +725,327 @@ port：访问的容器的端口名字或者端口号。端口号必须介于1和
 
 <p>对于HTTP探测器，kubelet向指定的路径和端口发送HTTP请求以执行检查。 Kubelet将probe发送到容器的IP地址，除非地址被httpGet中的可选host字段覆盖。 在大多数情况下，你不想设置主机字段。 有一种情况下你可以设置它。 假设容器在127.0.0.1上侦听，并且Pod的hostNetwork字段为true。 然后，在httpGet下的host应该设置为127.0.0.1。 如果你的pod依赖于虚拟主机，这可能是更常见的情况，你不应该是用host，而是应该在httpHeaders中设置Host头。</p>
 
-<h2 id="label">label</h2>
-
 <blockquote>
-<p>label</p>
+<p>PodPreset</p>
 </blockquote>
 
-<p>Label keys的语法</p>
-
-<ul>
-<li>一个可选前缀+名称，通过/来区分</li>
-<li>名称部分是必须的，并且最多63个字符，开始和结束的字符必须是字母或者数字，中间是字母数字和_、-、.。</li>
-<li>前缀可选，如指定必须是个DNS子域，一系列的DNS label通过.来划分，长度不超过253个字符，“/”来结尾。如前缀被省略了，这个Label的key被假定为对用户私有的。系统组成部分（比如scheduler,controller-manager,apiserver,kubectl）,必须要指定一个前缀，Kuberentes.io前缀是为K8S内核部分保留的。</li>
-</ul>
-
-<p>label value语法</p>
-
-<ul>
-<li>长度不超过63个字符。</li>
-<li>可以为空</li>
-<li>首位字符必须为字母数字字符</li>
-<li>中间必须是横线、_、.、数字、字母。</li>
-</ul>
-
-<p>主要用于label selector对其他的没有任何意义。</p>
-
-<blockquote>
-<p>Label选择器</p>
-</blockquote>
-
-<p>基于相等性或者不相等性的</p>
-
-<pre><code>environment = production
-tier != frontend
-</code></pre>
-
-<p>第一个选择所有键等于 environment 值为 production 的资源。后一种选择所有键为 tier 值不等于 frontend 的资源，和那些没有键为 tier 的label的资源。</p>
-
-<p>要过滤所有处于 production 但不是 frontend 的资源，可以使用逗号操作符</p>
-
-<pre><code>environment=production,tier!=frontend
-</code></pre>
-
-<p>基于set的条件</p>
-
-<p>基于集合的label条件允许用一组值来过滤键。支持三种操作符: in ， notin ,和 exists(仅针对于key符号) 。例如：</p>
-
-<pre><code>environment in (production, qa)
-tier notin (frontend, backend)
-partition
-!partitio
-</code></pre>
-
-<blockquote>
-<p>主要使用场景</p>
-</blockquote>
-
-<p>1、kube-controller进程通过资源对象RC上定义的Label Selector来筛选要监控的pod副本的数量，实现pod数量的自动控制。</p>
-
-<p>2、kube-proxy进程通过service的Label Selector来选择对应的Pod，建立出对应的Pod的转发路由表。</p>
-
-<p>3、通过Node定义的Label，使用NodeSelector实现定向调度。</p>
-
-<h2 id="service">service</h2>
-
-<p>Kubernete Service 是一个定义了一组Pod的策略的抽象，我们也有时候叫做宏观服务，也可以是我们常说的微服务，之前说的pod，rs等就是服务。这些被服务标记的Pod都是（一般）通过label Selector决定的。可见service主要提供了负载均衡和服务发现的功能。</p>
-
-<p>我们已经能够通过ReplicaSet来创建一组Pod来提供具有高可用性的服务。虽然每个Pod都会分配一个单独的Pod IP，然而却存在如下两问题：</p>
-
-<ul>
-<li>Pod IP仅仅是集群内可见的虚拟IP，外部无法访问。</li>
-<li>Pod IP会随着Pod的销毁而消失，当ReplicaSet对Pod进行动态伸缩时，Pod IP可能随时随地都会变化，这样对于我们访问这个服务带来了难度。</li>
-</ul>
-
-<p>因此，Kubernetes中的Service对象就是解决以上问题的实现服务发现核心关键。</p>
-
-<blockquote>
-<p>yaml模版</p>
-</blockquote>
-
-<p>参考k8s权威指南第二章第五节。</p>
-
-<blockquote>
-<p>创建</p>
-</blockquote>
-
-<p>Service同其他Kubernetes对象一样，也是通过yaml或json文件进行定义。此外，它和其他Controller对象一样，通过Label Selector来确定一个Service将要使用哪些Pod。一个简单的Service定义如下：</p>
+<p>开发人员只需要提交一个基本的、非常简单的 Pod YAML，Kubernetes 就可以自动给对应的 Pod 对象加上其他必要的信息，比如 labels，annotations，volumes 等等。而这些信息，可以是运维人员事先定义好的。这么一来，开发人员编写 Pod YAML 的门槛，就被大大降低了。所以，这个叫作 PodPreset（Pod 预设置）的功能 已经出现在了 v1.11 版本的 Kubernetes 中。</p>
 
 <pre><code>apiVersion: v1
-kind: Service
+kind: Pod
 metadata:
+  name: website
   labels:
-    run: nginx
-  name: nginx-service
+    app: website
+    role: frontend
 spec:
-  ports:
-  - port: 80
-    protocol: TCP
-    targetPort: 81
-  selector:
-    app: nginx
-  type: ClusterIP
+  containers:
+    - name: website
+      image: nginx
+      ports:
+        - containerPort: 80
 </code></pre>
 
-<p>解析</p>
+<p>作为 Kubernetes 的初学者，你肯定眼前一亮：这不就是我最擅长编写的、最简单的 Pod 嘛。没错，这个 YAML 文件里的字段，想必你现在闭着眼睛也能写出来。可是，如果运维人员看到了这个 Pod，他一定会连连摇头：这种 Pod 在生产环境里根本不能用啊！所以，这个时候，运维人员就可以定义一个 PodPreset 对象。在这个对象中，凡是他想在开发人员编写的 Pod 里追加的字段，都可以预先定义好。比如这个 preset.yaml：</p>
 
-<p>1、通过spec.selector字段确定这个Service将要使用哪些Label。在本例中，这个名为nginx的Service，将会管理所有具有app: nginxLabel的Pod。</p>
-
-<p>2、spec.ports.port: 80表明此Service将会监听80端口，并将所有监听到的请求转发给其管理的Pod。spec.ports.targetPort: 81表明此Service监听到的80端口的请求都会被转发给其管理的Pod的81端口，此字段可以省略，省略后其值会被设置为spec.ports.port的值。</p>
-
-<p>3、type: ClusterIP表面此Service的type，有如下几种</p>
-
-<ul>
-<li>ClusterIP。默认值。给这个Service分配一个Cluster IP，它是Kubernetes系统自动分配的虚拟IP，因此只能在集群内部访问。</li>
-<li>NodePort。将Service通过指定的Node上的端口暴露给外部。通过此方法，访问任意一个NodeIP:nodePort都将路由到ClusterIP，从而成功获得该服务。</li>
-<li>LoadBalancer。在 NodePort 的基础上，借助 cloud provider 创建一个外部的负载均衡器，并将请求转发到 <NodeIP>:NodePort。此模式只能在云服务器（AWS等）上使用。</li>
-<li>ExternalName。将服务通过 DNS CNAME 记录方式转发到指定的域名（通过 spec.externlName 设定）。需要 kube-dns 版本在 1.7 以上。</li>
-</ul>
-
-<p>实例</p>
-
-<p>1、假如有3个app: nginx Pod运行在3个不同的Node中，那么此时客户端访问任意一个Node的30001端口都能访问到这个nginx服务。</p>
-
-<pre><code>apiVersion: v1
-kind: Service
+<pre><code>apiVersion: settings.k8s.io/v1alpha1
+kind: PodPreset
 metadata:
-  name: nginx-service
-  labels:
-    run: nginx
+  name: allow-database
 spec:
   selector:
-    app: nginx
-  ports:
-  - port: 80
-    nodePort: 30001
-  type: NodePort
+    matchLabels:
+      role: frontend
+  env:
+    - name: DB_PORT
+      value: &quot;6379&quot;
+  volumeMounts:
+    - mountPath: /cache
+      name: cache-volume
+  volumes:
+    - name: cache-volume
+    emptyDir: {}
 </code></pre>
 
-<p>2、如果云服务商支持外接负载均衡器，则可以通过spec.type=LoadBalancer来定义Service</p>
+<p>在这个 PodPreset 的定义中，首先是一个 selector。这就意味着后面这些追加的定义，只会作用于 selector 所定义的、带有“role: frontend”标签的 Pod 对象，这就可以防止“误伤”。然后，我们定义了一组 Pod 的 Spec 里的标准字段，以及对应的值。比如，env 里定义了 DB_PORT 这个环境变量，volumeMounts 定义了容器 Volume 的挂载目录，volumes 定义了一个 emptyDir 的 Volume。接下来，我们假定运维人员先创建了这个 PodPreset，然后开发人员才创建 Pod：</p>
 
-<pre><code>kind: Service
+<pre><code>$ kubectl create -f preset.yaml
+$ kubectl create -f pod.yaml
+</code></pre>
+
+<p>这时，Pod 运行起来之后，我们查看一下这个 Pod 的 API 对象：</p>
+
+<pre><code>$ kubectl get pod website -o yaml
 apiVersion: v1
+kind: Pod
 metadata:
-  name: my-service
+  name: website
+  labels:
+    app: website
+    role: frontend
+  annotations:
+    podpreset.admission.kubernetes.io/podpreset-allow-database: &quot;resource version&quot;
 spec:
-  selector:
-    app: MyApp
-  ports:
-  - protocol: TCP
-    port: 80
-    targetPort: 9376
-  clusterIP: 10.0.171.239
-  loadBalancerIP: 78.11.24.19
-  type: LoadBalancer
-status:
-  loadBalancer:
-    ingress:
-    - ip: 146.148.47.155
+  containers:
+    - name: website
+      image: nginx
+      volumeMounts:
+        - mountPath: /cache
+          name: cache-volume
+      ports:
+        - containerPort: 80
+      env:
+        - name: DB_PORT
+          value: &quot;6379&quot;
+  volumes:
+    - name: cache-volume
+      emptyDir: {}
 </code></pre>
 
-<p>创建</p>
+<p>这个时候，我们就可以清楚地看到，这个 Pod 里多了新添加的 labels、env、volumes 和 volumeMount 的定义，它们的配置跟 PodPreset 的内容一样。此外，这个 Pod 还被自动加上了一个 annotation 表示这个 Pod 对象被 PodPreset 改动过。需要说明的是，PodPreset 里定义的内容，只会在 Pod API 对象被创建之前追加在这个对象本身上，而不会影响任何 Pod 的控制器的定义。比如，我们现在提交的是一个 nginx-deployment，那么这个 Deployment 对象本身是永远不会被 PodPreset 改变的，被修改的只是这个 Deployment 创建出来的所有 Pod。这一点请务必区分清楚。</p>
 
-<pre><code>kubectl apply -f service.yaml
-</code></pre>
+<p>如果你定义了同时作用于一个 Pod 对象的多个 PodPreset，会发生什么呢？实际上，Kubernetes 项目会帮你合并（Merge）这两个 PodPreset 要做的修改。而如果它们要做的修改有冲突的话，这些冲突字段就不会被修改。</p>
 
-<blockquote>
-<p>查看service</p>
-</blockquote>
+<h2 id="projectd-volume">projectd volume</h2>
 
-<pre><code>kubectl discribe service
-</code></pre>
-
-<p><img src="/media/cloud/k8s/service1" alt="" /></p>
-
-<p>这个 IP 地址就是 service 的 IP 地址（clusterIP），这个 IP 地址在集群里面可以被其它 pod 所访问，相当于通过这个 IP 地址提供了统一的一个 pod 的访问入口，以及服务发现。</p>
-
-<p><img src="/media/cloud/k8s/service2" alt="" /></p>
-
-<p>实际的架构如上图所示。在 service 创建之后，它会在集群里面创建一个虚拟的 IP 地址以及端口，在集群里，所有的 pod 和 node 都可以通过这样一个 IP 地址和端口去访问到这个 service。这个 service 会把它选择的 pod 及其 IP 地址都挂载到后端。这样通过 service 的 IP 地址访问时，就可以负载均衡到后端这些 pod 上面去。</p>
-
-<p>当 pod 的生命周期有变化时，比如说其中一个 pod 销毁，service 就会自动从后端摘除这个 pod。这样实现了：就算 pod 的生命周期有变化，它访问的端点是不会发生变化的。</p>
-
-<blockquote>
-<p>访问service</p>
-</blockquote>
-
-<p><strong>集群内</strong></p>
-
-<p>1、首先我们可以通过 service 的虚拟 IP 去访问，比如说刚创建的 my-service 这个服务，通过 kubectl get svc 或者 kubectl discribe service 都可以看到它的虚拟 IP 地址是 172.29.3.27，端口是 80，然后就可以通过这个虚拟 IP 及端口在 pod 里面直接访问到这个 service 的地址。</p>
-
-<p>2、第二种方式直接访问服务名，依靠 DNS 解析，就是同一个 namespace 里 pod 可以直接通过 service 的名字去访问到刚才所声明的这个 service。不同的 namespace 里面，我们可以通过 service 名字加“.”，然后加 service 所在的哪个 namespace 去访问这个 service，例如我们直接用 curl 去访问，就是 my-service:80 就可以访问到这个 service。</p>
-
-<p>3、第三种是通过环境变量访问，在同一个 namespace 里的 pod 启动时，K8s 会把 service 的一些 IP 地址、端口，以及一些简单的配置，通过环境变量的方式放到 K8s 的 pod 里面。在 K8s pod 的容器启动之后，通过读取系统的环境变量比读取到 namespace 里面其他 service 配置的一个地址，或者是它的端口号等等。比如在集群的某一个 pod 里面，可以直接通过 curl $ 取到一个环境变量的值，比如取到 MY_SERVICE_SERVICE_HOST 就是它的一个 IP 地址，MY_SERVICE 就是刚才我们声明的 MY_SERVICE，SERVICE_PORT 就是它的端口号，这样也可以请求到集群里面的 MY_SERVICE 这个 service。</p>
-
-<p>Headless Service</p>
-
-<p>service 有一个特别的形态就是 Headless Service。service 创建的时候可以指定 clusterIP:None，告诉 K8s 说我不需要 clusterIP（就是刚才所说的集群里面的一个虚拟 IP），然后 K8s 就不会分配给这个 service 一个虚拟 IP 地址，它没有虚拟 IP 地址怎么做到负载均衡以及统一的访问入口呢？</p>
-
-<p>它是这样来操作的：pod 可以直接通过 service_name 用 DNS 的方式解析到所有后端 pod 的 IP 地址，通过 DNS 的 A 记录的方式会解析到所有后端的 Pod 的地址，由客户端选择一个后端的 IP 地址，这个 A 记录会随着 pod 的生命周期变化，返回的 A 记录列表也发生变化，这样就要求客户端应用要从 A 记录把所有 DNS 返回到 A 记录的列表里面 IP 地址中，客户端自己去选择一个合适的地址去访问 pod。</p>
-
-<p><img src="/media/cloud/k8s/service3" alt="" /></p>
-
-<p>可以从上图看一下跟刚才我们声明的模板的区别，就是在中间加了一个 clusterIP:None，即表明不需要虚拟 IP。实际效果就是集群的 pod 访问 my-service 时，会直接解析到所有的 service 对应 pod 的 IP 地址，返回给 pod，然后 pod 里面自己去选择一个 IP 地址去直接访问。</p>
-
-<p><strong>集群外</strong></p>
-
-<p>1、NodePort 的方式就是在集群的 node 上面（即集群的节点的宿主机上面）去暴露节点上的一个端口，这样相当于在节点的一个端口上面访问到之后就会再去做一层转发，转发到虚拟的 IP 地址上面，就是刚刚宿主机上面 service 虚拟 IP 地址。</p>
-
-<p>2、也可以直接把容器的port直接映射到node上，hostNetWork=true</p>
-
-<p>3、LoadBalancer 类型就是在 NodePort 上面又做了一层转换，刚才所说的 NodePort 其实是集群里面每个节点上面一个端口，LoadBalancer 是在所有的节点前又挂一个负载均衡。比如在阿里云上挂一个 SLB，这个负载均衡会提供一个统一的入口，并把所有它接触到的流量负载均衡到每一个集群节点的 node pod 上面去。然后 node pod 再转化成 ClusterIP，去访问到实际的 pod 上面。</p>
-
-<blockquote>
-<p>没有 selector 的 Service</p>
-</blockquote>
-
-<p>服务最常见的是抽象化对 Kubernetes Pod 的访问，但是它们也可以抽象化其他种类的后端。 实例:</p>
+<p>在 Kubernetes 中，有几种特殊的 Volume，它们存在的意义不是为了存放容器里的数据，也不是用来进行容器和宿主机之间的数据交换。这些特殊 Volume 的作用，是为容器提供预先定义好的数据。所以，从容器的角度来看，这些 Volume 里的信息就是仿佛是被 Kubernetes“投射”（Project）进入容器当中的。这正是 Projected Volume 的含义。到目前为止，Kubernetes 支持的 Projected Volume 一共有四种：</p>
 
 <ul>
-<li>希望在生产环境中使用外部的数据库集群，但测试环境使用自己的数据库。</li>
-<li>希望服务指向另一个 命名空间 中或其它集群中的服务。</li>
-<li>您正在将工作负载迁移到 Kubernetes。 在评估该方法时，您仅在 Kubernetes 中运行一部分后端。</li>
+<li>Secret；</li>
+<li>ConfigMap；</li>
+<li>Downward API；</li>
+<li>ServiceAccountToken。</li>
 </ul>
 
-<p>在任何这些场景中，都能够定义没有 selector 的 Service。 实例:</p>
+<h3 id="secret">secret</h3>
+
+<p>Secret解决了密码、token、密钥等敏感数据的配置问题，而不需要把这些敏感数据暴露到镜像或者Pod Spec中。Secret可以以Volume或者环境变量的方式使用。</p>
+
+<p>Secret 最典型的使用场景，莫过于存放数据库的 Credential 信息，比如下面这个例子：</p>
 
 <pre><code>apiVersion: v1
-kind: Service
+kind: Pod
 metadata:
-  name: my-service
+  name: test-projected-volume
 spec:
-  ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 9376
+  containers:
+  - name: test-secret-volume
+    image: busybox
+    args:
+    - sleep
+    - &quot;86400&quot;
+    volumeMounts:
+    - name: mysql-cred
+      mountPath: &quot;/projected-volume&quot;
+      readOnly: true
+  volumes:
+  - name: mysql-cred
+    projected:
+      sources:
+      - secret:
+          name: user
+      - secret:
+          name: pass
 </code></pre>
 
-<p>由于此服务没有选择器，因此 不会 自动创建相应的 Endpoint 对象。 您可以通过手动添加 Endpoint 对象，将服务手动映射到运行该服务的网络地址和端口：</p>
+<p>在这个 Pod 中，我定义了一个简单的容器。它声明挂载的 Volume，并不是常见的 emptyDir 或者 hostPath 类型，而是 projected 类型。而这个 Volume 的数据来源（sources），则是名为 user 和 pass 的 Secret 对象，分别对应的是数据库的用户名和密码。这里用到的数据库的用户名、密码，正是以 Secret 对象的方式交给 Kubernetes 保存的。完成这个操作的指令，如下所示：</p>
+
+<pre><code>$ cat ./username.txt
+admin
+$ cat ./password.txt
+c1oudc0w!
+
+$ kubectl create secret generic user --from-file=./username.txt
+$ kubectl create secret generic pass --from-file=./password.txt
+</code></pre>
+
+<p>其中，username.txt 和 password.txt 文件里，存放的就是用户名和密码；而 user 和 pass，则是我为 Secret 对象指定的名字。而我想要查看这些 Secret 对象的话，只要执行一条 kubectl get 命令就可以了：</p>
+
+<pre><code>$ kubectl get secrets
+NAME           TYPE                                DATA      AGE
+user          Opaque                                1         51s
+pass          Opaque                                1         51s
+</code></pre>
+
+<p>当然，除了使用 kubectl create secret 指令外，我也可以直接通过编写 YAML 文件的方式来创建这个 Secret 对象，比如：</p>
 
 <pre><code>apiVersion: v1
-kind: Endpoints
+kind: Secret
 metadata:
-  name: my-service
-subsets:
-  - addresses:
-      - ip: 192.0.2.42
+  name: mysecret
+type: Opaque
+data:
+  user: YWRtaW4=
+  pass: MWYyZDFlMmU2N2Rm
+</code></pre>
+
+<p>可以看到，通过编写 YAML 文件创建出来的 Secret 对象只有一个。但它的 data 字段，却以 Key-Value 的格式保存了两份 Secret 数据。其中，“user”就是第一份数据的 Key，“pass”是第二份数据的 Key。需要注意的是，Secret 对象要求这些数据必须是经过 Base64 转码的，以免出现明文密码的安全隐患。这个转码操作也很简单，比如：</p>
+
+<pre><code>$ echo -n 'admin' | base64
+YWRtaW4=
+$ echo -n '1f2d1e2e67df' | base64
+MWYyZDFlMmU2N2Rm
+</code></pre>
+
+<p>像这样通过挂载方式进入到容器里的 Secret，一旦其对应的 Etcd 里的数据被更新，这些 Volume 里的文件内容，同样也会被更新。其实，这是 kubelet 组件在定时维护这些 Volume。</p>
+
+<p>在上面我们可以看到Secret有一个type，都是使用的Opaque，其实有三种类型：</p>
+
+<pre><code>Service Account：用来访问Kubernetes API，由Kubernetes自动创建，并且会自动挂载到Pod的/run/secrets/kubernetes.io/serviceaccount目录中；
+Opaque：base64编码格式的Secret，用来存储密码、密钥等；
+kubernetes.io/dockerconfigjson：用来存储私有docker registry的认证信息。
+</code></pre>
+
+<blockquote>
+<p>Opaque Secret</p>
+</blockquote>
+
+<p>Opaque类型的数据是一个map类型，要求value是base64编码格式：</p>
+
+<pre><code>$ echo -n &quot;admin&quot; | base64
+YWRtaW4=
+$ echo -n &quot;1f2d1e2e67df&quot; | base64
+MWYyZDFlMmU2N2Rm
+</code></pre>
+
+<p>secrets.yml</p>
+
+<pre><code>apiVersion: v1
+kind: Secret
+metadata:
+  name: mysecret
+type: Opaque
+data:
+  password: MWYyZDFlMmU2N2Rm
+  username: YWRtaW4=
+</code></pre>
+
+<p>接着，就可以创建secret了：kubectl create -f secrets.yml。</p>
+
+<p>创建好secret之后，有两种方式来使用它：</p>
+
+<p>1、以Volume方式</p>
+
+<p>将Secret挂载到Volume中</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    name: db
+  name: db
+spec:
+  volumes:
+  - name: secrets
+    secret:
+      secretName: mysecret
+  containers:
+  - image: gcr.io/my_project_id/pg:v1
+    name: db
+    volumeMounts:
+    - name: secrets
+      mountPath: &quot;/etc/secrets&quot;
+      readOnly: true
     ports:
-      - port: 9376
+    - name: cp
+      containerPort: 5432
+      hostPort: 5432
 </code></pre>
 
-<p>访问没有 selector 的 Service，与有 selector 的 Service 的原理相同。 请求将被路由到用户定义的 Endpoint， YAML中为: 192.0.2.42:9376 (TCP)。</p>
+<p>2、以环境变量方式</p>
 
-<p>ExternalName Service 是 Service 的特例，它没有 selector，也没有使用 DNS 名称代替。</p>
+<p>将Secret导出到环境变量中</p>
 
-<h2 id="volume-pv-pvc-storageclass">Volume,pv,pvc,StorageClass</h2>
+<pre><code>apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: wordpress-deployment
+spec:
+  replicas: 2
+  strategy:
+      type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: wordpress
+        visualize: &quot;true&quot;
+    spec:
+      containers:
+      - name: &quot;wordpress&quot;
+        image: &quot;wordpress&quot;
+        ports:
+        - containerPort: 80
+        env:
+        - name: WORDPRESS_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysecret
+              key: username
+        - name: WORDPRESS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysecret
+              key: password
+</code></pre>
 
-<p>Kubernetes中存储中有四个重要的概念：Volume、PersistentVolume PV、PersistentVolumeClaim PVC、StorageClass。掌握了这四个概念，就掌握了Kubernetes中存储系统的核心。</p>
+<blockquote>
+<p>kubernetes.io/dockerconfigjson</p>
+</blockquote>
 
-<ul>
-<li>Volumes是最基础的存储抽象，其支持多种类型，包括本地存储、NFS、FC以及众多的云存储，我们也可以编写自己的存储插件来支持特定的存储系统。Volume可以被Pod直接使用，也可以被PV使用。普通的Volume和Pod之间是一种静态的绑定关系，在定义Pod的同时，通过volume属性来定义存储的类型，通过volumeMount来定义容器内的挂载点。</li>
-<li>PersistentVolume。与普通的Volume不同，PV是Kubernetes中的一个资源对象，创建一个PV相当于创建了一个存储资源对象，这个资源的使用要通过PVC来请求。</li>
-<li>PersistentVolumeClaim。PVC是用户对存储资源PV的请求，根据PVC中指定的条件Kubernetes动态的寻找系统中的PV资源并进行绑定。目前PVC与PV匹配可以通过StorageClassName、matchLabels或者matchExpressions三种方式。</li>
-<li>StorageClass就是动态创建pv。</li>
-</ul>
+<p>可以直接用kubectl命令来创建用于docker registry认证的secret：</p>
 
-<p>具体使用可以看<a href="/post/cloud/paas/base/kubernetes/k8s-store/">k8s存储</a>。</p>
+<pre><code>$ kubectl create secret docker-registry myregistrykey --docker-server=DOCKER_REGISTRY_SERVER --docker-username=DOCKER_USER --docker-password=DOCKER_PASSWORD --docker-email=DOCKER_EMAIL
+secret &quot;myregistrykey&quot; created.
+</code></pre>
 
-<h2 id="configmap">configmap</h2>
+<p>也可以直接读取~/.docker/config.json的内容来创建：</p>
+
+<pre><code>$ cat ~/.docker/config.json | base64
+$ cat &gt; myregistrykey.yaml &lt;&lt;EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: myregistrykey
+data:
+  .dockerconfigjson: UmVhbGx5IHJlYWxseSByZWVlZWVlZWVlZWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGx5eXl5eXl5eXl5eXl5eXl5eXl5eSBsbGxsbGxsbGxsbGxsbG9vb29vb29vb29vb29vb29vb29vb29vb29vb25ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubmdnZ2dnZ2dnZ2dnZ2dnZ2dnZ2cgYXV0aCBrZXlzCg==
+type: kubernetes.io/dockerconfigjson
+EOF
+
+$ kubectl create -f myregistrykey.yaml
+</code></pre>
+
+<p>在创建Pod的时候，通过imagePullSecrets来引用刚创建的myregistrykey:</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: foo
+spec:
+  containers:
+    - name: foo
+      image: janedoe/awesomeapp:v1
+  imagePullSecrets:
+    - name: myregistrykey
+</code></pre>
+
+<blockquote>
+<p>Service Account</p>
+</blockquote>
+
+<p>Service Account用来访问Kubernetes API，由Kubernetes自动创建，并且会自动挂载到Pod的/run/secrets/kubernetes.io/serviceaccount目录中。</p>
+
+<pre><code>$ kubectl run nginx --image nginx
+deployment &quot;nginx&quot; created
+$ kubectl get pods
+NAME                     READY     STATUS    RESTARTS   AGE
+nginx-3137573019-md1u2   1/1       Running   0          13s
+$ kubectl exec nginx-3137573019-md1u2 ls /run/secrets/kubernetes.io/serviceaccount
+ca.crt
+namespace
+token
+</code></pre>
+
+<h3 id="configmap">configmap</h3>
 
 <p>k8s提供了两种配置模式，一种就是正常的配置configmap，另外一种就是加密的secret。</p>
 
@@ -1908,165 +2049,437 @@ very
 root@dapi-test-pod:/#
 </code></pre>
 
-<h2 id="secret">secret</h2>
+<h3 id="downward-api">Downward API</h3>
 
-<p>Secret解决了密码、token、密钥等敏感数据的配置问题，而不需要把这些敏感数据暴露到镜像或者Pod Spec中。Secret可以以Volume或者环境变量的方式使用。</p>
-
-<p>Secret有三种类型：</p>
-
-<pre><code>Service Account：用来访问Kubernetes API，由Kubernetes自动创建，并且会自动挂载到Pod的/run/secrets/kubernetes.io/serviceaccount目录中；
-Opaque：base64编码格式的Secret，用来存储密码、密钥等；
-kubernetes.io/dockerconfigjson：用来存储私有docker registry的认证信息。
-</code></pre>
-
-<blockquote>
-<p>Opaque Secret</p>
-</blockquote>
-
-<p>Opaque类型的数据是一个map类型，要求value是base64编码格式：</p>
-
-<pre><code>$ echo -n &quot;admin&quot; | base64
-YWRtaW4=
-$ echo -n &quot;1f2d1e2e67df&quot; | base64
-MWYyZDFlMmU2N2Rm
-</code></pre>
-
-<p>secrets.yml</p>
-
-<pre><code>apiVersion: v1
-kind: Secret
-metadata:
-  name: mysecret
-type: Opaque
-data:
-  password: MWYyZDFlMmU2N2Rm
-  username: YWRtaW4=
-</code></pre>
-
-<p>接着，就可以创建secret了：kubectl create -f secrets.yml。</p>
-
-<p>创建好secret之后，有两种方式来使用它：</p>
-
-<p>1、以Volume方式</p>
-
-<p>将Secret挂载到Volume中</p>
+<p>Downward API作用是：让 Pod 里的容器能够直接获取到这个 Pod API 对象本身的信息。</p>
 
 <pre><code>apiVersion: v1
 kind: Pod
+metadata:
+  name: test-downwardapi-volume
+  labels:
+    zone: us-est-coast
+    cluster: test-cluster1
+    rack: rack-22
+spec:
+  containers:
+    - name: client-container
+      image: k8s.gcr.io/busybox
+      command: [&quot;sh&quot;, &quot;-c&quot;]
+      args:
+      - while true; do
+          if [[ -e /etc/podinfo/labels ]]; then
+            echo -en '\n\n'; cat /etc/podinfo/labels; fi;
+          sleep 5;
+        done;
+      volumeMounts:
+        - name: podinfo
+          mountPath: /etc/podinfo
+          readOnly: false
+  volumes:
+    - name: podinfo
+      projected:
+        sources:
+        - downwardAPI:
+            items:
+              - path: &quot;labels&quot;
+                fieldRef:
+                  fieldPath: metadata.labels
+</code></pre>
+
+<p>在这个 Pod 的 YAML 文件中，我定义了一个简单的容器，声明了一个 projected 类型的 Volume。只不过这次 Volume 的数据来源，变成了 Downward API。而这个 Downward API Volume，则声明了要暴露 Pod 的 metadata.labels 信息给容器。通过这样的声明方式，当前 Pod 的 Labels 字段的值，就会被 Kubernetes 自动挂载成为容器里的 /etc/podinfo/labels 文件。而这个容器的启动命令，则是不断打印出 /etc/podinfo/labels 里的内容。所以，当我创建了这个 Pod 之后，就可以通过 kubectl logs 指令，查看到这些 Labels 字段被打印出来，如下所示：</p>
+
+<pre><code>$ kubectl create -f dapi-volume.yaml
+$ kubectl logs test-downwardapi-volume
+cluster=&quot;test-cluster1&quot;
+rack=&quot;rack-22&quot;
+zone=&quot;us-est-coast&quot;
+</code></pre>
+
+<p>目前，Downward API 支持的字段已经非常丰富了，比如：</p>
+
+<pre><code>1. 使用fieldRef可以声明使用:
+spec.nodeName - 宿主机名字
+status.hostIP - 宿主机IP
+metadata.name - Pod的名字
+metadata.namespace - Pod的Namespace
+status.podIP - Pod的IP
+spec.serviceAccountName - Pod的Service Account的名字
+metadata.uid - Pod的UID
+metadata.labels['&lt;KEY&gt;'] - 指定&lt;KEY&gt;的Label值
+metadata.annotations['&lt;KEY&gt;'] - 指定&lt;KEY&gt;的Annotation值
+metadata.labels - Pod的所有Label
+metadata.annotations - Pod的所有Annotation
+
+2. 使用resourceFieldRef可以声明使用:
+容器的CPU limit
+容器的CPU request
+容器的memory limit
+容器的memory request
+</code></pre>
+
+<p>上面这个列表的内容，随着 Kubernetes 项目的发展肯定还会不断增加。所以这里列出来的信息仅供参考，你在使用 Downward API 时，还是要记得去查阅一下官方文档。</p>
+
+<p>需要注意的是，Downward API 能够获取到的信息，一定是 Pod 里的容器进程启动之前就能够确定下来的信息。而如果你想要获取 Pod 容器运行后才会出现的信息，比如，容器进程的 PID，那就肯定不能使用 Downward API 了，而应该考虑在 Pod 里定义一个 sidecar 容器。</p>
+
+<h3 id="serviceaccounttoken">ServiceAccountToken</h3>
+
+<p>Kubernetes 项目的 Projected Volume 其实只有三种，因为第四种 ServiceAccountToken，只是一种特殊的 Secret 而已。</p>
+
+<p><a href="/post/cloud/paas/safe/safe/#service-account"> Service Account</a> 的授权信息和文件，实际上保存在它所绑定的一个特殊的 Secret 对象里的。这个特殊的 Secret 对象，就叫作 ServiceAccountToken。</p>
+
+<h2 id="label">label</h2>
+
+<blockquote>
+<p>label</p>
+</blockquote>
+
+<p>Label keys的语法</p>
+
+<ul>
+<li>一个可选前缀+名称，通过/来区分</li>
+<li>名称部分是必须的，并且最多63个字符，开始和结束的字符必须是字母或者数字，中间是字母数字和_、-、.。</li>
+<li>前缀可选，如指定必须是个DNS子域，一系列的DNS label通过.来划分，长度不超过253个字符，“/”来结尾。如前缀被省略了，这个Label的key被假定为对用户私有的。系统组成部分（比如scheduler,controller-manager,apiserver,kubectl）,必须要指定一个前缀，Kuberentes.io前缀是为K8S内核部分保留的。</li>
+</ul>
+
+<p>label value语法</p>
+
+<ul>
+<li>长度不超过63个字符。</li>
+<li>可以为空</li>
+<li>首位字符必须为字母数字字符</li>
+<li>中间必须是横线、_、.、数字、字母。</li>
+</ul>
+
+<p>主要用于label selector对其他的没有任何意义。</p>
+
+<blockquote>
+<p>Label选择器</p>
+</blockquote>
+
+<p>基于相等性或者不相等性的</p>
+
+<pre><code>environment = production
+tier != frontend
+</code></pre>
+
+<p>第一个选择所有键等于 environment 值为 production 的资源。后一种选择所有键为 tier 值不等于 frontend 的资源，和那些没有键为 tier 的label的资源。</p>
+
+<p>要过滤所有处于 production 但不是 frontend 的资源，可以使用逗号操作符</p>
+
+<pre><code>environment=production,tier!=frontend
+</code></pre>
+
+<p>基于set的条件</p>
+
+<p>基于集合的label条件允许用一组值来过滤键。支持三种操作符: in ， notin ,和 exists(仅针对于key符号) 。例如：</p>
+
+<pre><code>environment in (production, qa)
+tier notin (frontend, backend)
+partition
+!partitio
+</code></pre>
+
+<blockquote>
+<p>主要使用场景</p>
+</blockquote>
+
+<p>1、kube-controller进程通过资源对象RC上定义的Label Selector来筛选要监控的pod副本的数量，实现pod数量的自动控制。</p>
+
+<p>2、kube-proxy进程通过service的Label Selector来选择对应的Pod，建立出对应的Pod的转发路由表。</p>
+
+<p>3、通过Node定义的Label，使用NodeSelector实现定向调度。</p>
+
+<h2 id="service">service</h2>
+
+<p>Kubernete Service 是一个定义了一组Pod的策略的抽象，我们也有时候叫做宏观服务，也可以是我们常说的微服务，之前说的pod，rs等就是服务。这些被服务标记的Pod都是（一般）通过label Selector决定的。可见service主要提供了负载均衡和服务发现的功能。</p>
+
+<p>我们已经能够通过ReplicaSet来创建一组Pod来提供具有高可用性的服务。虽然每个Pod都会分配一个单独的Pod IP，然而却存在如下两问题：</p>
+
+<ul>
+<li>Pod IP仅仅是集群内可见的虚拟IP，外部无法访问。</li>
+<li>Pod IP会随着Pod的销毁而消失，当ReplicaSet对Pod进行动态伸缩时，Pod IP可能随时随地都会变化，这样对于我们访问这个服务带来了难度。</li>
+</ul>
+
+<p>因此，Kubernetes中的Service对象就是解决以上问题的实现服务发现核心关键。</p>
+
+<blockquote>
+<p>yaml模版</p>
+</blockquote>
+
+<p>参考k8s权威指南第二章第五节。</p>
+
+<blockquote>
+<p>创建</p>
+</blockquote>
+
+<p>Service同其他Kubernetes对象一样，也是通过yaml或json文件进行定义。此外，它和其他Controller对象一样，通过Label Selector来确定一个Service将要使用哪些Pod。一个简单的Service定义如下：</p>
+
+<pre><code>apiVersion: v1
+kind: Service
 metadata:
   labels:
-    name: db
-  name: db
+    run: nginx
+  name: nginx-service
 spec:
-  volumes:
-  - name: secrets
-    secret:
-      secretName: mysecret
-  containers:
-  - image: gcr.io/my_project_id/pg:v1
-    name: db
-    volumeMounts:
-    - name: secrets
-      mountPath: &quot;/etc/secrets&quot;
-      readOnly: true
-    ports:
-    - name: cp
-      containerPort: 5432
-      hostPort: 5432
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 81
+  selector:
+    app: nginx
+  type: ClusterIP
 </code></pre>
 
-<p>2、以环境变量方式</p>
+<p>解析</p>
 
-<p>将Secret导出到环境变量中</p>
+<p>1、通过spec.selector字段确定这个Service将要使用哪些Label。在本例中，这个名为nginx的Service，将会管理所有具有app: nginxLabel的Pod。</p>
 
-<pre><code>apiVersion: extensions/v1beta1
-kind: Deployment
+<p>2、spec.ports.port: 80表明此Service将会监听80端口，并将所有监听到的请求转发给其管理的Pod。spec.ports.targetPort: 81表明此Service监听到的80端口的请求都会被转发给其管理的Pod的81端口，此字段可以省略，省略后其值会被设置为spec.ports.port的值。</p>
+
+<p>3、type: ClusterIP表面此Service的type，有如下几种</p>
+
+<ul>
+<li>ClusterIP。默认值。给这个Service分配一个Cluster IP，它是Kubernetes系统自动分配的虚拟IP，因此只能在集群内部访问。</li>
+<li>NodePort。将Service通过指定的Node上的端口暴露给外部。通过此方法，访问任意一个NodeIP:nodePort都将路由到ClusterIP，从而成功获得该服务。</li>
+<li>LoadBalancer。在 NodePort 的基础上，借助 cloud provider 创建一个外部的负载均衡器，并将请求转发到 <NodeIP>:NodePort。此模式只能在云服务器（AWS等）上使用。</li>
+<li>ExternalName。将服务通过 DNS CNAME 记录方式转发到指定的域名（通过 spec.externlName 设定）。需要 kube-dns 版本在 1.7 以上。</li>
+</ul>
+
+<p>实例</p>
+
+<p>1、假如有3个app: nginx Pod运行在3个不同的Node中，那么此时客户端访问任意一个Node的30001端口都能访问到这个nginx服务。</p>
+
+<pre><code>apiVersion: v1
+kind: Service
 metadata:
-  name: wordpress-deployment
+  name: nginx-service
+  labels:
+    run: nginx
 spec:
-  replicas: 2
-  strategy:
-      type: RollingUpdate
-  template:
-    metadata:
-      labels:
-        app: wordpress
-        visualize: &quot;true&quot;
-    spec:
-      containers:
-      - name: &quot;wordpress&quot;
-        image: &quot;wordpress&quot;
-        ports:
-        - containerPort: 80
-        env:
-        - name: WORDPRESS_DB_USER
-          valueFrom:
-            secretKeyRef:
-              name: mysecret
-              key: username
-        - name: WORDPRESS_DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mysecret
-              key: password
+  selector:
+    app: nginx
+  ports:
+  - port: 80
+    nodePort: 30001
+  type: NodePort
+</code></pre>
+
+<p>2、如果云服务商支持外接负载均衡器，则可以通过spec.type=LoadBalancer来定义Service</p>
+
+<pre><code>kind: Service
+apiVersion: v1
+metadata:
+  name: my-service
+spec:
+  selector:
+    app: MyApp
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 9376
+  clusterIP: 10.0.171.239
+  loadBalancerIP: 78.11.24.19
+  type: LoadBalancer
+status:
+  loadBalancer:
+    ingress:
+    - ip: 146.148.47.155
+</code></pre>
+
+<p>创建</p>
+
+<pre><code>kubectl apply -f service.yaml
 </code></pre>
 
 <blockquote>
-<p>kubernetes.io/dockerconfigjson</p>
+<p>查看service</p>
 </blockquote>
 
-<p>可以直接用kubectl命令来创建用于docker registry认证的secret：</p>
-
-<pre><code>$ kubectl create secret docker-registry myregistrykey --docker-server=DOCKER_REGISTRY_SERVER --docker-username=DOCKER_USER --docker-password=DOCKER_PASSWORD --docker-email=DOCKER_EMAIL
-secret &quot;myregistrykey&quot; created.
+<pre><code>kubectl discribe service
 </code></pre>
 
-<p>也可以直接读取~/.docker/config.json的内容来创建：</p>
+<p><img src="/media/cloud/k8s/service1" alt="" /></p>
 
-<pre><code>$ cat ~/.docker/config.json | base64
-$ cat &gt; myregistrykey.yaml &lt;&lt;EOF
-apiVersion: v1
-kind: Secret
+<p>这个 IP 地址就是 service 的 IP 地址（clusterIP），这个 IP 地址在集群里面可以被其它 pod 所访问，相当于通过这个 IP 地址提供了统一的一个 pod 的访问入口，以及服务发现。</p>
+
+<p><img src="/media/cloud/k8s/service2" alt="" /></p>
+
+<p>实际的架构如上图所示。在 service 创建之后，它会在集群里面创建一个虚拟的 IP 地址以及端口，在集群里，所有的 pod 和 node 都可以通过这样一个 IP 地址和端口去访问到这个 service。这个 service 会把它选择的 pod 及其 IP 地址都挂载到后端。这样通过 service 的 IP 地址访问时，就可以负载均衡到后端这些 pod 上面去。</p>
+
+<p>当 pod 的生命周期有变化时，比如说其中一个 pod 销毁，service 就会自动从后端摘除这个 pod。这样实现了：就算 pod 的生命周期有变化，它访问的端点是不会发生变化的。</p>
+
+<blockquote>
+<p>访问service</p>
+</blockquote>
+
+<p><strong>集群内</strong></p>
+
+<p>1、首先我们可以通过 service 的虚拟 IP 去访问，比如说刚创建的 my-service 这个服务，通过 kubectl get svc 或者 kubectl discribe service 都可以看到它的虚拟 IP 地址是 172.29.3.27，端口是 80，然后就可以通过这个虚拟 IP 及端口在 pod 里面直接访问到这个 service 的地址。</p>
+
+<p>2、第二种方式直接访问服务名，依靠 DNS 解析，就是同一个 namespace 里 pod 可以直接通过 service 的名字去访问到刚才所声明的这个 service。不同的 namespace 里面，我们可以通过 service 名字加“.”，然后加 service 所在的哪个 namespace 去访问这个 service，例如我们直接用 curl 去访问，就是 my-service:80 就可以访问到这个 service。</p>
+
+<p>3、第三种是通过环境变量访问，在同一个 namespace 里的 pod 启动时，K8s 会把 service 的一些 IP 地址、端口，以及一些简单的配置，通过环境变量的方式放到 K8s 的 pod 里面。在 K8s pod 的容器启动之后，通过读取系统的环境变量比读取到 namespace 里面其他 service 配置的一个地址，或者是它的端口号等等。比如在集群的某一个 pod 里面，可以直接通过 curl $ 取到一个环境变量的值，比如取到 MY_SERVICE_SERVICE_HOST 就是它的一个 IP 地址，MY_SERVICE 就是刚才我们声明的 MY_SERVICE，SERVICE_PORT 就是它的端口号，这样也可以请求到集群里面的 MY_SERVICE 这个 service。</p>
+
+<p><strong>集群外</strong></p>
+
+<p>1、NodePort 的方式就是在集群的 node 上面（即集群的节点的宿主机上面）去暴露节点上的一个端口，这样相当于在节点的一个端口上面访问到之后就会再去做一层转发，转发到虚拟的 IP 地址上面，就是刚刚宿主机上面 service 虚拟 IP 地址。</p>
+
+<p>2、也可以直接把容器的port直接映射到node上，hostNetWork=true</p>
+
+<p>3、LoadBalancer 类型就是在 NodePort 上面又做了一层转换，刚才所说的 NodePort 其实是集群里面每个节点上面一个端口，LoadBalancer 是在所有的节点前又挂一个负载均衡。比如在阿里云上挂一个 SLB，这个负载均衡会提供一个统一的入口，并把所有它接触到的流量负载均衡到每一个集群节点的 node pod 上面去。然后 node pod 再转化成 ClusterIP，去访问到实际的 pod 上面。</p>
+
+<blockquote>
+<p>没有 selector 的 Service</p>
+</blockquote>
+
+<p>服务最常见的是抽象化对 Kubernetes Pod 的访问，但是它们也可以抽象化其他种类的后端。 实例:</p>
+
+<ul>
+<li>希望在生产环境中使用外部的数据库集群，但测试环境使用自己的数据库。</li>
+<li>希望服务指向另一个 命名空间 中或其它集群中的服务。</li>
+<li>您正在将工作负载迁移到 Kubernetes。 在评估该方法时，您仅在 Kubernetes 中运行一部分后端。</li>
+</ul>
+
+<p>在任何这些场景中，都能够定义没有 selector 的 Service。 实例:</p>
+
+<pre><code>apiVersion: v1
+kind: Service
 metadata:
-  name: myregistrykey
-data:
-  .dockerconfigjson: UmVhbGx5IHJlYWxseSByZWVlZWVlZWVlZWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGx5eXl5eXl5eXl5eXl5eXl5eXl5eSBsbGxsbGxsbGxsbGxsbG9vb29vb29vb29vb29vb29vb29vb29vb29vb25ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubmdnZ2dnZ2dnZ2dnZ2dnZ2dnZ2cgYXV0aCBrZXlzCg==
-type: kubernetes.io/dockerconfigjson
-EOF
-
-$ kubectl create -f myregistrykey.yaml
+  name: my-service
+spec:
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9376
 </code></pre>
 
-<p>在创建Pod的时候，通过imagePullSecrets来引用刚创建的myregistrykey:</p>
+<p>由于此服务没有选择器，因此 不会 自动创建相应的 Endpoint 对象。 您可以通过手动添加 Endpoint 对象，将服务手动映射到运行该服务的网络地址和端口：</p>
+
+<pre><code>apiVersion: v1
+kind: Endpoints
+metadata:
+  name: my-service
+subsets:
+  - addresses:
+      - ip: 192.0.2.42
+    ports:
+      - port: 9376
+</code></pre>
+
+<p>访问没有 selector 的 Service，与有 selector 的 Service 的原理相同。 请求将被路由到用户定义的 Endpoint， YAML中为: 192.0.2.42:9376 (TCP)。</p>
+
+<p>ExternalName Service 是 Service 的特例，它没有 selector，也没有使用 DNS 名称代替。</p>
+
+<h3 id="headless-service">Headless Service</h3>
+
+<p>service 有一个特别的形态就是 Headless Service。service 创建的时候可以指定 clusterIP:None，告诉 K8s 说我不需要 clusterIP（就是刚才所说的集群里面的一个虚拟 IP），然后 K8s 就不会分配给这个 service 一个虚拟 IP 地址，它没有虚拟 IP 地址怎么做到负载均衡以及统一的访问入口呢？</p>
+
+<p>它是这样来操作的：pod 可以直接通过 service_name 用 DNS 的方式解析到所有后端 pod 的 IP 地址，通过 DNS 的 A 记录的方式会解析到所有后端的 Pod 的地址，由客户端选择一个后端的 IP 地址，这个 A 记录会随着 pod 的生命周期变化，返回的 A 记录列表也发生变化，这样就要求客户端应用要从 A 记录把所有 DNS 返回到 A 记录的列表里面 IP 地址中，客户端自己去选择一个合适的地址去访问 pod。</p>
+
+<p><img src="/media/cloud/k8s/service3" alt="" /></p>
+
+<p>可以从上图看一下跟刚才我们声明的模板的区别，就是在中间加了一个 clusterIP:None，即表明不需要虚拟 IP作为&rdquo;头&rdquo;，这也是headless的意思。实际效果就是集群的 pod 访问 my-service 时，会直接解析到所有的 service 对应 pod 的 IP 地址，返回给 pod，然后 pod 里面自己去选择一个 IP 地址去直接访问。</p>
+
+<p>如何获取pod_ip,依然是采用Label Selector 机制选择出来的，即：所有携带了 app=myapp 标签的 Pod，都会被这个 Service 代理起来。它所代理的所有 Pod 的 IP 地址，都会被绑定一个这样格式的 DNS 记录，如下所示：</p>
+
+<pre><code>&lt;pod-name&gt;.&lt;svc-name&gt;.&lt;namespace&gt;.svc.cluster.local
+</code></pre>
+
+<p>这个 DNS 记录，正是 Kubernetes 项目为 Pod 分配的唯一的“可解析身份”（Resolvable Identity）。有了这个“可解析身份”，只要你知道了一个 Pod 的名字，以及它对应的 Service 的名字，你就可以非常确定地通过这条 DNS 记录访问到 Pod 的 IP 地址。至于这条记录原生的DNS会自动维护，就不需要操心了。</p>
+
+<h2 id="volume-pv-pvc-storageclass">Volume,pv,pvc,StorageClass</h2>
+
+<blockquote>
+<p>为什么需要pvc/pv？</p>
+</blockquote>
+
+<p>其一，如果不懂得 Ceph RBD 的使用方法，那么这个 Pod 里 Volumes 字段，你十有八九也完全看不懂。
+其二，这个 Ceph RBD 对应的存储服务器的地址、用户名、授权文件的位置，也都被轻易地暴露给了全公司的所有开发人员，这是一个典型的信息被“过度暴露”的例子。</p>
+
+<p>这也是为什么，在后来的演化中，Kubernetes 项目引入了一组叫作 Persistent Volume Claim（PVC）和 Persistent Volume（PV）的 API 对象，大大降低了用户声明和使用持久化 Volume 的门槛。</p>
+
+<p>举个例子，有了 PVC 之后，一个开发人员想要使用一个 Volume，只需要简单的两步即可。第一步：定义一个 PVC，声明想要的 Volume 的属性：</p>
+
+<pre><code>kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: pv-claim
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+</code></pre>
+
+<p>可以看到，在这个 PVC 对象里，不需要任何关于 Volume 细节的字段，只有描述性的属性和定义。比如，storage: 1Gi，表示我想要的 Volume 大小至少是 1 GiB；accessModes: ReadWriteOnce，表示这个 Volume 的挂载方式是可读写，并且只能被挂载在一个节点上而非被多个节点共享。</p>
+
+<p>第二步：在应用的 Pod 中，声明使用这个 PVC：</p>
 
 <pre><code>apiVersion: v1
 kind: Pod
 metadata:
-  name: foo
+  name: pv-pod
 spec:
   containers:
-    - name: foo
-      image: janedoe/awesomeapp:v1
-  imagePullSecrets:
-    - name: myregistrykey
+    - name: pv-container
+      image: nginx
+      ports:
+        - containerPort: 80
+          name: &quot;http-server&quot;
+      volumeMounts:
+        - mountPath: &quot;/usr/share/nginx/html&quot;
+          name: pv-storage
+  volumes:
+    - name: pv-storage
+      persistentVolumeClaim:
+        claimName: pv-claim
 </code></pre>
+
+<p>可以看到，在这个 Pod 的 Volumes 定义中，我们只需要声明它的类型是 persistentVolumeClaim，然后指定 PVC 的名字，而完全不必关心 Volume 本身的定义。这时候，只要我们创建这个 PVC 对象，Kubernetes 就会自动为它绑定一个符合条件的 Volume。可是，这些符合条件的 Volume 又是从哪里来的呢？答案是，它们来自于由运维人员维护的 PV（Persistent Volume）对象。接下来，我们一起看一个常见的 PV 对象的 YAML 文件：</p>
+
+<pre><code>kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: pv-volume
+  labels:
+    type: local
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  rbd:
+    monitors:
+    # 使用 kubectl get pods -n rook-ceph 查看 rook-ceph-mon- 开头的 POD IP 即可得下面的列表
+    - '10.16.154.78:6789'
+    - '10.16.154.82:6789'
+    - '10.16.154.83:6789'
+    pool: kube
+    image: foo
+    fsType: ext4
+    readOnly: true
+    user: admin
+    keyring: /etc/ceph/keyring
+</code></pre>
+
+<p>可以看到，这个 PV 对象的 spec.rbd 字段，正是我们前面介绍过的 Ceph RBD Volume 的详细定义。而且，它还声明了这个 PV 的容量是 10 GiB。这样，Kubernetes 就会为我们刚刚创建的 PVC 对象绑定这个 PV。所以，Kubernetes 中 PVC 和 PV 的设计，实际上类似于“接口”和“实现”的思想。开发者只要知道并会使用“接口”，即：PVC；而运维人员则负责给“接口”绑定具体的实现，即：PV。</p>
 
 <blockquote>
-<p>Service Account</p>
+<p>基本概念</p>
 </blockquote>
 
-<p>Service Account用来访问Kubernetes API，由Kubernetes自动创建，并且会自动挂载到Pod的/run/secrets/kubernetes.io/serviceaccount目录中。</p>
+<p>Kubernetes中存储中有四个重要的概念：Volume、PersistentVolume PV、PersistentVolumeClaim PVC、StorageClass。掌握了这四个概念，就掌握了Kubernetes中存储系统的核心。</p>
 
-<pre><code>$ kubectl run nginx --image nginx
-deployment &quot;nginx&quot; created
-$ kubectl get pods
-NAME                     READY     STATUS    RESTARTS   AGE
-nginx-3137573019-md1u2   1/1       Running   0          13s
-$ kubectl exec nginx-3137573019-md1u2 ls /run/secrets/kubernetes.io/serviceaccount
-ca.crt
-namespace
-token
-</code></pre>
+<ul>
+<li>Volumes是最基础的存储抽象，其支持多种类型，包括本地存储、NFS、FC以及众多的云存储，我们也可以编写自己的存储插件来支持特定的存储系统。Volume可以被Pod直接使用，也可以被PV使用。普通的Volume和Pod之间是一种静态的绑定关系，在定义Pod的同时，通过volume属性来定义存储的类型，通过volumeMount来定义容器内的挂载点。</li>
+<li>PersistentVolume。与普通的Volume不同，PV是Kubernetes中的一个资源对象，创建一个PV相当于创建了一个存储资源对象，这个资源的使用要通过PVC来请求。</li>
+<li>PersistentVolumeClaim。PVC是用户对存储资源PV的请求，根据PVC中指定的条件Kubernetes动态的寻找系统中的PV资源并进行绑定。目前PVC与PV匹配可以通过StorageClassName、matchLabels或者matchExpressions三种方式。</li>
+<li>StorageClass就是动态创建pv。</li>
+</ul>
+
+<p>具体使用可以看<a href="/post/cloud/paas/base/kubernetes/k8s-store/">k8s存储</a>。</p>
 
 <h2 id="namespace">namespace</h2>
 
@@ -2244,6 +2657,17 @@ NotBestEffort   与BestEffort相反
 </code></pre>
 
 <p>Ingress可以给service提供集群外部访问的URL、负载均衡、SSL终止、HTTP路由等。为了配置这些Ingress规则，集群管理员需要部署一个Ingress controller，它监听Ingress和service的变化，并根据规则配置负载均衡并提供访问入口。</p>
+
+<p>这边讲一下L4和L7</p>
+
+<ul>
+<li>四层就是基于 IP + 端口的负载均衡；</li>
+<li>七层就是基于 URL 等应用层信息的负载均衡；</li>
+</ul>
+
+<p>同理，还有基于 MAC 地址的二层负载均衡和基于 IP 地址的三层负载均衡。</p>
+
+<p>4 层负载均衡本质是转发，而 7 层负载本质是内容交换和代理，7层是基于4层的。</p>
 
 <p>Ingress格式</p>
 
@@ -2554,13 +2978,20 @@ REDIS_MASTER_PORT_6379_TCP_ADDR=10.0.0.11
 
 <ul>
 <li>客户端提交创建请求，可以通过API Server的Restful API，也可以使用kubectl命令行工具。支持的数据类型包括JSON和YAML。</li>
-<li>API Server处理用户请求，存储Pod数据到etcd。</li>
-<li>控制器根据资源情况确定创建的pod</li>
-<li>调度器通过API Server查看未绑定的Pod。尝试为Pod分配主机。</li>
+<li>API Server处理用户请求，apiserver是提供<a href="/post/cloud/paas/safe/safe/">认证机制</a>的，认证(认证，授权，准入（正常都是使用admin的权限，可以分配不同的sa）)通过后，存储Pod数据到etcd。</li>
+<li>控制器通过apiserver的watch接口，可以发现pod信息的更新，根据资源情况确定创建的pod，并将信息写入到etcd中。</li>
+<li>Scheduler同样通过apiserver的watch接口更新到pod可以被调度，尝试为Pod分配主机。
+
+<ul>
 <li>过滤主机 (调度预选)：调度器用一组规则过滤掉不符合要求的主机。比如Pod指定了所需要的资源量，那么可用资源比Pod需要的资源量少的主机会被过滤掉。</li>
 <li>主机打分(调度优选)：对第一步筛选出的符合要求的主机进行打分，在主机打分阶段，调度器会考虑一些整体优化策略，比如把容一个Replication Controller的副本分布到不同的主机上，使用最低负载的主机等。</li>
 <li>选择主机：选择打分最高的主机，进行binding操作，结果存储到etcd中。</li>
-<li>kubelet根据调度结果执行Pod创建操作： 绑定成功后，scheduler会调用APIServer的API在etcd中创建一个boundpod对象，描述在一个工作节点上绑定运行的所有pod信息。运行在每个工作节点上的kubelet也会定期与etcd同步boundpod信息，一旦发现应该在该工作节点上运行的boundpod对象没有更新，则调用Docker API创建并启动pod内的容器。</li>
+</ul></li>
+<li>kubelet根据调度结果执行Pod创建操作： 绑定成功后，scheduler会调用APIServer的API在etcd中创建一个boundpod对象，描述在一个工作节点上绑定运行的所有pod信息。运行在每个工作节点上的kubelet也会定期与etcd同步boundpod信息，一旦发现应该在该工作节点上运行的boundpod对象没有更新，则调用Docker API创建并启动pod内的容器。
+
+<ul>
+<li>调用CNI接口给pod创建pod网络，调用CRI接口去启动容器，调用CSI进行存储卷的挂载。</li>
+</ul></li>
 </ul>
 
 <blockquote>
@@ -3048,11 +3479,19 @@ volumeattachments                              storage.k8s.io                 fa
 <li><a href="#基本概念">基本概念</a>
 <ul>
 <li><a href="#pod">pod</a></li>
-<li><a href="#label">label</a></li>
-<li><a href="#service">service</a></li>
-<li><a href="#volume-pv-pvc-storageclass">Volume,pv,pvc,StorageClass</a></li>
-<li><a href="#configmap">configmap</a></li>
+<li><a href="#projectd-volume">projectd volume</a>
+<ul>
 <li><a href="#secret">secret</a></li>
+<li><a href="#configmap">configmap</a></li>
+<li><a href="#downward-api">Downward API</a></li>
+<li><a href="#serviceaccounttoken">ServiceAccountToken</a></li>
+</ul></li>
+<li><a href="#label">label</a></li>
+<li><a href="#service">service</a>
+<ul>
+<li><a href="#headless-service">Headless Service</a></li>
+</ul></li>
+<li><a href="#volume-pv-pvc-storageclass">Volume,pv,pvc,StorageClass</a></li>
 <li><a href="#namespace">namespace</a></li>
 <li><a href="#resource-quotas">Resource Quotas</a></li>
 <li><a href="#ingress">Ingress</a></li>

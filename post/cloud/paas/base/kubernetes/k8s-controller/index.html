@@ -78,6 +78,281 @@
 
 <p><img src="/media/cloud/k8s/pod3.png" alt="" /></p>
 
+<h1 id="控制器原理">控制器原理</h1>
+
+<p>编写自定义控制器代码的过程包括：编写 main 函数、编写自定义控制器的定义，以及编写控制器里的业务逻辑三个部分。</p>
+
+<p>举个例子，我现在要为 Kubernetes 添加一个名叫 Network 的 API 资源类型。它的作用是，一旦用户创建一个 Network 对象，那么 Kubernetes 就应该使用这个对象定义的网络参数，调用真实的网络插件，比如 Neutron 项目，为用户创建一个真正的“网络”。这样，将来用户创建的 Pod，就可以声明使用这个“网络”了。</p>
+
+<h2 id="main">main</h2>
+
+<p>main 函数的主要工作就是，定义并初始化一个自定义控制器（Custom Controller），然后启动它。这部分代码的主要内容如下所示：</p>
+
+<pre><code>func main() {
+  ...
+
+  cfg, err := clientcmd.BuildConfigFromFlags(masterURL, kubeconfig)
+  ...
+  kubeClient, err := kubernetes.NewForConfig(cfg)
+  ...
+  networkClient, err := clientset.NewForConfig(cfg)
+  ...
+
+  networkInformerFactory := informers.NewSharedInformerFactory(networkClient, ...)
+
+  controller := NewController(kubeClient, networkClient,
+  networkInformerFactory.Samplecrd().V1().Networks())
+
+  go networkInformerFactory.Start(stopCh)
+
+  if err = controller.Run(2, stopCh); err != nil {
+    glog.Fatalf(&quot;Error running controller: %s&quot;, err.Error())
+  }
+}
+</code></pre>
+
+<ul>
+<li>第一步：main 函数根据我提供的 Master 配置（APIServer 的地址端口和 kubeconfig 的路径），创建一个 Kubernetes 的 client（kubeClient）和 Network 对象的 client（networkClient）。但是，如果我没有提供 Master 配置呢？这时，main 函数会直接使用一种名叫 InClusterConfig 的方式来创建这个 client。这个方式，会假设你的自定义控制器是以 Pod 的方式运行在 Kubernetes 集群里的。</li>
+<li>第二步：main 函数为 Network 对象创建一个叫作 InformerFactory（即：networkInformerFactory）的工厂，并使用它生成一个 Network 对象的 Informer，传递给控制器。</li>
+<li>第三步：main 函数启动上述的 Informer，然后执行 controller.Run，启动自定义控制器。</li>
+</ul>
+
+<p>这边是network的控制器，如果是其他类似的资源控制器，就会创建对应的资源client和informer。</p>
+
+<h2 id="编写自定义控制器的定义">编写自定义控制器的定义</h2>
+
+<p>我们先了解一下整个架构，我们用一幅流程图来表示</p>
+
+<p><img src="/media/cloud/k8s/istio/controller11.png" alt="" /></p>
+
+<p>这个控制器要做的第一件事，是从 Kubernetes 的 APIServer 里获取它所关心的对象，也就是我定义的 Network 对象。这个操作，依靠的是一个叫作 Informer（可以翻译为：通知器）的代码库完成的。Informer 与 API 对象是一一对应的，所以我传递给自定义控制器的，正是一个 Network 对象的 Informer（Network Informer）。不知你是否已经注意到，我在创建这个 Informer 工厂的时候，需要给它传递一个 networkClient。事实上，Network Informer 正是使用这个 networkClient，跟 APIServer 建立了连接。不过，真正负责维护这个连接的，则是 Informer 所使用的 Reflector 包。更具体地说，Reflector 使用的是一种叫作 ListAndWatch 的方法，来“获取”并“监听”这些 Network 对象实例的变化。</p>
+
+<p>在 ListAndWatch 机制下，一旦 APIServer 端有新的 Network 实例被创建、删除或者更新，Reflector 都会收到“事件通知”。这时，该事件及它对应的 API 对象这个组合，就被称为增量（Delta），它会被放进一个 Delta FIFO Queue（即：增量先进先出队列）中。而另一方面，Informe 会不断地从这个 Delta FIFO Queue 里读取（Pop）增量。每拿到一个增量，Informer 就会判断这个增量里的事件类型，然后创建或者更新本地对象的缓存。这个缓存，在 Kubernetes 里一般被叫作 Store。比如，如果事件类型是 Added（添加对象），那么 Informer 就会通过一个叫作 Indexer 的库把这个增量里的 API 对象保存在本地缓存中，并为它创建索引。相反，如果增量的事件类型是 Deleted（删除对象），那么 Informer 就会从本地缓存中删除这个对象。这个同步本地缓存的工作，是 Informer 的第一个职责，也是它最重要的职责。</p>
+
+<p>而 Informer 的第二个职责，则是根据这些事件的类型，触发事先注册好的 ResourceEventHandler。这些 Handler，需要在创建控制器的时候注册给它对应的 Informer。</p>
+
+<p>接下来，我们就来编写这个控制器的定义，它的主要内容如下所示：</p>
+
+<pre><code>func NewController(
+  kubeclientset kubernetes.Interface,
+  networkclientset clientset.Interface,
+  networkInformer informers.NetworkInformer) *Controller {
+  ...
+  controller := &amp;Controller{
+    kubeclientset:    kubeclientset,
+    networkclientset: networkclientset,
+    networksLister:   networkInformer.Lister(),
+    networksSynced:   networkInformer.Informer().HasSynced,
+    workqueue:        workqueue.NewNamedRateLimitingQueue(...,  &quot;Networks&quot;),
+    ...
+  }
+    networkInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+    AddFunc: controller.enqueueNetwork,
+    UpdateFunc: func(old, new interface{}) {
+      oldNetwork := old.(*samplecrdv1.Network)
+      newNetwork := new.(*samplecrdv1.Network)
+      if oldNetwork.ResourceVersion == newNetwork.ResourceVersion {
+        return
+      }
+      controller.enqueueNetwork(new)
+    },
+    DeleteFunc: controller.enqueueNetworkForDelete,
+ return controller
+}
+</code></pre>
+
+<p>我前面在 main 函数里创建了两个 client（kubeclientset 和 networkclientset），然后在这段代码里，使用这两个 client 和前面创建的 Informer，初始化了自定义控制器。值得注意的是，在这个自定义控制器里，我还设置了一个工作队列（work queue），它正是处于示意图中间位置的 WorkQueue。这个工作队列的作用是，负责同步 Informer 和控制循环之间的数据。</p>
+
+<p>然后，我为 networkInformer 注册了三个 Handler（AddFunc、UpdateFunc 和 DeleteFunc），分别对应 API 对象的“添加”“更新”和“删除”事件。而具体的处理操作，都是将该事件对应的 API 对象加入到工作队列中。</p>
+
+<p>需要注意的是，实际入队的并不是 API 对象本身，而是它们的 Key，即：该 API 对象的namespace/name，也是下面我们控制循环获取的值。</p>
+
+<p>所谓 Informer，其实就是一个带有本地缓存和索引机制的、可以注册 EventHandler 的 client。它是自定义控制器跟 APIServer 进行数据同步的重要组件。更具体地说，Informer 通过一种叫作 ListAndWatch 的方法，把 APIServer 中的 API 对象缓存在了本地，并负责更新和维护这个缓存。其中，ListAndWatch 方法的含义是：首先，通过 APIServer 的 LIST API“获取”所有最新版本的 API 对象；然后，再通过 WATCH API 来“监听”所有这些 API 对象的变化。而通过监听到的事件变化，Informer 就可以实时地更新本地缓存，并且调用这些事件对应的 EventHandler 了。此外，在这个过程中，每经过 resyncPeriod 指定的时间，Informer 维护的本地缓存，都会使用最近一次 LIST 返回的结果强制更新一次，从而保证缓存的有效性。在 Kubernetes 中，这个缓存强制更新的操作就叫作：resync。需要注意的是，这个定时 resync 操作，也会触发 Informer 注册的“更新”事件。但此时，这个“更新”事件对应的 Network 对象实际上并没有发生变化，即：新、旧两个 Network 对象的 ResourceVersion 是一样的。在这种情况下，Informer 就不需要对这个更新事件再做进一步的处理了。这也是为什么我在上面的 UpdateFunc 方法里，先判断了一下新、旧两个 Network 对象的版本（ResourceVersion）是否发生了变化，然后才开始进行的入队操作。以上，就是 Kubernetes 中的 Informer 库的工作原理了。</p>
+
+<p>其实这一块基本上都可以使用工具生成了，我们只要知道informer的原理。</p>
+
+<p>我们大多数需要编写的是这个crd的结构体字段，我们来看一下Kubebuilder 已经帮你创建和默认的结构，大体如下：</p>
+
+<pre><code>// Jcy is the Schema for the Jcy API
+// +k8s:openapi-gen=true
+type XXX struct {
+    metav1.TypeMeta   `json:&quot;,inline&quot;`
+    metav1.ObjectMeta `json:&quot;metadata,omitempty&quot;`
+
+    Spec   XXXSpec   `json:&quot;spec,omitempty&quot;`                期待的状态
+    Status XXXStatus `json:&quot;status,omitempty&quot;`              实际的状态
+}
+</code></pre>
+
+<p>我们需要做的就是扩展XXXSpec和XXXStatus来定义我们需要使用的字段。</p>
+
+<h2 id="控制器里的业务逻辑-控制循环">控制器里的业务逻辑：控制循环</h2>
+
+<p>接下来，我们就来到了示意图中最后面的控制循环（Control Loop）部分，也正是我在 main 函数最后调用 controller.Run() 启动的“控制循环”。它的主要内容如下所示：</p>
+
+<pre><code>func (c *Controller) Run(threadiness int, stopCh &lt;-chan struct{}) error {
+ ...
+  if ok := cache.WaitForCacheSync(stopCh, c.networksSynced); !ok {
+    return fmt.Errorf(&quot;failed to wait for caches to sync&quot;)
+  }
+
+  ...
+  for i := 0; i &lt; threadiness; i++ {
+    go wait.Until(c.runWorker, time.Second, stopCh)
+  }
+
+  ...
+  return nil
+}
+</code></pre>
+
+<p>可以看到，启动控制循环的逻辑非常简单：</p>
+
+<ul>
+<li>首先，等待 Informer 完成一次本地缓存的数据同步操作；</li>
+<li>然后，直接通过 goroutine 启动一个（或者并发启动多个）“无限循环”的任务。</li>
+</ul>
+
+<p>而这个“无限循环”任务的每一个循环周期，执行的正是我们真正关心的业务逻辑。</p>
+
+<p>所以接下来，我们就来编写这个自定义控制器的业务逻辑，它的主要内容如下所示：</p>
+
+<pre><code>func (c *Controller) runWorker() {
+  for c.processNextWorkItem() {
+  }
+}
+
+func (c *Controller) processNextWorkItem() bool {
+  obj, shutdown := c.workqueue.Get()
+
+  ...
+
+  err := func(obj interface{}) error {
+    ...
+    if err := c.syncHandler(key); err != nil {
+     return fmt.Errorf(&quot;error syncing '%s': %s&quot;, key, err.Error())
+    }
+
+    c.workqueue.Forget(obj)
+    ...
+    return nil
+  }(obj)
+
+  ...
+
+  return true
+}
+
+func (c *Controller) syncHandler(key string) error {
+
+  namespace, name, err := cache.SplitMetaNamespaceKey(key)
+  ...
+
+  network, err := c.networksLister.Networks(namespace).Get(name)
+  if err != nil {
+    if errors.IsNotFound(err) {
+      glog.Warningf(&quot;Network does not exist in local cache: %s/%s, will delete it from Neutron ...&quot;,
+      namespace, name)
+
+      glog.Warningf(&quot;Network: %s/%s does not exist in local cache, will delete it from Neutron ...&quot;,
+    namespace, name)
+
+     // FIX ME: call Neutron API to delete this network by name.
+     //
+     // neutron.Delete(namespace, name)
+
+     return nil
+  }
+    ...
+
+    return err
+  }
+
+  glog.Infof(&quot;[Neutron] Try to process network: %#v ...&quot;, network)
+
+  // FIX ME: Do diff().
+  //
+  // actualNetwork, exists := neutron.Get(namespace, name)
+  //
+  // if !exists {
+  //   neutron.Create(namespace, name)
+  // } else if !reflect.DeepEqual(actualNetwork, network) {
+  //   neutron.Update(namespace, name)
+  // }
+
+  return nil
+}
+</code></pre>
+
+<p>可以看到，在这个执行周期里（processNextWorkItem），我们首先从工作队列里出队（workqueue.Get）了一个成员，也就是一个 Key（Network 对象的：namespace/name）。然后，在 syncHandler 方法中，我使用这个 Key，尝试从 Informer 维护的缓存中拿到了它所对应的 Network 对象。可以看到，在这里，我使用了 networksLister 来尝试获取这个 Key 对应的 Network 对象。这个操作，其实就是在访问本地缓存的索引。实际上，在 Kubernetes 的源码中，你会经常看到控制器从各种 Lister 里获取对象，比如：podLister、nodeLister 等等，它们使用的都是 Informer 和缓存机制。而如果控制循环从缓存中拿不到这个对象（即：networkLister 返回了 IsNotFound 错误），那就意味着这个 Network 对象的 Key 是通过前面的“删除”事件添加进工作队列的。所以，尽管队列里有这个 Key，但是对应的 Network 对象已经被删除了。这时候，我就需要调用 Neutron 的 API，把这个 Key 对应的 Neutron 网络从真实的集群里删除掉。</p>
+
+<p>而如果能够获取到对应的 Network 对象，我就可以执行控制器模式里的对比“期望状态”和“实际状态”的逻辑了。其中，自定义控制器“千辛万苦”拿到的这个 Network 对象，正是 APIServer 里保存的“期望状态”，即：用户通过 YAML 文件提交到 APIServer 里的信息。当然，在我们的例子里，它已经被 Informer 缓存在了本地。</p>
+
+<p>那么，“实际状态”又从哪里来呢？当然是来自于实际的集群了。所以，我们的控制循环需要通过 Neutron API 来查询实际的网络情况。比如，我可以先通过 Neutron 来查询这个 Network 对象对应的真实网络是否存在。</p>
+
+<ul>
+<li>如果不存在，这就是一个典型的“期望状态”与“实际状态”不一致的情形。这时，我就需要使用这个 Network 对象里的信息（比如：CIDR 和 Gateway），调用 Neutron API 来创建真实的网络。</li>
+<li>如果存在，那么，我就要读取这个真实网络的信息，判断它是否跟 Network 对象里的信息一致，从而决定我是否要通过 Neutron 来更新这个已经存在的真实网络。</li>
+</ul>
+
+<p>我就通过对比“期望状态”和“实际状态”的差异，完成了一次调协（Reconcile）的过程。</p>
+
+<blockquote>
+<p>总结</p>
+</blockquote>
+
+<p>控制型模式最核心的就是控制循环的概念。</p>
+
+<p>我们可以用一段 Go 语言风格的伪代码，为你描述这个控制循环：</p>
+
+<pre><code>for {
+  实际状态 := 获取集群中对象X的实际状态（Actual State）
+  期望状态 := 获取集群中对象X的期望状态（Desired State）
+  if 实际状态 == 期望状态{
+    什么都不做
+  } else {
+    执行编排动作，将实际状态调整为期望状态
+  }
+}
+</code></pre>
+
+<ul>
+<li>实际状态status往往来自于 Kubernetes 集群本身。比如，kubelet 通过心跳汇报的容器状态和节点状态，或者监控系统中保存的应用监控数据，或者控制器主动收集的它自己感兴趣的信息，这些都是常见的实际状态的来源。</li>
+<li>期望状态spec，一般来自于用户提交的 YAML 文件。比如，Deployment 对象中 Replicas 字段的值。很明显，这些信息往往都保存在 Etcd 中。</li>
+</ul>
+
+<p>外界通过修改资源 spec 来控制资源，控制器比较资源 spec 和 status，从而计算一个 diff，diff 最后会用来决定执行对系统进行什么样的控制操作，控制操作会使得系统产生新的输出，并被传感器以资源 status 形式上报，控制器的各个组件将都会是独立自主地运行，不断使系统向 spec 表示终态趋近。</p>
+
+<p><img src="/media/cloud/k8s/controller4.png" alt="" /></p>
+
+<p>控制循环中逻辑的传感器主要由 Reflector、Informer、Indexer 三个组件构成。</p>
+
+<p><img src="/media/cloud/k8s/controller5.png" alt="" />
+<img src="/media/cloud/k8s/controller6.png" alt="" /></p>
+
+<ul>
+<li>Reflector就是监听List和Watch资源，并将更新和变化放到队列中。Reflector 通过 List 和 Watch K8s server 来获取资源的数据。List 用来在 Controller 重启以及 Watch 中断的情况下，进行系统资源的全量更新；而 Watch 则在多次 List 之间进行增量的资源更新；Reflector 在获取新的资源数据后，会在 Delta 队列中塞入一个包括资源对象信息本身以及资源对象事件类型的 Delta 记录，Delta 队列中可以保证同一个对象在队列中仅有一条记录，从而避免 Reflector 重新 List 和 Watch 的时候产生重复的记录。</li>
+<li>Informer启动一个中间分发的作用，1是将信息放到indexer中，2是告知相关Hander进行实际的动作。Informer 组件不断地从 Delta 队列中弹出 delta 记录，然后把资源对象交给 indexer，让 indexer 把资源记录在一个缓存中，缓存在默认设置下是用资源的命名空间来做索引的，并且可以被 Controller Manager 或多个 Controller 所共享。之后，再把这个事件交给事件的回调函数；</li>
+<li>Indexer主要是将数据以k/v的形式进行缓存，并且提供查询缓存的能力。</li>
+<li>控制循环中的控制器组件主要由事件处理函数以及 worker 组成，事件处理函数之间会相互关注资源的新增、更新、删除的事件，并根据控制器的逻辑去决定是否需要处理。对需要处理的事件，会把事件关联资源的命名空间以及名字塞入一个工作队列中，并且由后续的 worker 池中的一个 Worker 来处理，工作队列会对存储的对象进行去重，从而避免多个 Woker 处理同一个资源的情况。</li>
+<li>Worker 在处理资源对象时，一般需要用资源的名字来重新获得最新的资源数据重Indexer，用来创建或者更新资源对象，或者调用其他的外部服务，Worker 如果处理失败的时候，一般情况下会把资源的名字重新加入到工作队列中，从而方便之后进行重试。</li>
+</ul>
+
+<p>其实我们核心的开发就是控制循环的逻辑，负责获取事件（给定的 Kubernetes 服务器只会保留一定的时间内发生的历史变更列表。 使用 etcd3 的集群默认保存过去 5 分钟内发生的变更。），并且对事件进行对比，然后做创建删除的操作，其他的组件官方提供的工具都能自动生成，即：pkg/client/{informers, listers, clientset}里的内容。。</p>
+
+<h2 id="实例">实例</h2>
+
+<p><img src="/media/cloud/k8s/controller7.png" alt="" />
+<img src="/media/cloud/k8s/controller8.png" alt="" /></p>
+
+<ul>
+<li>首先，Reflector 会 watch 到 ReplicaSet 和 Pod 两种资源的变化。发现 ReplicaSet 发生变化后，在 delta 队列中塞入了对象是 rsA，而且类型是更新的记录。</li>
+<li>Informer 一方面把新的 ReplicaSet 更新到缓存中，并与 Namespace nsA 作为索引。另外一方面，调用 Update 的回调函数，ReplicaSet 控制器发现 ReplicaSet 发生变化后会把字符串的 nsA/rsA 字符串塞入到工作队列中，工作队列后的一个 Worker 从工作队列中取到了 nsA/rsA 这个字符串的 key，并且从缓存中取到了最新的 ReplicaSet 数据。</li>
+<li>Worker 通过比较 ReplicaSet 中 spec 和 status 里的数值，发现需要对这个 ReplicaSet 进行扩容，因此 ReplicaSet 的 Worker 创建了一个 Pod，这个 pod 中的 Ownereference 取向了 ReplicaSet rsA。</li>
+<li>然后 Reflector Watch 到的 Pod 新增事件，在 delta 队列中额外加入了 Add 类型的 deta 记录，一方面把新的 Pod 记录通过 Indexer 存储到了缓存中，另一方面调用了 ReplicaSet 控制器的 Add 回调函数，Add 回调函数通过检查 pod ownerReferences 找到了对应的 ReplicaSet，并把包括 ReplicaSet 命名空间和字符串塞入到了工作队列中。</li>
+<li>ReplicaSet 的 Woker 在得到新的工作项之后，从缓存中取到了新的 ReplicaSet 记录，并得到了其所有创建的 Pod，因为 ReplicaSet 的状态不是最新的，也就是所有创建 Pod 的数量不是最新的。因此在此时 ReplicaSet 更新 status 使得 spec 和 status 达成一致。</li>
+</ul>
+
 <h1 id="k8s原生控制器">k8s原生控制器</h1>
 
 <h2 id="rc">RC</h2>
@@ -96,6 +371,23 @@
 <li>扩容和缩容</li>
 <li>暂停和继续Deployment</li>
 </ul>
+
+<blockquote>
+<p>定义</p>
+</blockquote>
+
+<p>Deployment 这种控制器的设计原理，就是用一种对象管理另一种对象的“艺术”。</p>
+
+<ul>
+<li>这个控制器对象本身，负责定义被管理对象的期望状态。比如，Deployment 里的 replicas=2 这个字段。</li>
+<li>被控制对象的定义，则来自于一个“模板”。比如，Deployment 里的 template 字段。Deployment 这个 template 字段里的内容，跟一个标准的 Pod 对象的 API 定义，丝毫不差。而所有被这个 Deployment 管理的 Pod 实例，其实都是根据这个 template 字段的内容创建出来的。像 Deployment 定义的 template 字段，在 Kubernetes 项目中有一个专有的名字，叫作 PodTemplate（Pod 模板）。这个概念非常重要，因为后面我要讲解到的大多数控制器，都会使用 PodTemplate 来统一定义它所要管理的 Pod。更有意思的是，我们还会看到其他类型的对象模板，比如 Volume 的模板。</li>
+</ul>
+
+<p>所以类似 Deployment 这样的一个控制器，实际上都是由上半部分的控制器定义（包括期望状态），加上下半部分的被控制对象的模板组成的。</p>
+
+<p><img src="/media/cloud/k8s/deployment.png" alt="" /></p>
+
+<p>所以在所有 API 对象的 Metadata 里，都有一个字段叫作 ownerReference，用于保存当前这个 API 对象的拥有者（Owner）的信息。对于一个 Deployment 所管理的 Pod，它的 ownerReference 是谁？所以，这个问题的答案就是：ReplicaSet。</p>
 
 <p>deploymemt就是使用ReplicaSet来实现的，现在基本都是使用这个。一般适用于无状态的应用部署。</p>
 
@@ -123,6 +415,8 @@ spec:
 <p>扩容</p>
 </blockquote>
 
+<p>可是为什么需要deployment？rs不久能实现副本的控制了吗？其实Deployment 同样通过“控制器模式”，来操作 ReplicaSet 的个数和属性，进而实现“水平扩展 / 收缩”和“滚动更新”这两个编排动作。ReplicaSet 并不直接支持滚动更新，这才是重点，我们一一详解。</p>
+
 <pre><code>kubectl scale deployment nginx-deployment --replicas 10
 </code></pre>
 
@@ -131,16 +425,15 @@ spec:
 <pre><code>kubectl autoscale deployment nginx-deployment --min=10 --max=15 --cpu-percent=80
 </code></pre>
 
-<blockquote>
-<p>回滚：</p>
-</blockquote>
-
-<pre><code>kubectl rollout undo deployment/nginx-deployment
-</code></pre>
+<p>“水平扩展 / 收缩”非常容易实现，Deployment Controller 只需要修改它所控制的 ReplicaSet 的 Pod 副本个数就可以了。</p>
 
 <blockquote>
-<p>创建</p>
+<p>滚动更新</p>
 </blockquote>
+
+<p>只要修改镜像版本就可以自动触发滚动更新，更新过程可以用一个简单的图来表示</p>
+
+<p><img src="/media/cloud/k8s/roll.png" alt="" /></p>
 
 <pre><code>$ kubectl create -f docs/user-guide/nginx-deployment.yaml --record
 deployment &quot;nginx-deployment&quot; created
@@ -153,8 +446,27 @@ deployment &quot;nginx-deployment&quot; created
 <pre><code>$ kubectl get deployments
 NAME               DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
 nginx-deployment   3         3         3            3           18s
+</code></pre>
 
-$ kubectl get rs
+<ul>
+<li>DESIRED：用户期望的 Pod 副本个数（spec.replicas 的值）；</li>
+<li>CURRENT：当前处于 Running 状态的 Pod 的个数；</li>
+<li>UP-TO-DATE：当前处于最新版本的 Pod 的个数，所谓最新版本指的是 Pod 的 Spec 部分与 Deployment 里 Pod 模板里定义的完全一致；</li>
+<li>AVAILABLE：当前已经可用的 Pod 的个数，即：既是 Running 状态，又是最新版本，并且已经处于 Ready（健康检查正确）状态的 Pod 的个数。</li>
+</ul>
+
+<p>Kubernetes 项目还为我们提供了一条指令，让我们可以实时查看 Deployment 对象的状态变化。这个指令就是 kubectl rollout status：</p>
+
+<pre><code>$ kubectl rollout status deployment/nginx-deployment
+Waiting for rollout to finish: 2 out of 3 new replicas have been updated...
+deployment.apps/nginx-deployment successfully rolled out
+</code></pre>
+
+<p>在这个返回结果中，“2 out of 3 new replicas have been updated”意味着已经有 2 个 Pod 进入了 UP-TO-DATE 状态。继续等待一会儿，我们就能看到这个 Deployment 的 3 个 Pod，就进入到了 AVAILABLE 状态，也就是上面的状态。</p>
+
+<p>再来看rs和pod</p>
+
+<pre><code>$ kubectl get rs
 NAME                          DESIRED   CURRENT   READY   AGE
 nginx-deployment-2035384211   3         3         0       18s
 
@@ -165,11 +477,7 @@ nginx-deployment-2035384211-kzszj   1/1       Running   0          18s       app
 nginx-deployment-2035384211-qqcnn   1/1       Running   0          18s       app=nginx,pod-template-hash=2035384211
 </code></pre>
 
-<p>可见是基于rs的基础上实现的。</p>
-
-<blockquote>
-<p>更新</p>
-</blockquote>
+<p>在用户提交了一个 Deployment 对象后，Deployment Controller 就会立即创建一个 Pod 副本个数为 3 的 ReplicaSet。这个 ReplicaSet 的名字，则是由 Deployment 的名字和一个随机字符串共同组成。这个随机字符串叫作 pod-template-hash，在我们这个例子里就是：2035384211。ReplicaSet 会把这个随机字符串加在它所控制的所有 Pod 的标签里，从而保证这些 Pod 不会与集群里的其他 Pod 混淆。而 ReplicaSet 的 DESIRED、CURRENT 和 READY 字段的含义，和 Deployment 中是一致的。所以，相比之下，Deployment 只是在 ReplicaSet 的基础上，添加了 UP-TO-DATE 这个跟版本有关的状态字段。这个时候，如果我们修改了 Deployment 的 Pod 模板，“滚动更新”就会被自动触发。</p>
 
 <p>更新镜像也比较简单:</p>
 
@@ -189,11 +497,78 @@ Waiting for rollout to finish: 2 out of 3 new replicas have been updated...
 deployment &quot;nginx-deployment&quot; successfully rolled out
 </code></pre>
 
+<p>这时，你可以通过查看 Deployment 的 Events，看到这个“滚动更新”的流程：</p>
+
+<pre><code>$ kubectl describe deployment nginx-deployment
+...
+Events:
+  Type    Reason             Age   From                   Message
+  ----    ------             ----  ----                   -------
+...
+  Normal  ScalingReplicaSet  24s   deployment-controller  Scaled up replica set nginx-deployment-1764197365 to 1
+  Normal  ScalingReplicaSet  22s   deployment-controller  Scaled down replica set nginx-deployment-3167673210 to 2
+  Normal  ScalingReplicaSet  22s   deployment-controller  Scaled up replica set nginx-deployment-1764197365 to 2
+  Normal  ScalingReplicaSet  19s   deployment-controller  Scaled down replica set nginx-deployment-3167673210 to 1
+  Normal  ScalingReplicaSet  19s   deployment-controller  Scaled up replica set nginx-deployment-1764197365 to 3
+  Normal  ScalingReplicaSet  14s   deployment-controller  Scaled down replica set nginx-deployment-3167673210 to 0
+</code></pre>
+
+<p>可以看到，首先，当你修改了 Deployment 里的 Pod 定义之后，Deployment Controller 会使用这个修改后的 Pod 模板，创建一个新的 ReplicaSet（hash=1764197365），这个新的 ReplicaSet 的初始 Pod 副本数是：0。然后，在 Age=24 s 的位置，Deployment Controller 开始将这个新的 ReplicaSet 所控制的 Pod 副本数从 0 个变成 1 个，即：“水平扩展”出一个副本。紧接着，在 Age=22 s 的位置，Deployment Controller 又将旧的 ReplicaSet（hash=3167673210）所控制的旧 Pod 副本数减少一个，即：“水平收缩”成两个副本。如此交替进行，新 ReplicaSet 管理的 Pod 副本数，从 0 个变成 1 个，再变成 2 个，最后变成 3 个。而旧的 ReplicaSet 管理的 Pod 副本数则从 3 个变成 2 个，再变成 1 个，最后变成 0 个。这样，就完成了这一组 Pod 的版本升级过程。像这样，将一个集群中正在运行的多个 Pod 版本，交替地逐一升级的过程，就是“滚动更新”。</p>
+
+<p>在这个“滚动更新”过程完成之后，你可以查看一下新、旧两个 ReplicaSet 的最终状态：</p>
+
+<pre><code>$ kubectl get rs
+NAME                          DESIRED   CURRENT   READY   AGE
+nginx-deployment-1764197365   3         3         3       6s
+nginx-deployment-3167673210   0         0         0       30s
+</code></pre>
+
+<p>这种“滚动更新”的好处是显而易见的。比如，在升级刚开始的时候，集群里只有 1 个新版本的 Pod。如果这时，新版本 Pod 有问题启动不起来，那么“滚动更新”就会停止，从而允许开发和运维人员介入。而在这个过程中，由于应用本身还有两个旧版本的 Pod 在线，所以服务并不会受到太大的影响。当然，这也就要求你一定要使用 Pod 的 Health Check 机制检查应用的运行状态，而不是简单地依赖于容器的 Running 状态。要不然的话，虽然容器已经变成 Running 了，但服务很有可能尚未启动，“滚动更新”的效果也就达不到了。而为了进一步保证服务的连续性，Deployment Controller 还会确保，在任何时间窗口内，只有指定比例的 Pod 处于离线状态。同时，它也会确保，在任何时间窗口内，只有指定比例的新 Pod 被创建出来。这两个比例的值都是可以配置的，默认都是 DESIRED 值的 25%。</p>
+
+<p>在上面这个 Deployment 的例子中，它有 3 个 Pod 副本，那么控制器在“滚动更新”的过程中永远都会确保至少有 2 个 Pod 处于可用状态，至多只有 4 个 Pod 同时存在于集群中。这个策略，是 Deployment 对象的一个字段，名叫 RollingUpdateStrategy，如下所示：</p>
+
+<pre><code>apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+...
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+</code></pre>
+
+<p>在上面这个 RollingUpdateStrategy 的配置中，maxSurge 指定的是除了 DESIRED 数量之外，在一次“滚动”中，Deployment 控制器还可以创建多少个新 Pod；而 maxUnavailable 指的是，在一次“滚动”中，Deployment 控制器可以删除多少个旧 Pod。同时，这两个配置还可以用前面我们介绍的百分比形式来表示，比如：maxUnavailable=50%，指的是我们最多可以一次删除“50%*DESIRED 数量”个 Pod。</p>
+
+<p>我们对 Deployment 进行的每一次更新操作，都会生成一个新的 ReplicaSet 对象，用于回滚，是不是有些多余，甚至浪费资源呢？没错。所以，Kubernetes 项目还提供了一个指令，使得我们对 Deployment 的多次更新操作，最后 只生成一个 ReplicaSet。具体的做法是，在更新 Deployment 前，你要先执行一条 kubectl rollout pause 指令。它的用法如下所示：</p>
+
+<pre><code>$ kubectl rollout pause deployment/nginx-deployment
+deployment.extensions/nginx-deployment paused
+</code></pre>
+
+<p>这个 kubectl rollout pause 的作用，是让这个 Deployment 进入了一个“暂停”状态。所以接下来，你就可以随意使用 kubectl edit 或者 kubectl set image 指令，修改这个 Deployment 的内容了。由于此时 Deployment 正处于“暂停”状态，所以我们对 Deployment 的所有修改，都不会触发新的“滚动更新”，也不会创建新的 ReplicaSet。而等到我们对 Deployment 修改操作都完成之后，只需要再执行一条 kubectl rollout resume 指令，就可以把这个 Deployment“恢复”回来，如下所示：</p>
+
+<pre><code>$ kubectl rollout resume deployment/nginx-deployment
+deployment.extensions/nginx-deployment resumed
+</code></pre>
+
 <blockquote>
-<p>检查Deployment升级的历史记录</p>
+<p>回滚：</p>
 </blockquote>
 
-<p>首先，检查下Deployment的revision：</p>
+<p>我们只需要执行一条 kubectl rollout undo 命令，就能把整个 Deployment 回滚到上一个版本</p>
+
+<pre><code>$ kubectl rollout undo deployment/nginx-deployment
+deployment.extensions/nginx-deployment
+</code></pre>
+
+<p>很容易想到，在具体操作上，Deployment 的控制器，其实就是让这个旧 ReplicaSet（hash=1764197365）再次“扩展”成 3 个 Pod，而让新的 ReplicaSet（hash=2156724341）重新“收缩”到 0 个 Pod。</p>
+
+<p>检查Deployment升级的历史记录可以回滚到更早的版本，首先，检查下Deployment的revision：</p>
 
 <pre><code>$ kubectl rollout history deployment/nginx-deployment
 deployments &quot;nginx-deployment&quot;:
@@ -202,6 +577,19 @@ REVISION    CHANGE-CAUSE
 2           kubectl set image deployment/nginx-deployment nginx=nginx:1.9.1
 3           kubectl set image deployment/nginx-deployment nginx=nginx:1.91
 </code></pre>
+
+<p>可以看到，我们前面执行的创建和更新操作，分别对应了版本 1 和版本 2，而那次失败的更新操作，则对应的是版本 3。当然，你还可以通过这个 kubectl rollout history 指令，看到每个版本对应的 Deployment 的 API 对象的细节，具体命令如下所示：</p>
+
+<pre><code>$ kubectl rollout history deployment/nginx-deployment --revision=2
+</code></pre>
+
+<p>然后，我们就可以在 kubectl rollout undo 命令行最后，加上要回滚到的指定版本的版本号，就可以回滚到指定版本了。这个指令的用法如下：</p>
+
+<pre><code>$ kubectl rollout undo deployment/nginx-deployment --to-revision=2
+deployment.extensions/nginx-deployment
+</code></pre>
+
+<p>即使你像上面这样小心翼翼地控制了 ReplicaSet 的生成数量，随着应用版本的不断增加，Kubernetes 中还是会为同一个 Deployment 保存很多很多不同的 ReplicaSet。那么，我们又该如何控制这些“历史”ReplicaSet 的数量呢？很简单，Deployment 对象有一个字段，叫作 spec.revisionHistoryLimit，就是 Kubernetes 为 Deployment 保留的“历史版本”个数。所以，如果把它设置为 0，你就再也不能做回滚操作了。</p>
 
 <blockquote>
 <p>调度</p>
@@ -319,6 +707,240 @@ node/kube-node02 already cordoned
 
 <h2 id="statefulset">StatefulSet</h2>
 
+<p>StatefulSet 的设计其实非常容易理解。它把真实世界里的应用状态，抽象为了两种情况：</p>
+
+<ul>
+<li>拓扑状态。这种情况意味着，应用的多个实例之间不是完全对等的关系。这些应用实例，必须按照某些顺序启动，比如应用的主节点 A 要先于从节点 B 启动。而如果你把 A 和 B 两个 Pod 删除掉，它们再次被创建出来时也必须严格按照这个顺序才行。并且，新创建出来的 Pod，必须和原来 Pod 的网络标识一样，这样原先的访问者才能使用同样的方法，访问到这个新 Pod。</li>
+<li>存储状态。这种情况意味着，应用的多个实例分别绑定了不同的存储数据。对于这些应用实例来说，Pod A 第一次读取到的数据，和隔了十分钟之后再次读取到的数据，应该是同一份，哪怕在此期间 Pod A 被重新创建过。这种情况最典型的例子，就是一个数据库应用的多个存储实例。</li>
+</ul>
+
+<p>所以，StatefulSet 的核心功能，就是通过某种方式记录这些状态，然后在 Pod 被重新创建时，能够为新 Pod 恢复这些状态。</p>
+
+<h3 id="拓扑状态">拓扑状态</h3>
+
+<p>现在我们就来编写一个 StatefulSet 的 YAML 文件，如下所示：</p>
+
+<pre><code>apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: web
+spec:
+  serviceName: &quot;nginx&quot;
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.9.1
+        ports:
+        - containerPort: 80
+          name: web
+</code></pre>
+
+<p>这个 YAML 文件，和我们在前面文章中用到的 nginx-deployment 的唯一区别，就是多了一个 serviceName=nginx 字段。这个字段的作用，就是告诉 StatefulSet 控制器，在执行控制循环（Control Loop）的时候，请使用 nginx 这个 <a href="/post/cloud/paas/base/kubernetes/k8s-principle/#headless-service">Headless Service</a> 来保证 Pod 的“可解析身份”。所以，当你通过 kubectl create 创建了上面这个 Service 和 StatefulSet 之后，就会看到如下两个对象：</p>
+
+<pre><code>$ kubectl create -f svc.yaml
+$ kubectl get service nginx
+NAME      TYPE         CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+nginx     ClusterIP    None         &lt;none&gt;        80/TCP    10s
+
+$ kubectl create -f statefulset.yaml
+$ kubectl get statefulset web
+NAME      DESIRED   CURRENT   AGE
+web       2         1         19s
+</code></pre>
+
+<p>这时候，如果你手比较快的话，还可以通过 kubectl 的 -w 参数，即：Watch 功能，实时查看 StatefulSet 创建两个有状态实例的过程：如果手不够快的话，Pod 很快就创建完了。不过，你依然可以通过这个 StatefulSet 的 Events 看到这些信息。</p>
+
+<pre><code>$ kubectl get pods -w -l app=nginx
+NAME      READY     STATUS    RESTARTS   AGE
+web-0     0/1       Pending   0          0s
+web-0     0/1       Pending   0         0s
+web-0     0/1       ContainerCreating   0         0s
+web-0     1/1       Running   0         19s
+web-1     0/1       Pending   0         0s
+web-1     0/1       Pending   0         0s
+web-1     0/1       ContainerCreating   0         0s
+web-1     1/1       Running   0         20s
+</code></pre>
+
+<p>通过上面这个 Pod 的创建过程，我们不难看到，StatefulSet 给它所管理的所有 Pod 的名字，进行了编号，编号规则是：-。而且这些编号都是从 0 开始累加，与 StatefulSet 的每个 Pod 实例一一对应，绝不重复。更重要的是，这些 Pod 的创建，也是严格按照编号顺序进行的。比如，在 web-0 进入到 Running 状态、并且细分状态（Conditions）成为 Ready 之前，web-1 会一直处于 Pending 状态。</p>
+
+<p>当这两个 Pod 都进入了 Running 状态之后，你就可以查看到它们各自唯一的“网络身份”了。我们使用 kubectl exec 命令进入到容器中查看它们的 hostname：</p>
+
+<pre><code>$ kubectl exec web-0 -- sh -c 'hostname'
+web-0
+$ kubectl exec web-1 -- sh -c 'hostname'
+web-1
+</code></pre>
+
+<p>可以看到，这两个 Pod 的 hostname 与 Pod 名字是一致的，都被分配了对应的编号。接下来，我们再试着以 DNS 的方式，访问一下这个 Headless Service,然后，通过新建一个简单一次性pod来看，在这个 Pod 的容器里面，我们尝试用 nslookup 命令，解析一下 Pod 对应的 Headless Service：</p>
+
+<pre><code>$ kubectl run -i --tty --image busybox:1.28.4 dns-test --restart=Never --rm /bin/sh
+$ nslookup web-0.nginx
+Server:    10.0.0.10
+Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      web-0.nginx
+Address 1: 10.244.1.7
+
+$ nslookup web-1.nginx
+Server:    10.0.0.10
+Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      web-1.nginx
+Address 1: 10.244.2.7
+</code></pre>
+
+<p>从 nslookup 命令的输出结果中，我们可以看到，在访问 web-0.nginx 的时候，最后解析到的，正是 web-0 这个 Pod 的 IP 地址；而当访问 web-1.nginx 的时候，解析到的则是 web-1 的 IP 地址。这时候，如果你在另外一个 Terminal 里把这两个“有状态应用”的 Pod 删掉：</p>
+
+<pre><code>$ kubectl delete pod -l app=nginx
+pod &quot;web-0&quot; deleted
+pod &quot;web-1&quot; deleted
+</code></pre>
+
+<p>再在当前 Terminal 里 Watch 一下这两个 Pod 的状态变化，就会发现一个有趣的现象：</p>
+
+<pre><code>$ kubectl get pod -w -l app=nginx
+NAME      READY     STATUS              RESTARTS   AGE
+web-0     0/1       ContainerCreating   0          0s
+NAME      READY     STATUS    RESTARTS   AGE
+web-0     1/1       Running   0          2s
+web-1     0/1       Pending   0         0s
+web-1     0/1       ContainerCreating   0         0s
+web-1     1/1       Running   0         32s
+</code></pre>
+
+<p>可以看到，当我们把这两个 Pod 删除之后，Kubernetes 会按照原先编号的顺序，创建出了两个新的 Pod。并且，Kubernetes 依然为它们分配了与原来相同的“网络身份”：web-0.nginx 和 web-1.nginx。通过这种严格的对应规则，StatefulSet 就保证了 Pod 网络标识的稳定性。</p>
+
+<p>如果 web-0 是一个需要先启动的主节点，web-1 是一个后启动的从节点，那么只要这个 StatefulSet 不被删除，你访问 web-0.nginx 时始终都会落在主节点上，访问 web-1.nginx 时，则始终都会落在从节点上，这个关系绝对不会发生任何变化。所以，如果我们再用 nslookup 命令，查看一下这个新 Pod 对应的 Headless Service 的话：</p>
+
+<pre><code>$ kubectl run -i --tty --image busybox dns-test --restart=Never --rm /bin/sh
+$ nslookup web-0.nginx
+Server:    10.0.0.10
+Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      web-0.nginx
+Address 1: 10.244.1.8
+
+$ nslookup web-1.nginx
+Server:    10.0.0.10
+Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      web-1.nginx
+Address 1: 10.244.2.8
+</code></pre>
+
+<p>我们可以看到，在这个 StatefulSet 中，这两个新 Pod 的“网络标识”（比如：web-0.nginx 和 web-1.nginx），再次解析到了正确的 IP 地址（比如：web-0 Pod 的 IP 地址 10.244.1.8）。通过这种方法，Kubernetes 就成功地将 Pod 的拓扑状态（比如：哪个节点先启动，哪个节点后启动），按照 Pod 的“名字 + 编号”的方式固定了下来。此外，Kubernetes 还为每一个 Pod 提供了一个固定并且唯一的访问入口，即：这个 Pod 对应的 DNS 记录。这些状态，在 StatefulSet 的整个生命周期里都会保持不变，绝不会因为对应 Pod 的删除或者重新创建而失效。不过，相信你也已经注意到了，尽管 web-0.nginx 这条记录本身不会变，但它解析到的 Pod 的 IP 地址，并不是固定的。这就意味着，对于“有状态应用”实例的访问，你必须使用 DNS 记录或者 hostname 的方式，而绝不应该直接访问这些 Pod 的 IP 地址。</p>
+
+<p>StatefulSet 这个控制器的主要作用之一，就是使用 Pod 模板创建 Pod 的时候，对它们进行编号，并且按照编号顺序逐一完成创建工作。而当 StatefulSet 的“控制循环”发现 Pod 的“实际状态”与“期望状态”不一致，需要新建或者删除 Pod 进行“调谐”的时候，它会严格按照这些 Pod 编号的顺序，逐一完成这些操作。</p>
+
+<p>所以，StatefulSet 其实可以认为是对 Deployment 的改良。与此同时，通过 Headless Service 的方式，StatefulSet 为每个 Pod 创建了一个固定并且稳定的 DNS 记录，来作为它的访问入口。实际上，在部署“有状态应用”的时候，应用的每个实例拥有唯一并且稳定的“网络标识”，是一个非常重要的假设。</p>
+
+<h3 id="存储状态">存储状态</h3>
+
+<p>PVC、PV 的设计，也使得 StatefulSet 对存储状态的管理成为了可能。</p>
+
+<p>我们还是以上一篇文章中用到的 StatefulSet 为例</p>
+
+<pre><code>apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: web
+spec:
+  serviceName: &quot;nginx&quot;
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.9.1
+        ports:
+        - containerPort: 80
+          name: web
+        volumeMounts:
+        - name: www
+          mountPath: /usr/share/nginx/html
+  volumeClaimTemplates:
+  - metadata:
+      name: www
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+</code></pre>
+
+<p>这次，我们为这个 StatefulSet 额外添加了一个 volumeClaimTemplates 字段。从名字就可以看出来，它跟 Deployment 里 Pod 模板（PodTemplate）的作用类似。也就是说，凡是被这个 StatefulSet 管理的 Pod，都会声明一个对应的 PVC；而这个 PVC 的定义，就来自于 volumeClaimTemplates 这个模板字段。<strong>更重要的是，这个 PVC 的名字，会被分配一个与这个 Pod 完全一致的编号</strong>。</p>
+
+<p>这个自动创建的 PVC，与 PV 绑定成功后，就会进入 Bound 状态，这就意味着这个 Pod 可以挂载并使用这个 PV 了。当然，PVC 与 PV 的绑定得以实现的前提是，运维人员已经在系统里创建好了符合条件的 PV（比如，我们在前面用到的 pv-volume）；或者，你的 Kubernetes 集群运行在公有云上，这样 Kubernetes 就会通过 Dynamic Provisioning 的方式，自动为你创建与 PVC 匹配的 PV。</p>
+
+<p>我们在使用 kubectl create 创建了 StatefulSet 之后，就会看到 Kubernetes 集群里出现了两个 PVC：</p>
+
+<pre><code>$ kubectl create -f statefulset.yaml
+$ kubectl get pvc -l app=nginx
+NAME        STATUS    VOLUME                                     CAPACITY   ACCESSMODES   AGE
+www-web-0   Bound     pvc-15c268c7-b507-11e6-932f-42010a800002   1Gi        RWO           48s
+www-web-1   Bound     pvc-15c79307-b507-11e6-932f-42010a800002   1Gi        RWO           48s
+</code></pre>
+
+<p>可以看到，这些 PVC，都以“<PVC 名字 >-<StatefulSet 名字 >-&lt; 编号 &gt;”的方式命名，并且处于 Bound 状态。我们前面已经讲到过，这个 StatefulSet 创建出来的所有 Pod，都会声明使用编号的 PVC。比如，在名叫 web-0 的 Pod 的 volumes 字段，它会声明使用名叫 www-web-0 的 PVC，从而挂载到这个 PVC 所绑定的 PV。</p>
+
+<p>我们就可以使用如下所示的指令，在 Pod 的 Volume 目录里写入一个文件，来验证一下上述 Volume 的分配情况：</p>
+
+<pre><code>$ for i in 0 1; do kubectl exec web-$i -- sh -c 'echo hello $(hostname) &gt; /usr/share/nginx/html/index.html'; done
+</code></pre>
+
+<p>如上所示，通过 kubectl exec 指令，我们在每个 Pod 的 Volume 目录里，写入了一个 index.html 文件。这个文件的内容，正是 Pod 的 hostname。比如，我们在 web-0 的 index.html 里写入的内容就是&rdquo;hello web-0&rdquo;。此时，如果你在这个 Pod 容器里访问“<a href="http://localhost”，你实际访问到的就是">http://localhost”，你实际访问到的就是</a> Pod 里 Nginx 服务器进程，而它会为你返回 /usr/share/nginx/html/index.html 里的内容。这个操作的执行方法如下所示：</p>
+
+<pre><code>$ for i in 0 1; do kubectl exec -it web-$i -- curl localhost; done
+hello web-0
+hello web-1
+</code></pre>
+
+<p>如果你使用 kubectl delete 命令删除这两个 Pod，这些 Volume 里的文件会不会丢失呢？</p>
+
+<pre><code>$ kubectl delete pod -l app=nginx
+pod &quot;web-0&quot; deleted
+pod &quot;web-1&quot; deleted
+</code></pre>
+
+<p>可以看到，正如我们前面介绍过的，在被删除之后，这两个 Pod 会被按照编号的顺序被重新创建出来。而这时候，如果你在新创建的容器里通过访问“<a href="http://localhost”的方式去访问">http://localhost”的方式去访问</a> web-0 里的 Nginx 服务：</p>
+
+<pre><code># 在被重新创建出来的Pod容器里访问http://localhost
+$ kubectl exec -it web-0 -- curl localhost
+hello web-0
+</code></pre>
+
+<p>就会发现，这个请求依然会返回：hello web-0。也就是说，原先与名叫 web-0 的 Pod 绑定的 PV，在这个 Pod 被重新创建之后，依然同新的名叫 web-0 的 Pod 绑定在了一起。对于 Pod web-1 来说，也是完全一样的情况。这是怎么做到的呢？</p>
+
+<p>首先，当你把一个 Pod，比如 web-0，删除之后，这个 Pod 对应的 PVC 和 PV，并不会被删除，而这个 Volume 里已经写入的数据，也依然会保存在远程存储服务里（比如，我们在这个例子里用到的 Ceph 服务器）。此时，StatefulSet 控制器发现，一个名叫 web-0 的 Pod 消失了。所以，控制器就会重新创建一个新的、名字还是叫作 web-0 的 Pod 来，“纠正”这个不一致的情况。需要注意的是，在这个新的 Pod 对象的定义里，它声明使用的 PVC 的名字，还是叫作：www-web-0。这个 PVC 的定义，还是来自于 PVC 模板（volumeClaimTemplates），这是 StatefulSet 创建 Pod 的标准流程。所以，在这个新的 web-0 Pod 被创建出来之后，Kubernetes 为它查找名叫 www-web-0 的 PVC 时，就会直接找到旧 Pod 遗留下来的同名的 PVC，进而找到跟这个 PVC 绑定在一起的 PV。这样，新的 Pod 就可以挂载到旧 Pod 对应的那个 Volume，并且获取到保存在 Volume 里的数据。通过这种方式，Kubernetes 的 StatefulSet 就实现了对应用存储状态的管理。</p>
+
+<h3 id="总结">总结</h3>
+
+<ul>
+<li>首先，StatefulSet 的控制器直接管理的是 Pod。这是因为，StatefulSet 里的不同 Pod 实例，不再像 ReplicaSet 中那样都是完全一样的，而是有了细微区别的。比如，每个 Pod 的 hostname、名字等都是不同的、携带了编号的。而 StatefulSet 区分这些实例的方式，就是通过在 Pod 的名字里加上事先约定好的编号。</li>
+<li>其次，Kubernetes 通过 Headless Service，为这些有编号的 Pod，在 DNS 服务器中生成带有同样编号的 DNS 记录。只要 StatefulSet 能够保证这些 Pod 名字里的编号不变，那么 Service 里类似于 web-0.nginx.default.svc.cluster.local 这样的 DNS 记录也就不会变，而这条记录解析出来的 Pod 的 IP 地址，则会随着后端 Pod 的删除和再创建而自动更新。这当然是 Service 机制本身的能力，不需要 StatefulSet 操心。</li>
+<li>最后，StatefulSet 还为每一个 Pod 分配并创建一个同样编号的 PVC。这样，Kubernetes 就可以通过 Persistent Volume 机制为这个 PVC 绑定上对应的 PV，从而保证了每一个 Pod 都拥有一个独立的 Volume。在这种情况下，即使 Pod 被删除，它所对应的 PVC 和 PV 依然会保留下来。所以当这个 Pod 被重新创建出来之后，Kubernetes 会为它找到同样编号的 PVC，挂载这个 PVC 对应的 Volume，从而获取到以前保存在 Volume 里的数据。</li>
+</ul>
+
+<p>StatefulSet 其实就是一种特殊的 Deployment，而其独特之处在于，它的每个 Pod 都被编号了。而且，这个编号会体现在 Pod 的名字和 hostname 等标识信息上，这不仅代表了 Pod 的创建顺序，也是 Pod 的重要网络标识（即：在整个集群里唯一的、可被访问的身份）。有了这个编号后，StatefulSet 就使用 Kubernetes 里的两个标准功能：Headless Service 和 PV/PVC，实现了对 Pod 的拓扑状态和存储状态的维护。实际上，在下一篇文章的“有状态应用”实践环节，以及后续的讲解中，你就会逐渐意识到，StatefulSet 可以说是 Kubernetes 中作业编排的“集大成者”。因为，几乎每一种 Kubernetes 的编排功能，都可以在编写 StatefulSet 的 YAML 文件时被用到。</p>
+
+<h3 id="应用">应用</h3>
+
 <p>StatefulSet是为了解决有状态服务的问题（对应Deployments和ReplicaSets是为无状态服务而设计），其应用场景包括</p>
 
 <ul>
@@ -346,11 +968,27 @@ node/kube-node02 already cordoned
 <li>.cluster.local为Cluster Domain，</li>
 </ul>
 
+<p>其实，StatefulSet 其实就是对现有典型运维业务的容器化抽象。也就是说，你一定有方法在不使用 Kubernetes、甚至不使用容器的情况下，自己 DIY 一个类似的方案出来。但是，一旦涉及到升级、版本管理等更工程化的能力，Kubernetes 的好处，才会更加凸现。比如，如何对 StatefulSet 进行“滚动更新”（rolling update）？很简单。你只要修改 StatefulSet 的 Pod 模板，就会自动触发“滚动更新”:</p>
+
+<pre><code>$ kubectl patch statefulset mysql --type='json' -p='[{&quot;op&quot;: &quot;replace&quot;, &quot;path&quot;: &quot;/spec/template/spec/containers/0/image&quot;, &quot;value&quot;:&quot;mysql:5.7.23&quot;}]'
+statefulset.apps/mysql patched
+</code></pre>
+
+<p>在这里，我使用了 kubectl patch 命令。它的意思是，以“补丁”的方式（JSON 格式的）修改一个 API 对象的指定字段，也就是我在后面指定的“spec/template/spec/containers/0/image”。这样，StatefulSet Controller 就会按照与 Pod 编号相反的顺序，从最后一个 Pod 开始，逐一更新这个 StatefulSet 管理的每个 Pod。而如果更新发生了错误，这次“滚动更新”就会停止。</p>
+
+<p>此外，StatefulSet 的“滚动更新”还允许我们进行更精细的控制，比如<a href="/post/cloud/paas/ops/ops/">金丝雀发布（Canary Deploy）或者灰度发布</a>，这意味着应用的多个实例中被指定的一部分不会被更新到最新的版本。这个字段，正是 StatefulSet 的 spec.updateStrategy.rollingUpdate 的 partition 字段。比如，现在我将前面这个 StatefulSet 的 partition 字段设置为 2：</p>
+
+<pre><code>$ kubectl patch statefulset mysql -p '{&quot;spec&quot;:{&quot;updateStrategy&quot;:{&quot;type&quot;:&quot;RollingUpdate&quot;,&quot;rollingUpdate&quot;:{&quot;partition&quot;:2}}}}'
+statefulset.apps/mysql patched
+</code></pre>
+
+<p>其中，kubectl patch 命令后面的参数（JSON 格式的），就是 partition 字段在 API 对象里的路径。所以，上述操作等同于直接使用 kubectl edit 命令，打开这个对象，把 partition 字段修改为 2。这样，我就指定了当 Pod 模板发生变化的时候，比如 MySQL 镜像更新到 5.7.23，那么只有序号大于或者等于 2 的 Pod 会被更新到这个版本。并且，如果你删除或者重启了序号小于 2 的 Pod，等它再次启动后，也会保持原先的 5.7.2 版本，绝不会被升级到 5.7.23 版本。</p>
+
 <blockquote>
 <p>简单示例</p>
 </blockquote>
 
-<p>以一个简单的nginx服务web.yaml为例：</p>
+<p>以一个简单的nginx服务web.yaml为例，也是对上面实例的扩展：</p>
 
 <pre><code>---
 apiVersion: v1
@@ -468,7 +1106,7 @@ Address 1: 10.244.2.10
 <pre><code>$ kubectl patch statefulset web -p '{&quot;spec&quot;:{&quot;replicas&quot;:3}}'
 </code></pre>
 
-<p>镜像更新（目前还不支持直接更新image，需要patch来间接实现）</p>
+<p>镜像更新</p>
 
 <pre><code>$ kubectl patch statefulset web --type='json' -p='[{&quot;op&quot;: &quot;replace&quot;, &quot;path&quot;: &quot;/spec/template/spec/containers/0/image&quot;, &quot;value&quot;:&quot;gcr.io/google_containers/nginx-slim:0.7&quot;}]'
 </code></pre>
@@ -658,11 +1296,32 @@ spec:
 <pre><code>kubectl create -f zookeeper.yaml
 </code></pre>
 
+<blockquote>
+<p>mysql集群部署</p>
+</blockquote>
+
+<p>首先，用自然语言来描述一下我们想要部署的“有状态应用”。</p>
+
+<ul>
+<li>是一个“主从复制”（Maser-Slave Replication）的 MySQL 集群；</li>
+<li>有 1 个主节点（Master）；</li>
+<li>有多个从节点（Slave）</li>
+<li>从节点需要能水平扩展；</li>
+<li>所有的写操作，只能在主节点上执行；</li>
+<li>读操作可以在所有节点上执行。</li>
+</ul>
+
+<p>这就是一个非常典型的主从模式的 MySQL 集群了。</p>
+
+<p><img src="/media/cloud/k8s/mysql.png" alt="" /></p>
+
 <h2 id="daemonset">DaemonSet</h2>
 
 <p>DaemonSet保证在每个Node上都运行一个容器副本，常用来部署一些集群的日志、监控或者其他系统管理应用。典型的应用包括：</p>
 
 <ul>
+<li>各种网络插件的 Agent 组件，都必须运行在每一个节点上，用来处理这个节点上的容器网络；</li>
+<li>各种存储插件的 Agent 组件，也必须运行在每一个节点上，用来在这个节点上挂载远程存储目录，操作容器的 Volume 目录；</li>
 <li>日志收集，比如fluentd，logstash等</li>
 <li>系统监控，比如Prometheus Node Exporter，collectd，New Relic agent，Ganglia gmond等</li>
 <li>系统程序，比如kube-proxy, kube-dns, glusterd, ceph等</li>
@@ -670,43 +1329,65 @@ spec:
 
 <p>使用Fluentd收集日志的例子：</p>
 
-<pre><code>apiVersion: extensions/v1beta1
+<pre><code>apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: fluentd
+  name: fluentd-elasticsearch
+  namespace: kube-system
+  labels:
+    k8s-app: fluentd-logging
 spec:
+  selector:
+    matchLabels:
+      name: fluentd-elasticsearch
   template:
     metadata:
       labels:
-        app: logging
-        id: fluentd
-      name: fluentd
+        name: fluentd-elasticsearch
     spec:
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
       containers:
-      - name: fluentd-es
-        image: gcr.io/google_containers/fluentd-elasticsearch:1.3
-        env:
-         - name: FLUENTD_ARGS
-           value: -qq
+      - name: fluentd-elasticsearch
+        image: k8s.gcr.io/fluentd-elasticsearch:1.20
+        resources:
+          limits:
+            memory: 200Mi
+          requests:
+            cpu: 100m
+            memory: 200Mi
         volumeMounts:
-         - name: containers
-           mountPath: /var/lib/docker/containers
-         - name: varlog
-           mountPath: /varlog
+        - name: varlog
+          mountPath: /var/log
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+      terminationGracePeriodSeconds: 30
       volumes:
-         - hostPath:
-             path: /var/lib/docker/containers
-           name: containers
-         - hostPath:
-             path: /var/log
-           name: varlog
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
 </code></pre>
 
-<p>daemonset的调度算法和deploymemt基本是差不多的，只不过它会调度到所有的节点上，当然也可以使用nodeselector或者nodeaffinity来进行范围性的调度。</p>
+<p>这个 DaemonSet，管理的是一个 fluentd-elasticsearch 镜像的 Pod。这个镜像的功能非常实用：通过 fluentd 将 Docker 容器里的日志转发到 ElasticSearch 中。可以看到，DaemonSet 跟 Deployment 其实非常相似，只不过是没有 replicas 字段；它也使用 selector 选择管理所有携带了 name=fluentd-elasticsearch 标签的 Pod。而这些 Pod 的模板，也是用 template 字段定义的。在这个字段中，我们定义了一个使用 fluentd-elasticsearch:1.20 镜像的容器，而且这个容器挂载了两个 hostPath 类型的 Volume，分别对应宿主机的 /var/log 目录和 /var/lib/docker/containers 目录。显然，fluentd 启动之后，它会从这两个目录里搜集日志信息，并转发给 ElasticSearch 保存。这样，我们通过 ElasticSearch 就可以很方便地检索这些日志了。需要注意的是，Docker 容器里应用的日志，默认会保存在宿主机的 /var/lib/docker/containers/{{. 容器 ID}}/{{. 容器 ID}}-json.log 文件里，所以这个目录正是 fluentd 的搜集目标。</p>
+
+<p>DaemonSet 又是如何保证每个 Node 上有且只有一个被管理的 Pod 呢？这是一个典型的“控制器模型”能够处理的问题。</p>
 
 <blockquote>
-<p>指定Node节点</p>
+<p>实现原理</p>
 </blockquote>
+
+<p>1、选择node</p>
+
+<p>DaemonSet Controller，首先从 Etcd 里获取所有的 Node 列表，然后遍历所有的 Node。这时，它就可以很容易地去检查，当前这个 Node 上是不是有一个携带了 name=fluentd-elasticsearch 标签的 Pod 在运行。而检查的结果，可能有这么三种情况：没有这种 Pod，那么就意味着要在这个 Node 上创建这样一个 Pod；有这种 Pod，但是数量大于 1，那就说明要把多余的 Pod 从这个 Node 上删除掉；正好只有一个这种 Pod，那说明这个节点是正常的。其中，删除节点（Node）上多余的 Pod 非常简单，直接调用 Kubernetes API 就可以了。但是，如何在指定的 Node 上创建新 Pod 呢？如果你已经熟悉了 Pod API 对象的话，那一定可以立刻说出答案：用 nodeSelector，选择 Node 的名字即可。</p>
+
+<p>不过，在 Kubernetes 项目里，nodeSelector 其实已经是一个将要被废弃的字段了。因为，现在有了一个新的、功能更完善的字段可以代替它，即：nodeAffinity。我们先来看看</p>
+
+<p><strong>指定Node节点</strong></p>
 
 <p>DaemonSet会忽略Node的unschedulable状态，有两种方式来指定Pod只运行在指定的Node节点上：</p>
 
@@ -812,68 +1493,108 @@ spec:
 
 <p>注意：静态Pod不能通过API Server来删除，但可以通过删除manifest文件来自动删除对应的Pod。</p>
 
-<h2 id="cronjob">CronJob</h2>
+<p>以上几种方式是对node选择的总结，我们还是回到deamonset中，我们的 DaemonSet Controller 会在创建 Pod 的时候，自动在这个 Pod 的 API 对象里，加上这样一个 nodeAffinity 定义。其中，需要绑定的节点名字，正是当前正在遍历的这个 Node。当然，DaemonSet 并不需要修改用户提交的 YAML 文件里的 Pod 模板，而是在向 Kubernetes 发起请求之前，直接修改根据模板生成的 Pod 对象。这个思路，也正是我在前面讲解 Pod 对象时介绍过的。</p>
 
-<p>CronJob即定时任务，就类似于Linux系统的crontab，在指定的时间周期运行指定的任务。在Kubernetes 1.5，使用CronJob需要开启batch/v2alpha1 API，即–runtime-config=batch/v2alpha1。</p>
+<p>2、忽略不能调度的规则</p>
 
-<p>CronJob Spec</p>
+<p>此外，DaemonSet 还会给这个 Pod 自动加上另外一个与调度相关的字段，叫作 tolerations。这个字段意味着这个 Pod，会“容忍”（Toleration）某些 Node 的“污点”（Taint）。而 DaemonSet 自动加上的 tolerations 字段，格式如下所示</p>
 
-<pre><code>.spec.schedule指定任务运行周期，格式同Cron
-.spec.jobTemplate指定需要运行的任务，格式同Job
-.spec.startingDeadlineSeconds指定任务开始的截止期限
-.spec.concurrencyPolicy指定任务的并发策略，支持Allow、Forbid和Replace三个选项
-</code></pre>
-
-<p>实例</p>
-
-<pre><code>apiVersion: batch/v2alpha1
-kind: CronJob
+<pre><code>apiVersion: v1
+kind: Pod
 metadata:
-  name: hello
+  name: with-toleration
 spec:
-  schedule: &quot;*/1 * * * *&quot;
-  jobTemplate:
+  tolerations:
+  - key: node.kubernetes.io/unschedulable
+    operator: Exists
+    effect: NoSchedule
+</code></pre>
+
+<p>这个 Toleration 的含义是：“容忍”所有被标记为 unschedulable“污点”的 Node；“容忍”的效果是允许调度。</p>
+
+<p>而在正常情况下，被标记了 unschedulable“污点”的 Node，是不会有任何 Pod 被调度上去的（effect: NoSchedule）。可是，DaemonSet 自动地给被管理的 Pod 加上了这个特殊的 Toleration，就使得这些 Pod 可以忽略这个限制，继而保证每个节点上都会被调度一个 Pod。当然，如果这个节点有故障的话，这个 Pod 可能会启动失败，而 DaemonSet 则会始终尝试下去，直到 Pod 启动成功。</p>
+
+<p>假如当前 DaemonSet 管理的，是一个网络插件的 Agent Pod，那么你就必须在这个 DaemonSet 的 YAML 文件里，给它的 Pod 模板加上一个能够“容忍”node.kubernetes.io/network-unavailable“污点”的 Toleration。正如下面这个例子所示：</p>
+
+<pre><code>...
+template:
+    metadata:
+      labels:
+        name: network-plugin-agent
     spec:
-      template:
-        spec:
-          containers:
-          - name: hello
-            image: busybox
-            args:
-            - /bin/sh
-            - -c
-            - date; echo Hello from the Kubernetes cluster
-          restartPolicy: OnFailure
+      tolerations:
+      - key: node.kubernetes.io/network-unavailable
+        operator: Exists
+        effect: NoSchedule
 </code></pre>
 
-<p>创建</p>
+<p>在 Kubernetes 项目中，当一个节点的网络插件尚未安装时，这个节点就会被自动加上名为node.kubernetes.io/network-unavailable的“污点”。而通过这样一个 Toleration，调度器在调度这个 Pod 的时候，就会忽略当前节点上的“污点”，从而成功地将网络插件的 Agent 组件调度到这台机器上启动起来。这种机制，正是我们在部署 Kubernetes 集群的时候，能够先部署 Kubernetes 本身、再部署网络插件的根本原因：因为当时我们所创建的 Weave 的 YAML，实际上就是一个 DaemonSet。</p>
 
-<pre><code>$ kubectl create -f cronjob.yaml
-cronjob &quot;hello&quot; created
+<p>你也可以在 Pod 模板里加上更多种类的 Toleration，从而利用 DaemonSet 达到自己的目的。比如，在这个 fluentd-elasticsearch DaemonSet 里，我就给它加上了这样的 Toleration：</p>
+
+<pre><code>tolerations:
+- key: node-role.kubernetes.io/master
+  effect: NoSchedule
 </code></pre>
 
-<p>当然，也可以用kubectl run来创建一个CronJob：</p>
+<p>这是因为在默认情况下，Kubernetes 集群不允许用户在 Master 节点部署 Pod。因为，Master 节点默认携带了一个叫作node-role.kubernetes.io/master的“污点”。所以，为了能在 Master 节点上部署 DaemonSet 的 Pod，我就必须让这个 Pod“容忍”这个“污点”。</p>
 
-<pre><code>kubectl run hello --schedule=&quot;*/1 * * * *&quot; --restart=OnFailure --image=busybox -- /bin/sh -c &quot;date; echo Hello from the Kubernetes cluster&quot;
-$ kubectl get cronjob
-NAME      SCHEDULE      SUSPEND   ACTIVE    LAST-SCHEDULE
-hello     */1 * * * *   False     0         &lt;none&gt;
-$ kubectl get jobs
-NAME               DESIRED   SUCCESSFUL   AGE
-hello-1202039034   1         1            49s
-$ pods=$(kubectl get pods --selector=job-name=hello-1202039034 --output=jsonpath={.items..metadata.name} -a)
-$ kubectl logs $pods
-Mon Aug 29 21:34:09 UTC 2016
-Hello from the Kubernetes cluster
+<blockquote>
+<p>滚动升级</p>
+</blockquote>
+
+<p>deamonset一样修改镜像就支持滚动升级的，和deployment一样。但是它的版本维护就有点不一样了。</p>
+
+<p><strong>在k8s中，所谓，一切皆对象！</strong></p>
+
+<p>在 Kubernetes 项目中，任何你觉得需要记录下来的状态，都可以被用 API 对象的方式实现。当然，“版本”也不例外。Kubernetes v1.7 之后添加了一个 API 对象，名叫 ControllerRevision，专门用来记录某种 Controller 对象的版本。比如，你可以通过如下命令查看 fluentd-elasticsearch 对应的 ControllerRevision：</p>
+
+<pre><code>$ kubectl get controllerrevision -n kube-system -l name=fluentd-elasticsearch
+NAME                               CONTROLLER                             REVISION   AGE
+fluentd-elasticsearch-64dc6799c9   daemonset.apps/fluentd-elasticsearch   2          1h
 </code></pre>
 
-<p>注意，删除cronjob的时候不会自动删除job，这些job可以用kubectl delete job来删除</p>
+<p>而如果你使用 kubectl describe 查看这个 ControllerRevision 对象：</p>
 
-<pre><code>$ kubectl delete cronjob hello
-cronjob &quot;hello&quot; deleted
+<pre><code>$ kubectl describe controllerrevision fluentd-elasticsearch-64dc6799c9 -n kube-system
+Name:         fluentd-elasticsearch-64dc6799c9
+Namespace:    kube-system
+Labels:       controller-revision-hash=2087235575
+              name=fluentd-elasticsearch
+Annotations:  deprecated.daemonset.template.generation=2
+              kubernetes.io/change-cause=kubectl set image ds/fluentd-elasticsearch fluentd-elasticsearch=k8s.gcr.io/fluentd-elasticsearch:v2.2.0 --record=true --namespace=kube-system
+API Version:  apps/v1
+Data:
+  Spec:
+    Template:
+      $ Patch:  replace
+      Metadata:
+        Creation Timestamp:  &lt;nil&gt;
+        Labels:
+          Name:  fluentd-elasticsearch
+      Spec:
+        Containers:
+          Image:              k8s.gcr.io/fluentd-elasticsearch:v2.2.0
+          Image Pull Policy:  IfNotPresent
+          Name:               fluentd-elasticsearch
+...
+Revision:                  2
+Events:                    &lt;none&gt;
 </code></pre>
+
+<p>就会看到，这个 ControllerRevision 对象，实际上是在 Data 字段保存了该版本对应的完整的 DaemonSet 的 API 对象。并且，在 Annotation 字段保存了创建这个对象所使用的 kubectl 命令。接下来，我们可以尝试将这个 DaemonSet 回滚到 Revision=1 时的状态：</p>
+
+<pre><code>$ kubectl rollout undo daemonset fluentd-elasticsearch --to-revision=1 -n kube-system
+daemonset.extensions/fluentd-elasticsearch rolled back
+</code></pre>
+
+<p>这个 kubectl rollout undo 操作，实际上相当于读取到了 Revision=1 的 ControllerRevision 对象保存的 Data 字段。而这个 Data 字段里保存的信息，就是 Revision=1 时这个 DaemonSet 的完整 API 对象。所以，现在 DaemonSet Controller 就可以使用这个历史 API 对象，对现有的 DaemonSet 做一次 PATCH 操作（等价于执行一次 kubectl apply -f “旧的 DaemonSet 对象”），从而把这个 DaemonSet“更新”到一个旧版本。这也是为什么，在执行完这次回滚完成后，你会发现，DaemonSet 的 Revision 并不会从 Revision=2 退回到 1，而是会增加成 Revision=3。这是因为，一个新的 ControllerRevision 被创建了出来。</p>
+
+<p>StatefulSet 也是直接控制 Pod 对象的，那么它是不是也在使用 ControllerRevision 进行版本管理呢？没错。在 Kubernetes 项目里，ControllerRevision 其实是一个通用的版本管理对象。这样，Kubernetes 项目就巧妙地避免了每种控制器都要维护一套冗余的代码和逻辑的问题。</p>
 
 <h2 id="job">job</h2>
+
+<p>depolyment，statefulset，deamonset主要编排的对象，都是“在线业务”，即：Long Running Task（长作业）。有一类作业显然不满足这样的条件，这就是“离线业务”，或者叫作 Batch Job（计算业务）。这种业务在计算完成后就直接退出了，而此时如果你依然用 Deployment 来管理这种业务的话，就会发现 Pod 会在计算结束后退出，然后被 Deployment Controller 不断地重启；而像“滚动更新”这样的编排功能，更无从谈起了。</p>
 
 <p>Job负责批量处理短暂的一次性任务 (short lived one-off tasks)，即仅执行一次的任务，它保证批处理任务的一个或多个Pod成功结束。</p>
 
@@ -950,7 +1671,68 @@ spec:
       restartPolicy: Never
 </code></pre>
 
-<h2 id="总结">总结</h2>
+<h2 id="cronjob">CronJob</h2>
+
+<p>CronJob即定时任务，就类似于Linux系统的crontab，在指定的时间周期运行指定的任务。在Kubernetes 1.5，使用CronJob需要开启batch/v2alpha1 API，即–runtime-config=batch/v2alpha1。</p>
+
+<p>CronJob Spec</p>
+
+<pre><code>.spec.schedule指定任务运行周期，格式同Cron
+.spec.jobTemplate指定需要运行的任务，格式同Job
+.spec.startingDeadlineSeconds指定任务开始的截止期限
+.spec.concurrencyPolicy指定任务的并发策略，支持Allow、Forbid和Replace三个选项
+</code></pre>
+
+<p>实例</p>
+
+<pre><code>apiVersion: batch/v2alpha1
+kind: CronJob
+metadata:
+  name: hello
+spec:
+  schedule: &quot;*/1 * * * *&quot;
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: hello
+            image: busybox
+            args:
+            - /bin/sh
+            - -c
+            - date; echo Hello from the Kubernetes cluster
+          restartPolicy: OnFailure
+</code></pre>
+
+<p>创建</p>
+
+<pre><code>$ kubectl create -f cronjob.yaml
+cronjob &quot;hello&quot; created
+</code></pre>
+
+<p>当然，也可以用kubectl run来创建一个CronJob：</p>
+
+<pre><code>kubectl run hello --schedule=&quot;*/1 * * * *&quot; --restart=OnFailure --image=busybox -- /bin/sh -c &quot;date; echo Hello from the Kubernetes cluster&quot;
+$ kubectl get cronjob
+NAME      SCHEDULE      SUSPEND   ACTIVE    LAST-SCHEDULE
+hello     */1 * * * *   False     0         &lt;none&gt;
+$ kubectl get jobs
+NAME               DESIRED   SUCCESSFUL   AGE
+hello-1202039034   1         1            49s
+$ pods=$(kubectl get pods --selector=job-name=hello-1202039034 --output=jsonpath={.items..metadata.name} -a)
+$ kubectl logs $pods
+Mon Aug 29 21:34:09 UTC 2016
+Hello from the Kubernetes cluster
+</code></pre>
+
+<p>注意，删除cronjob的时候不会自动删除job，这些job可以用kubectl delete job来删除</p>
+
+<pre><code>$ kubectl delete cronjob hello
+cronjob &quot;hello&quot; deleted
+</code></pre>
+
+<h2 id="总结-1">总结</h2>
 
 <p>这边讲解的就是原生的资源定义和使用，其实都是通过控制器来完成基本的控制的，控制器的源码在<a href="/post/cloud/paas/base/kubernetes/k8s-controller-manager/">kube-controller-manager</a>中。</p>
 
@@ -2115,6 +2897,18 @@ type JcyReconciler struct {
 </code></pre>
 
 <blockquote>
+<p>总结</p>
+</blockquote>
+
+<p>其实我们开发控制器，现在只要做三部分相关的开发</p>
+
+<ul>
+<li>编写 main 函数，下面介绍</li>
+<li>编写自定义控制器的定义，</li>
+<li>编写控制器里的业务逻辑。</li>
+</ul>
+
+<blockquote>
 <p>测试</p>
 </blockquote>
 
@@ -2874,15 +3668,28 @@ func (c *Controller) processNextWorkItem() bool {
 
             <nav id="TableOfContents">
 <ul>
+<li><a href="#控制器原理">控制器原理</a>
+<ul>
+<li><a href="#main">main</a></li>
+<li><a href="#编写自定义控制器的定义">编写自定义控制器的定义</a></li>
+<li><a href="#控制器里的业务逻辑-控制循环">控制器里的业务逻辑：控制循环</a></li>
+<li><a href="#实例">实例</a></li>
+</ul></li>
 <li><a href="#k8s原生控制器">k8s原生控制器</a>
 <ul>
 <li><a href="#rc">RC</a></li>
 <li><a href="#depolymemt">depolymemt</a></li>
-<li><a href="#statefulset">StatefulSet</a></li>
-<li><a href="#daemonset">DaemonSet</a></li>
-<li><a href="#cronjob">CronJob</a></li>
-<li><a href="#job">job</a></li>
+<li><a href="#statefulset">StatefulSet</a>
+<ul>
+<li><a href="#拓扑状态">拓扑状态</a></li>
+<li><a href="#存储状态">存储状态</a></li>
 <li><a href="#总结">总结</a></li>
+<li><a href="#应用">应用</a></li>
+</ul></li>
+<li><a href="#daemonset">DaemonSet</a></li>
+<li><a href="#job">job</a></li>
+<li><a href="#cronjob">CronJob</a></li>
+<li><a href="#总结-1">总结</a></li>
 </ul></li>
 <li><a href="#k8s自定义控制器">k8s自定义控制器</a>
 <ul>
