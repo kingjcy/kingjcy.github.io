@@ -76,6 +76,8 @@
 
 <h1 id="安装">安装</h1>
 
+<h2 id="本地rpm安装">本地rpm安装</h2>
+
 <p>安装etcd-opertaor</p>
 
 <pre><code>rpm -ivh etcd-operator-1.0.0-1.el7.x86_64.rpm          // 安装rpm包
@@ -99,6 +101,87 @@ systemctl start etcd-operator          // 启动etcd-operator服务
 systemctl status etcd-operator         // 查看etcd-operator服务状态，确定状态为running。
 </code></pre>
 
+<h2 id="k8s安装">k8s安装</h2>
+
+<p>第一步，将这个 Operator 的代码 Clone 到本地：</p>
+
+<pre><code>$ git clone https://github.com/coreos/etcd-operator
+</code></pre>
+
+<p>第二步，将这个 Etcd Operator 部署在 Kubernetes 集群里。不过，在部署 Etcd Operator 的 Pod 之前，你需要先执行这样一个脚本：</p>
+
+<pre><code>$ example/rbac/create_role.sh
+</code></pre>
+
+<p>这个脚本的作用，就是为 Etcd Operator 创建 RBAC 规则。这是因为，Etcd Operator 需要访问 Kubernetes 的 APIServer 来创建对象。更具体地说，上述脚本为 Etcd Operator 定义了如下所示的权限：</p>
+
+<ul>
+<li>对 Pod、Service、PVC、Deployment、Secret 等 API 对象，有所有权限；</li>
+<li>对 CRD 对象，有所有权限；</li>
+<li>对属于 etcd.database.coreos.com 这个 API Group 的 CR（Custom Resource）对象，有所有权限。</li>
+</ul>
+
+<p>而 Etcd Operator 本身，其实就是一个 Deployment部署，部署它的 YAML 文件如下所示</p>
+
+<pre><code>apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: etcd-operator
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        name: etcd-operator
+    spec:
+      containers:
+      - name: etcd-operator
+        image: quay.io/coreos/etcd-operator:v0.9.2
+        command:
+        - etcd-operator
+        env:
+        - name: MY_POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: MY_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+...
+</code></pre>
+
+<p>所以，我们就可以使用上述的 YAML 文件来创建 Etcd Operator的Deployment。一旦 Etcd Operator 的 Pod 进入了 Running 状态，你就会发现，有一个 CRD 被自动创建了出来，如下所示：</p>
+
+<pre><code>$ kubectl get pods
+NAME                              READY     STATUS      RESTARTS   AGE
+etcd-operator-649dbdb5cb-bzfzp    1/1       Running     0          20s
+
+$ kubectl get crd
+NAME                                    CREATED AT
+etcdclusters.etcd.database.coreos.com   2018-09-18T11:42:55Z
+</code></pre>
+
+<p>这个 CRD 名叫etcdclusters.etcd.database.coreos.com 。你可以通过 kubectl describe 命令看到它的细节，如下所示：</p>
+
+<pre><code>$ kubectl describe crd  etcdclusters.etcd.database.coreos.com
+...
+Group:   etcd.database.coreos.com
+  Names:
+    Kind:       EtcdCluster
+    List Kind:  EtcdClusterList
+    Plural:     etcdclusters
+    Short Names:
+      etcd
+    Singular:  etcdcluster
+  Scope:       Namespaced
+  Version:     v1beta2
+
+...
+</code></pre>
+
+<p>可以看到，这个 CRD 相当于告诉了 Kubernetes：接下来，如果有 API 组（Group）是etcd.database.coreos.com、API 资源类型（Kind）是“EtcdCluster”的 YAML 文件被提交上来，你可一定要认识啊。所以说，通过上述两步操作，你实际上是在 Kubernetes 里添加了一个名叫 EtcdCluster 的自定义资源类型。而 Etcd Operator 本身，就是这个自定义资源类型对应的自定义控制器。</p>
+
 <h1 id="基本概念">基本概念</h1>
 
 <p>etcd-operator 所包含的几个自定义资源对象(CRDs):</p>
@@ -109,7 +192,33 @@ systemctl status etcd-operator         // 查看etcd-operator服务状态，确�
 <li>EtcdRestore: etcdrestore 用来帮助将 etcdbackup 服务所创建的备份恢复到一个指定的 etcd 的集群。</li>
 </ul>
 
-<h1 id="基本使用">基本使用</h1>
+<p>数据结构</p>
+
+<p>我们首先需要完成 EtcdCluster 这个 CRD 的定义，它对应的 types.go 文件的主要内容，如下所示：</p>
+
+<pre><code>// +genclient
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+type EtcdCluster struct {
+  metav1.TypeMeta   `json:&quot;,inline&quot;`
+  metav1.ObjectMeta `json:&quot;metadata,omitempty&quot;`
+  Spec              ClusterSpec   `json:&quot;spec&quot;`
+  Status            ClusterStatus `json:&quot;status&quot;`
+}
+
+type ClusterSpec struct {
+ // Size is the expected size of the etcd cluster.
+ // The etcd-operator will eventually make the size of the running
+ // cluster equal to the expected size.
+ // The vaild range of the size is from 1 to 7.
+ Size int `json:&quot;size&quot;`
+ ...
+}
+</code></pre>
+
+<p>可以看到，EtcdCluster 是一个有 Status 字段的 CRD。在这里，我们可以不必关心 ClusterSpec 里的其他字段，只关注 Size（即：Etcd 集群的大小）字段即可。Size 字段的存在，就意味着将来如果我们想要调整集群大小的话，应该直接修改 YAML 文件里 size 的值，并执行 kubectl apply -f。</p>
+
+<h1 id="基本使用与原理">基本使用与原理</h1>
 
 <h2 id="创建etcd集群">创建etcd集群</h2>
 
@@ -139,6 +248,140 @@ etcd-cluster-lpftgqngl8  1/1   Running    0      2m
 etcd-cluster-sdpcfrtv99  1/1   Running    0      2m
 </code></pre>
 
+<p>可以看到，EtcdCluster 的 spec 字段非常简单。其中，size=3 指定了它所描述的 Etcd 集群的节点个数。而 version=“3.2.13”，则指定了 Etcd 的版本，仅此而已。而真正把这样一个 Etcd 集群创建出来的逻辑，就是 Etcd Operator 要实现的主要工作了。</p>
+
+<p>Etcd Operator 的实现，虽然选择的也是静态集群，但这个集群具体的组建过程，是逐个节点动态添加的方式，即：首先，Etcd Operator 会创建一个“种子节点”；然后，Etcd Operator 会不断创建新的 Etcd 节点，然后将它们逐一加入到这个集群当中，直到集群的节点数等于 size。</p>
+
+<p>在生成不同角色的 Etcd Pod 时，Operator 需要能够区分种子节点与普通节点。而这两种节点的不同之处，就在于一个名叫–initial-cluster-state 的启动参数：当这个参数值设为 new 时，就代表了该节点是种子节点。而我们前面提到过，种子节点还必须通过–initial-cluster-token 声明一个独一无二的 Token。而如果这个参数值设为 existing，那就是说明这个节点是一个普通节点，Etcd Operator 需要把它加入到已有集群里。</p>
+
+<p>要求种子节点先启动，所以对于种子节点 infra0 来说，它启动后的集群只有它自己，即：–initial-cluster=infra0=<a href="http://10.0.1.10:2380。而对于接下来要加入的节点，比如">http://10.0.1.10:2380。而对于接下来要加入的节点，比如</a> infra1 来说，它启动后的集群就有两个节点了，所以它的–initial-cluster 参数的值应该是：infra0=<a href="http://10.0.1.10:2380,infra1=http://10.0.1.11:2380。其他节点，都以此类推。">http://10.0.1.10:2380,infra1=http://10.0.1.11:2380。其他节点，都以此类推。</a></p>
+
+<p>现在我们模拟一下创建的过程</p>
+
+<p>以 infra0 节点为例，它的 IP 地址是 10.0.1.10，那么 Etcd Operator 生成的种子节点的启动命令，如下所示：</p>
+
+<pre><code>$ etcd
+  --data-dir=/var/etcd/data
+  --name=infra0
+  --initial-advertise-peer-urls=http://10.0.1.10:2380
+  --listen-peer-urls=http://0.0.0.0:2380
+  --listen-client-urls=http://0.0.0.0:2379
+  --advertise-client-urls=http://10.0.1.10:2379
+  --initial-cluster=infra0=http://10.0.1.10:2380
+  --initial-cluster-state=new
+  --initial-cluster-token=4b5215fa-5401-4a95-a8c6-892317c9bef8
+</code></pre>
+
+<p>可以看到，这个种子节点的 initial-cluster-state 是 new，并且指定了唯一的 initial-cluster-token 参数。我们可以把这个创建种子节点（集群）的阶段称为：Bootstrap。</p>
+
+<p>接下来，对于其他每一个节点，Operator 只需要执行如下两个操作即可，以 infra1 为例。第一步：通过 Etcd 命令行添加一个新成员：</p>
+
+<pre><code>$ etcdctl member add infra1 http://10.0.1.11:2380
+</code></pre>
+
+<p>第二步：为这个成员节点生成对应的启动参数，并启动它：</p>
+
+<pre><code>$ etcd
+    --data-dir=/var/etcd/data
+    --name=infra1
+    --initial-advertise-peer-urls=http://10.0.1.11:2380
+    --listen-peer-urls=http://0.0.0.0:2380
+    --listen-client-urls=http://0.0.0.0:2379
+    --advertise-client-urls=http://10.0.1.11:2379
+    --initial-cluster=infra0=http://10.0.1.10:2380,infra1=http://10.0.1.11:2380
+    --initial-cluster-state=existing
+</code></pre>
+
+<p>可以看到，对于这个 infra1 成员节点来说，它的 initial-cluster-state 是 existing，也就是要加入已有集群。而它的 initial-cluster 的值，则变成了 infra0 和 infra1 两个节点的 IP 地址。所以，以此类推，不断地将 infra2 等后续成员添加到集群中，直到整个集群的节点数目等于用户指定的 size 之后，部署就完成了。</p>
+
+<h2 id="基本原理">基本原理</h2>
+
+<p>Etcd Operator 的启动流程也是围绕着 Informer 展开的，Etcd Operator 启动要做的第一件事（ c.initResource），是创建 EtcdCluster 对象所需要的 CRD，即：前面提到的etcdclusters.etcd.database.coreos.com。这样 Kubernetes 就能够“认识”EtcdCluster 这个自定义 API 资源了。</p>
+
+<pre><code>func (c *Controller) Start() error {
+ for {
+  err := c.initResource()
+  ...
+  time.Sleep(initRetryWaitTime)
+ }
+ c.run()
+}
+
+func (c *Controller) run() {
+ ...
+
+ _, informer := cache.NewIndexerInformer(source, &amp;api.EtcdCluster{}, 0, cache.ResourceEventHandlerFuncs{
+  AddFunc:    c.onAddEtcdClus,
+  UpdateFunc: c.onUpdateEtcdClus,
+  DeleteFunc: c.onDeleteEtcdClus,
+ }, cache.Indexers{})
+
+ ctx := context.TODO()
+ // TODO: use workqueue to avoid blocking
+ informer.Run(ctx.Done())
+}
+</code></pre>
+
+<p>接下来，Etcd Operator 会定义一个 EtcdCluster 对象的 Informer。不过，需要注意的是，由于 Etcd Operator 的完成时间相对较早，所以它里面有些代码的编写方式会跟我们之前讲解的最新的编写方式不太一样。在具体实践的时候，你还是应该以我讲解的模板为主。比如，在上面的代码最后，你会看到有这样一句注释：</p>
+
+<pre><code>// TODO: use workqueue to avoid blocking
+...
+</code></pre>
+
+<p>也就是说，Etcd Operator 并没有用工作队列来协调 Informer 和控制循环。具体来讲，我们在控制循环里执行的业务逻辑，往往是比较耗时间的。比如，创建一个真实的 Etcd 集群。而 Informer 的 WATCH 机制对 API 对象变化的响应，则非常迅速。所以，控制器里的业务逻辑就很可能会拖慢 Informer 的执行周期，甚至可能 Block 它。而要协调这样两个快、慢任务的一个典型解决方法，就是引入一个工作队列。</p>
+
+<p>由于 Etcd Operator 里没有工作队列，那么在它的 EventHandler 部分，就不会有什么入队操作，而直接就是每种事件对应的具体的业务逻辑了。具体实现如图</p>
+
+<p><img src="/media/cloud/k8s/operator.jpg" alt="" /></p>
+
+<p>可以看到，Etcd Operator 的特殊之处在于，它为每一个 EtcdCluster 对象，都启动了一个控制循环，“并发”地响应这些对象的变化。显然，这种做法不仅可以简化 Etcd Operator 的代码实现，还有助于提高它的响应速度。</p>
+
+<p>然后就是创建crd：etcdcluster了。当YAML 文件第一次被提交到 Kubernetes 之后，Etcd Operator 的 Informer，就会立刻“感知”到一个新的 EtcdCluster 对象被创建了出来。所以，EventHandler 里的“添加”事件会被触发。而这个 Handler 要做的操作也很简单，即：在 Etcd Operator 内部创建一个对应的 Cluster 对象（cluster.New），比如流程图里的 Cluster1。这个 Cluster 对象，就是一个 Etcd 集群在 Operator 内部的描述，所以它与真实的 Etcd 集群的生命周期是一致的。</p>
+
+<p>一个 Cluster 对象需要具体负责的，其实有两个工作。</p>
+
+<p>1、第一个工作只在该 Cluster 对象第一次被创建的时候才会执行。这个工作，就是我们前面提到过的 Bootstrap，即：创建一个单节点的种子集群。</p>
+
+<p>由于种子集群只有一个节点，所以这一步直接就会生成一个 Etcd 的 Pod 对象。这个 Pod 里有一个 InitContainer，负责检查 Pod 的 DNS 记录是否正常。如果检查通过，用户容器也就是 Etcd 容器就会启动起来。</p>
+
+<p>以我们在文章一开始部署的集群为例，它的种子节点的容器启动命令如下所示：</p>
+
+<pre><code>/usr/local/bin/etcd
+  --data-dir=/var/etcd/data
+  --name=example-etcd-cluster-mbzlg6sd56
+  --initial-advertise-peer-urls=http://example-etcd-cluster-mbzlg6sd56.example-etcd-cluster.default.svc:2380
+  --listen-peer-urls=http://0.0.0.0:2380
+  --listen-client-urls=http://0.0.0.0:2379
+  --advertise-client-urls=http://example-etcd-cluster-mbzlg6sd56.example-etcd-cluster.default.svc:2379
+  --initial-cluster=example-etcd-cluster-mbzlg6sd56=http://example-etcd-cluster-mbzlg6sd56.example-etcd-cluster.default.svc:2380
+  --initial-cluster-state=new
+  --initial-cluster-token=4b5215fa-5401-4a95-a8c6-892317c9bef8
+</code></pre>
+
+<p>可以看到，在这些启动参数（比如：initial-cluster）里，Etcd Operator 只会使用 Pod 的 DNS 记录，而不是它的 IP 地址。这当然是因为，在 Operator 生成上述启动命令的时候，Etcd 的 Pod 还没有被创建出来，它的 IP 地址自然也无从谈起。这也就意味着，每个 Cluster 对象，都会事先创建一个与该 EtcdCluster 同名的 Headless Service。这样，Etcd Operator 在接下来的所有创建 Pod 的步骤里，就都可以使用 Pod 的 DNS 记录来代替它的 IP 地址了。Headless Service 的 DNS 记录格式是：&hellip;svc.cluster.local。</p>
+
+<p>2、Cluster 对象的第二个工作，则是启动该集群所对应的控制循环。这个控制循环每隔一定时间，就会执行一次下面的 Diff 流程。首先，控制循环要获取到所有正在运行的、属于这个 Cluster 的 Pod 数量，也就是该 Etcd 集群的“实际状态”。而这个 Etcd 集群的“期望状态”，正是用户在 EtcdCluster 对象里定义的 size。所以接下来，控制循环会对比这两个状态的差异。如果实际的 Pod 数量不够，那么控制循环就会执行一个添加成员节点的操作（即：上述流程图中的 addOneMember 方法）；反之，就执行删除成员节点的操作（即：上述流程图中的 removeOneMember 方法）。</p>
+
+<p>以 addOneMember 方法为例，它执行的流程如下所示：</p>
+
+<ul>
+<li>生成一个新节点的 Pod 的名字，比如：example-etcd-cluster-v6v6s6stxd；</li>
+<li>调用 Etcd Client，执行前面提到过的 etcdctl member add example-etcd-cluster-v6v6s6stxd 命令；</li>
+<li>使用这个 Pod 名字，和已经存在的所有节点列表，组合成一个新的 initial-cluster 字段的值；</li>
+<li>使用这个 initial-cluster 的值，生成这个 Pod 里 Etcd 容器的启动命令。</li>
+</ul>
+
+<p>其实就是我们上面创建的原理。</p>
+
+<p>在有了这样一个与 EtcdCluster 对象一一对应的控制循环之后，你后续对这个 EtcdCluster 的任何修改，比如：修改 size 或者 Etcd 的 version，它们对应的更新事件都会由这个 Cluster 对象的控制循环进行处理。以上，就是一个 Etcd Operator 的工作原理了。</p>
+
+<h2 id="拓扑关系和数据存储">拓扑关系和数据存储</h2>
+
+<p>Etcd Operator 在每次添加 Etcd 节点的时候，都会先执行 etcdctl member add <Pod 名字 >；每次删除节点的时候，则会执行 etcdctl member remove <Pod 名字 >。这些操作，其实就会更新 Etcd 内部维护的拓扑信息，所以 Etcd Operator 无需在集群外部通过编号来固定这个拓扑关系。如果自身没有维护拓扑关系的能力，控制器就要维护拓扑关系。</p>
+
+<p>Etcd 是一个基于 Raft 协议实现的高可用 Key-Value 存储。根据 Raft 协议的设计原则，当 Etcd 集群里只有半数以下（在我们的例子里，小于等于一个）的节点失效时，当前集群依然可以正常工作。此时，Etcd Operator 只需要通过控制循环创建出新的 Pod，然后将它们加入到现有集群里，就完成了“期望状态”与“实际状态”的调谐工作。这个集群，是一直可用的 。如果自身没有这种高可用的能力，还是需要使用pv存储数据的，目前etcdoperator也是支持pv的，当然也可以通过下面的备份来解决etcd
+超过半数不可用的状态。</p>
+
 <h2 id="备份">备份</h2>
 
 <p>下面以阿里云的 OSS 举例</p>
@@ -163,9 +406,11 @@ EOF
 
 <p>待 etcdbackup 创建成功后，用户可以通过 kubectl describe etcdbackup 或查看 etcd-backup controller 日志来查看备份状态，如状态显示为 Succeeded: true，可以前往 oss 查看具体的备份内容。</p>
 
+<p>每当你创建一个 EtcdBackup 对象（backup_cr.yaml），就相当于为它所指定的 Etcd 集群做了一次备份。EtcdBackup 对象的 etcdEndpoints 字段，会指定它要备份的 Etcd 集群的访问地址。所以，在实际的环境里，我建议你把最后这个备份操作，编写成一个 Kubernetes 的 CronJob 以便定时运行。</p>
+
 <h2 id="恢复">恢复</h2>
 
-<p>假设我们要将 etcd 集群 A 的备份数据恢复到另一个新的 etcd 集群 B，那么我们先手动创建一个名为 etcd-cluster2 的新集群(oss 备份/恢复当前需使用 quay.io/coreos/etcd-operator:dev 镜像)。</p>
+<p>假设我们要将备份数据恢复到另一个新的 etcd 集群 etcd-cluster2，那么我们先手动创建一个名为 etcd-cluster2 的新集群(oss 备份/恢复当前需使用 quay.io/coreos/etcd-operator:dev 镜像)。</p>
 
 <pre><code>cat &lt;&lt;EOF | kubectl apply -f -
 apiVersion: etcd.database.coreos.com/v1beta2
@@ -208,106 +453,6 @@ time=&quot;2019-08-07T06:56:25Z&quot; level=info msg=&quot;serving backup for re
 
 <h1 id="实战">实战</h1>
 
-<h2 id="创建备份任务-立即备份-定时备份-根据实际需求去选择">创建备份任务（立即备份、定时备份，根据实际需求去选择）</h2>
-
-<h3 id="立即备份">立即备份</h3>
-
-<p>根据需求修改backup-now.yaml文件</p>
-
-<pre><code>$ cat backup-now.yaml
-
-apiVersion: extensions.sncloud.com/v1beta1
-kind: EtcdTask
-metadata:
-  name: backup-now-052701           #命名规则待定
-  namespace: kube-system
-spec:
-  type: backup                      #任务类型，包括backup、restore
-  backup:
-    backupSpec:                     #备份信息
-      etcdCluster: etcd-cluster     #需要备份的etcd集群的EtcdCluster名称
-      storageType: OSS              #备份类型，暂时只支持OSS和Local
-      backupPolicy:                            #备份策略
-        backupCron: &quot;0&quot;             #定时备份，用crontab格式设置
-        localMaxBackups: 10                       #本地最大备份份数
-        remoteMaxBackups: 10                    #远端最大备份份数
-</code></pre>
-
-<p>创建立即备份任务</p>
-
-<pre><code>kubectl create -f backup-now.yaml     // 创建立即备份任务
-
-kubectl get etcdtask -n kube-system | grep &lt;back-task-name&gt;   // 检查备份任务是否创建成功
-kubectl describe etcdtask -n kube-system  &lt;back-task-name&gt;    // 查看备份任务结果
-</code></pre>
-
-<h3 id="定时备份任务">定时备份任务</h3>
-
-<p>根据需求修改backup.yaml文件</p>
-
-<pre><code>$ cat backup.yaml
-
-apiVersion: extensions.sncloud.com/v1beta1
-kind: EtcdTask
-metadata:
-  name: backup-cron-052602           #命名规则待定
-  namespace: kube-system
-spec:
-  type: backup                      #任务类型，包括backup、restore
-  backup:
-    backupSpec:                        #备份信息
-      etcdCluster: etcd-cluster     #需要备份的etcd集群的EtcdCluster名称
-      storageType: OSS              #备份类型，暂时只支持OSS和Local
-      backupPolicy:                                #备份策略
-        backupCron: &quot;0 */10 * * * ?&quot;       #定时备份，用crontab格式设置
-        localMaxBackups: 10                       #本地最大备份份数
-        remoteMaxBackups: 20                    #远端最大备份份数
-</code></pre>
-
-<p>创建定时备份任务</p>
-
-<pre><code>kubectl create -f  backup.yaml                                // 创建定时备份任务
-
-kubectl get etcdtask -n kube-system | grep &lt;back-task-name&gt;   // 检查备份任务是否创建成功
-kubectl describe etcdtask -n kube-system  &lt;back-task-name&gt;    // 查看备份任务结果
-</code></pre>
-
-<h2 id="创建恢复任务">创建恢复任务</h2>
-
-<p>查看备份文件列表</p>
-
-<pre><code>cat /var/lib/etcd_backup/etcd-cluster.meta   // 查看备份元数据
-</code></pre>
-
-<p>停止服务</p>
-
-<pre><code>在集群的所有master节点执行如下命令
-
-$  systemctl stop etcd-operator; systemctl stop etcd; systemctl stop kube-apiserver
-</code></pre>
-
-<p>etcd数据恢复</p>
-
-<p>在所有的master节点上执行命令，根据提示操作，会提示确认是否停止，停止完毕则输入yes,其中etcd-data-2020-11-12_22_0_0.tar文件换成所有恢复到的版本文件</p>
-
-<p>使用本地备份文件恢复，使用本地备份文件恢复，确认所有master节点存在备份文件</p>
-
-<pre><code>$ etcd-operator  -restore=true -restore.file=etcd-data-2020-11-12_22_0_0.tar -restore.metafile=/var/lib/etcd_backup/etcd-cluster.meta  -restore.type=local
-</code></pre>
-
-<p>使用远端oss备份文件进行恢复</p>
-
-<pre><code>$ etcd-operator  -restore=true -restore.file=etcd-data-2020-11-12_22_0_0.tar -restore.metafile=/var/lib/etcd_backup/etcd-cluster.meta  -restore.type=oss
-</code></pre>
-
-<p>恢复服务</p>
-
-<p>在所有的master节点执行命令</p>
-
-<pre><code>$  systemctl start etcd; systemctl start kube-apiserver;systemctl start etcd-operator
-$  systemctl status etcd; systemctl status kube-apiserver;systemctl status etcd-operator
-</code></pre>
-
 <h2 id="手动使用备份文件恢复etcd">手动使用备份文件恢复ETCD</h2>
 
 <p>若集群etcd出错，需要使用备份文件来恢复数据时，可按以下步骤操作：</p>
@@ -338,6 +483,10 @@ snapshot restore etcd_snapshot.db \
 
 <li><p>启动每个master节点的 apiserver和etcd服务：  systemctl start etcd ;  systemctl start kube-apiserver ;</p></li>
 </ul>
+
+<h1 id="operator与statefulset的关系">operator与statefulset的关系</h1>
+
+<p>Operator 和 StatefulSet 并不是竞争关系。你完全可以编写一个 Operator，然后在 Operator 的控制循环里创建和控制 StatefulSet 而不是 Pod。比如，业界知名的<a href="/post/monitor/metrics/prometheus/prometheus-operater/">Prometheus 项目的 Operator</a>，正是这么实现的。</p>
             </div>
             
             <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
@@ -427,24 +576,25 @@ snapshot restore etcd_snapshot.db \
 
             <nav id="TableOfContents">
 <ul>
-<li><a href="#安装">安装</a></li>
+<li><a href="#安装">安装</a>
+<ul>
+<li><a href="#本地rpm安装">本地rpm安装</a></li>
+<li><a href="#k8s安装">k8s安装</a></li>
+</ul></li>
 <li><a href="#基本概念">基本概念</a></li>
-<li><a href="#基本使用">基本使用</a>
+<li><a href="#基本使用与原理">基本使用与原理</a>
 <ul>
 <li><a href="#创建etcd集群">创建etcd集群</a></li>
+<li><a href="#基本原理">基本原理</a></li>
+<li><a href="#拓扑关系和数据存储">拓扑关系和数据存储</a></li>
 <li><a href="#备份">备份</a></li>
 <li><a href="#恢复">恢复</a></li>
 </ul></li>
 <li><a href="#实战">实战</a>
 <ul>
-<li><a href="#创建备份任务-立即备份-定时备份-根据实际需求去选择">创建备份任务（立即备份、定时备份，根据实际需求去选择）</a>
-<ul>
-<li><a href="#立即备份">立即备份</a></li>
-<li><a href="#定时备份任务">定时备份任务</a></li>
-</ul></li>
-<li><a href="#创建恢复任务">创建恢复任务</a></li>
 <li><a href="#手动使用备份文件恢复etcd">手动使用备份文件恢复ETCD</a></li>
 </ul></li>
+<li><a href="#operator与statefulset的关系">operator与statefulset的关系</a></li>
 </ul>
 </nav>
         </div>
