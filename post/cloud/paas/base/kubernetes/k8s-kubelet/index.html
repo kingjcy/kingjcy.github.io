@@ -74,6 +74,37 @@
             <div class="post-content">
                 <p>kubelet用于处理master节点下发到本节点的任务，管理Pod以及Pod中的容器。每个kubelet进程会在API Server上注册节点信息，定期向master节点汇报节点资源的使用情况，并通过cAdvisor监控容器和节点的资源。</p>
 
+<h1 id="kubelet">kubelet</h1>
+
+<p>kubelet 这个组件本身，也是 Kubernetes 里面第二个不可被替代的组件（第一个不可被替代的组件当然是 kube-apiserver）。也就是说，无论如何，我都不太建议你对 kubelet 的代码进行大量的改动。保持 kubelet 跟上游基本一致的重要性，就跟保持 kube-apiserver 跟上游一致是一个道理。</p>
+
+<p>kubelet 本身，也是按照“控制器”模式来工作的。</p>
+
+<p><img src="/media/cloud/k8s/kubelet.png" alt="" /></p>
+
+<p>kubelet 的工作核心，就是一个控制循环，即：SyncLoop（图中的大圆圈）。而驱动这个控制循环运行的事件，包括四种：</p>
+
+<ul>
+<li>Pod 更新事件；</li>
+<li>Pod 生命周期变化；</li>
+<li>kubelet 本身设置的执行周期；</li>
+<li>定时的清理事件。</li>
+</ul>
+
+<p>跟其他控制器类似，kubelet 启动的时候，要做的第一件事情，就是设置 Listers，也就是注册它所关心的各种事件的 Informer。这些 Informer，就是 SyncLoop 需要处理的数据的来源。此外，kubelet 还负责维护着很多很多其他的子控制循环（也就是图中的小圆圈）。这些控制循环的名字，一般被称作某某 Manager，比如 Volume Manager、Image Manager、Node Status Manager 等等。不难想到，这些控制循环的责任，就是通过控制器模式，完成 kubelet 的某项具体职责。比如 Node Status Manager，就负责响应 Node 的状态变化，然后将 Node 的状态收集起来，并通过 Heartbeat 的方式上报给 APIServer。再比如 CPU Manager，就负责维护该 Node 的 CPU 核的信息，以便在 Pod 通过 cpuset 的方式请求 CPU 核的时候，能够正确地管理 CPU 核的使用量和可用量。</p>
+
+<p>SyncLoop，又是如何根据 Pod 对象的变化，来进行容器操作的呢？</p>
+
+<p>kubelet 也是通过 Watch 机制，监听了与自己相关的 Pod 对象的变化。当然，这个 Watch 的过滤条件是该 Pod 的 nodeName 字段与自己相同。kubelet 会把这些 Pod 的信息缓存在自己的内存里。而当一个 Pod 完成调度、与一个 Node 绑定起来之后， 这个 Pod 的变化就会触发 kubelet 在控制循环里注册的 Handler，也就是上图中的 HandlePods 部分。此时，通过检查该 Pod 在 kubelet 内存里的状态，kubelet 就能够判断出这是一个新调度过来的 Pod，从而触发 Handler 里 ADD 事件对应的处理逻辑。在具体的处理过程当中，kubelet 会启动一个名叫 Pod Update Worker 的、单独的 Goroutine 来完成对 Pod 的处理工作。</p>
+
+<p>比如，如果是 ADD 事件的话，kubelet 就会为这个新的 Pod 生成对应的 Pod Status，检查 Pod 所声明使用的 Volume 是不是已经准备好。然后，调用下层的容器运行时（比如 Docker），开始创建这个 Pod 所定义的容器。而如果是 UPDATE 事件的话，kubelet 就会根据 Pod 对象具体的变更情况，调用下层容器运行时进行容器的重建工作。</p>
+
+<p>kubelet 调用下层容器运行时的执行过程，并不会直接调用 Docker 的 API，而是通过一组叫作 CRI（Container Runtime Interface，容器运行时接口）的 gRPC 接口来间接执行的。Kubernetes 项目之所以要在 kubelet 中引入这样一层单独的抽象，当然是为了对 Kubernetes 屏蔽下层容器运行时的差异。实际上，对于 1.6 版本之前的 Kubernetes 来说，它就是直接调用 Docker 的 API 来创建和管理容器的。</p>
+
+<p>把 kubelet 对容器的操作，统一地抽象成一个接口<a href="/post/cloud/paas/base/kubernetes/k8s-cri/">CRI</a>。这样，kubelet 就只需要跟这个接口打交道了。而作为具体的容器项目，比如 Docker、 rkt、runV，它们就只需要自己提供一个该接口的实现，然后对 kubelet 暴露出 gRPC 服务即可。</p>
+
+<p>目前kubelet还集成这docker的负责响应的组件dockershim，而其他容器化CRI shim就需要自己实现部署了，所以可见dockershim被移除是必然的趋势，k8s只会提供一套统一的接口cri。</p>
+
 <h1 id="节点管理">节点管理</h1>
 
 <p>节点通过设置kubelet的启动参数“&ndash;register-node”来决定是否向API Server注册自己。如果该参数为true，那么kubelet将试着通过API Server注册自己。在自注册时，kubelet启动时还包括以下参数：</p>
@@ -2029,6 +2060,7 @@ type RuntimeService interface {
 
             <nav id="TableOfContents">
 <ul>
+<li><a href="#kubelet">kubelet</a></li>
 <li><a href="#节点管理">节点管理</a></li>
 <li><a href="#pod管理">pod管理</a>
 <ul>

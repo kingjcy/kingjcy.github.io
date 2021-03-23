@@ -110,7 +110,7 @@ Environment=&quot;KUBELET_KUBECONFIG_ARGS=--bootstrap-kubeconfig=/etc/kubernetes
 <p>其中组件的主要作用</p>
 
 <ul>
-<li>PV Controller：负责 PV/PVC 绑定及周期管理，根据需求进行数据卷的 Provision/Delete 操作；</li>
+<li>PV Controller：负责 PV/PVC 绑定及周期管理，根据需求进行数据卷的 Provision/Delete 操作；所谓将一个 PV 与 PVC 进行“绑定”，其实就是将这个 PV 对象的名字，填在了 PVC 对象的 spec.volumeName 字段上。</li>
 <li>AD Controller：负责数据卷的 Attach/Detach 操作，将设备挂接到目标节点；</li>
 <li>Kubelet：Kubelet 是在每个 Node 节点上运行的主要 “节点代理”，功能是 Pod 生命周期管理、容器健康检查、容器监控等；</li>
 <li>Volume Manager：Kubelet 中的组件，负责管理数据卷的 Mount/Umount 操作（也负责数据卷的 Attach/Detach 操作，需配置 kubelet 相关参数开启该特性）、卷设备的格式化等等；</li>
@@ -528,17 +528,17 @@ Environment=&quot;KUBELET_KUBECONFIG_ARGS=--bootstrap-kubeconfig=/etc/kubernetes
 <li>GetPluginCapabilities，获取 Plugin 支持的能力</li>
 <li>Probe，探测 Plugin 的健康状态</li>
 </ul></li>
-<li>控制器服务：Controller Plugin必须实现这些RPC集。
+<li>控制器服务：Controller Plugin必须实现这些RPC集。CSI Controller 服务里定义的这些操作有个共同特点，那就是它们都无需在宿主机上进行，而是属于 Kubernetes 里 Volume Controller 的逻辑，也就是属于 Master 节点的一部分。需要注意的是，正如我在前面提到的那样，CSI Controller 服务的实际调用者，并不是 Kubernetes（即：通过 pkg/volume/csi 发起 CSI 请求），而是 External Provisioner 和 External Attacher。这两个 External Components，分别通过监听 PVC 和 VolumeAttachement 对象，来跟 Kubernetes 进行协作。
 
 <ul>
 <li>Volume CRUD，包括了扩容和容量探测等 Volume 状态检查与操作接口</li>
-<li>Controller Publish/Unpublish Volume ，Node 对 Volume 的访问权限管理</li>
+<li>Controller Publish/Unpublish Volume ，也就是对 CSI Volume 进行 Attach/Dettach，还包括Node 对 Volume 的访问权限管理</li>
 <li>Snapshot CRD，快照的创建和删除操作，目前 CSI 定义的 Snapshot 仅用于创建 Volume，未提供回滚的语义</li>
 </ul></li>
-<li>节点服务：Node Plugin必须实现这些RPC集。
+<li>节点服务：Node Plugin必须实现这些RPC集。CSI Volume 需要在宿主机上执行的操作，都定义在了 CSI Node 服务里面
 
 <ul>
-<li>Node Stage/Unstage/Publish/Unpublish/GetStats Volume，节点上 Volume 的连接状态管理</li>
+<li>Node Stage/Unstage/Publish/Unpublish/GetStats Volume，节点上 Volume 的连接状态管理，也就是mount是由 NodeStageVolume 和 NodePublishVolume 两个接口共同实现的。</li>
 <li>Node Expand Volume, 节点上的 Volume 扩容操作，在 volume 逻辑大小扩容之后，可能还需要同步的扩容 Volume 之上的文件系统并让使用 Volume 的 Container 感知到，所以在 Node Plugin 上需要有对应的接口</li>
 <li>Node Get Capabilities/Info， Plugin 的基础属性与 Node 的属性查询</li>
 </ul></li>
@@ -633,6 +633,17 @@ service Node {
 
 <p>这些接口都定义在<a href="https://github.com/container-storage-interface/spec/blob/master/lib/go/csi/csi.pb.go">csi的spec的lib</a>中，所以我们开发的时候会引用这个库，我们只要实现这些接口就可以实现csi的基本插件功能。</p>
 
+<p>我们在来看一下我们说的组件和这个rpc是怎么个关系</p>
+
+<p><img src="/media/cloud/k8s/csi.png" alt="" /></p>
+
+<ul>
+<li>Driver Registrar 组件，负责将插件注册到 kubelet 里面（这可以类比为，将可执行文件放在插件目录下）。而在具体实现上，Driver Registrar 需要请求 CSI 插件的 Identity 服务来获取插件信息。</li>
+<li>External Provisioner 组件，负责的正是 Provision 阶段。在具体实现上，External Provisioner 监听（Watch）了 APIServer 里的 PVC 对象。当一个 PVC 被创建时，它就会调用 CSI Controller 的 CreateVolume 方法，为你创建对应 PV。</li>
+<li>External Attacher 组件，负责的正是“Attach 阶段”。在具体实现上，它监听了 APIServer 里 VolumeAttachment 对象的变化。VolumeAttachment 对象是 Kubernetes 确认一个 Volume 可以进入“Attach 阶段”的重要标志。一旦出现了 VolumeAttachment 对象，External Attacher 就会调用 CSI Controller 服务的 ControllerPublish 方法，完成它所对应的 Volume 的 Attach 阶段。</li>
+<li>Volume 的“Mount 阶段”，并不属于 External Components 的职责。当 kubelet 的 VolumeManagerReconciler 控制循环检查到它需要执行 Mount 操作的时候，会通过 pkg/volume/csi 包，直接调用 CSI Node 服务完成 Volume 的“Mount 阶段”。</li>
+</ul>
+
 <h2 id="实例">实例</h2>
 
 <p>csi-driver-host-path 是社区实现的一个 CSI 插件的示例，它以 hostpath 为后端存储，kubernetes 通过这个 CSI 插件 driver 来对接 hostpath ，管理本地 Node 节点上的存储卷。我们以这个为例子，来看看如何编写一个csi插件。</p>
@@ -652,7 +663,7 @@ service Node {
 <li>controllerserver.go主要是实现controller的rpc接口</li>
 <li>nodeserver.go主要是实现node的rpc接口</li>
 <li>utils.go基本公用函数</li>
-<li>hostpath.go入口，启动rpc服务</li>
+<li>hostpath.go入口，启动rpc服务，只要把编写好的 gRPC Server 注册给 CSI，它就可以响应来自 External Components 的 CSI 请求了。</li>
 <li>identityserver.go身份验证的rpc接口</li>
 </ul>
 
@@ -803,6 +814,12 @@ func (ids *identityServer) GetPluginCapabilities(ctx context.Context, req *csi.G
     }, nil
 }
 </code></pre>
+
+<p>其中name就是我们每次在sc中声明的csi插件的值，Kubernetes 正是通过 GetPluginInfo 的返回值，来找到你在 StorageClass 里声明要使用的 CSI 插件的。</p>
+
+<p>另外一个 GetPluginCapabilities 接口也很重要。这个接口返回的是这个 CSI 插件的“能力”。比如，当你编写的 CSI 插件不准备实现“Provision 阶段”和“Attach 阶段”（比如，一个最简单的 NFS 存储插件就不需要这两个阶段）时，你就可以通过这个接口返回：本插件不提供 CSI Controller 服务，即：没有 csi.PluginCapability_Service_CONTROLLER_SERVICE 这个“能力”。这样，Kubernetes 就知道这个信息了。</p>
+
+<p>最后，CSI Identity 服务还提供了一个 Probe 接口。Kubernetes 会调用它来检查这个 CSI 插件是否正常工作。一般情况下，我建议你在编写插件时给它设置一个 Ready 标志，当插件的 gRPC Server 停止的时候，把这个 Ready 标志设置为 false。或者，你可以在这里访问一下插件的端口，类似于健康检查的做法。</p>
 
 <h3 id="实现csi-controller">实现CSI Controller</h3>
 
@@ -1002,8 +1019,15 @@ func (cs *controllerServer) DeleteVolume(ctx context.Context, req *csi.DeleteVol
 }
 </code></pre>
 
-<p>其中，CreateVolume 和 DeleteVolume 是实现 &ldquo;Provision&rdquo; 阶段需要实现的接口，External provisioner 组件会 CSI 插件的这个接口以创建或者删除存储卷。ControllerPublishVolume 和 ControllerUnpublishVolume 是实现 &ldquo;Attach&rdquo; 阶段需要实现的接口，External attach 组件会调用 CSI 插件实现的这个接口以把某个块存储卷附着或脱离某个 Node 。
-如果想扩展 CSI 的功能，可以实现更多功能的接口，如快照功能的接口 CreateSnapshot 和 DeleteSnapshot。</p>
+<p>其中，CreateVolume 和 DeleteVolume 是实现 &ldquo;Provision&rdquo; 阶段需要实现的接口，External provisioner 组件会 CSI 插件的这个接口以创建或者删除存储卷。</p>
+
+<p>CreateVolume其实就是调用对应存储的api来创建一个存储卷，如果你使用的是其他类型的块存储（比如 Cinder、Ceph RBD 等），对应的操作也是类似地调用创建存储卷的 API。</p>
+
+<p>ControllerPublishVolume 和 ControllerUnpublishVolume 是实现 &ldquo;Attach&rdquo; 阶段需要实现的接口，External attach 组件会调用 CSI 插件实现的这个接口以把某个块存储卷附着或脱离某个 Node 。</p>
+
+<p>ControllerPublishVolume其实就是调用对应的存储的api将某个块存储卷附着某个 Node。</p>
+
+<p>如果想扩展 CSI 的功能，可以实现更多功能的接口，如快照功能的接口 CreateSnapshot 和 DeleteSnapshot。</p>
 
 <h3 id="实现csi-node">实现CSI Node</h3>
 
@@ -1234,6 +1258,8 @@ func (ns *nodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 <p>kubelet 会调用 CSI 插件实现的接口，以实现 volume 的挂载和卸载。</p>
 
 <p>其中 Volume 的挂载被分成了 NodeStageVolume 和 NodePublishVolume 两个阶段。NodeStageVolume 接口主要是针对块存储类型的 CSI 插件而提供的。 块设备在 &ldquo;Attach&rdquo; 阶段被附着在 Node 上后，需要挂载至 Pod 对应目录上，但因为块设备在 linux 上只能 mount 一次，而在 kubernetes volume 的使用场景中，一个 volume 可能被挂载进同一个 Node 上的多个 Pod 实例中，所以这里提供了 NodeStageVolume 这个接口，使用这个接口把块设备格式化后先挂载至 Node 上的一个临时全局目录，然后再调用 NodePublishVolume 使用 linux 中的 bind mount 技术把这个全局目录挂载进 Pod 中对应的目录上。</p>
+
+<p>其实就是我们首先需要格式化这个设备，然后才能把它挂载到 Volume 对应的宿主机目录上，所以需要NodeStageVolume。</p>
 
 <p>NodeUnstageVolume 和 NodeUnpublishVolume 正是 volume 卸载阶段所分别对应的上述两个流程。从上述代码中可以看到，因为 hostpath 非块存储类型的第三方存储，所以没有实现 NodeStageVolume 和 NodeUnstageVolume 这两个接口。</p>
 
