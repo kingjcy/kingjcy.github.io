@@ -265,6 +265,8 @@ KUBE-SEP-IN2YXXX
 
 <h2 id="ipvs">ipvs</h2>
 
+<p>当你的宿主机上有大量 Pod 的时候，成百上千条 iptables 规则不断地被刷新，会大量占用该宿主机的 CPU 资源，甚至会让宿主机“卡”在这个过程中。所以说，一直以来，基于 iptables 的 Service 实现，都是制约 Kubernetes 项目承载更多量级的 Pod 的主要障碍。而 IPVS 模式的 Service，就是解决这个问题的一个行之有效的方法。</p>
+
 <p>iptables的数量限制和损耗的缺点，使得ipvs得到了发展。kubernetes从1.8开始增加了IPVS支持，并在Kubernetes 1.12成为kube-proxy的默认代理模式，IPVS相对于iptables来说效率会更加高，使用ipvs模式需要在允许proxy的节点上安装ipvsadm，ipset工具包加载ipvs的内核模块。并且ipvs可以轻松处理每秒 10 万次以上的转发请求。可以说是目前比较流行的使用方式。</p>
 
 <p><img src="/media/cloud/k8s/proxy4" alt="" /></p>
@@ -272,6 +274,44 @@ KUBE-SEP-IN2YXXX
 <p>Kube-Proxy 会监视 Kubernetes Service 对象 和 Endpoints，调用 Netlink 接口以相应地创建 IPVS 规则并定期与 Kubernetes Service 对象 和 Endpoints 对象同步 IPVS 规则，以确保 IPVS 状态与期望一致。访问服务时，流量将被重定向到其中一个后端 Pod。</p>
 
 <p>ipvs模式也是基于netfilter，对比iptables模式在大规模Kubernetes集群有更好的扩展性和性能，支持更加复杂的负载均衡算法(如：最小负载、最少连接、加权等)，支持Server的健康检查和连接重试等功能。ipvs依赖于iptables，使用iptables进行包过滤、SNAT、masquared。ipvs将使用ipset需要被DROP或MASQUARED的源地址或目标地址，这样就能保证iptables规则数量的固定，我们不需要关心集群中有多少个Service了。</p>
+
+<blockquote>
+<p>原理</p>
+</blockquote>
+
+<p>IPVS 模式的工作原理，其实跟 iptables 模式类似。当我们创建了前面的 Service 之后，kube-proxy 首先会在宿主机上创建一个虚拟网卡（叫作：kube-ipvs0），并为它分配 Service VIP 作为 IP 地址，如下所示：</p>
+
+<pre><code># ip addr
+  ...
+  73：kube-ipvs0：&lt;BROADCAST,NOARP&gt;  mtu 1500 qdisc noop state DOWN qlen 1000
+  link/ether  1a:ce:f5:5f:c1:4d brd ff:ff:ff:ff:ff:ff
+  inet 10.0.1.175/32  scope global kube-ipvs0
+  valid_lft forever  preferred_lft forever
+</code></pre>
+
+<p>而接下来，kube-proxy 就会通过 Linux 的 IPVS 模块，为这个 IP 地址设置三个 IPVS 虚拟主机，并设置这三个虚拟主机之间使用轮询模式 (rr) 来作为负载均衡策略。我们可以通过 ipvsadm 查看到这个设置，如下所示：</p>
+
+<pre><code># ipvsadm -ln
+ IP Virtual Server version 1.2.1 (size=4096)
+  Prot LocalAddress:Port Scheduler Flags
+    -&gt;  RemoteAddress:Port           Forward  Weight ActiveConn InActConn
+  TCP  10.102.128.4:80 rr
+    -&gt;  10.244.3.6:9376    Masq    1       0          0
+    -&gt;  10.244.1.7:9376    Masq    1       0          0
+    -&gt;  10.244.2.3:9376    Masq    1       0          0
+</code></pre>
+
+<p>可以看到，这三个 IPVS 虚拟主机的 IP 地址和端口，对应的正是三个被代理的 Pod。这时候，任何发往 10.102.128.4:80 的请求，就都会被 IPVS 模块转发到某一个后端 Pod 上了。</p>
+
+<p>IPVS 并不需要在宿主机上为每个 Pod 设置 iptables 规则，而是把对这些“规则”的处理放到了内核态，从而极大地降低了维护这些规则的代价。这也正印证了我在前面提到过的，“将重要操作放入内核态”是提高性能的重要手段。</p>
+
+<p>而相比于 iptables，IPVS 在内核中的实现其实也是基于 Netfilter 的 NAT 模式，所以在转发这一层上，理论上 IPVS 并没有显著的性能提升。</p>
+
+<p>IPVS 模块只负责上述的负载均衡和代理功能。而一个完整的 Service 流程正常工作所需要的包过滤、SNAT 等操作，还是要靠 iptables 来实现。只不过，这些辅助性的 iptables 规则数量有限，也不会随着 Pod 数量的增加而增加。</p>
+
+<blockquote>
+<p>参数</p>
+</blockquote>
 
 <p>在运行基于IPVS的kube-proxy时，需要注意以下参数：</p>
 
@@ -289,6 +329,16 @@ KUBE-SEP-IN2YXXX
 –ipvs-min-sync-period：表示kube-proxy刷新IPVS规则最小时间间隔，例如5秒，1分钟等，要求大于0
 –ipvs-exclude-cidrs：用于清除IPVS规则时告知kube-proxy不要清理该参数配置的网段的IPVS规则。因为我们无法区别某条IPVS规则到底是kube-proxy创建的，还是其他用户进程的，配置该参数是为了避免删除用户自己的IPVS规则。
 </code></pre>
+
+<p>从k8s的1.8版本开始，kube-proxy引入了IPVS模式，IPVS模式与iptables同样基于Netfilter，但是ipvs采用的hash表，iptables采用一条条的规则列表。iptables又是为了防火墙设计的，集群数量越多iptables规则就越多，而iptables规则是从上到下匹配，所以效率就越是低下。因此当service数量达到一定规模时，hash查表的速度优势就会显现出来，从而提高service的服务性能</p>
+
+<p>ipvs和iptables都是基于netfilter的，两者差别如下：</p>
+
+<ul>
+<li>ipvs 为大型集群提供了更好的可扩展性和性能</li>
+<li>ipvs 支持比 iptables 更复杂的负载均衡算法（最小负载、最少连接、加权等等）</li>
+<li>ipvs 支持服务器健康检查和连接重试等功能</li>
+</ul>
             </div>
             
             <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
