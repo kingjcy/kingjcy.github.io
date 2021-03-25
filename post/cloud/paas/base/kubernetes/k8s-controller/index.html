@@ -383,9 +383,9 @@ func (c *Controller) syncHandler(key string) error {
 <li>被控制对象的定义，则来自于一个“模板”。比如，Deployment 里的 template 字段。Deployment 这个 template 字段里的内容，跟一个标准的 Pod 对象的 API 定义，丝毫不差。而所有被这个 Deployment 管理的 Pod 实例，其实都是根据这个 template 字段的内容创建出来的。像 Deployment 定义的 template 字段，在 Kubernetes 项目中有一个专有的名字，叫作 PodTemplate（Pod 模板）。这个概念非常重要，因为后面我要讲解到的大多数控制器，都会使用 PodTemplate 来统一定义它所要管理的 Pod。更有意思的是，我们还会看到其他类型的对象模板，比如 Volume 的模板。</li>
 </ul>
 
-<p>所以类似 Deployment 这样的一个控制器，实际上都是由上半部分的控制器定义（包括期望状态），加上下半部分的被控制对象的模板组成的。</p>
+<p>所以类似 Deployment 这样的一个控制器的yaml文件，<strong>实际上都是由上半部分的控制器定义（包括期望状态），加上下半部分的被控制对象的模板组成的。</strong></p>
 
-<p><img src="/media/cloud/k8s/deployment.png" alt="" /></p>
+<p><img src="/media/cloud/k8s/deploymemt.png" alt="" /></p>
 
 <p>所以在所有 API 对象的 Metadata 里，都有一个字段叫作 ownerReference，用于保存当前这个 API 对象的拥有者（Owner）的信息。对于一个 Deployment 所管理的 Pod，它的 ownerReference 是谁？所以，这个问题的答案就是：ReplicaSet。</p>
 
@@ -431,9 +431,9 @@ spec:
 <p>滚动更新</p>
 </blockquote>
 
-<p>只要修改镜像版本就可以自动触发滚动更新，更新过程可以用一个简单的图来表示</p>
+<p>只要修改镜像版本就可以自动触发滚动更新，更新过程可以用一个简单的图来表示，从图可见，<strong>replicaset其实就是对应了我们的版本控制的功能。</strong></p>
 
-<p><img src="/media/cloud/k8s/roll.png" alt="" /></p>
+<p><img src="/media/cloud/k8s/roll.jpg" alt="" /></p>
 
 <pre><code>$ kubectl create -f docs/user-guide/nginx-deployment.yaml --record
 deployment &quot;nginx-deployment&quot; created
@@ -557,7 +557,7 @@ deployment.extensions/nginx-deployment resumed
 </code></pre>
 
 <blockquote>
-<p>回滚：</p>
+<p>回滚</p>
 </blockquote>
 
 <p>我们只需要执行一条 kubectl rollout undo 命令，就能把整个 Deployment 回滚到上一个版本</p>
@@ -706,6 +706,9 @@ node/kube-node02 already cordoned
 </ul>
 
 <h2 id="statefulset">StatefulSet</h2>
+
+<p>statefulset其实就是就是一种特殊的deployment，他对pod进行了从0开始递增的编号，对应的体现在pod的名字和hostname上，有了这个编号，不但可以控制它的启动顺序，代表它的网络标识，还可以结合k8s的两个功能headless service（编号的pod的name和hostname不会变，对应的service也是直接可以解析到对应的hostname或者name，这样访问就不会变，这边headless service直接解析到对应的编号的pod的hostname的功能）和
+pv/pvc（pvc的name不会变，对应的存储也不会变，重建可以直接使用）的实现了拓扑状态和存储状态的维护，从而实现了有状态应用。</p>
 
 <p>StatefulSet 的设计其实非常容易理解。它把真实世界里的应用状态，抽象为了两种情况：</p>
 
