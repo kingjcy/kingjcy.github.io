@@ -82,7 +82,7 @@
 
 <p>编写自定义控制器代码的过程包括：编写 main 函数、编写自定义控制器的定义，以及编写控制器里的业务逻辑三个部分。</p>
 
-<p>举个例子，我现在要为 Kubernetes 添加一个名叫 Network 的 API 资源类型。它的作用是，一旦用户创建一个 Network 对象，那么 Kubernetes 就应该使用这个对象定义的网络参数，调用真实的网络插件，比如 Neutron 项目，为用户创建一个真正的“网络”。这样，将来用户创建的 Pod，就可以声明使用这个“网络”了。</p>
+<p>举个例子，我现在要为 k8s 添加一个名叫 Network 的 API 资源类型。它的作用是，一旦用户创建一个 Network 对象，那么 Kubernetes 就应该使用这个对象定义的网络参数，调用真实的网络插件，创建一个真正的“网络”。</p>
 
 <h2 id="main">main</h2>
 
@@ -118,6 +118,12 @@
 </ul>
 
 <p>这边是network的控制器，如果是其他类似的资源控制器，就会创建对应的资源client和informer。</p>
+
+<blockquote>
+<p>补充</p>
+</blockquote>
+
+<p>这个是在老版本的crd开发中的一个main情况，在最新的kuberbuilder构建的crd中，有所不同，下面有详细说明。但是整体的原理还是不变的。</p>
 
 <h2 id="编写自定义控制器的定义">编写自定义控制器的定义</h2>
 
@@ -210,10 +216,60 @@ type XXX struct {
 
 <ul>
 <li>首先，等待 Informer 完成一次本地缓存的数据同步操作；</li>
-<li>然后，直接通过 goroutine 启动一个（或者并发启动多个）“无限循环”的任务。</li>
+<li>然后，直接通过 goroutine 启动一个（或者并发启动多个）“无限循环”的任务。这边是一个队列+工作池的模式，池的大小可以在控制器的结构体中配置。</li>
 </ul>
 
 <p>而这个“无限循环”任务的每一个循环周期，执行的正是我们真正关心的业务逻辑。</p>
+
+<blockquote>
+<p>补充</p>
+</blockquote>
+
+<p>最新使用kubebuilder构建的控制器的启动有所不同，但是功能差不多</p>
+
+<pre><code>// Start implements controller.Controller
+func (c *Controller) Start(stop &lt;-chan struct{}) error {
+    c.mu.Lock()
+
+    // TODO(pwittrock): Reconsider HandleCrash
+    defer utilruntime.HandleCrash()
+    defer c.Queue.ShutDown()
+
+    // Start the SharedIndexInformer factories to begin populating the SharedIndexInformer caches
+    log.Info(&quot;Starting Controller&quot;, &quot;controller&quot;, c.Name)
+
+    // Wait for the caches to be synced before starting workers
+    if c.WaitForCacheSync == nil {
+        c.WaitForCacheSync = c.Cache.WaitForCacheSync
+    }
+    if ok := c.WaitForCacheSync(stop); !ok {
+        // This code is unreachable right now since WaitForCacheSync will never return an error
+        // Leaving it here because that could happen in the future
+        err := fmt.Errorf(&quot;failed to wait for %s caches to sync&quot;, c.Name)
+        log.Error(err, &quot;Could not wait for Cache to sync&quot;, &quot;controller&quot;, c.Name)
+        c.mu.Unlock()
+        return err
+    }
+
+    if c.JitterPeriod == 0 {
+        c.JitterPeriod = 1 * time.Second
+    }
+
+    // Launch workers to process resources
+    log.Info(&quot;Starting workers&quot;, &quot;controller&quot;, c.Name, &quot;worker count&quot;, c.MaxConcurrentReconciles)
+    for i := 0; i &lt; c.MaxConcurrentReconciles; i++ {
+        // Process work items
+        go wait.Until(c.worker, c.JitterPeriod, stop)
+    }
+
+    c.Started = true
+    c.mu.Unlock()
+
+    &lt;-stop
+    log.Info(&quot;Stopping workers&quot;, &quot;controller&quot;, c.Name)
+    return nil
+}
+</code></pre>
 
 <p>所以接下来，我们就来编写这个自定义控制器的业务逻辑，它的主要内容如下所示：</p>
 
@@ -284,14 +340,17 @@ func (c *Controller) syncHandler(key string) error {
 }
 </code></pre>
 
-<p>可以看到，在这个执行周期里（processNextWorkItem），我们首先从工作队列里出队（workqueue.Get）了一个成员，也就是一个 Key（Network 对象的：namespace/name）。然后，在 syncHandler 方法中，我使用这个 Key，尝试从 Informer 维护的缓存中拿到了它所对应的 Network 对象。可以看到，在这里，我使用了 networksLister 来尝试获取这个 Key 对应的 Network 对象。这个操作，其实就是在访问本地缓存的索引。实际上，在 Kubernetes 的源码中，你会经常看到控制器从各种 Lister 里获取对象，比如：podLister、nodeLister 等等，它们使用的都是 Informer 和缓存机制。而如果控制循环从缓存中拿不到这个对象（即：networkLister 返回了 IsNotFound 错误），那就意味着这个 Network 对象的 Key 是通过前面的“删除”事件添加进工作队列的。所以，尽管队列里有这个 Key，但是对应的 Network 对象已经被删除了。这时候，我就需要调用 Neutron 的 API，把这个 Key 对应的 Neutron 网络从真实的集群里删除掉。</p>
+<p>可以看到，在这个执行周期里（processNextWorkItem），我们首先从工作队列里出队（workqueue.Get）了一个成员，也就是一个 Key（Network 对象的：namespace/name）。然后，在 syncHandler 方法中，我使用这个 Key，尝试从 Informer 维护的缓存中拿到了它所对应的 Network 对象。可以看到，在这里，我使用了 networksLister 来尝试获取这个 Key 对应的 Network 对象。这个操作，其实就是在访问本地缓存的索引。实际上，在 Kubernetes 的源码中，你会经常看到控制器从各种 Lister 里获取对象，比如：podLister、nodeLister 等等，它们使用的都是 Informer 和缓存机制。</p>
 
-<p>而如果能够获取到对应的 Network 对象，我就可以执行控制器模式里的对比“期望状态”和“实际状态”的逻辑了。其中，自定义控制器“千辛万苦”拿到的这个 Network 对象，正是 APIServer 里保存的“期望状态”，即：用户通过 YAML 文件提交到 APIServer 里的信息。当然，在我们的例子里，它已经被 Informer 缓存在了本地。</p>
+<ul>
+<li>如果控制循环从缓存中拿不到这个对象（即：networkLister 返回了 IsNotFound 错误），那就意味着这个 Network 对象的 Key 是通过前面的“删除”事件添加进工作队列的。所以，尽管队列里有这个 Key，但是对应的 Network 对象已经被删除了。这时候，我就需要调用网络插件的API，把这个 Key 对应的网络从真实的集群里删除掉。</li>
+<li>如果能够获取到对应的 Network 对象，我就可以执行控制器模式里的对比“期望状态”和“实际状态”的逻辑了。其中，自定义控制器“千辛万苦”拿到的这个 Network 对象，正是 APIServer 里保存的“期望状态”，即：用户通过 YAML 文件提交到 APIServer 里的信息。当然，在我们的例子里，它已经被 Informer 缓存在了本地。</li>
+</ul>
 
 <p>那么，“实际状态”又从哪里来呢？当然是来自于实际的集群了。所以，我们的控制循环需要通过 Neutron API 来查询实际的网络情况。比如，我可以先通过 Neutron 来查询这个 Network 对象对应的真实网络是否存在。</p>
 
 <ul>
-<li>如果不存在，这就是一个典型的“期望状态”与“实际状态”不一致的情形。这时，我就需要使用这个 Network 对象里的信息（比如：CIDR 和 Gateway），调用 Neutron API 来创建真实的网络。</li>
+<li>如果不存在，这就是一个典型的“期望状态”与“实际状态”不一致的情形。这时，我就需要使用这个 Network 对象里的信息（比如：CIDR 和 Gateway），调用网络插件的API 来创建真实的网络。</li>
 <li>如果存在，那么，我就要读取这个真实网络的信息，判断它是否跟 Network 对象里的信息一致，从而决定我是否要通过 Neutron 来更新这个已经存在的真实网络。</li>
 </ul>
 
@@ -380,7 +439,7 @@ func (c *Controller) syncHandler(key string) error {
 
 <ul>
 <li>这个控制器对象本身，负责定义被管理对象的期望状态。比如，Deployment 里的 replicas=2 这个字段。</li>
-<li>被控制对象的定义，则来自于一个“模板”。比如，Deployment 里的 template 字段。Deployment 这个 template 字段里的内容，跟一个标准的 Pod 对象的 API 定义，丝毫不差。而所有被这个 Deployment 管理的 Pod 实例，其实都是根据这个 template 字段的内容创建出来的。像 Deployment 定义的 template 字段，在 Kubernetes 项目中有一个专有的名字，叫作 PodTemplate（Pod 模板）。这个概念非常重要，因为后面我要讲解到的大多数控制器，都会使用 PodTemplate 来统一定义它所要管理的 Pod。更有意思的是，我们还会看到其他类型的对象模板，比如 Volume 的模板。</li>
+<li>被控制对象的定义，则来自于一个“模板”。比如，Deployment 里的 template 字段。Deployment 这个 template 字段里的内容，跟一个标准的 Pod 对象的 API 定义，丝毫不差。而所有被这个 Deployment 管理的 Pod 实例，其实都是根据这个 template 字段的内容创建出来的。像 Deployment 定义的 template 字段，在 Kubernetes 项目中有一个专有的名字，叫作 PodTemplate（Pod 模板）。这个概念非常重要，大多数控制器都会使用 PodTemplate 来统一定义它所要管理的 Pod。我们还会看到其他类型的对象模板，比如 Volume 的模板。</li>
 </ul>
 
 <p>所以类似 Deployment 这样的一个控制器的yaml文件，<strong>实际上都是由上半部分的控制器定义（包括期望状态），加上下半部分的被控制对象的模板组成的。</strong></p>
@@ -415,7 +474,7 @@ spec:
 <p>扩容</p>
 </blockquote>
 
-<p>可是为什么需要deployment？rs不久能实现副本的控制了吗？其实Deployment 同样通过“控制器模式”，来操作 ReplicaSet 的个数和属性，进而实现“水平扩展 / 收缩”和“滚动更新”这两个编排动作。ReplicaSet 并不直接支持滚动更新，这才是重点，我们一一详解。</p>
+<p>可是为什么需要deployment？rs不就能实现副本的控制了吗？其实Deployment 同样通过“控制器模式”，来操作 ReplicaSet 的个数和属性，进而实现“水平扩展 / 收缩”和“滚动更新”这两个编排动作。ReplicaSet 并不直接支持滚动更新，这才是重点，我们一一详解。</p>
 
 <pre><code>kubectl scale deployment nginx-deployment --replicas 10
 </code></pre>
@@ -523,7 +582,9 @@ nginx-deployment-1764197365   3         3         3       6s
 nginx-deployment-3167673210   0         0         0       30s
 </code></pre>
 
-<p>这种“滚动更新”的好处是显而易见的。比如，在升级刚开始的时候，集群里只有 1 个新版本的 Pod。如果这时，新版本 Pod 有问题启动不起来，那么“滚动更新”就会停止，从而允许开发和运维人员介入。而在这个过程中，由于应用本身还有两个旧版本的 Pod 在线，所以服务并不会受到太大的影响。当然，这也就要求你一定要使用 Pod 的 Health Check 机制检查应用的运行状态，而不是简单地依赖于容器的 Running 状态。要不然的话，虽然容器已经变成 Running 了，但服务很有可能尚未启动，“滚动更新”的效果也就达不到了。而为了进一步保证服务的连续性，Deployment Controller 还会确保，在任何时间窗口内，只有指定比例的 Pod 处于离线状态。同时，它也会确保，在任何时间窗口内，只有指定比例的新 Pod 被创建出来。这两个比例的值都是可以配置的，默认都是 DESIRED 值的 25%。</p>
+<p>这种“滚动更新”的好处是显而易见的。比如，在升级刚开始的时候，集群里只有 1 个新版本的 Pod。如果这时，新版本 Pod 有问题启动不起来，那么“滚动更新”就会停止，从而允许开发和运维人员介入。而在这个过程中，由于应用本身还有两个旧版本的 Pod 在线，所以服务并不会受到太大的影响。当然，这也就要求你一定要使用 Pod 的 Health Check 机制检查应用的运行状态，而不是简单地依赖于容器的 Running 状态。要不然的话，虽然容器已经变成 Running 了，但服务很有可能尚未启动，“滚动更新”的效果也就达不到了。</p>
+
+<p>而为了进一步保证服务的连续性，Deployment Controller 还会确保，在任何时间窗口内，只有指定比例的 Pod 处于离线状态。同时，它也会确保，在任何时间窗口内，只有指定比例的新 Pod 被创建出来。这两个比例的值都是可以配置的，默认都是 DESIRED 值的 25%。</p>
 
 <p>在上面这个 Deployment 的例子中，它有 3 个 Pod 副本，那么控制器在“滚动更新”的过程中永远都会确保至少有 2 个 Pod 处于可用状态，至多只有 4 个 Pod 同时存在于集群中。这个策略，是 Deployment 对象的一个字段，名叫 RollingUpdateStrategy，如下所示：</p>
 
@@ -718,6 +779,8 @@ pv/pvc（pvc的name不会变，对应的存储也不会变，重建可以直接�
 </ul>
 
 <p>所以，StatefulSet 的核心功能，就是通过某种方式记录这些状态，然后在 Pod 被重新创建时，能够为新 Pod 恢复这些状态。</p>
+
+<p>statefulset升级是重最高编号开始的。</p>
 
 <h3 id="拓扑状态">拓扑状态</h3>
 
@@ -1320,6 +1383,8 @@ spec:
 
 <h2 id="daemonset">DaemonSet</h2>
 
+<p>daemonset主要依靠调度的tolerations功能和node affinity功能实现了每个节点上一个实例的控制。</p>
+
 <p>DaemonSet保证在每个Node上都运行一个容器副本，常用来部署一些集群的日志、监控或者其他系统管理应用。典型的应用包括：</p>
 
 <ul>
@@ -1386,33 +1451,19 @@ spec:
 
 <p>1、选择node</p>
 
-<p>DaemonSet Controller，首先从 Etcd 里获取所有的 Node 列表，然后遍历所有的 Node。这时，它就可以很容易地去检查，当前这个 Node 上是不是有一个携带了 name=fluentd-elasticsearch 标签的 Pod 在运行。而检查的结果，可能有这么三种情况：没有这种 Pod，那么就意味着要在这个 Node 上创建这样一个 Pod；有这种 Pod，但是数量大于 1，那就说明要把多余的 Pod 从这个 Node 上删除掉；正好只有一个这种 Pod，那说明这个节点是正常的。其中，删除节点（Node）上多余的 Pod 非常简单，直接调用 Kubernetes API 就可以了。但是，如何在指定的 Node 上创建新 Pod 呢？如果你已经熟悉了 Pod API 对象的话，那一定可以立刻说出答案：用 nodeSelector，选择 Node 的名字即可。</p>
+<p>DaemonSet Controller，首先从 Etcd 里获取所有的 Node 列表，然后遍历所有的 Node。这时，它就可以很容易地去检查，当前这个 Node 上是不是有一个携带了 name=fluentd-elasticsearch 标签的 Pod 在运行。而检查的结果，可能有这么三种情况：</p>
 
-<p>不过，在 Kubernetes 项目里，nodeSelector 其实已经是一个将要被废弃的字段了。因为，现在有了一个新的、功能更完善的字段可以代替它，即：nodeAffinity。我们先来看看</p>
+<ul>
+<li>没有这种 Pod，那么就意味着要在这个 Node 上创建这样一个 Pod；</li>
+<li>有这种 Pod，但是数量大于 1，那就说明要把多余的 Pod 从这个 Node 上删除掉；</li>
+<li>正好只有一个这种 Pod，那说明这个节点是正常的。</li>
+</ul>
+
+<p>其中，删除节点（Node）上多余的 Pod 非常简单，直接调用 Kubernetes API 就可以了。但是，如何在指定的 Node 上创建新 Pod 呢？如果你已经熟悉了 Pod API 对象的话，那一定可以立刻说出答案：用 nodeSelector，选择 Node 的名字即可。不过，在 Kubernetes 项目里，nodeSelector 其实已经是一个将要被废弃的字段了。因为，现在有了一个新的、功能更完善的字段可以代替它，即：nodeAffinity。我们先来看看</p>
 
 <p><strong>指定Node节点</strong></p>
 
-<p>DaemonSet会忽略Node的unschedulable状态，有两种方式来指定Pod只运行在指定的Node节点上：</p>
-
-<ul>
-<li>nodeSelector：只调度到匹配指定label的Node上</li>
-<li>nodeAffinity：功能更丰富的Node选择器，比如支持集合操作</li>
-<li>podAffinity：调度到满足条件的Pod所在的Node上</li>
-</ul>
-
-<p>nodeSelector示例</p>
-
-<p>首先给Node打上标签</p>
-
-<pre><code>kubectl label nodes node-01 disktype=ssd
-</code></pre>
-
-<p>然后在daemonset中指定nodeSelector为disktype=ssd：</p>
-
-<pre><code>spec:
-  nodeSelector:
-    disktype: ssd
-</code></pre>
+<p>DaemonSet会忽略Node的unschedulable状态，有两种方式来指定Pod只运行在指定的Node节点上，上面说了现在基本使用：nodeAffinity：功能更丰富的Node选择器，比如支持集合操作</p>
 
 <p>nodeAffinity示例</p>
 
@@ -1446,57 +1497,7 @@ spec:
     image: gcr.io/google_containers/pause:2.0
 </code></pre>
 
-<p>podAffinity示例</p>
-
-<p>podAffinity基于Pod的标签来选择Node，仅调度到满足条件Pod所在的Node上，支持podAffinity和podAntiAffinity。这个功能比较绕，以下面的例子为例：</p>
-
-<p>如果一个“Node所在Zone中包含至少一个带有security=S1标签且运行中的Pod”，那么可以调度到该Node</p>
-
-<p>不调度到“包含至少一个带有security=S2标签且运行中Pod”的Node上</p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: with-pod-affinity
-spec:
-  affinity:
-    podAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-      - labelSelector:
-          matchExpressions:
-          - key: security
-            operator: In
-            values:
-            - S1
-        topologyKey: failure-domain.beta.kubernetes.io/zone
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchExpressions:
-            - key: security
-              operator: In
-              values:
-              - S2
-          topologyKey: kubernetes.io/hostname
-  containers:
-  - name: with-pod-affinity
-    image: gcr.io/google_containers/pause:2.0
-</code></pre>
-
-<p>静态Pod</p>
-
-<p>除了DaemonSet，还可以使用静态Pod来在每台机器上运行指定的Pod，这需要kubelet在启动的时候指定manifest目录：</p>
-
-<pre><code>kubelet --pod-manifest-path=/etc/kubernetes/manifests
-</code></pre>
-
-<p>然后将所需要的Pod定义文件放到指定的manifest目录中。</p>
-
-<p>注意：静态Pod不能通过API Server来删除，但可以通过删除manifest文件来自动删除对应的Pod。</p>
-
-<p>以上几种方式是对node选择的总结，我们还是回到deamonset中，我们的 DaemonSet Controller 会在创建 Pod 的时候，自动在这个 Pod 的 API 对象里，加上这样一个 nodeAffinity 定义。其中，需要绑定的节点名字，正是当前正在遍历的这个 Node。当然，DaemonSet 并不需要修改用户提交的 YAML 文件里的 Pod 模板，而是在向 Kubernetes 发起请求之前，直接修改根据模板生成的 Pod 对象。这个思路，也正是我在前面讲解 Pod 对象时介绍过的。</p>
+<p>我们的 DaemonSet Controller 会在创建 Pod 的时候，自动在这个 Pod 的 API 对象里，加上这样一个 nodeAffinity 定义。其中，需要绑定的节点名字，正是当前正在遍历的这个 Node。当然，DaemonSet 并不需要修改用户提交的 YAML 文件里的 Pod 模板，而是在向 Kubernetes 发起请求之前，直接修改根据模板生成的 Pod 对象。</p>
 
 <p>2、忽略不能调度的规则</p>
 
@@ -1531,7 +1532,7 @@ template:
         effect: NoSchedule
 </code></pre>
 
-<p>在 Kubernetes 项目中，当一个节点的网络插件尚未安装时，这个节点就会被自动加上名为node.kubernetes.io/network-unavailable的“污点”。而通过这样一个 Toleration，调度器在调度这个 Pod 的时候，就会忽略当前节点上的“污点”，从而成功地将网络插件的 Agent 组件调度到这台机器上启动起来。这种机制，正是我们在部署 Kubernetes 集群的时候，能够先部署 Kubernetes 本身、再部署网络插件的根本原因：因为当时我们所创建的 Weave 的 YAML，实际上就是一个 DaemonSet。</p>
+<p>在 Kubernetes 项目中，当一个节点的网络插件尚未安装时，这个节点就会被自动加上名为node.kubernetes.io/network-unavailable的“污点”。而通过这样一个 Toleration，调度器在调度这个 Pod 的时候，就会忽略当前节点上的“污点”，从而成功地将网络插件的 Agent 组件调度到这台机器上启动起来。这种机制，正是我们在部署 Kubernetes 集群的时候，能够先部署 Kubernetes 本身、再部署网络插件的根本原因。</p>
 
 <p>你也可以在 Pod 模板里加上更多种类的 Toleration，从而利用 DaemonSet 达到自己的目的。比如，在这个 fluentd-elasticsearch DaemonSet 里，我就给它加上了这样的 Toleration：</p>
 
@@ -1593,11 +1594,11 @@ daemonset.extensions/fluentd-elasticsearch rolled back
 
 <p>这个 kubectl rollout undo 操作，实际上相当于读取到了 Revision=1 的 ControllerRevision 对象保存的 Data 字段。而这个 Data 字段里保存的信息，就是 Revision=1 时这个 DaemonSet 的完整 API 对象。所以，现在 DaemonSet Controller 就可以使用这个历史 API 对象，对现有的 DaemonSet 做一次 PATCH 操作（等价于执行一次 kubectl apply -f “旧的 DaemonSet 对象”），从而把这个 DaemonSet“更新”到一个旧版本。这也是为什么，在执行完这次回滚完成后，你会发现，DaemonSet 的 Revision 并不会从 Revision=2 退回到 1，而是会增加成 Revision=3。这是因为，一个新的 ControllerRevision 被创建了出来。</p>
 
-<p>StatefulSet 也是直接控制 Pod 对象的，那么它是不是也在使用 ControllerRevision 进行版本管理呢？没错。在 Kubernetes 项目里，ControllerRevision 其实是一个通用的版本管理对象。这样，Kubernetes 项目就巧妙地避免了每种控制器都要维护一套冗余的代码和逻辑的问题。</p>
+<p>StatefulSet 也是直接控制 Pod 对象的，所以也是使用 ControllerRevision 进行版本管理。在 Kubernetes 项目里，ControllerRevision 其实是一个通用的版本管理对象。这样，Kubernetes 项目就巧妙地避免了每种控制器都要维护一套冗余的代码和逻辑的问题。</p>
 
 <h2 id="job">job</h2>
 
-<p>depolyment，statefulset，deamonset主要编排的对象，都是“在线业务”，即：Long Running Task（长作业）。有一类作业显然不满足这样的条件，这就是“离线业务”，或者叫作 Batch Job（计算业务）。这种业务在计算完成后就直接退出了，而此时如果你依然用 Deployment 来管理这种业务的话，就会发现 Pod 会在计算结束后退出，然后被 Deployment Controller 不断地重启；而像“滚动更新”这样的编排功能，更无从谈起了。</p>
+<p>depolyment，statefulset，deamonset主要编排的对象，都是“在线业务”，即：Long Running Task（长作业）。有一类作业显然不满足这样的条件，这就是“离线业务”，或者叫作 Batch Job（计算业务）。这种业务在计算完成后就直接退出了，而此时如果依然用 Deployment 来管理这种业务的话，就会发现 Pod 会在计算结束后退出，然后被 Deployment Controller 不断地重启，这就有问题了，更加不需要“滚动更新”这样的编排功能。</p>
 
 <p>Job负责批量处理短暂的一次性任务 (short lived one-off tasks)，即仅执行一次的任务，它保证批处理任务的一个或多个Pod成功结束。</p>
 
@@ -1965,25 +1966,9 @@ object-jcy   15s
 
 <h3 id="crd控制器的原理">CRD控制器的原理</h3>
 
-<p>在正式开发控制器之前，我们先理解一下自定义控制器的工作原理，因为很多东西直接是用工具生成的。</p>
-
-<p><strong>为什么要做controller？</strong></p>
+<p>自定义控制器的工作原理，我们在上面已经详细说明了，很多东西直接是用工具生成的。</p>
 
 <p>如果仅仅是在etcd保存Jcy对象是没有什么意义的，试想通过deployment创建pod时，如果只在etcd创建pod对象，而不去node节点创建容器，那这个pod对象只是一条数据而已，没有什么实质性作用，其他对象如service、pv也是如此。</p>
-
-<p>controller的作用就是监听指定对象的新增、删除、修改等变化，针对这些变化做出相应的响应（例如新增pod的响应为创建docker容器），原理如下</p>
-
-<p><img src="/media/cloud/k8s/develop" alt="" /></p>
-
-<p>API对象的变化会通过Informer存入队列（WorkQueue），在Controller中消费队列的数据做出响应，响应相关的具体代码就是我们要做的真正业务逻辑，也就是我们要实现的控制器部分业务代码。</p>
-
-<p>CRD控制器的informer工作流，可分为监听、同步、触发三个步骤：</p>
-
-<ul>
-<li>Controller 首先会通过Informer （所谓的 Informer，就是一个自带缓存和索引机制），从K8ss的API Server中获取它所关心的对象，举个例子，也就是我编写的Controller获取的应该是jcy对象。值得注意的是Informer在构建之前，会使用我们生成的client,再透过Reflector的ListAndWatch机制跟API Server建立连接，不断地监听jcy对象实例的变化。在 ListAndWatch 机制下，一旦 APIServer 端有新的 jcy 实例被创建、删除或者更新，Reflector 都会收到“事件通知”。该事件及它对应的 API 对象会被放进一个 Delta FIFO Queue中。</li>
-<li>Local Store 此时完成同步缓存操作</li>
-<li>Informer 根据这些事件的类型，触发我们编写并注册号的ResourceEventHandler，完成业务动作的触发。</li>
-</ul>
 
 <p>代码实际上可以通过<a href="https://github.com/kubernetes/code-generator">code-generator</a>官方提供的工具生成的。</p>
 
@@ -2736,7 +2721,7 @@ kubebuilder init --domain test
 ├── api
 │   └── v1
 │       ├── groupversion_info.go                包含了关于 group-version 的一些元数据
-│       ├── jcy_types.go                        数据
+│       ├── jcy_types.go                        数据结构
 │       └── zz_generated.deepcopy.go            包含了前述 runtime.Object 接口的自动实现，这些实现标记了代表 Kinds 的所有根类型。
 ├── bin
 │   └── manager
@@ -2797,8 +2782,78 @@ kubebuilder init --domain test
 </ul>
 
 <blockquote>
+<p>main入口</p>
+</blockquote>
+
+<p>我们的 main 文件最开始是 import 一些基本库，尤其是：</p>
+
+<ul>
+<li>核心的 控制器运行时 库，也就是controller-runtime</li>
+<li>默认的控制器运行时日志库&ndash; Zap</li>
+</ul>
+
+<p>如下所示</p>
+
+<pre><code>package main
+
+import (
+    &quot;flag&quot;
+    &quot;fmt&quot;
+    &quot;os&quot;
+
+    &quot;k8s.io/apimachinery/pkg/runtime&quot;
+    _ &quot;k8s.io/client-go/plugin/pkg/client/auth/gcp&quot;
+    ctrl &quot;sigs.k8s.io/controller-runtime&quot;
+    &quot;sigs.k8s.io/controller-runtime/pkg/cache&quot;
+    &quot;sigs.k8s.io/controller-runtime/pkg/log/zap&quot;
+    // +kubebuilder:scaffold:imports
+)
+</code></pre>
+
+<p>每一组控制器都需要一个 Scheme（一种追踪 Go Type 的方法，它对应于给定的 GVK），它提供了 Kinds 和相应的 Go 类型之间的映射。如下所示</p>
+
+<pre><code>var (
+    scheme   = runtime.NewScheme()
+    setupLog = ctrl.Log.WithName(&quot;setup&quot;)
+)
+
+func init() {
+
+    // +kubebuilder:scaffold:scheme
+}
+</code></pre>
+
+<p>然后看main</p>
+
+<pre><code>func main() {
+    var metricsAddr string
+    flag.StringVar(&amp;metricsAddr, &quot;metrics-addr&quot;, &quot;:8080&quot;, &quot;The address the metric endpoint binds to.&quot;)
+    flag.Parse()
+
+    ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
+
+    mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{Scheme: scheme, MetricsBindAddress: metricsAddr})
+    if err != nil {
+        setupLog.Error(err, &quot;unable to start manager&quot;)
+        os.Exit(1)
+}
+</code></pre>
+
+<p>这段代码的核心逻辑比较简单:</p>
+
+<ul>
+<li>我们通过 flag 库解析入参</li>
+<li>我们实例化了一个manager，它记录着我们所有控制器的运行情况，以及设置共享缓存和API服务器的客户端（注意，我们把我们的 Scheme 的信息告诉了 manager）。</li>
+<li>运行 manager，它反过来运行我们所有的控制器和 webhooks。manager 状态被设置为 Running，直到它收到一个优雅停机 (graceful shutdown) 信号。这样一来，当我们在 Kubernetes 上运行时，我们就可以优雅地停止 pod。</li>
+</ul>
+
+<p>这边封装的比较好了，manager启动其实做了很多的事情，我们在下面的源码详解中说明。</p>
+
+<blockquote>
 <p>开发结构体</p>
 </blockquote>
+
+<p>一个api对象的命名是GVK（Group Version Kind），每个api对象都有着一样的初始化结构体，就在对应的type.go文件里面。</p>
 
 <p>我们来看看这个结构体文件，首先导入meta/v1 API 组，通常本身并不会暴露该组，而是包含所有 Kubernetes 种类共有的元数据。</p>
 
@@ -2820,7 +2875,7 @@ type Jcy struct {
 }
 </code></pre>
 
-<p>我们需要做的就是扩展JcySpec和JcyStatus来定义我们需要使用的字段。</p>
+<p>我们需要做的就是扩展JcySpec和JcyStatus来定义我们需要使用的字段。其实就是我们在yaml文件中使用的一下配置。</p>
 
 <p>还提供了批量操作LIST</p>
 
@@ -2840,10 +2895,23 @@ type JcyList struct {
 </code></pre>
 
 <blockquote>
+<p>设计一个api</p>
+</blockquote>
+
+<p>其实就是如何设计spec中的数据，这个是有一定的规范的</p>
+
+<ul>
+<li>所有序列化的字段必须是 驼峰式</li>
+<li>使用omitempty 标签来标记一个字段在空的时候应该在序列化的时候省略。</li>
+<li>字段可以使用大多数的基本类型。数字是个例外：出于 API 兼容性的目的，我们只允许三种数字类型。对于整数，需要使用 int32 和 int64 类型；对于小数，使用 resource.Quantity 类型。</li>
+<li>还有一个我们使用的特殊类型：metav1.Time。 它有一个稳定的、可移植的序列化格式的功能，其他与 time.Time 相同。</li>
+</ul>
+
+<blockquote>
 <p>开发控制器</p>
 </blockquote>
 
-<p>在来看看Controller默认 Jcy Controller 名为 ReconcileJcy，其只有一个主要方法就是：</p>
+<p>在来看看Controller默认 Jcy Controller 名为 ReconcileJcy，这个就是我们控制器的reconciler 结构体，都是kubebuilder默认创建的，其只有一个主要方法就是：</p>
 
 <pre><code>func (r *ReconcileJcy) Reconcile(request reconcile.Request) (reconcile.Result, error)
 </code></pre>
@@ -2878,7 +2946,7 @@ type JcyReconciler struct {
 }
 </code></pre>
 
-<p>大多数控制器需要一个日志句柄和一个上下文，所以我们在 Reconcile 中将他们初始化。</p>
+<p>大多数控制器需要一个日志句柄和一个上下文，所以我们在 Reconcile 中将他们初始化。上下文是用来允许取消请求的，也或者是实现 tracing 等功能。它是所有 client 方法的第一个参数。Background 上下文只是一个基本的上下文，没有任何额外的数据或超时时间限制。日志当然就是打印日志的。</p>
 
 <pre><code>func (r *JcyReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
     _ = context.Background()
@@ -2899,6 +2967,8 @@ type JcyReconciler struct {
 }
 </code></pre>
 
+<p>下面就是我们来实现基本逻辑了，在Reconcile中，我们假设jcy就是定时任务的作用，实现那基本逻辑：</p>
+
 <blockquote>
 <p>总结</p>
 </blockquote>
@@ -2910,6 +2980,8 @@ type JcyReconciler struct {
 <li>编写自定义控制器的定义，</li>
 <li>编写控制器里的业务逻辑。</li>
 </ul>
+
+<p>其实就是我在一开始说的根据原理基本开发的内容。</p>
 
 <blockquote>
 <p>测试</p>
@@ -2943,104 +3015,6 @@ type JcyReconciler struct {
 <pre><code>make run
 </code></pre>
 
-<h3 id="控制器开发">控制器开发</h3>
-
-<blockquote>
-<p>main</p>
-</blockquote>
-
-<p>我们的 main 文件最开始是 import 一些基本库，尤其是：</p>
-
-<ul>
-<li>核心的 控制器运行时controller-runtime 库</li>
-<li>默认的控制器运行时日志库&ndash; Zap</li>
-</ul>
-
-<p>代码如下</p>
-
-<pre><code>import (
-    &quot;flag&quot;
-    &quot;os&quot;
-
-    &quot;k8s.io/apimachinery/pkg/runtime&quot;
-    clientgoscheme &quot;k8s.io/client-go/kubernetes/scheme&quot;
-    _ &quot;k8s.io/client-go/plugin/pkg/client/auth/gcp&quot;
-    ctrl &quot;sigs.k8s.io/controller-runtime&quot;
-    &quot;sigs.k8s.io/controller-runtime/pkg/log/zap&quot;
-
-    webappv1 &quot;example/api/v1&quot;
-    &quot;example/controllers&quot;
-    // +kubebuilder:scaffold:imports
-)
-</code></pre>
-
-<p>每一组控制器都需要一个 Scheme，它提供了 Kinds 和相应的 Go 类型之间的映射。</p>
-
-<pre><code>var (
-    scheme   = runtime.NewScheme()
-    setupLog = ctrl.Log.WithName(&quot;setup&quot;)
-)
-
-func init() {
-    _ = clientgoscheme.AddToScheme(scheme)
-
-    _ = webappv1.AddToScheme(scheme)
-    // +kubebuilder:scaffold:scheme
-}
-</code></pre>
-
-<p>最后即使main函数了</p>
-
-<pre><code>func main() {
-    var metricsAddr string
-    var enableLeaderElection bool
-    flag.StringVar(&amp;metricsAddr, &quot;metrics-addr&quot;, &quot;:8080&quot;, &quot;The address the metric endpoint binds to.&quot;)
-    flag.BoolVar(&amp;enableLeaderElection, &quot;enable-leader-election&quot;, false,
-        &quot;Enable leader election for controller manager. &quot;+
-            &quot;Enabling this will ensure there is only one active controller manager.&quot;)
-    flag.Parse()
-
-    ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
-
-    mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-        Scheme:             scheme,
-        MetricsBindAddress: metricsAddr,
-        Port:               9443,
-        LeaderElection:     enableLeaderElection,
-        LeaderElectionID:   &quot;8bf23ea1.test&quot;,
-    })
-    if err != nil {
-        setupLog.Error(err, &quot;unable to start manager&quot;)
-        os.Exit(1)
-    }
-
-    if err = (&amp;controllers.JcyReconciler{
-        Client: mgr.GetClient(),
-        Log:    ctrl.Log.WithName(&quot;controllers&quot;).WithName(&quot;Jcy&quot;),
-        Scheme: mgr.GetScheme(),
-    }).SetupWithManager(mgr); err != nil {
-        setupLog.Error(err, &quot;unable to create controller&quot;, &quot;controller&quot;, &quot;Jcy&quot;)
-        os.Exit(1)
-    }
-    // +kubebuilder:scaffold:builder
-
-    setupLog.Info(&quot;starting manager&quot;)
-    if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-        setupLog.Error(err, &quot;problem running manager&quot;)
-        os.Exit(1)
-    }
-}
-</code></pre>
-
-<p>这段代码的核心逻辑比较简单:</p>
-
-<ul>
-<li>我们通过 flag 库解析入参</li>
-<li>我们实例化了一个manager，它记录着我们所有控制器的运行情况，以及设置共享缓存和API服务器的客户端（注意，我们把我们的 Scheme 的信息告诉了 manager）。</li>
-<li>将 Manager 的 Client 传给 Controller，并且调用 SetupWithManager 方法传入 Manager 进行 Controller 的初始化</li>
-<li>运行 manager，它反过来运行我们所有的控制器和 webhooks。manager 状态被设置为 Running，直到它收到一个优雅停机 (graceful shutdown) 信号。这样一来，当我们在 Kubernetes 上运行时，我们就可以优雅地停止 pod。</li>
-</ul>
-
 <blockquote>
 <p>专业名称</p>
 </blockquote>
@@ -3054,33 +3028,6 @@ func init() {
 <li>GVR（Group Version Resources）就是就是当我们在一个特定的群组版本 (Group-Version) 中提到一个 resources</li>
 <li>Scheme是一种追踪 Go Type 的方法，它对应于给定的 GVK。提供了 Kinds 与对应 Go types 的映射，也就是说给定 Go type 就知道他的 GVK，给定 GVK 就知道他的 Go type。</li>
 </ul>
-
-<blockquote>
-<p>设计一个api</p>
-</blockquote>
-
-<p>其实就是如何设计spec中的数据，这个是有一定的规范的</p>
-
-<ul>
-<li>所有序列化的字段必须是 驼峰式</li>
-<li>使用omitempty 标签来标记一个字段在空的时候应该在序列化的时候省略。</li>
-<li>字段可以使用大多数的基本类型。数字是个例外：出于 API 兼容性的目的，我们只允许三种数字类型。对于整数，需要使用 int32 和 int64 类型；对于小数，使用 resource.Quantity 类型。</li>
-<li>还有一个我们使用的特殊类型：metav1.Time。 它有一个稳定的、可移植的序列化格式的功能，其他与 time.Time 相同。</li>
-</ul>
-
-<blockquote>
-<p>实现一个控制器</p>
-</blockquote>
-
-<p>其实就是实现我们对这个自定义资源的crud操作，并且保持期待状态和实际状态的统一。主要是在控制器文件中修改</p>
-
-<blockquote>
-<p>main的注册</p>
-</blockquote>
-
-<p>在前面讲过，需要将我们关系的资源注册到scheme中去。</p>
-
-<p>到这里基本上一个crd资源就完成了定义和控制的所有开发，就可以使用了。</p>
 
 <h2 id="源码解析">源码解析</h2>
 
@@ -3709,7 +3656,6 @@ func (c *Controller) processNextWorkItem() bool {
 <li><a href="#依赖">依赖</a></li>
 <li><a href="#安装">安装</a></li>
 <li><a href="#使用">使用</a></li>
-<li><a href="#控制器开发">控制器开发</a></li>
 </ul></li>
 <li><a href="#源码解析">源码解析</a></li>
 </ul></li>
