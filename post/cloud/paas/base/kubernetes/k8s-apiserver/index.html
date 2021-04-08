@@ -6,7 +6,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <meta name="author" content="fatedier">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<meta name="description" content="apiserver是集群的核心，kubernetes API server的核心功能是提供了kubernetes各类资源对象（pod、RC 、service等）的增、删、改、查以及watch等HTTP Rest接口，是整个系统的数据总线和数据中心。">
+<meta name="description" content="apiserver是集群的核心，是k8s中最重要的组件，因为它是实现声明式api的关键。
+
+kubernetes API server的核心功能是提供了kubernetes各类资源对象（pod、RC 、service等）的增、删、改、查以及watch等HTTP Rest接口。">
 <meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
 <meta property="og:title" content="云计算K8s组件系列（一）---- K8s apiserver 详解 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
 
@@ -72,7 +74,9 @@
             </header>
 
             <div class="post-content">
-                <p>apiserver是集群的核心，kubernetes API server的核心功能是提供了kubernetes各类资源对象（pod、RC 、service等）的增、删、改、查以及watch等HTTP Rest接口，是整个系统的数据总线和数据中心。</p>
+                <p>apiserver是集群的核心，是k8s中最重要的组件，因为它是实现声明式api的关键。</p>
+
+<p>kubernetes API server的核心功能是提供了kubernetes各类资源对象（pod、RC 、service等）的增、删、改、查以及watch等HTTP Rest接口。</p>
 
 <h1 id="接口">接口</h1>
 
@@ -138,6 +142,32 @@ service
 <h2 id="各种语言的client-lib">各种语言的client lib</h2>
 
 <p>也就是对上面api接口的封装。</p>
+
+<p>使用各种编程语言的Kubernetes API的客户端库，主要包括两类：</p>
+
+<ul>
+<li>官方支持的Kubernetes客户端库</li>
+<li>社区维护的客户端库</li>
+</ul>
+
+<p>其实编程主要是走client的库，已经封装好了，不需要具体调用对于的api。</p>
+
+<ul>
+<li>官方
+
+<ul>
+<li>Go：github.com/kubernetes/client-go/</li>
+<li>Python：github.com/kubernetes-client/python/</li>
+<li>Java：github.com/kubernetes-client/java</li>
+<li>dotnet：github.com/kubernetes-client/csharp</li>
+<li>JavaScript：github.com/kubernetes-client/javascript</li>
+</ul></li>
+<li>社区
+
+<ul>
+<li>Go：github.com/ericchiang/k8s</li>
+</ul></li>
+</ul>
 
 <h2 id="命令行kubectl">命令行kubectl</h2>
 
@@ -244,7 +274,7 @@ kubectl cp ./test.war logtestjbossforone-7b89dd5c9-297pf:/opt/wildfly/standalone
 
 <p><img src="/media/cloud/k8s/k8s" alt="" /></p>
 
-<p>Etcd 存储集群的数据信息，apiserver 作为统一入口，任何对数据的操作都必须经过 apiserver。apiserver负责各个模块之间的通信，集群里的功能模块通过apiserver将信息存入到etcd中，其他模块通过apiserver读取这些信息，实现来模块之间的交互。</p>
+<p>apiserver 作为统一入口，任何对数据的操作都必须经过 apiserver。apiserver负责各个模块之间的通信，集群里的功能模块通过apiserver将信息存入到etcd中，Etcd 存储集群的数据信息，其他模块通过apiserver读取这些信息，实现来模块之间的交互。</p>
 
 <ul>
 <li>场景一（kubelet和API Server）：每个node节点上的kubelet每个一个时间周期，就会调用一次API Server的REST接口报告自身的状态，API Server接受到这些信息后，将节点信息更新到etcd中。还有，kubelet也通过API Server的Watch接口（读取etcd的数据）监听Pod信息，如果监听到新的Pod副本被调用绑定到本节点，则执行pod对应的容器的创建和启动；如果监听到Pod的删除操作，则删除本节点上相应的Pod容器；如果检测到修改操作，则kubelet会相应的修改本节点的Pod的容器。</li>
@@ -312,14 +342,7 @@ kubectl cp ./test.war logtestjbossforone-7b89dd5c9-297pf:/opt/wildfly/standalone
 <p>list</p>
 </blockquote>
 
-<p>先看基本api的格式</p>
-
-<pre><code>https://v1-10.docs.kubernetes.io/docs/reference/generated/kubernetes-api/v1.10/#list-all-namespaces-63
-</code></pre>
-
-<p>返回就是一组pod：podlist。</p>
-
-<p>List接口的实现就是</p>
+<p>List接口的实现就是简单的请求然后返回就是一组pod：podlist。</p>
 
 <blockquote>
 <p>watch</p>
@@ -458,98 +481,9 @@ poflister.Pods(&quot;kube-system&quot;).List(labels.Nothing())
 <li>etcd 数据库: 用于持久化存储资源对象.</li>
 </ul>
 
-<h2 id="kubernetes中api聚合与crd概要设计">kubernetes中api聚合与CRD概要设计</h2>
+<h2 id="listwatch源码解析">listwatch源码解析</h2>
 
-<p>kubernetes中apiserver的设计无疑是复杂的,其自身内部就包含了三种角色的api服务,今天我们一起来臆测下其内部的设计,搞明白aggregator、apiserver、apiExtensionsServer(crd server)的设计精要</p>
-
-<blockquote>
-<p>从web服务到web网关到CRD</p>
-</blockquote>
-
-<p>apiserver还是蛮复杂的，我们只讨论其kube-aggregator/apiserver/apiextensions三者架构上的设计，而不关注诸如请求认证、准入控制、权限等等</p>
-
-<p>1、最基础的REST服务</p>
-
-<p><img src="/media/cloud/k8s/apiserver" alt="" /></p>
-
-<p>一个最基础的Rest服务通常会包括一个resource资源和一组HTTP请求的方法, 在kubernetes中被称为一个REST，其内部还内嵌了一个Store(可以理解为继承)，其提供了针对某个具体资源的所有操作的集合，也就是我们常说的最终执行CRUD的具体操作的实现</p>
-
-<p>2、Service</p>
-
-<p><img src="/media/cloud/k8s/apiserver1" alt="" /></p>
-
-<p>我们有了Rest就可以提供各种k8s中资源的管理，但是如果我要进行扩展呢，如果要支持一些外部的资源k8s中不存在， 最简单的方式肯定就是在外部独立一个服务了，由这个服务自己管理数据存储、变更、控制等等逻辑</p>
-
-<blockquote>
-<p>APIAggregator</p>
-</blockquote>
-
-<p>当通过外部服务来进行集群资源扩展的时候，针对这类资源我们如何集成到当前的apiserver中呢？为此k8s中设计了APIAggregator组件(其实APIAggreator组件还包括代理后端服务等功能)，来实现外部服务的集成，这样开发人员不用修改k8s代码，也可以来自定义服务信息</p>
-
-<p>1、一个服务的基本功能</p>
-
-<p><img src="/media/cloud/k8s/apiserver2" alt="" /></p>
-
-<p>一个基础的业务服务通常包含数据模型、控制逻辑、持久化存储、基础功能(认证、监控、日志等等)等等，为了要创建一个服务，我们通常需要如下操作(不包含设计阶段)：</p>
-
-<ul>
-<li>选择合适的框架(完成基础功能)</li>
-<li>定义数据模型</li>
-<li>选择数据存储</li>
-<li>编写业务控制逻辑</li>
-</ul>
-
-<p>这里面除了业务控制逻辑，其余部分在大多数情况下可能都是通用，比如框架、数据存储这些，那能不能简化下？来看大招CRD</p>
-
-<p>2、CustomResourceDefinitions</p>
-
-<p><img src="/media/cloud/k8s/apiserver3" alt="" /></p>
-
-<p>CRD中文被称为自定义资源类型，其核心在k8s中提供数据模型定义、数据存储、基础功能，这样如果我们要扩展服务就只需要编写一个业务逻辑控制器即可， 我们思考下其场景</p>
-
-<p>通常web请求的处理流程都是反序列化、验证字段、业务逻辑处理、数据存储，而在k8s中业务控制逻辑大多数由controller来进行，那为了支持CRD剩余工作肯定也是在k8s中完成的</p>
-
-<p>在我们完成定义模型之后，k8s的crd模块需要进行对应资源REST的构建、验证、转换、存储等操作这些无疑都是耗费资源的，而且在apiserver这种数据总线上，由此可以发行CRD并不支持大规模的数据存储</p>
-
-<p>3、CRD server</p>
-
-<p><img src="/media/cloud/k8s/apiserver4" alt="" /></p>
-
-<p>CRDServer主要就是负责CRD资源的管理，其会监听CRD资源的变更，并且为其创建对应的REST接口，完成对应的认证、转换、验证、存储等机制</p>
-
-<blockquote>
-<p>ServerChan</p>
-</blockquote>
-
-<p>ServerChan从设计上更类似一种责任链的模式，简单来说如果我处理不了该请求，我就交给下个人处理，这种操作在k8s中被称为delegate(委托),接下来我们开始了解其关键实现</p>
-
-<p>1、服务的角色划分</p>
-
-<p>到目前我们已经有了三个server, 其中APIAggregator负责外部服务的集成和内部请求的转发，apiserver服务k8s汇总内部资源的控制，CRDServer则负责用户自定义资源的处理，然后我们就只需要将三者串联起来，就是我们最终的apiserver</p>
-
-<p>2、责任链上的层层委托</p>
-
-<p><img src="/media/cloud/k8s/apiserver5" alt="" /></p>
-
-<p>当APIAggregator接收到请求之后，如果发现对应的是一个service的请求，则会直接转发到对应的服务上否则则委托给apiserver进行处理，apiserver中根据当前URL来选择对应的REST接口处理，如果未能找到对应的处理，则会交由CRD server处理， CRD server检测是否已经注册对应的CRD资源，如果注册就处理</p>
-
-<p>3、APIAggregator上的服务注册</p>
-
-<p><img src="/media/cloud/k8s/apiserver6" alt="" /></p>
-
-<p>APIAggreagtor中会通过informer 监听后端Service的变化，如果发现有新的服务，就会创建对应的代理转发，从而实现对应的服务注册</p>
-
-<p>4、CRD Server中的资源感知</p>
-
-<p><img src="/media/cloud/k8s/apiserver7.png" alt="" /></p>
-
-<p>当在集群中创建了对应的CRD资源的时候，会通过内部的controller来感知对应的CRD资源信息，然后为其创建对应的REST处理接口，这样后续接收到对应的资源就可以进行处理了</p>
-
-<blockquote>
-<p>基础概览图</p>
-</blockquote>
-
-<p><img src="/media/cloud/k8s/apiserver8" alt="" /></p>
+<h2 id="informer源码解析">Informer源码解析</h2>
 
 <h1 id="源码解析">源码解析</h1>
 
@@ -557,22 +491,21 @@ poflister.Pods(&quot;kube-system&quot;).List(labels.Nothing())
 
 <p>看源码，先了解kubernetes的源码结构，cmd是入口，pkg是主要实现。</p>
 
-<p>看apiserver的入口文件kubernetes-1.6.1/cmd/kube-apiserver/apiserver.go,比较简单，主要是初始化一些结构，然后调用run来实现apiserver的启动。</p>
+<p>看apiserver的入口文件kubernetes/cmd/kube-apiserver/apiserver.go,比较简单，主要是初始化一些结构，然后调用run来实现apiserver的启动。</p>
 
 <pre><code>func main() {
-    rand.Seed(time.Now().UTC(). UnixNano())
+    rand.Seed(time.Now().UnixNano())
 
-    s := options.NewServerRunOptions()  //新建一个APIServer对象，APIServer结构体
-    s.AddFlags(pflag.CommandLine)       //命令行参数输入
+    command := app.NewAPIServerCommand()
 
-    flag.InitFlags()                    //解析并格式化传入的参数，填充kubeletserver结构体
-    logs.InitLogs()                     //初始化日志
-    defer logs.FlushLogs()              //刷新日志到磁盘，这边用了defer，可见是在进程推出后保存日志
+    // TODO: once we switch everything over to Cobra commands, we can go back to calling
+    // utilflag.InitFlags() (by removing its pflag.Parse() call). For now, we have to set the
+    // normalize func and add the go flag set by hand.
+    // utilflag.InitFlags()
+    logs.InitLogs()
+    defer logs.FlushLogs()
 
-    verflag.PrintAndExitIfRequested()
-
-    if err := app.Run(s); err != nil {          //启动，run
-        fmt.Fprintf(os.Stderr, &quot;%v\n&quot;, err)
+    if err := command.Execute(); err != nil {
         os.Exit(1)
     }
 }
@@ -686,7 +619,8 @@ poflister.Pods(&quot;kube-system&quot;).List(labels.Nothing())
 <li><a href="#总结">总结</a></li>
 </ul></li>
 <li><a href="#apiserver的内部结构">apiserver的内部结构</a></li>
-<li><a href="#kubernetes中api聚合与crd概要设计">kubernetes中api聚合与CRD概要设计</a></li>
+<li><a href="#listwatch源码解析">listwatch源码解析</a></li>
+<li><a href="#informer源码解析">Informer源码解析</a></li>
 </ul></li>
 <li><a href="#源码解析">源码解析</a></li>
 </ul>

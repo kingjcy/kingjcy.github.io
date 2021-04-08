@@ -6,7 +6,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <meta name="author" content="fatedier">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<meta name="description" content="为了方便查阅 API 接口的详细定义，Kubernetes 使用了 swagger-ui 提供 API 在线查询功能，其官网为 http://kubernetes.kansea.com/docs/api-reference/v1/operations/， Kubernetes开发团队会定期更新、生成 UI 及文档。Swagger UI 是一款 REST API 文档在线自动生成和功能测试软件，关于 Swagger 的内容请访问官网 http://swagger.io。">
+<meta name="description" content="为了方便查阅 API 接口的详细定义，Kubernetes 使用了 swagger-ui 提供 API 在线查询功能，其官网为http://kubernetes.kansea.com/docs/reference/， Kubernetes开发团队会定期更新、生成 UI 及文档。
+
+运行在 Master 节点上的 API Server 进程同时提供了 swagger-ui 的访问地址：http://: /swagger-ui/。假设我们的 API Server 安装在 192.168.1.128 服务器上，绑定了 8080 端口，则可以通过访问 http://192.168.1.128:8080/swagger-ui/ 来查看 API 信息。
+
+Swagger UI 是一款 REST API 文档在线自动生成和功能测试软件，关于 Swagger 的内容请访问官网 http://swagger.io。">
 <meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
 <meta property="og:title" content="云计算K8s系列---- K8s API - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
 
@@ -72,23 +76,13 @@
             </header>
 
             <div class="post-content">
-                <p>为了方便查阅 API 接口的详细定义，Kubernetes 使用了 swagger-ui 提供 API 在线查询功能，其官网为 <a href="http://kubernetes.kansea.com/docs/api-reference/v1/operations/，">http://kubernetes.kansea.com/docs/api-reference/v1/operations/，</a> Kubernetes开发团队会定期更新、生成 UI 及文档。Swagger UI 是一款 REST API 文档在线自动生成和功能测试软件，关于 Swagger 的内容请访问官网 <a href="http://swagger.io。">http://swagger.io。</a></p>
-
-<h1 id="api设计哲学">API设计哲学</h1>
+                <p>为了方便查阅 API 接口的详细定义，Kubernetes 使用了 swagger-ui 提供 API 在线查询功能，其官网为<a href="http://kubernetes.kansea.com/docs/reference/，">http://kubernetes.kansea.com/docs/reference/，</a> Kubernetes开发团队会定期更新、生成 UI 及文档。</p>
 
 <p>运行在 Master 节点上的 API Server 进程同时提供了 swagger-ui 的访问地址：http://<master-ip>: <master-port>/swagger-ui/。假设我们的 API Server 安装在 192.168.1.128 服务器上，绑定了 8080 端口，则可以通过访问 <a href="http://192.168.1.128:8080/swagger-ui/">http://192.168.1.128:8080/swagger-ui/</a> 来查看 API 信息。</p>
 
-<blockquote>
-<p>声明式风格的API设计</p>
-</blockquote>
+<p>Swagger UI 是一款 REST API 文档在线自动生成和功能测试软件，关于 Swagger 的内容请访问官网 <a href="http://swagger.io。">http://swagger.io。</a></p>
 
-<p>声明性API中，你声明系统要执行的操作，系统将不断向该状态驱动。</p>
-
-<blockquote>
-<p>命令式API的设计</p>
-</blockquote>
-
-<p>命令式API中，直接发出服务器要执行的命令，例如： “运行容器”、“停止容器”等。</p>
+<h1 id="api设计哲学">API设计哲学</h1>
 
 <blockquote>
 <p>api对象</p>
@@ -98,7 +92,63 @@
 
 <p><img src="/media/cloud/k8s/api2.png" alt="" /></p>
 
-<p>完整的资源路径是由：Group（API组）、Version（API版本）和Resource（API资源类型）三个部分组成的。</p>
+<p>所以一个api对象完整的资源路径是由：Group（API组）、Version（API版本）和Resource（API资源类型）三个部分组成的。</p>
+
+<p>对应我们yaml文件就是</p>
+
+<pre><code>apiVersion: batch/v2alpha1
+kind: CronJob
+...
+</code></pre>
+
+<p>在这个 YAML 文件中，“CronJob”就是这个 API 对象的资源类型（Resource），“batch”就是它的组（Group），v2alpha1 就是它的版本（Version）。</p>
+
+<blockquote>
+<p>声明式风格的API设计</p>
+</blockquote>
+
+<p>声明性API，就是通过api对象声明一个期望的状态，系统将不断向该状态驱动，最终达到一致。直接点就是kubectl apply。声明式api必须具有</p>
+
+<ul>
+<li>首先，所谓“声明式”，指的就是我只需要提交一个定义好的 API 对象来“声明”，我所期望的状态是什么样子。</li>
+<li>其次，“声明式 API”允许有多个 API 写端，以 PATCH 的方式对 API 对象进行修改，而无需关心本地原始 YAML 文件的内容。</li>
+<li>最后，也是最重要的，有了上述两个能力，Kubernetes 项目才可以基于对 API 对象的增、删、改、查，在完全无需外界干预的情况下，完成对“实际状态”和“期望状态”的调谐（Reconcile）过程。</li>
+</ul>
+
+<p>声明式 API，才是 Kubernetes 项目编排能力“赖以生存”的核心所在</p>
+
+<blockquote>
+<p>命令式API的设计</p>
+</blockquote>
+
+<p>命令式API中，直接发出服务器要执行的命令，例如： “运行容器”、“停止容器”等。</p>
+
+<blockquote>
+<p>api基本解析过程</p>
+</blockquote>
+
+<p>当我们提交了这个 YAML 文件之后，Kubernetes 就会把这个 YAML 文件里描述的内容，转换成 Kubernetes 里的一个 API对象。</p>
+
+<p>Kubernetes对Resource、Group 和 Version 进行解析，从而找到对象的定义，比如上面创建CronJob过程如下：</p>
+
+<ul>
+<li>发起了创建 CronJob 的 POST 请求之后，我们编写的 YAML 的信息就被提交给了 APIServer。而 APIServer 的第一个功能，就是过滤这个请求，并完成一些前置性的工作，比如授权、超时处理、审计等。</li>
+<li>请求会进入 MUX 和 Routes 流程。MUX 和 Routes 是 APIServer 完成 URL 和 Handler 绑定的场所。而 APIServer 的 Handler 要做的事情，就是下面三步找到对应的api对象
+
+<ul>
+<li>首先，Kubernetes 会匹配 API 对象的组。需要明确的是，对于 Kubernetes 里的核心 API 对象，比如：Pod、Node 等，是不需要 Group 的（即：它们的 Group 是“”）。所以，对于这些 API 对象来说，Kubernetes 会直接在 /api 这个层级进行下一步的匹配过程。而对于 CronJob 等非核心 API 对象来说，Kubernetes 就必须在 /apis 这个层级里查找它对应的 Group，进而根据“batch”这个 Group 的名字，找到 /apis/batch。这些 API Group 的分类是以对象功能为依据的，比如 Job 和 CronJob 就都属于“batch” （离线业务）这个 Group。</li>
+<li>然后，Kubernetes 会进一步匹配到 API 对象的版本号。对于 CronJob 这个 API 对象来说，Kubernetes 在 batch 这个 Group 下，匹配到的版本号就是 v2alpha1。</li>
+<li>最后，Kubernetes 会匹配 API 对象的资源类型。在前面匹配到正确的版本之后，Kubernetes 就知道，我要创建的原来是一个 /apis/batch/v2alpha1 下的 CronJob 对象。</li>
+</ul></li>
+<li>根据这个 CronJob 类型定义，使用用户提交的 YAML 文件里的字段，创建一个 CronJob 对象。APIServer 会进行一个 Convert 工作，即：把用户提交的 YAML 文件，转换成一个叫作 Super Version 的对象</li>
+<li>APIServer 会先后进行 Admission(就是补充yaml文件，比如注入一个envoy的容器，可以先将配置放在configmap中) 和 Validation(负责验证这个对象里的各个字段是否合法) 操作。</li>
+<li>API 对象都保存在了 APIServer 里一个叫作 Registry 的数据结构中，只要一个 API 对象的定义能在 Registry 里查到，它就是一个有效的 Kubernetes API 对象。</li>
+<li>APIServer 会把验证过的 API 对象转换成用户最初提交的版本，进行序列化操作，并调用 Etcd 的 API 把它保存起来。</li>
+</ul>
+
+<p>这一整个完整的过程可以使用下图来表示。</p>
+
+<p><img src="/media/cloud/k8s/api3.png" alt="" /></p>
 
 <h1 id="api">API</h1>
 
@@ -252,40 +302,32 @@ service
 <p>目前支持以下三种类型的 PATCH 操作。</p>
 
 <ul>
-<li>JSON Patch, Content-Type: application/json-patch+json。在 RFC6902 的定义中，JSON Patch 是执行在资源对象上的一系列操作，例如 {＂op＂: ＂add＂, ＂path＂: ＂/a/b/c＂, ＂value＂: [ ＂foo＂, ＂bar＂ ]}。详情请查看 RFC6902 说明，网址为 <a href="HTTPs://tools.ietf.org/html/rfc6902。">HTTPs://tools.ietf.org/html/rfc6902。</a></li>
-<li>Merge Patch, Content-Type: application/merge-json-patch+json。在 RFC7386 的定义中，Merge Patch 必须包含对一个资源对象的部分描述，这个资源对象的部分描述就是一个 JSON 对象。该 JSON 对象被提交到服务端，并和服务端的当前对象合并，从而创建一个新的对象。详情请查看 RFC73862 说明，网址为 <a href="HTTPs://tools.ietf.org/html/rfc7386。">HTTPs://tools.ietf.org/html/rfc7386。</a></li>
+<li>JSON Patch, Content-Type: application/json-patch+json。</li>
+<li>Merge Patch, Content-Type: application/merge-json-patch+json。</li>
 <li>Strategic Merge Patch, Content-Type: application/strategic-merge-patch+json。</li>
 </ul>
-
-<p>Strategic Merge Patch 是一个定制化的 Merge Patch 实现。接下来将详细讲解 Strategic Merge Patch。</p>
 
 <p>在标准的 JSON Merge Patch 中，JSON 对象总是被合并（merge）的，但是资源对象中的列表域总是被替换的。通常这不是用户所希望的。例如，我们通过下列定义创建一个 Pod 资源对象：</p>
 
 <pre><code>spec:
-
   containers:
-
     - name: nginx
-
       image: nginx-1.0
 </code></pre>
 
 <p>接着我们希望添加一个容器到这个 Pod 中，代码和上传的 JSON 对象如下所示：</p>
 
-<p>PATCH /api/v1/namespaces/default/pods/pod-name</p>
+<pre><code>PATCH /api/v1/namespaces/default/pods/pod-name
 
-<pre><code>spec:
-
+spec:
   containers:
-
     - name: log-tailer
-
       image: log-tailer-1.0
 </code></pre>
 
 <p>如果我们使用标准的 Merge Patch，则其中的整个容器列表将被单个的“log-tailer”容器所替换。然而我们的目的是两个容器列表能够合并。</p>
 
-<p>为了解决这个问题，Strategic Merge Patch 通过添加元数据到 API 对象中，并通过这些新元数据来决定哪个列表被合并，哪个列表不被合并。当前这些元数据作为结构标签，对于 API 对象自身来说是合法的。对于客户端来说，这些元数据作为 Swagger annotations 也是合法的。在上述例子中，向“containers”中添加“patchStrategy”域，且它的值为“merge”，通过添加“patchMergeKey”，它的值为“name”。也就是说，“containers”中的列表将会被合并而不是替换，合并的依据为“name”域的值。</p>
+<p>为了解决这个问题，我们使用Strategic Merge Patch 通过添加元数据到 API 对象中，并通过这些新元数据来决定哪个列表被合并，哪个列表不被合并。当前这些元数据作为结构标签，对于 API 对象自身来说是合法的。对于客户端来说，这些元数据作为 Swagger annotations 也是合法的。在上述例子中，向“containers”中添加“patchStrategy”域，且它的值为“merge”，通过添加“patchMergeKey”，它的值为“name”。也就是说，“containers”中的列表将会被合并而不是替换，合并的依据为“name”域的值。</p>
 
 <p>其实patch在使用过程中还是比较难以操作的，所以在修改的时候，我们更多的是使用直接修改文件的方式来进行更新</p>
 
@@ -314,12 +356,6 @@ service
 
 <p>上述接口改变了返回数据的基本类别，watch 动词返回的是一连串的 JSON 对象，而不是单个的 JSON 对象。并不是所有的对象类别都支持“观察者”模式的 API 接口，在后续的章节中将会说明哪些资源对象支持这种接口。</p>
 
-<blockquote>
-<p>其他</p>
-</blockquote>
-
-<p>另外，Kubernetes 还增加了 HTTP Redirect 与 HTTP Proxy 这两种特殊的 API 接口，前者实现资源重定向访问，后者则实现 HTTP 请求的代理。</p>
-
 <h1 id="顶级api对象">顶级API对象</h1>
 
 <p>API对象也就是我们常用的post的body，也就是我们使用的yaml文件或json文件的组成，符合声明式api的设计。</p>
@@ -336,38 +372,38 @@ service
 
 <ul>
 <li>对象（objects）：代表在系统中的一个永久资源（实体），例如 Pod、RC、Service、Namespace 及 Node 等。通过操作这些资源的属性，客户端可以对该对象做创建、修改、删除和获取操作。</li>
-<li>列表（list）：一个或多个资源类别的集合。列表有一个通用元数据的有限集合。所有列表（lists）通过“items”域获得对象数组。例如 PodLists、ServiceLists、NodeLists。大部分定义在系统中的对象都有一个返回所有资源（resource）集合的端点，以及零到多个返回所有资源集合的子集的端点。某些对象有可能是单例对象（singletons），例如当前用户、系统默认用户等，这些对象没有列表。</li>
+<li>列表（list）：一个或多个资源类别的集合。列表有一个通用元数据的有限集合。所有列表（lists）通过“items”域获得对象数组。例如 PodLists、ServiceLists、NodeLists。</li>
 <li>简单类别（simple）：该类别包含作用在对象上的特殊行为和非持久实体。该类别限制了使用范围，它有一个通用元数据的有限集合，例如 Binding、 Status。</li>
 </ul>
+
+<p>我们最常用的就是objects。</p>
 
 <blockquote>
 <p>apiversion</p>
 </blockquote>
 
-<p>apiVersion 表明 API 的版本号，当前版本默认只支持 v1。</p>
-
-<p>为了在兼容旧版本的同时不断升级新的 API，Kubernetes 提供了多版本 API 的支持能力，每个版本的 API 通过一个版本号路径前缀进行区分，例如 /api/v1beta3。通常情况下，新旧几个不同的 API 版本都能涵盖所有的 Kubernetes 资源对象，在不同的版本之间这些 API 接口存在一些细微差别。Kubernetes 开发团队基于 API 级别选择版本而不是基于资源和域级别，是为了确保 API 能够描述一个清晰的连续的系统资源和行为的视图，能够控制访问的整个过程和控制实验性 API 的访问。</p>
+<p>apiVersion 表明 API 的版本号，为了在兼容旧版本的同时不断升级新的 API，Kubernetes 提供了多版本 API 的支持能力，每个版本的 API 通过一个版本号路径前缀进行区分，例如 /api/v1beta3。</p>
 
 <blockquote>
 <p>Metadata</p>
 </blockquote>
 
-<p>Metadata 是资源对象的元数据定义，是集合类的元素类型，包含一组由不同名称定义的属性。在 Kubernetes 中每个资源对象都必须包含以下 3 种 Metadata。</p>
+<p>Metadata 是资源对象的元数据定义，包含一组由不同名称定义的属性。在 Kubernetes 中每个资源对象都必须包含以下 3 种 Metadata。</p>
 
 <ul>
 <li>namespace：对象所属的命名空间，如果不指定，系统则会将对象置于名为“default”的系统命名空间中。</li>
 <li>name：对象的名字，在一个命名空间中名字应具备唯一性。</li>
-<li>uid：系统为每个对象生成的唯一 ID，符合 RFC 4122 规范的定义。</li>
+<li>uid：系统为每个对象生成的唯一 ID，所以不需要我们在yaml文件中配置。</li>
 </ul>
 
 <p>此外，每种对象还应该包含以下几个重要元数据。</p>
 
 <ul>
 <li>labels：用户可定义的“标签”，键和值都为字符串的 map，是对象进行组织和分类的一种手段，通常用于标签选择器（Label Selector），用来匹配目标对象。</li>
-<li>annotations：用户可定义的“注解”，键和值都为字符串的 map，被 Kubernetes 内部进程或者某些外部工具使用，用于存储和获取关于该对象的特定元数据。</li>
+<li>annotations：用户可定义的“注解”，键和值都为字符串的 map，被 Kubernetes 内部进程或者某些外部工具使用，用于存储和获取关于该对象的特定元数据。Annotations，它专门用来携带 key-value 格式的内部信息。所谓内部信息，指的是对这些信息感兴趣的，是 Kubernetes 组件本身，而不是用户。所以大多数 Annotations，都是在 Kubernetes 运行过程中，被自动加在这个 API 对象上。</li>
 <li>resourceVersion：用于识别该资源内部版本号的字符串，在用于 Watch 操作时，可以避免在 GET 操作和下一次 Watch 操作之间造成的信息不一致，客户端可以用它来判断资源是否改变。该值应该被客户端看作不透明，且不做任何修改就返回给服务端。客户端不应该假定版本信息具有跨命名空间、跨不同资源类别、跨不同服务器的含义。</li>
-<li>creationTimestamp：系统记录创建对象时的时间戳，符合 RFC 3339 规范。</li>
-<li>deletionTimestamp：系统记录删除对象时的时间戳，符合 RFC 3339 规范。</li>
+<li>creationTimestamp：系统记录创建对象时的时间戳。</li>
+<li>deletionTimestamp：系统记录删除对象时的时间戳。</li>
 <li>selfLink：通过 API 访问资源自身的 URL，例如一个 Pod 的 link 可能是 /api/v1/namespaces/ default/pods/frontend-o8bg4。</li>
 </ul>
 
@@ -375,7 +411,7 @@ service
 <p>spec</p>
 </blockquote>
 
-<p>spec 是集合类的元素类型，用户对需要管理的对象进行详细描述的主体部分都在 spec 里给出，它会被 Kubernetes 持久化到 etcd 中保存，系统通过 spec 的描述来创建或更新对象，以达到用户期望的对象运行状态。spec 的内容既包括用户提供的配置设置、默认值、属性的初始化值，也包括在对象创建过程中由其他相关组件（例如 schedulers、auto-scalers）创建或修改的对象属性，比如 Pod 的 Service IP 地址。如果 spec 被删除，那么该对象将会从系统中被删除。</p>
+<p>spec 是集合类的元素类型，用户对需要管理的对象进行详细描述的主体部分都在 spec 里给出，一般在这里我们会使用podtemplate来描述所创建的pod。</p>
 
 <blockquote>
 <p>status</p>
@@ -388,12 +424,132 @@ service
 <li>condition：表示条件，由条件类型和状态值组成，目前仅有一种条件类型 Ready，对应的状态值可以为 True、False 或 Unknown。一个对象可以具备多种 condition，而 condition 的状态值也可能不断发生变化，condition 可能附带一些信息，例如最后的探测时间或最后的转变时间。</li>
 </ul>
 
+<blockquote>
+<p>实例</p>
+</blockquote>
+
+<p>说了这么多，我们来看一个api对象的yaml，详细说明都在上面了。</p>
+
+<pre><code># kubectl get po testnew-145897-0 -n testnew -o yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    io.kubernetes.container.lxcfsEnable: &quot;true&quot;
+    io.kubernetes.pod.pidLimit: &quot;10000&quot;
+  creationTimestamp: &quot;2021-01-11T08:37:18Z&quot;
+  generateName: testnew3-sit-suengine-145897-
+  labels:
+    app: testnew-145897-0
+  name: testnew-145897-0
+  namespace: testnew
+  ownerReferences:
+  resourceVersion: &quot;343911023&quot;
+  selfLink: /api/v1/namespaces/testnew3/pods/testnew-145897-0
+  uid: 3ea833a4-4087-4dfa-9b1c-61ffb3103d11
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: WEB
+            operator: In
+            values:
+            - &quot;true&quot;
+          - key: netType
+            operator: In
+            values:
+            - inter
+  automountServiceAccountToken: false
+  containers:
+    image: xgharborsit01.sncloud.com/sncloudmw/suengine_1.0.1_101:20200828_01
+    imagePullPolicy: IfNotPresent
+    lifecycle:
+      preStop:
+        exec:
+          command:
+          - /bin/bash
+          - -c
+          - /script/prestop.sh
+    name: testnew3-sit-suengine-145897
+    resources:
+      limits:
+        cpu: &quot;1&quot;
+        memory: 1Gi
+      requests:
+        cpu: 125m
+        memory: 1Gi
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /opt/logs
+      mountPropagation: None
+      name: log
+    - mountPath: /var/lib/extrastorage
+      mountPropagation: None
+      name: extrastorage
+      subPathExpr: $(KUBERNETES_POD_UUID)
+  enableServiceLinks: true
+  hostname: testnew-145897-0
+  nodeName: xgpccsit02n010243129140.sncloud.com
+  priority: 0
+  restartPolicy: Always
+  schedulerName: default-scheduler
+  securityContext: {}
+  serviceAccount: default
+  serviceAccountName: default
+  terminationGracePeriodSeconds: 1
+  tolerations:
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+    tolerationSeconds: 300
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+    tolerationSeconds: 300
+  volumes:
+  - emptyDir:
+      sizeLimit: 8704Mi
+    name: log
+  - hostPath:
+      path: /localstorage/pods
+      type: DirectoryOrCreate
+    name: extrastorage
+status:
+  conditions:
+  - lastProbeTime: null
+    lastTransitionTime: &quot;2021-01-11T08:37:18Z&quot;
+    status: &quot;True&quot;
+    type: Initialized
+  - lastProbeTime: null
+    lastTransitionTime: &quot;2021-03-24T11:44:48Z&quot;
+    status: &quot;True&quot;
+    type: Ready
+  - lastProbeTime: null
+    lastTransitionTime: &quot;2021-03-24T11:44:48Z&quot;
+    status: &quot;True&quot;
+    type: ContainersReady
+  - lastProbeTime: null
+    lastTransitionTime: &quot;2021-01-11T08:37:18Z&quot;
+    status: &quot;True&quot;
+    type: PodScheduled
+  phase: Running
+  podIP: 10.100.5.35
+  podIPs:
+  - ip: 10.100.5.35
+  qosClass: Burstable
+  startTime: &quot;2021-01-11T08:37:18Z&quot;
+</code></pre>
+
 <h1 id="crd-自定义资源类型">CRD(自定义资源类型)</h1>
 
-<p>Aggregation API和crd都可以在不修改k8s核心代码前提下，并扩展k8s api，是一种实现方式，Aggregation API我们下面讲，先说说crd。</p>
+<p>Aggregation API和crd都可以在不修改k8s核心代码前提下扩展k8s api，先说说crd。</p>
 
-<p>Kubernetes 1.7 之后增加了对 CRD 自定义资源二次开发能力来扩展 Kubernetes API，通过 CRD 我们可以向 Kubernetes API 中增加新资源类型，而不需要修改 Kubernetes 源码来创建自定义的 API server，该功能大大提高了 Kubernetes 的扩展能力。
-当你创建一个新的CustomResourceDefinition (CRD)时，Kubernetes API服务器将为你指定的每个版本创建一个新的RESTful资源路径，我们可以根据该api路径来创建一些我们自己定义的类型资源。CRD可以是命名空间的，也可以是集群范围的，由CRD的作用域(scpoe)字段中所指定的，与现有的内置对象一样，删除名称空间将删除该名称空间中的所有自定义对象。customresourcedefinition本身没有名称空间，所有名称空间都可以使用。</p>
+<p>当你创建一个新的CustomResourceDefinition (CRD)时，Kubernetes API服务器将为你指定的每个版本创建一个新的RESTful资源路径，我们可以根据该api路径来创建一些我们自己定义的类型资源。</p>
+
+<p>CRD可以是命名空间的，也可以是集群范围的，由CRD的作用域(scpoe)字段中所指定的，与现有的内置对象一样，删除名称空间将删除该名称空间中的所有自定义对象。customresourcedefinition本身没有名称空间，所有名称空间都可以使用。</p>
 
 <blockquote>
 <p>通过crd资源创建自定义资源，即自定义一个Restful API和资源类型contab</p>
@@ -611,15 +767,13 @@ spec:
 <pre><code>$ kubectl scale --replicas=5 crontabs/my-new-cron-object
 </code></pre>
 
-<p>上面就是crd的基本用法，其实crd主要是用于自定义controller的开发的第一步，我们还需要controller来控制，所以还需要了解二次开发的<a href="/post/cloud/paas/base/kubernetes/k8s-controller/">控制器开发</a></p>
+<p>上面就是crd的基本用法，其实crd主要是用于自定义controller的开发的第一步，只是定义了一个资源，如何能够控制这个crd，我们还需要<a href="/post/cloud/paas/base/kubernetes/k8s-controller/">控制器开发</a></p>
 
 <h1 id="kubernetes-aggregated-api-servers">kubernetes Aggregated API Servers</h1>
 
-<p>Aggregated（聚合的）API server是为了将原来的API server这个巨石（monolithic）应用给拆分成，为了方便用户开发自己的API server集成进来，而不用直接修改kubernetes官方仓库的代码，这样一来也能将API server解耦，方便用户使用实验特性。这些API server可以跟core API server无缝衔接，使用kubectl也可以管理它们。</p>
+<p>使用聚合层（Aggregation Layer），用户可以通过额外的 API 扩展 Kubernetes， 而不局限于 Kubernetes 核心 API 提供的功能。</p>
 
 <p>Aggregated API是允许k8s的开发人员编写一个自己的服务，可以把这个服务注册到k8s的api里面，这样，就像k8s自己的api一样，你的服务只要运行在k8s集群里面，k8s 的Aggregate通过service名称就可以转发到你写的service里面去了。</p>
-
-<p>一句话阐述就是：动态注册、发现汇总、和安全代理。</p>
 
 <p>这时候，我们需要创建一个新的组件，名为kube-aggregator，它需要负责以下几件事：</p>
 
@@ -665,6 +819,16 @@ Kubeadm 搭建的集群默认已经开启了，minikube也是。其实就是配�
 </code></pre></li>
 </ul>
 
+<p>APIService 的最常见实现方式是在集群中某 Pod 内运行 扩展 API 服务器。 如果你在使用扩展 API 服务器来管理集群中的资源，该扩展 API 服务器（也被写成“extension-apiserver”） 一般需要和一个或多个控制器一起使用。 apiserver-builder 库同时提供构造扩展 API 服务器和控制器框架代码。</p>
+
+<p>扩展 API 服务器与 kube-apiserver 之间需要存在低延迟的网络连接。 发现请求需要在五秒钟或更短的时间内完成到 kube-apiserver 的往返。</p>
+
+<h2 id="基础概览">基础概览</h2>
+
+<p><img src="/media/cloud/k8s/apiserver8" alt="" /></p>
+
+<h2 id="apiservice">apiservice</h2>
+
 <p>我们来看看基本使用，先看一个资源配置清单</p>
 
 <pre><code>apiVersion: apiregistration.k8s.io/v1beta1
@@ -709,349 +873,322 @@ spec:
   caBundle: &lt; PEM 编码的 CA 证书，用于对 Webhook 服务器的证书签名 &gt;
 </code></pre>
 
-<p>要注册 API，用户必须添加一个 APIService 对象，用它来申领 Kubernetes API 中的 URL 路径。自此以后，聚合层将会把发给该 API 路径的所有内容（例如 /apis/myextension.mycompany.io/v1/…）代理到已注册的 APIService。</p>
+<p>聚合层在 kube-apiserver 进程内运行。在扩展资源注册之前，聚合层不做任何事情。要注册 API，用户必须添加一个 APIService 对象，用它来申领 Kubernetes API 中的 URL 路径。自此以后，聚合层将会把发给该 API 路径的所有内容（例如 /apis/myextension.mycompany.io/v1/…）代理到已注册的 APIService。</p>
 
 <p>查看我们使用上面的yaml文件创建的APIService。</p>
 
-<p>下面从源代码的角度来看</p>
+<!-- ## 源码分析
 
-<pre><code>pkg/apiserver/apiservice_controller.go
-</code></pre>
 
-<p>和k8s其它controller一样，watch变化分发到add、update和delete方法。</p>
 
-<pre><code>apiServiceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-    AddFunc:    c.addAPIService,
-    UpdateFunc: c.updateAPIService,
-    DeleteFunc: c.deleteAPIService,
-})
+下面从源代码的角度来看
 
-serviceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-    AddFunc:    c.addService,
-    UpdateFunc: c.updateService,
-    DeleteFunc: c.deleteService,
-})
-</code></pre>
+    pkg/apiserver/apiservice_controller.go
 
-<p>主要监听两种资源apiService和service，分别看看</p>
+和k8s其它controller一样，watch变化分发到add、update和delete方法。
 
-<pre><code>func (s *APIAggregator) AddAPIService(apiService *apiregistration.APIService) error {
-    // if the proxyHandler already exists, it needs to be updated. The aggregation bits do not
-    // since they are wired against listers because they require multiple resources to respond
-    if proxyHandler, exists := s.proxyHandlers[apiService.Name]; exists {
+    apiServiceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+        AddFunc:    c.addAPIService,
+        UpdateFunc: c.updateAPIService,
+        DeleteFunc: c.deleteAPIService,
+    })
+
+    serviceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+        AddFunc:    c.addService,
+        UpdateFunc: c.updateService,
+        DeleteFunc: c.deleteService,
+    })
+
+主要监听两种资源apiService和service，分别看看
+
+    func (s *APIAggregator) AddAPIService(apiService *apiregistration.APIService) error {
+        // if the proxyHandler already exists, it needs to be updated. The aggregation bits do not
+        // since they are wired against listers because they require multiple resources to respond
+        if proxyHandler, exists := s.proxyHandlers[apiService.Name]; exists {
+            proxyHandler.updateAPIService(apiService)
+            if s.openAPIAggregationController != nil {
+                s.openAPIAggregationController.UpdateAPIService(proxyHandler, apiService)
+            }
+            return nil
+        }
+
+        proxyPath := "/apis/" + apiService.Spec.Group + "/" + apiService.Spec.Version
+        // v1. is a special case for the legacy API.  It proxies to a wider set of endpoints.
+        if apiService.Name == legacyAPIServiceName {
+            proxyPath = "/api"
+        }
+
+        // register the proxy handler
+        proxyHandler := &proxyHandler{
+            contextMapper:   s.contextMapper,
+            localDelegate:   s.delegateHandler,
+            proxyClientCert: s.proxyClientCert,
+            proxyClientKey:  s.proxyClientKey,
+            proxyTransport:  s.proxyTransport,
+            serviceResolver: s.serviceResolver,
+        }
         proxyHandler.updateAPIService(apiService)
         if s.openAPIAggregationController != nil {
-            s.openAPIAggregationController.UpdateAPIService(proxyHandler, apiService)
+            s.openAPIAggregationController.AddAPIService(proxyHandler, apiService)
         }
+        s.proxyHandlers[apiService.Name] = proxyHandler
+        s.GenericAPIServer.Handler.NonGoRestfulMux.Handle(proxyPath, proxyHandler)
+        s.GenericAPIServer.Handler.NonGoRestfulMux.UnlistedHandlePrefix(proxyPath+"/", proxyHandler)
+
+        // if we're dealing with the legacy group, we're done here
+        if apiService.Name == legacyAPIServiceName {
+            return nil
+        }
+
+        // if we've already registered the path with the handler, we don't want to do it again.
+        if s.handledGroups.Has(apiService.Spec.Group) {
+            return nil
+        }
+
+        // it's time to register the group aggregation endpoint
+        groupPath := "/apis/" + apiService.Spec.Group
+        groupDiscoveryHandler := &apiGroupHandler{
+            codecs:        Codecs,
+            groupName:     apiService.Spec.Group,
+            lister:        s.lister,
+            delegate:      s.delegateHandler,
+            contextMapper: s.contextMapper,
+        }
+        // aggregation is protected
+        s.GenericAPIServer.Handler.NonGoRestfulMux.Handle(groupPath, groupDiscoveryHandler)
+        s.GenericAPIServer.Handler.NonGoRestfulMux.UnlistedHandle(groupPath+"/", groupDiscoveryHandler)
+        s.handledGroups.Insert(apiService.Spec.Group)
         return nil
     }
 
-    proxyPath := &quot;/apis/&quot; + apiService.Spec.Group + &quot;/&quot; + apiService.Spec.Version
-    // v1. is a special case for the legacy API.  It proxies to a wider set of endpoints.
-    if apiService.Name == legacyAPIServiceName {
-        proxyPath = &quot;/api&quot;
-    }
+上面path是
 
-    // register the proxy handler
-    proxyHandler := &amp;proxyHandler{
-        contextMapper:   s.contextMapper,
-        localDelegate:   s.delegateHandler,
-        proxyClientCert: s.proxyClientCert,
-        proxyClientKey:  s.proxyClientKey,
-        proxyTransport:  s.proxyTransport,
-        serviceResolver: s.serviceResolver,
-    }
+    proxyPath := "/apis/" + apiService.Spec.Group + "/" + apiService.Spec.Version
+
+结合上面的例子就是/apis/custom-metrics.metrics.k8s.io/v1alpha1.
+
+而处理方法请求的handle就是
+
+    proxyHandler := &proxyHandler{
+            contextMapper:   s.contextMapper,
+            localDelegate:   s.delegateHandler,
+            proxyClientCert: s.proxyClientCert,
+            proxyClientKey:  s.proxyClientKey,
+            proxyTransport:  s.proxyTransport,
+            serviceResolver: s.serviceResolver,
+        }
     proxyHandler.updateAPIService(apiService)
-    if s.openAPIAggregationController != nil {
-        s.openAPIAggregationController.AddAPIService(proxyHandler, apiService)
-    }
-    s.proxyHandlers[apiService.Name] = proxyHandler
-    s.GenericAPIServer.Handler.NonGoRestfulMux.Handle(proxyPath, proxyHandler)
-    s.GenericAPIServer.Handler.NonGoRestfulMux.UnlistedHandlePrefix(proxyPath+&quot;/&quot;, proxyHandler)
 
-    // if we're dealing with the legacy group, we're done here
-    if apiService.Name == legacyAPIServiceName {
-        return nil
-    }
+上面的updateAPIService就是更新这个proxy的后端service
 
-    // if we've already registered the path with the handler, we don't want to do it again.
-    if s.handledGroups.Has(apiService.Spec.Group) {
-        return nil
-    }
-
-    // it's time to register the group aggregation endpoint
-    groupPath := &quot;/apis/&quot; + apiService.Spec.Group
-    groupDiscoveryHandler := &amp;apiGroupHandler{
-        codecs:        Codecs,
-        groupName:     apiService.Spec.Group,
-        lister:        s.lister,
-        delegate:      s.delegateHandler,
-        contextMapper: s.contextMapper,
-    }
-    // aggregation is protected
-    s.GenericAPIServer.Handler.NonGoRestfulMux.Handle(groupPath, groupDiscoveryHandler)
-    s.GenericAPIServer.Handler.NonGoRestfulMux.UnlistedHandle(groupPath+&quot;/&quot;, groupDiscoveryHandler)
-    s.handledGroups.Insert(apiService.Spec.Group)
-    return nil
-}
-</code></pre>
-
-<p>上面path是</p>
-
-<pre><code>proxyPath := &quot;/apis/&quot; + apiService.Spec.Group + &quot;/&quot; + apiService.Spec.Version
-</code></pre>
-
-<p>结合上面的例子就是/apis/custom-metrics.metrics.k8s.io/v1alpha1.</p>
-
-<p>而处理方法请求的handle就是</p>
-
-<pre><code>proxyHandler := &amp;proxyHandler{
-        contextMapper:   s.contextMapper,
-        localDelegate:   s.delegateHandler,
-        proxyClientCert: s.proxyClientCert,
-        proxyClientKey:  s.proxyClientKey,
-        proxyTransport:  s.proxyTransport,
-        serviceResolver: s.serviceResolver,
-    }
-proxyHandler.updateAPIService(apiService)
-</code></pre>
-
-<p>上面的updateAPIService就是更新这个proxy的后端service</p>
-
-<pre><code>func (r *proxyHandler) updateAPIService(apiService *apiregistrationapi.APIService) {
-    if apiService.Spec.Service == nil {
-        r.handlingInfo.Store(proxyHandlingInfo{local: true})
-        return
-    }
-
-    newInfo := proxyHandlingInfo{
-        restConfig: &amp;restclient.Config{
-            TLSClientConfig: restclient.TLSClientConfig{
-                Insecure:   apiService.Spec.InsecureSkipTLSVerify,
-                ServerName: apiService.Spec.Service.Name + &quot;.&quot; + apiService.Spec.Service.Namespace + &quot;.svc&quot;,
-                CertData:   r.proxyClientCert,
-                KeyData:    r.proxyClientKey,
-                CAData:     apiService.Spec.CABundle,
-            },
-        },
-        serviceName:      apiService.Spec.Service.Name,
-        serviceNamespace: apiService.Spec.Service.Namespace,
-    }
-    newInfo.proxyRoundTripper, newInfo.transportBuildingError = restclient.TransportFor(newInfo.restConfig)
-    if newInfo.transportBuildingError == nil &amp;&amp; r.proxyTransport.Dial != nil {
-        switch transport := newInfo.proxyRoundTripper.(type) {
-        case *http.Transport:
-            transport.Dial = r.proxyTransport.Dial
-        default:
-            newInfo.transportBuildingError = fmt.Errorf(&quot;unable to set dialer for %s/%s as rest transport is of type %T&quot;, apiService.Spec.Service.Namespace, apiService.Spec.Service.Name, newInfo.proxyRoundTripper)
-            glog.Warning(newInfo.transportBuildingError.Error())
+    func (r *proxyHandler) updateAPIService(apiService *apiregistrationapi.APIService) {
+        if apiService.Spec.Service == nil {
+            r.handlingInfo.Store(proxyHandlingInfo{local: true})
+            return
         }
+
+        newInfo := proxyHandlingInfo{
+            restConfig: &restclient.Config{
+                TLSClientConfig: restclient.TLSClientConfig{
+                    Insecure:   apiService.Spec.InsecureSkipTLSVerify,
+                    ServerName: apiService.Spec.Service.Name + "." + apiService.Spec.Service.Namespace + ".svc",
+                    CertData:   r.proxyClientCert,
+                    KeyData:    r.proxyClientKey,
+                    CAData:     apiService.Spec.CABundle,
+                },
+            },
+            serviceName:      apiService.Spec.Service.Name,
+            serviceNamespace: apiService.Spec.Service.Namespace,
+        }
+        newInfo.proxyRoundTripper, newInfo.transportBuildingError = restclient.TransportFor(newInfo.restConfig)
+        if newInfo.transportBuildingError == nil && r.proxyTransport.Dial != nil {
+            switch transport := newInfo.proxyRoundTripper.(type) {
+            case *http.Transport:
+                transport.Dial = r.proxyTransport.Dial
+            default:
+                newInfo.transportBuildingError = fmt.Errorf("unable to set dialer for %s/%s as rest transport is of type %T", apiService.Spec.Service.Namespace, apiService.Spec.Service.Name, newInfo.proxyRoundTripper)
+                glog.Warning(newInfo.transportBuildingError.Error())
+            }
+        }
+        r.handlingInfo.Store(newInfo)
     }
-    r.handlingInfo.Store(newInfo)
-}
-</code></pre>
 
-<p>这个restConfig就是调用service的客户端参数，其中</p>
+这个restConfig就是调用service的客户端参数，其中
 
-<pre><code>ServerName: apiService.Spec.Service.Name + &quot;.&quot; + apiService.Spec.Service.Namespace + &quot;.svc&quot;,
-</code></pre>
+    ServerName: apiService.Spec.Service.Name + "." + apiService.Spec.Service.Namespace + ".svc",
 
-<p>就是具体的service。而上面watch service的变化就是为了动态更新这个apiservice后端handler所用的service。</p>
+就是具体的service。而上面watch service的变化就是为了动态更新这个apiservice后端handler所用的service。
 
-<h1 id="响应">响应</h1>
 
-<p>API Server 响应用户请求时附带一个状态码，该状态码符合 HTTP 规范。</p>
 
-<pre><code>200
+# 响应
 
-OK
+API Server 响应用户请求时附带一个状态码，该状态码符合 HTTP 规范。
 
-表明请求完全成功
 
-201
+    200
 
-Created
+    OK
 
-表明创建类的请求完全成功
+    表明请求完全成功
 
-204
+    201
 
-NoContent
+    Created
 
-表明请求完全成功，同时 HTTP 响应不包含响应体。
+    表明创建类的请求完全成功
 
-在响应 OPTIONS 方法的 HTTP 请求时返回
+    204
 
-307
+    NoContent
 
-TemporaryRedirect
+    表明请求完全成功，同时 HTTP 响应不包含响应体。
 
-表明请求资源的地址被改变，建议客户端使用 Location 首部给出的临时 URL 来定位资源
+    在响应 OPTIONS 方法的 HTTP 请求时返回
 
-400
+    307
 
-BadRequest
+    TemporaryRedirect
 
-表明请求是非法的，建议客户不要重试，修改该请求
+    表明请求资源的地址被改变，建议客户端使用 Location 首部给出的临时 URL 来定位资源
 
-401
+    400
 
-Unauthorized
+    BadRequest
 
-表明请求能够到达服务端，且服务端能够理解用户请求，但是拒绝做更多的事情，因为客户端必须提供认证信息。如果客户端提供了认证信息，则返回该状态码，表明服务端指出所提供的认证信息不合适或非法
+    表明请求是非法的，建议客户不要重试，修改该请求
 
-403
+    401
 
-Forbidden
+    Unauthorized
 
-表明请求能够到达服务端，且服务端能够理解用户请求，但是拒绝做更多的事情，因为该请求被设置成拒绝访问。建议客户不要重试，修改该请求
+    表明请求能够到达服务端，且服务端能够理解用户请求，但是拒绝做更多的事情，因为客户端必须提供认证信息。如果客户端提供了认证信息，则返回该状态码，表明服务端指出所提供的认证信息不合适或非法
 
-404
+    403
 
-NotFound
+    Forbidden
 
-表明所请求的资源不存在。建议客户不要重试，修改该请求
+    表明请求能够到达服务端，且服务端能够理解用户请求，但是拒绝做更多的事情，因为该请求被设置成拒绝访问。建议客户不要重试，修改该请求
 
-405
+    404
 
-MethodNotAllowed
+    NotFound
 
-表明请求中带有该资源不支持的方法。建议客户不要重试，修改该请求
+    表明所请求的资源不存在。建议客户不要重试，修改该请求
 
-409
+    405
 
-Conflict
+    MethodNotAllowed
 
-表明客户端尝试创建的资源已经存在，或者由于冲突请求的更新操作不能被完成
+    表明请求中带有该资源不支持的方法。建议客户不要重试，修改该请求
 
-422
+    409
 
-UnprocessableEntity
+    Conflict
 
-表明由于所提供的作为请求部分的数据非法，创建或修改操作不能被完成
+    表明客户端尝试创建的资源已经存在，或者由于冲突请求的更新操作不能被完成
 
-429
+    422
 
-TooManyRequests
+    UnprocessableEntity
 
-表明超出了客户端访问频率的限制或者服务端接收到多于它能处理的请求。建议客户端读取相应的 Retry-After 首部，然后等待该首部指出的时间后再重试
+    表明由于所提供的作为请求部分的数据非法，创建或修改操作不能被完成
 
-500
+    429
 
-InternalServerError
+    TooManyRequests
 
-表明服务端能被请求访问到，但是不能理解用户的请求；或者服务端内产生非预期中的一个错误，而且该错误无法被认知；或者服务端不能在一个合理的时间内完成处理（这可能由于服务器临时负载过重造成或者由于和其他服务器通信时的一个临时通信故障造成）
+    表明超出了客户端访问频率的限制或者服务端接收到多于它能处理的请求。建议客户端读取相应的 Retry-After 首部，然后等待该首部指出的时间后再重试
 
-503
+    500
 
-ServiceUnavailable
+    InternalServerError
 
-表明被请求的服务无效。建议客户不要重试，修改该请求
+    表明服务端能被请求访问到，但是不能理解用户的请求；或者服务端内产生非预期中的一个错误，而且该错误无法被认知；或者服务端不能在一个合理的时间内完成处理（这可能由于服务器临时负载过重造成或者由于和其他服务器通信时的一个临时通信故障造成）
 
-504
+    503
 
-ServerTimeout
+    ServiceUnavailable
 
-表明请求在给定的时间内无法完成。客户端仅在为请求指定超时（Timeout）参数时会得到该响应
-</code></pre>
+    表明被请求的服务无效。建议客户不要重试，修改该请求
 
-<p>在调用 API 接口发生错误时，Kubernetes 将会返回一个状态类别（Status Kind）。</p>
+    504
 
-<p>状态对象被编码成 JSON 格式，同时该 JSON 对象被作为请求的响应体。该状态对象包含人和机器使用的域，这些域中包含来自 API 的关于失败原因的详细信息。状态对象中的信息补充了对 HTTP 状态码的说明。</p>
+    ServerTimeout
 
-<blockquote>
-<p>实例</p>
-</blockquote>
+    表明请求在给定的时间内无法完成。客户端仅在为请求指定超时（Timeout）参数时会得到该响应
 
-<pre><code>curl -v -k -H ＂Authorization: Bearer WhCDvq4VPpYhrcfmF6ei7V9qlbqTubUc＂ HTTPs://10.240.122.184:443/api/v1/namespaces/default/pods/grafana
 
-&gt; GET /api/v1/namespaces/default/pods/grafana HTTP/1.1
 
-&gt; User-Agent: curl/7.26.0
+在调用 API 接口发生错误时，Kubernetes 将会返回一个状态类别（Status Kind）。
 
-&gt; Host: 10.240.122.184
+状态对象被编码成 JSON 格式，同时该 JSON 对象被作为请求的响应体。该状态对象包含人和机器使用的域，这些域中包含来自 API 的关于失败原因的详细信息。状态对象中的信息补充了对 HTTP 状态码的说明。
 
-&gt; Accept: */*
 
-&gt; Authorization: Bearer WhCDvq4VPpYhrcfmF6ei7V9qlbqTubUc
+>实例
 
-&gt;
+    curl -v -k -H ＂Authorization: Bearer WhCDvq4VPpYhrcfmF6ei7V9qlbqTubUc＂ HTTPs://10.240.122.184:443/api/v1/namespaces/default/pods/grafana
 
+    > GET /api/v1/namespaces/default/pods/grafana HTTP/1.1
 
+    > User-Agent: curl/7.26.0
 
-&lt; HTTP/1.1 404 Not Found
+    > Host: 10.240.122.184
 
-&lt; Content-Type: application/json
+    > Accept: */*
 
-&lt; Date: Wed, 20 May 2015 18:10:42 GMT
+    > Authorization: Bearer WhCDvq4VPpYhrcfmF6ei7V9qlbqTubUc
 
-&lt; Content-Length: 232
+    >
 
-&lt;
 
-{
 
-  ＂kind＂: ＂Status＂,
+    < HTTP/1.1 404 Not Found
 
-  ＂apiVersion＂: ＂v1＂,
+    < Content-Type: application/json
 
-  ＂metadata＂: {},
+    < Date: Wed, 20 May 2015 18:10:42 GMT
 
-  ＂status＂: ＂Failure＂,
+    < Content-Length: 232
 
-  ＂message＂: ＂pods \＂grafana\＂ not found＂,
+    <
 
-  ＂reason＂: ＂NotFound＂,
+    {
 
-  ＂details＂: {
+      ＂kind＂: ＂Status＂,
 
-    ＂name＂: ＂grafana＂,
+      ＂apiVersion＂: ＂v1＂,
 
-    ＂kind＂: ＂pods＂
+      ＂metadata＂: {},
 
-  },
+      ＂status＂: ＂Failure＂,
 
-  ＂code＂: 404
+      ＂message＂: ＂pods \＂grafana\＂ not found＂,
 
-}
-</code></pre>
+      ＂reason＂: ＂NotFound＂,
 
-<p>详解</p>
+      ＂details＂: {
 
-<ul>
-<li>“status”域包含两个可能的值：Success 和 Failure。</li>
-<li>“message”域包含对错误的可读描述。</li>
-<li>“reason”域包含说明该操作失败原因的可读描述。如果该域的值为空，则表示该域内没有任何说明信息。“reason”域澄清 HTTP 状态码，但没有覆盖该状态码。</li>
-<li>“details”可能包含和“reason”域相关的扩展数据。每个“reason”域可以定义它的扩展的“details”域。该域是可选的，返回数据的格式是不确定的，不同的 reason 类型返回的“details”域的内容不一样。</li>
-</ul>
+        ＂name＂: ＂grafana＂,
 
-<h1 id="client">client</h1>
+        ＂kind＂: ＂pods＂
 
-<p>使用各种编程语言的Kubernetes API的客户端库，主要包括两类：</p>
+      },
 
-<ul>
-<li>官方支持的Kubernetes客户端库</li>
-<li>社区维护的客户端库</li>
-</ul>
+      ＂code＂: 404
 
-<p>其实编程主要是走client的库，已经封装好了，不需要具体调用对于的api。</p>
+    }
 
-<ul>
-<li>官方
 
-<ul>
-<li>Go：github.com/kubernetes/client-go/</li>
-<li>Python：github.com/kubernetes-client/python/</li>
-<li>Java：github.com/kubernetes-client/java</li>
-<li>dotnet：github.com/kubernetes-client/csharp</li>
-<li>JavaScript：github.com/kubernetes-client/javascript</li>
-</ul></li>
-<li>社区
+详解
 
-<ul>
-<li>Go：github.com/ericchiang/k8s</li>
-</ul></li>
-</ul>
+- “status”域包含两个可能的值：Success 和 Failure。
+- “message”域包含对错误的可读描述。
+- “reason”域包含说明该操作失败原因的可读描述。如果该域的值为空，则表示该域内没有任何说明信息。“reason”域澄清 HTTP 状态码，但没有覆盖该状态码。
+- “details”可能包含和“reason”域相关的扩展数据。每个“reason”域可以定义它的扩展的“details”域。该域是可选的，返回数据的格式是不确定的，不同的 reason 类型返回的“details”域的内容不一样。
+
+
+-->
             </div>
             
             <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
@@ -1145,9 +1282,11 @@ ServerTimeout
 <li><a href="#api">API</a></li>
 <li><a href="#顶级api对象">顶级API对象</a></li>
 <li><a href="#crd-自定义资源类型">CRD(自定义资源类型)</a></li>
-<li><a href="#kubernetes-aggregated-api-servers">kubernetes Aggregated API Servers</a></li>
-<li><a href="#响应">响应</a></li>
-<li><a href="#client">client</a></li>
+<li><a href="#kubernetes-aggregated-api-servers">kubernetes Aggregated API Servers</a>
+<ul>
+<li><a href="#基础概览">基础概览</a></li>
+<li><a href="#apiservice">apiservice</a></li>
+</ul></li>
 </ul>
 </nav>
         </div>
