@@ -171,37 +171,37 @@ lrwxrwxrwx    1 root     root            12 May  4 23:57 token -&gt; ..data/toke
 
 <h3 id="kubernetes没有用户以及用户组">Kubernetes没有用户以及用户组</h3>
 
-<p>虽然我们在上面列出了两个用户类型，Kubernetes的RBAC模型授权对象(Subject)是用户(User)或者用户组(Group)，即使ServiceAccount也会当作为一个虚拟User，但是很令人疑惑的是通过Kubernetes找不到真正的用户以及用户组信息，甚至连对应的User Resource以及Group Resource都没有，所以有时候在写rolebingding的时候会觉得很奇怪，Subjects需要填User或者Group，可是Kubernetes却没有办法列出可信任的User列表以及Group列表。</p>
-
-<p>换句话说Kubernetes并没有提供用户管理和身份认证功能，除了Service Account外，所有的用户信息都依赖外部的用户管理系统来存储，因此通过api-serever根本无法列出User和Group。</p>
-
-<p>这其实挺符合UNIX设计哲学的，即Do One Thing and Do It Well。Kubernetes只专注于做应用编排，其他的功能则提供接口集成，除了认证和授权，我们发现网络、存储也都如此。</p>
+<p>Kubernetes并没有提供用户管理和身份认证功能，除了Service Account外，所有的用户信息都依赖外部的用户管理系统来存储，因此通过api-serever根本无法列出User和Group。这符合UNIX设计哲学的，即Do One Thing and Do It Well。Kubernetes只专注于做应用编排，其他的功能则提供接口集成，我们使用的CNI，CSI，CRI都是这个思想。</p>
 
 <p>这样做的好处也显而易见，用户账户信息与Kubernetes集群松耦合，便于集成企业已有的身份认证系统，如AD、LADP、Keycloak等。</p>
+
+<p>我们在写rolebingding的时候，Subjects需要填User或者Group，我们一般使用sa，也可以使用外部身份认证系统。</p>
 
 <h2 id="多租户">多租户</h2>
 
 <p>1、租户</p>
 
 <ul>
-<li>租户的概念不止局限于集群的用户，它可以包含为一组计算，网络，存储等资源组成的工作负载集合。</li>
+<li>租户主要是&rdquo;租&rdquo;，讲究的是是你租用的一个资源，就属于你私有的，和用户是两个概念。</li>
 </ul>
+
+<p>比如你使用阿里云的存储服务，阿里是“租”给你它的存储设备，你是它的租户，别人不会看见你存储的数据，就像你租的房子别人不能翻查一样。当然同时你也是阿里云网站的用户。</p>
 
 <p>2、多租户的目的？</p>
 
 <ul>
-<li>多租户集群由多个用户或工作负载共享，这些用户和工作负载被称为“租户”。多租户集群的运营方必须将租户彼此隔离，以最大限度地减少被盗用的租户或恶意租户可能对集群和其他租户造成的损害。此外，必须在租户之间公平地分配集群资源。</li>
+<li>隔离。</li>
 </ul>
 
 <p>3、k8s多租户的实现</p>
 
 <ul>
-<li>虽然 Kubernetes 不能保证租户之间完全安全地隔离，但它为特定使用场景提供了足够的相关功能。您可以将每个租户及其 Kubernetes 资源分隔到各自的命名空间中。然后，您可以使用政策来强制执行租户隔离。政策通常按命名空间划分，可用于限制 API 访问、资源使用以及允许容器执行的操作。</li>
+<li>一般可以将租户及其 Kubernetes 资源分隔到单独的命名空间中。然后，您可以使用策略来强制执行租户隔离。通常按命名空间划分，可用于限制 API 访问、资源使用以及允许容器执行的操作。</li>
 </ul>
 
 <p>4、多租户使用场景:企业内部共享集群的多租户</p>
 
-<p>该场景下集群的所有用户均来自企业内部，这也是当前很多 k8s 集群客户的使用模式,我们可以通过命名空间对不同部门或团队进行资源的逻辑隔离，同时定义以下几种角色的业务人员：</p>
+<p>我们可以通过命名空间对不同部门或团队进行资源的逻辑隔离，同时定义以下几种角色的业务人员：</p>
 
 <ul>
 <li>集群管理员(cluster admin)
@@ -234,7 +234,7 @@ lrwxrwxrwx    1 root     root            12 May  4 23:57 token -&gt; ..data/toke
 
 <p>k8s 中的认证机制，是在用户访问 APIServer 的第一步。这一步往往只检测请求头或客户端证书，通俗的讲这一步就是验证用户名密码的。所以也就是我们正常使用的认证方式，比如token，basic等。</p>
 
-<p>认证却支持好几种方式:</p>
+<p>认证支持好几种方式:</p>
 
 <ul>
 <li>客户端证书</li>
@@ -253,7 +253,7 @@ lrwxrwxrwx    1 root     root            12 May  4 23:57 token -&gt; ..data/toke
 
 <p>x509认证是默认开启的认证方式，api-server启动时会指定ca证书以及ca私钥，只要是通过ca签发的客户端x509证书，则可认为是可信的客户端。所以带着签发的客户端证书是可以通过https的安全验证的。</p>
 
-<p>我们在来看看证书，签发客户端证书有两种方式，一种是基于CA根证书签发证书，另一个种是发起CSR(Certificate Signing Requests)请求。</p>
+<p>签发客户端证书有两种方式，一种是基于CA根证书签发证书，另一个种是发起CSR(Certificate Signing Requests)请求。</p>
 
 <blockquote>
 <p>使用CA根证书签发客户端证书</p>
@@ -344,7 +344,7 @@ subject=O = int32bit, CN = test-csr
 issuer=CN = kubernetes
 </code></pre>
 
-<p>配置kubeconfig使用证书认证的方式和前面的一样，这里不再赘述。</p>
+<p>配置kubeconfig使用证书认证的方式和前面的一样。</p>
 
 <blockquote>
 <p>总结</p>
@@ -354,7 +354,7 @@ issuer=CN = kubernetes
 
 <p>我们搭建k8s过程中签发的CA证书就是一个客户端证书，是一个拥有集群管理员权限的证书。</p>
 
-<p>使用x509证书相对静态密码来说显然会更安全，只要证书不泄露，可以认为是无懈可击的。但是虽然颁发证书容易，目前却没有很好的方案注销证书。想想如果某个管理员离职，该如何回收他的权限和证书。有人说，证书轮转不就解决了吗？但这也意味着需要重新颁发其他所有证书，非常麻烦。</p>
+<p>使用x509证书相对静态密码来说显然会更安全，只要证书不泄露，可以认为是无懈可击的。但是虽然颁发证书容易，目前却没有很好的方案注销证书。</p>
 
 <p>所以使用x509证书认证适用于Kubernetes内部组件之间认证，普通用户认证并不推荐通过证书的形式进行认证。</p>
 
@@ -419,7 +419,7 @@ Certificate:
 <pre><code>Subject: O=system:masters, CN=kubernetes-admin
 </code></pre>
 
-<p>k8s apiserver对kubectl的请求进行client certificate验证(通过ca证书–client-ca-file=/etc/kubernetes/pki/ca.crt对其进行校验)，验证通过后kube-apiserver会得到：group = system:masters的http上下文信息，并传给后续的authorizers。</p>
+<p>k8s apiserver对kubectl的请求进行client certificate验证，验证通过后kube-apiserver会得到：group = system:masters的http上下文信息，并传给后续的authorizers。</p>
 
 <h4 id="2-bearer-token">2、bearer token</h4>
 
@@ -427,9 +427,7 @@ Certificate:
 <p>Service Account Token</p>
 </blockquote>
 
-<p>service account是Kubernetes唯一由自己管理的账号实体，意味着service account可以通过Kubernetes创建，不过这里的service account并不是直接和User关联的，service account是namespace作用域，而User是全cluster唯一。service account会对应一个虚拟User，User名为system:serviceaccount:${namespace}:${sa_name}，比如在default namespace的test service account，则对应的虚拟User为system:serviceaccount:default:test。</p>
-
-<p>和前面的bootstrap一样，service account也是使用Bearer Token认证的，不过和前面的Token不一样的是service account是基于JWT(JSON Web Token)认证机制，JWT原理和x509证书认证其实有点类似，都是通过CA根证书进行签名和校验，只是格式不一样而已，JWT由三个部分组成，每个部分由.分割，三个部分依次如下:</p>
+<p>service account是使用Bearer Token认证的，不过和前面的Token不一样的是service account是基于JWT(JSON Web Token)认证机制，JWT原理和x509证书认证其实有点类似，都是通过CA根证书进行签名和校验，只是格式不一样而已，JWT由三个部分组成，每个部分由.分割，三个部分依次如下:</p>
 
 <ul>
 <li>Header（头部）: Token的元数据，如alg表示签名算法，typ表示令牌类型，一般为JWT，kid表示Token ID等。</li>
@@ -437,7 +435,7 @@ Certificate:
 <li>Signature（签名）：基于alg指定的算法生成的数字签名，为了避免被篡改和伪造。</li>
 </ul>
 
-<p>为了便于HTTP传输，JWT Token在传递过程中会转成Base64URL编码，其中Base64URL相对我们常用的Base64编码不同的是=被省略、+替换成-，/替换成_，这么做的原因是因为这些字符在URL里面有特殊含义。</p>
+<p>为了便于HTTP传输，JWT Token在传递过程中会转成Base64URL编码，其中Base64URL相对我们常用的Base64编码不同的是<code>=被省略、+替换成-，/替换成_</code>，这么做的原因是因为这些字符在URL里面有特殊含义。</p>
 
 <p>可以用如下脚本实现Kubernetes Service Account的Token解码:</p>
 
@@ -502,13 +500,9 @@ kubectl config set-credentials &quot;${USERNAME}&quot; --token=&quot;$TOKEN&quot
 
 <p>此时Kubernetes会自动把SA的Token通过volume的形式挂载到/run/secrets/kubernetes.io/serviceaccount目录上，从而Pod可以读取token调用Kubernetes API.</p>
 
-<p>针对一些需要和Kubernetes API交互的应用非常有用，比如coredns就需要监控endpoints、services的变化，因此关联了coredns SA，coredns又关联了system:coredns clusterrole。flannel需要监控pods以及nodes变化同样关联了flannel SA。</p>
-
 <p>到这里为止，service account可能是Kubernetes目前最完美的认证方案了，既能支持集群外的客户端认证，又支持集群内的Pod关联授权。</p>
 
-<p>但事实上，service account并不是设计用来给普通user认证的，默认enabled，通常被 pod 所使用,是给集群内部服务使用的。目前虽然token是永久有效的，但未来会改成使用动态token的方式，参考官方设计设计文档Bound Service Account Tokens，此时如果kubectl客户端认证则需要频繁更新token。</p>
-
-<p>除此之外，SA虽然能够对应一个虚拟User，但不支持自定义Group，在授权体系中不够灵活。另外也不支持客户端高级认证功能，比如MFA、SSO等。</p>
+<p>但事实上，service account并不是设计用来给普通user认证的，默认enabled，通常被 pod 所使用,是给集群内部服务使用的，目前虽然token是永久有效的。</p>
 
 <blockquote>
 <p>Bootstrap Tokens</p>
@@ -585,22 +579,14 @@ Static Password File: 以参数 --basic-auth-file=&lt;SOMEFILE&gt; 指明 basic 
 这个 basic auth file 以 csv 文件的形式存在，里面至少包含三个信息：password、username、uid（user id）、group（一些k8s常用的系统角色），比如NoMoreSecret,int32bit-1,1000,&quot;int32bit&quot; ，此时定义了一个用户int32bit-1，静态密码为NoMoreSecret，所属Group为intt32bit。
 </code></pre>
 
-<p>设置了静态密码，就可以对什么用户属于什么group，从而对于当前group有哪些权限，做到了对用户的权限管理。</p>
-
 <p>使用http请求认证的时候，认证头部为Basic base64encode(${username}:${password})。</p>
-
-<p>我们也可以使用kubectl请求，这时候会使用凭证config文件，就可以这样生成</p>
-
-<pre><code>kubectl config set-credentials int32bit-1 --username=int32bit-1 --password=NoMoreSecret
-</code></pre>
-
-<p>然后就可以使用kubectl来带着这个认证来操作了。</p>
 
 <p>通过静态密码的唯一优势是简单，其缺点也是非常明显:</p>
 
-<pre><code>静态密码是明文，非常不安全，还有可能被暴力破解。
-非常不灵活，增加或者删除用户，必须手动修改静态密码文件并重启所有的api-server服务。
-</code></pre>
+<ul>
+<li>静态密码是明文，非常不安全，还有可能被暴力破解。</li>
+<li>非常不灵活，增加或者删除用户，必须手动修改静态密码文件并重启所有的api-server服务。</li>
+</ul>
 
 <p>这种方式在实际场景中很少被使用，不建议生产环境使用。</p>
 
@@ -608,496 +594,477 @@ Static Password File: 以参数 --basic-auth-file=&lt;SOMEFILE&gt; 指明 basic 
 
 <p>Kubernetes最强大的功能是支持集成第三方Id Provider（IdP），主流的如AD、LADP以及OpenStack Keystone等，毕竟专业的人做专业的事。</p>
 
-<blockquote>
-<p>通过OpenID Connect集成keycloak认证系统</p>
-</blockquote>
+<!--
+>通过OpenID Connect集成keycloak认证系统
 
-<p>当前支持OpenID Connect的产品有很多，如:</p>
-
-<pre><code>Keycloak
-UAA
-Dex
-OpenUnison
-</code></pre>
-
-<p>1、keycloak配置</p>
-
-<p>由于Kubernetes要求必须是https，测试环境需要签发自己的CA，参考为Kubernetes 搭建支持 OpenId Connect 的身份认证系统:</p>
-
-<pre><code>#!/bin/bash
-mkdir -p ssl
-cat &lt;&lt; EOF &gt; ssl/ca.cnf
-[req]
-req_extensions = v3_req
-distinguished_name = req_distinguished_name
-
-[req_distinguished_name]
-
-[ v3_req ]
-basicConstraints = CA:TRUE
-EOF
-cat &lt;&lt; EOF &gt; ssl/req.cnf
-[req]
-req_extensions = v3_req
-distinguished_name = req_distinguished_name
-
-[req_distinguished_name]
-
-[ v3_req ]
-basicConstraints = CA:FALSE
-keyUsage = nonRepudiation, digitalSignature, keyEncipherment
-subjectAltName = @alt_names
-
-[alt_names]
-IP.1 = 192.168.193.172
-EOF
-
-openssl genrsa -out ssl/ca-key.pem 2048
-openssl req -x509 -new -nodes -key ssl/ca-key.pem -days 365 -out ssl/ca.pem -subj &quot;/CN=keycloak-ca&quot; -extensions v3_req -config ssl/ca.cnf
-
-openssl genrsa -out ssl/keycloak.pem 2048
-openssl req -new -key ssl/keycloak.pem -out ssl/keycloak-csr.pem -subj &quot;/CN=keycloak&quot; -config ssl/req.cnf
-openssl x509 -req -in ssl/keycloak-csr.pem -CA ssl/ca.pem -CAkey ssl/ca-key.pem -CAcreateserial -out ssl/keycloak.crt -days 365 -extensions v3_req -extfile ssl/req.cnf
-
-# 生成 keystore 并导入 keypair
-openssl pkcs12 -export -out ssl/keycloak.p12 -inkey ssl/keycloak.pem -in ssl/keycloak.crt -certfile ssl/ca.pem
-keytool -importkeystore -deststorepass 'noMoreSecret' -destkeystore ssl/keycloak.jks -srckeystore ssl/keycloak.p12 -srcstoretype PKCS12
-</code></pre>
-
-<p>由于没有配置固定域名，因此添加了alt_names并指定IP。</p>
-
-<p>最后复制ssl/keycloak.p12到如下两个路径:</p>
-
-<pre><code>cp ssl/keycloak.p12 keycloak-8.0.1/standalone/configuration/keycloak.jks
-cp ssl/keycloak.p12 /etc/kubernetes/pki/
-</code></pre>
-
-<p>2、keycloak认证信息配置</p>
-
-<p>登录keycloak管理页面创建一个realm以及client，名称都为int32bit-kubernetes。其中realm类似namespace概念，实现了多租户模型，client对应一个认证主体，所有使用keycloak认证的都需要创建一个对应的client。</p>
-
-<p>每个client会对应有一个secret，这二者关系就是access key和access secret关系:</p>
-
-<p>接下来通过Web管理页面执行如下操作：</p>
-
-<pre><code>在Roles中创建两个role分别为int32bit-kubernetes-cluster-admin、int32bit-kubernetes-readonly。
-在Users中创建两个用户k8s-admin、k8s-readonlly。
-k8s-admin关联int32bit-kubernetes-cluster-admin role，k8s-readonlly关联int32bit-kubernetes-readonly role。
-</code></pre>
-
-<p>注: 管理员可以在User的Credentials面板中设置用户密码。</p>
-
-<p>通过curl检查是否可认证获取token:</p>
-
-<pre><code>curl -sSLk \
-  -d &quot;client_id=int32bit-kubernetes&quot; \
-  -d &quot;client_secret=700eeab2-2f85-45a1-9904-297a0be4d4fd&quot; \
-  -d &quot;response_type=code token&quot; \
-  -d &quot;grant_type=password&quot; \
-  -d &quot;username=k8s-admin&quot; \
-  -d &quot;password=noMoreSecret&quot; \
-  -d &quot;scope=openid&quot; \
-  https://192.168.193.172:8443/auth/realms/int32bit-kubernetes/protocol/openid-connect/token
-</code></pre>
-
-<p>其中返回的id_token，在后面Kubernetes对接中非常重要，它也是一个JWT Token，解码后的内容如下:</p>
-
-<pre><code>{
-  &quot;alg&quot;: &quot;RS256&quot;,
-  &quot;typ&quot;: &quot;JWT&quot;,
-  &quot;kid&quot;: &quot;95WIuxaLj99XHhmytuQm4POZztFxYCaw3Pd-KyBGVVQ&quot;
-}
-{
-  &quot;jti&quot;: &quot;39b94185-045a-4cee-b025-d0e0909d6bfd&quot;,
-  &quot;exp&quot;: 1576466962,
-  &quot;nbf&quot;: 0,
-  &quot;iat&quot;: 1576466662,
-  &quot;iss&quot;: &quot;https://192.168.193.172:8443/auth/realms/int32bit-kubernetes&quot;,
-  &quot;aud&quot;: &quot;int32bit-kubernetes&quot;,
-  &quot;sub&quot;: &quot;95374c54-c47f-42a5-9bb2-2e0e417a9ff2&quot;,
-  &quot;typ&quot;: &quot;ID&quot;,
-  &quot;azp&quot;: &quot;int32bit-kubernetes&quot;,
-  &quot;auth_time&quot;: 0,
-  &quot;session_state&quot;: &quot;0eafa8ba-6536-4f6a-989f-177e19e4882a&quot;,
-  &quot;acr&quot;: &quot;1&quot;,
-  &quot;email_verified&quot;: false,
-  &quot;preferred_username&quot;: &quot;k8s-admin&quot;
-}
-</code></pre>
-
-<p>我们发现id_token默认没有groups信息，为了支持Kubernetes的Group认证，需要在client中添加mappers字段groups。</p>
-
-<p>这里之所以映射User Realm Role，而不是Group MemberShip，是因为Group会在id_token中添加前缀/，如/test-group1,/test-group2，这个暂时没想到怎么处理，或许有更好的办法。</p>
-
-<p>再次生成token_id就会有groups信息了:</p>
-
-<pre><code>{
-  &quot;jti&quot;: &quot;39b94185-045a-4cee-b025-d0e0909d6bfd&quot;,
-  &quot;exp&quot;: 1576466962,
-  &quot;nbf&quot;: 0,
-  &quot;iat&quot;: 1576466662,
-  &quot;iss&quot;: &quot;https://192.168.193.172:8443/auth/realms/int32bit-kubernetes&quot;,
-  &quot;aud&quot;: &quot;int32bit-kubernetes&quot;,
-  &quot;sub&quot;: &quot;95374c54-c47f-42a5-9bb2-2e0e417a9ff2&quot;,
-  &quot;typ&quot;: &quot;ID&quot;,
-  &quot;azp&quot;: &quot;int32bit-kubernetes&quot;,
-  &quot;auth_time&quot;: 0,
-  &quot;session_state&quot;: &quot;0eafa8ba-6536-4f6a-989f-177e19e4882a&quot;,
-  &quot;acr&quot;: &quot;1&quot;,
-  &quot;email_verified&quot;: false,
-  &quot;groups&quot;: [
-    &quot;int32bit-kubernetes-cluster-admin&quot;
-  ],
-  &quot;preferred_username&quot;: &quot;k8s-admin&quot;
-}
-</code></pre>
-
-<p>3、Kubernetes集成keycloak认证</p>
-
-<p>在api-server中增加如下命令行启动参数:</p>
-
-<pre><code>- --oidc-issuer-url=https://192.168.193.172:8443/auth/realms/int32bit-kubernetes
-- --oidc-client-id=int32bit-kubernetes
-- --oidc-username-claim=preferred_username
-- --oidc-username-prefix=-
-- --oidc-groups-claim=groups
-- --oidc-ca-file=/etc/kubernetes/pki/keycloak.crt
-</code></pre>
-
-<p>参数解析</p>
-
-<pre><code>--oidc-issuer-url路径需要具体到realm，这里为int32bit-kubernetes；
---oidc-client-id对应client id，前面我们已经创建。
---oidc-username-claim、--oidc-groups-claim告诉Kubernetes如何从id_token中读取username和groups，根据前面解码后的id_token，我们不难选择。
---oidc-username-prefix告诉Kubernetes针对这个odic的用户需要添加什么前缀，如果集群同时有多个认证系统，建议添加个前缀加以区分，如指定前缀为odic:，则Kubernetes对应的User为odic: preferred_username。
---oidc-ca-file指定keycloak的根证书，因为不是权威证书，不指定则不会信任该证书。
-</code></pre>
-
-<p>前面创建了两个用户，与Role的关联关系如下:</p>
-
-<pre><code>k8s-admin: int32bit-kubernetes-cluster-admin
-k8s-readonly: int32bit-kubernetes-readonly
-</code></pre>
-
-<p>相对应的在Kubernetes创建两个clusterrolebinging:</p>
-
-<p>cluster-admin:</p>
-
-<pre><code>apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    rbac.authorization.kubernetes.io/autoupdate: &quot;true&quot;
-  labels:
-    kubernetes.io/bootstrapping: rbac-defaults
-  name: cluster-admin
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: cluster-admin
-subjects:
-- apiGroup: rbac.authorization.k8s.io
-  kind: Group
-  name: system:masters
-- apiGroup: rbac.authorization.k8s.io
-  kind: Group
-  name: int32bit-kubernetes-cluster-admin
-cluster-readonly:
-
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  annotations:
-    rbac.authorization.kubernetes.io/autoupdate: &quot;true&quot;
-  labels:
-    kubernetes.io/bootstrapping: rbac-defaults
-  name: cluster-readonly
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: view
-subjects:
-- apiGroup: rbac.authorization.k8s.io
-  kind: Group
-  name: int32bit-kubernetes-readonly
-</code></pre>
-
-<p>4、使用OpenId Connect认证</p>
-
-<p>生成config文件:</p>
-
-<pre><code>kubectl config set-credentials oidc \
-   --auth-provider=oidc \
-   --auth-provider-arg=idp-issuer-url=https://192.168.193.172:8443/auth/realms/int32bit-kubernetes \
-   --auth-provider-arg=client-id=int32bit-kubernetes \
-   --auth-provider-arg=client-secret=700eeab2-2f85-45a1-9904-297a0be4d4fd
-</code></pre>
-
-<p>为了便于登录，下载kube-login插件:</p>
-
-<pre><code>kubectl krew install oidc-login
-</code></pre>
-
-<p>此时可以直接通过如下命令进行登录:</p>
-
-<pre><code>kubectl oidc-login --username username --password password
-</code></pre>
-
-<p>如果是图形界面，不指定参数直接使用kubectl oidc-login可自动打开浏览器进行登录校验。</p>
-
-<p>可见使用k8s-admin具有所有权限，而k8s-readonly只有list的权限。</p>
-
-<blockquote>
-<p>通过webhook集成OpenStack Keystone</p>
-</blockquote>
-
-<p>webhook和odic一样也是集成外部认证系统的一种方式，当client发起api-server请求时会触发webhook服务TokenReview调用，webhook会检查用户的凭证信息，如果是合法则返回authenticated&rdquo;: true等信息。api-server会等待webhook服务返回，如果返回的authenticated结果为true，则表明认证成功，否则拒绝访问。</p>
-
-<p>1、OpenStack Keystone配置</p>
-
-<p>为了后续测试，我们在Keystone创建如下资源:</p>
-
-<pre><code>#!/bin/bash
-openstack project create int32bit-kubernetes
-USERS_AND_ROLES=(k8s-admin k8s-viewer)
-for i in &quot;${USERS_AND_ROLES[@]}&quot;; do
-  openstack user create --project int32bit-kubernetes --password noMoreSecret &quot;$i&quot;
-  openstack role create &quot;$i&quot;
-  openstack role add --user &quot;$i&quot; --project int32bit-kubernetes &quot;$i&quot;
-done
-</code></pre>
-
-<p>其中k8s-admin user关联k8s-admin role，k8s-viewer user关联k8s-viewer role，我们根据不同role角色设置不同的权限：</p>
-
-<pre><code>apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: k8s-auth-policy
-  namespace: kube-system
-data:
-  policies: |
-    [
-      {
-        &quot;resource&quot;: {
-          &quot;verbs&quot;: [&quot;get&quot;, &quot;list&quot;, &quot;watch&quot;],
-          &quot;resources&quot;: [&quot;*&quot;],
-          &quot;version&quot;: &quot;*&quot;,
-          &quot;namespace&quot;: &quot;default&quot;
-        },
-        &quot;match&quot;: [
-          {
-            &quot;type&quot;: &quot;role&quot;,
-            &quot;values&quot;: [&quot;k8s-viewer&quot;, &quot;k8s-admin&quot;]
-          },
-          {
-            &quot;type&quot;: &quot;project&quot;,
-            &quot;values&quot;: [&quot;int32bit-kubernetes&quot;]
-          }
-        ]
-      },
-      {
-        &quot;resource&quot;: {
-          &quot;verbs&quot;: [&quot;create&quot;, &quot;update&quot;, &quot;delete&quot;],
-          &quot;resources&quot;: [&quot;*&quot;],
-          &quot;version&quot;: &quot;*&quot;,
-          &quot;namespace&quot;: &quot;default&quot;
-        },
-        &quot;match&quot;: [
-          {
-            &quot;type&quot;: &quot;role&quot;,
-            &quot;values&quot;: [&quot;k8s-admin&quot;]
-          },
-          {
-            &quot;type&quot;: &quot;project&quot;,
-            &quot;values&quot;: [&quot;int32bit-kubernetes&quot;]
-          }
-        ]
-      }
-    ]
-</code></pre>
-
-<p>如上policy配置中，k8s-viewer只允许读namesapce default的资源，而k8s-admin允许create、update以及delete等所有权限。</p>
-
-<p>创建如上configmap:</p>
-
-<pre><code>kubectl apply -f keystone-auth.yaml
-</code></pre>
-
-<p>2、配置k8s-keystone-auth webhook插件</p>
-
-<p>安装和配置k8s-keystone-auth可参考官方文档k8s-keystone-auth</p>
-
-<p>安装完后验证webhook认证结果:</p>
-
-<pre><code>#!/bin/bash
-keystone_auth_service_addr=$(kubectl get svc keystone-auth -o jsonpath={.spec.clusterIP})
-token=$(openstack token issue -f shell | awk -F '=' '/^id=.*/{print $2}' | tr -d '&quot;')
-cat &lt;&lt;EOF | curl -ks -XPOST -d @- https://${keystone_auth_service_addr}:8443/webhook | python -mjson.tool
-{
-  &quot;apiVersion&quot;: &quot;authentication.k8s.io/v1beta1&quot;,
-  &quot;kind&quot;: &quot;TokenReview&quot;,
-  &quot;metadata&quot;: {
-    &quot;creationTimestamp&quot;: null
-  },
-  &quot;spec&quot;: {
-    &quot;token&quot;: &quot;$token&quot;
-  }
-}
-EOF
-</code></pre>
-
-<p>输出如果authenticated&rdquo;: true则说明认证成功。</p>
-
-<p>当然也可以验证webhook的授权，如验证k8s-viewer是否具有list pods权限:</p>
-
-<pre><code>keystone_auth_service_addr=$(kubectl get svc keystone-auth -o jsonpath={.spec.clusterIP})
-cat &lt;&lt;EOF | curl -ks -XPOST -d @- https://${keystone_auth_service_addr}:8443/webhook | python -mjson.tool
-{
-  &quot;apiVersion&quot;: &quot;authorization.k8s.io/v1beta1&quot;,
-  &quot;kind&quot;: &quot;SubjectAccessReview&quot;,
-  &quot;spec&quot;: {
-    &quot;resourceAttributes&quot;: {
-      &quot;namespace&quot;: &quot;default&quot;,
-      &quot;verb&quot;: &quot;list&quot;,
-      &quot;group&quot;: &quot;&quot;,
-      &quot;resource&quot;: &quot;pods&quot;
-    },
-    &quot;user&quot;: &quot;k8s-viewer&quot;,
-    &quot;group&quot;: [&quot;423d41d3a02f4b77b4a9bbfbc3a1b3c6&quot;],
-    &quot;extra&quot;: {
-        &quot;alpha.kubernetes.io/identity/project/id&quot;: [&quot;7c266ba4f14d4a64bda0b6b562f2cd60&quot;],
-        &quot;alpha.kubernetes.io/identity/project/name&quot;: [&quot;int32bit-kubernetes&quot;],
-        &quot;alpha.kubernetes.io/identity/roles&quot;: [&quot;k8s-viewer&quot;]
+
+当前支持OpenID Connect的产品有很多，如:
+
+    Keycloak
+    UAA
+    Dex
+    OpenUnison
+
+1、keycloak配置
+
+由于Kubernetes要求必须是https，测试环境需要签发自己的CA，参考为Kubernetes 搭建支持 OpenId Connect 的身份认证系统:
+
+    #!/bin/bash
+    mkdir -p ssl
+    cat << EOF > ssl/ca.cnf
+    [req]
+    req_extensions = v3_req
+    distinguished_name = req_distinguished_name
+
+    [req_distinguished_name]
+
+    [ v3_req ]
+    basicConstraints = CA:TRUE
+    EOF
+    cat << EOF > ssl/req.cnf
+    [req]
+    req_extensions = v3_req
+    distinguished_name = req_distinguished_name
+
+    [req_distinguished_name]
+
+    [ v3_req ]
+    basicConstraints = CA:FALSE
+    keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+    subjectAltName = @alt_names
+
+    [alt_names]
+    IP.1 = 192.168.193.172
+    EOF
+
+    openssl genrsa -out ssl/ca-key.pem 2048
+    openssl req -x509 -new -nodes -key ssl/ca-key.pem -days 365 -out ssl/ca.pem -subj "/CN=keycloak-ca" -extensions v3_req -config ssl/ca.cnf
+
+    openssl genrsa -out ssl/keycloak.pem 2048
+    openssl req -new -key ssl/keycloak.pem -out ssl/keycloak-csr.pem -subj "/CN=keycloak" -config ssl/req.cnf
+    openssl x509 -req -in ssl/keycloak-csr.pem -CA ssl/ca.pem -CAkey ssl/ca-key.pem -CAcreateserial -out ssl/keycloak.crt -days 365 -extensions v3_req -extfile ssl/req.cnf
+
+    # 生成 keystore 并导入 keypair
+    openssl pkcs12 -export -out ssl/keycloak.p12 -inkey ssl/keycloak.pem -in ssl/keycloak.crt -certfile ssl/ca.pem
+    keytool -importkeystore -deststorepass 'noMoreSecret' -destkeystore ssl/keycloak.jks -srckeystore ssl/keycloak.p12 -srcstoretype PKCS12
+
+由于没有配置固定域名，因此添加了alt_names并指定IP。
+
+最后复制ssl/keycloak.p12到如下两个路径:
+
+    cp ssl/keycloak.p12 keycloak-8.0.1/standalone/configuration/keycloak.jks
+    cp ssl/keycloak.p12 /etc/kubernetes/pki/
+
+2、keycloak认证信息配置
+
+登录keycloak管理页面创建一个realm以及client，名称都为int32bit-kubernetes。其中realm类似namespace概念，实现了多租户模型，client对应一个认证主体，所有使用keycloak认证的都需要创建一个对应的client。
+
+
+每个client会对应有一个secret，这二者关系就是access key和access secret关系:
+
+
+接下来通过Web管理页面执行如下操作：
+
+    在Roles中创建两个role分别为int32bit-kubernetes-cluster-admin、int32bit-kubernetes-readonly。
+    在Users中创建两个用户k8s-admin、k8s-readonlly。
+    k8s-admin关联int32bit-kubernetes-cluster-admin role，k8s-readonlly关联int32bit-kubernetes-readonly role。
+
+注: 管理员可以在User的Credentials面板中设置用户密码。
+
+通过curl检查是否可认证获取token:
+
+    curl -sSLk \
+      -d "client_id=int32bit-kubernetes" \
+      -d "client_secret=700eeab2-2f85-45a1-9904-297a0be4d4fd" \
+      -d "response_type=code token" \
+      -d "grant_type=password" \
+      -d "username=k8s-admin" \
+      -d "password=noMoreSecret" \
+      -d "scope=openid" \
+      https://192.168.193.172:8443/auth/realms/int32bit-kubernetes/protocol/openid-connect/token
+
+其中返回的id_token，在后面Kubernetes对接中非常重要，它也是一个JWT Token，解码后的内容如下:
+
+    {
+      "alg": "RS256",
+      "typ": "JWT",
+      "kid": "95WIuxaLj99XHhmytuQm4POZztFxYCaw3Pd-KyBGVVQ"
     }
-  }
-}
-EOF
-</code></pre>
+    {
+      "jti": "39b94185-045a-4cee-b025-d0e0909d6bfd",
+      "exp": 1576466962,
+      "nbf": 0,
+      "iat": 1576466662,
+      "iss": "https://192.168.193.172:8443/auth/realms/int32bit-kubernetes",
+      "aud": "int32bit-kubernetes",
+      "sub": "95374c54-c47f-42a5-9bb2-2e0e417a9ff2",
+      "typ": "ID",
+      "azp": "int32bit-kubernetes",
+      "auth_time": 0,
+      "session_state": "0eafa8ba-6536-4f6a-989f-177e19e4882a",
+      "acr": "1",
+      "email_verified": false,
+      "preferred_username": "k8s-admin"
+    }
 
-<p>如果输出&rdquo;allowed&rdquo;: true，则说明具有list pods权限。</p>
+我们发现id_token默认没有groups信息，为了支持Kubernetes的Group认证，需要在client中添加mappers字段groups。
 
-<p>3、配置Kubernetes使用keystone webhook</p>
 
-<p>按照官方文档，创建webhook conf文件:</p>
+这里之所以映射User Realm Role，而不是Group MemberShip，是因为Group会在id_token中添加前缀/，如/test-group1,/test-group2，这个暂时没想到怎么处理，或许有更好的办法。
 
-<pre><code>keystone_auth_service_addr=$(kubectl get svc keystone-auth -o jsonpath={.spec.clusterIP})
-cat &lt;&lt;EOF &gt; /etc/kubernetes/pki/webhookconfig.yaml
----
-apiVersion: v1
-kind: Config
-preferences: {}
-clusters:
-  - cluster:
-      insecure-skip-tls-verify: true
-      server: https://${keystone_auth_service_addr}:8443/webhook
-    name: webhook
-users:
-  - name: webhook
-contexts:
-  - context:
-      cluster: webhook
-      user: webhook
-    name: webhook
-current-context: webhook
-EOF
-</code></pre>
+再次生成token_id就会有groups信息了:
 
-<p>修改api-server配置文件:</p>
+    {
+      "jti": "39b94185-045a-4cee-b025-d0e0909d6bfd",
+      "exp": 1576466962,
+      "nbf": 0,
+      "iat": 1576466662,
+      "iss": "https://192.168.193.172:8443/auth/realms/int32bit-kubernetes",
+      "aud": "int32bit-kubernetes",
+      "sub": "95374c54-c47f-42a5-9bb2-2e0e417a9ff2",
+      "typ": "ID",
+      "azp": "int32bit-kubernetes",
+      "auth_time": 0,
+      "session_state": "0eafa8ba-6536-4f6a-989f-177e19e4882a",
+      "acr": "1",
+      "email_verified": false,
+      "groups": [
+        "int32bit-kubernetes-cluster-admin"
+      ],
+      "preferred_username": "k8s-admin"
+    }
 
-<pre><code>sed -i '/image:/ i \ \ \ \ - --authentication-token-webhook-config-file=/etc/kubernetes/pki/webhookconfig.yaml' /etc/kubernetes/manifests/kube-apiserver.yaml
-sed -i '/image:/ i \ \ \ \ - --authorization-webhook-config-file=/etc/kubernetes/pki/webhookconfig.yaml' /etc/kubernetes/manifests/kube-apiserver.yaml
-sed -i &quot;/authorization-mode/c \ \ \ \ - --authorization-mode=Node,Webhook,RBAC&quot; /etc/kubernetes/manifests/kube-apiserver.yaml
-</code></pre>
+3、Kubernetes集成keycloak认证
 
-<p>如上开启了基于Webhook授权功能，如果仅使用Keystone认证而不使用Keystone授权，可以不开启。</p>
+在api-server中增加如下命令行启动参数:
 
-<p>4、使用Keystone认证</p>
+    - --oidc-issuer-url=https://192.168.193.172:8443/auth/realms/int32bit-kubernetes
+    - --oidc-client-id=int32bit-kubernetes
+    - --oidc-username-claim=preferred_username
+    - --oidc-username-prefix=-
+    - --oidc-groups-claim=groups
+    - --oidc-ca-file=/etc/kubernetes/pki/keycloak.crt
 
-<p>下载webhook插件，用于请求认证时获取keystone token：</p>
+参数解析
 
-<pre><code>curl -sSL https://api.nz-por-1.catalystcloud.io:8443/v1/AUTH_b23a5e41d1af4c20974bf58b4dff8e5a/lingxian-public/client-keystone-auth -o ~/keystone/client-keystone-auth
-chmod +x ~/keystone/client-keystone-auth
-</code></pre>
+    --oidc-issuer-url路径需要具体到realm，这里为int32bit-kubernetes；
+    --oidc-client-id对应client id，前面我们已经创建。
+    --oidc-username-claim、--oidc-groups-claim告诉Kubernetes如何从id_token中读取username和groups，根据前面解码后的id_token，我们不难选择。
+    --oidc-username-prefix告诉Kubernetes针对这个odic的用户需要添加什么前缀，如果集群同时有多个认证系统，建议添加个前缀加以区分，如指定前缀为odic:，则Kubernetes对应的User为odic: preferred_username。
+    --oidc-ca-file指定keycloak的根证书，因为不是权威证书，不指定则不会信任该证书。
 
-<p>通过如下脚本生成kubeconfig文件:</p>
+前面创建了两个用户，与Role的关联关系如下:
 
-<pre><code>#!/bin/bash
-kubectl config set-cluster &quot;int32bit-kubernetes&quot; \
-  --certificate-authority=&quot;/etc/kubernetes/pki/ca.crt&quot; \
-  --server https://192.168.193.172:6443 \
-  --embed-certs=true \
-  --kubeconfig=keystone@int32bit-kubernetes.config
+    k8s-admin: int32bit-kubernetes-cluster-admin
+    k8s-readonly: int32bit-kubernetes-readonly
 
-kubectl config set-credentials keystone \
-  --kubeconfig keystone@int32bit-kubernetes.config
-sed -i '/user: {}/ d' keystone@int32bit-kubernetes.config
-cat &lt;&lt;EOF &gt;&gt; keystone@int32bit-kubernetes.config
-  user:
-    exec:
-      command: &quot;/root/keystone/client-keystone-auth&quot;
-      apiVersion: &quot;client.authentication.k8s.io/v1beta1&quot;
-EOF
-kubectl config set-context \
-  --cluster=int32bit-kubernetes \
-  --user=keystone keystone@int32bit-kubernetes \
-  --namespace=default --kubeconfig keystone@int32bit-kubernetes.config
-cp keystone@int32bit-kubernetes.config \
-  ~/users-credentials/credentials/
-</code></pre>
+相对应的在Kubernetes创建两个clusterrolebinging:
 
-<p>配置完后就可以通过Keystone实现认证了。</p>
+cluster-admin:
 
-<pre><code># cat k8s_viewere_openrc
-export OS_DOMAIN_NAME=Default
-export OS_USERNAME=k8s-viewer
-export OS_PASSWORD=noMoreSecret
-export OS_PROJECT_NAME=int32bit-kubernetes
-export OS_USER_DOMAIN_NAME=Default
-export OS_PROJECT_DOMAIN_NAME=Default
-export OS_AUTH_URL=http://192.168.193.77:5000/v3
-export OS_IDENTITY_API_VERSION=3
-# source k8s_viewere_openrc
-# kubectl get pod nginx-7cfc94d94-w8tpl
-NAME                    READY   STATUS    RESTARTS   AGE
-nginx-7cfc94d94-w8tpl   1/1     Running   0          13d
-# kubectl delete pod nginx-7cfc94d94-w8tpl
-Error from server (Forbidden): pods &quot;nginx-7cfc94d94-w8tpl&quot; is forbidden: User &quot;k8s-viewer&quot; cannot delete resource &quot;pods&quot; in API group &quot;&quot; in the namespace &quot;default&quot;
-可见k8s-viewer用户可以查看pod但没有删除pod的权限。
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      annotations:
+        rbac.authorization.kubernetes.io/autoupdate: "true"
+      labels:
+        kubernetes.io/bootstrapping: rbac-defaults
+      name: cluster-admin
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: cluster-admin
+    subjects:
+    - apiGroup: rbac.authorization.k8s.io
+      kind: Group
+      name: system:masters
+    - apiGroup: rbac.authorization.k8s.io
+      kind: Group
+      name: int32bit-kubernetes-cluster-admin
+    cluster-readonly:
 
-# cat k8s_admin_openrc
-export OS_DOMAIN_NAME=Default
-export OS_USERNAME=k8s-admin
-export OS_PASSWORD=noMoreSecret
-export OS_PROJECT_NAME=int32bit-kubernetes
-export OS_USER_DOMAIN_NAME=Default
-export OS_PROJECT_DOMAIN_NAME=Default
-export OS_AUTH_URL=http://192.168.193.77:5000/v3
-export OS_IDENTITY_API_VERSION=3
-# source  k8s_admin_openrc
-# kubectl get pod nginx-7cfc94d94-w8tpl
-NAME                    READY   STATUS    RESTARTS   AGE
-nginx-7cfc94d94-w8tpl   1/1     Running   0          13d
-# kubectl delete pod nginx-7cfc94d94-w8tpl
-pod &quot;nginx-7cfc94d94-w8tpl&quot; deleted
-k8s-admin用户既可以查看pod，也可以删除pod。
-</code></pre>
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      annotations:
+        rbac.authorization.kubernetes.io/autoupdate: "true"
+      labels:
+        kubernetes.io/bootstrapping: rbac-defaults
+      name: cluster-readonly
+    roleRef:
+      apiGroup: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: view
+    subjects:
+    - apiGroup: rbac.authorization.k8s.io
+      kind: Group
+      name: int32bit-kubernetes-readonly
 
-<p>我们可以通过kubectl-access_matrix插件查看权限矩阵:</p>
+4、使用OpenId Connect认证
 
-<p>进一步说明k8s-admin用户具有default namespace的所有权限，而k8s-viewer只具有可读权限。</p>
+生成config文件:
 
-<p>如果企业已经部署OpenStack，Kubernetes运行在OpenStack平台之上，或者通过Magnum部署，集成Keystone实现Kubernetes认证和授权非常方便，很好地把Kubernetes的认证和授权与OpenStack的认证授权统一管理整合在一块。</p>
+    kubectl config set-credentials oidc \
+       --auth-provider=oidc \
+       --auth-provider-arg=idp-issuer-url=https://192.168.193.172:8443/auth/realms/int32bit-kubernetes \
+       --auth-provider-arg=client-id=int32bit-kubernetes \
+       --auth-provider-arg=client-secret=700eeab2-2f85-45a1-9904-297a0be4d4fd
 
-<blockquote>
-<p>使用外部认证系统的优势</p>
-</blockquote>
+为了便于登录，下载kube-login插件:
 
-<p>对比前面的认证方式，使用OpenID Connect认证以及基于Webhook的认证方式优势显而易见:</p>
+    kubectl krew install oidc-login
 
-<pre><code>安全。基于JWT Token交换认证，JWT具有数字签名，可避免伪造。并且相对Service Account JWT，OpenID Connect认证的JWT具有有效期。
-灵活。身份认证和集群本身是松耦合的，通过IDP配置账户信息不需要Kubernetes干预。
-认证功能丰富。可使用企业身份系统的MFA、SSO等功能实现更完善更安全的认证策略。
-</code></pre>
+此时可以直接通过如下命令进行登录:
+
+    kubectl oidc-login --username username --password password
+
+如果是图形界面，不指定参数直接使用kubectl oidc-login可自动打开浏览器进行登录校验。
+
+
+可见使用k8s-admin具有所有权限，而k8s-readonly只有list的权限。
+
+>通过webhook集成OpenStack Keystone
+
+webhook和odic一样也是集成外部认证系统的一种方式，当client发起api-server请求时会触发webhook服务TokenReview调用，webhook会检查用户的凭证信息，如果是合法则返回authenticated": true等信息。api-server会等待webhook服务返回，如果返回的authenticated结果为true，则表明认证成功，否则拒绝访问。
+
+1、OpenStack Keystone配置
+
+为了后续测试，我们在Keystone创建如下资源:
+
+    #!/bin/bash
+    openstack project create int32bit-kubernetes
+    USERS_AND_ROLES=(k8s-admin k8s-viewer)
+    for i in "${USERS_AND_ROLES[@]}"; do
+      openstack user create --project int32bit-kubernetes --password noMoreSecret "$i"
+      openstack role create "$i"
+      openstack role add --user "$i" --project int32bit-kubernetes "$i"
+    done
+
+其中k8s-admin user关联k8s-admin role，k8s-viewer user关联k8s-viewer role，我们根据不同role角色设置不同的权限：
+
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: k8s-auth-policy
+      namespace: kube-system
+    data:
+      policies: |
+        [
+          {
+            "resource": {
+              "verbs": ["get", "list", "watch"],
+              "resources": ["*"],
+              "version": "*",
+              "namespace": "default"
+            },
+            "match": [
+              {
+                "type": "role",
+                "values": ["k8s-viewer", "k8s-admin"]
+              },
+              {
+                "type": "project",
+                "values": ["int32bit-kubernetes"]
+              }
+            ]
+          },
+          {
+            "resource": {
+              "verbs": ["create", "update", "delete"],
+              "resources": ["*"],
+              "version": "*",
+              "namespace": "default"
+            },
+            "match": [
+              {
+                "type": "role",
+                "values": ["k8s-admin"]
+              },
+              {
+                "type": "project",
+                "values": ["int32bit-kubernetes"]
+              }
+            ]
+          }
+        ]
+
+如上policy配置中，k8s-viewer只允许读namesapce default的资源，而k8s-admin允许create、update以及delete等所有权限。
+
+创建如上configmap:
+
+    kubectl apply -f keystone-auth.yaml
+
+2、配置k8s-keystone-auth webhook插件
+
+安装和配置k8s-keystone-auth可参考官方文档k8s-keystone-auth
+
+安装完后验证webhook认证结果:
+
+    #!/bin/bash
+    keystone_auth_service_addr=$(kubectl get svc keystone-auth -o jsonpath={.spec.clusterIP})
+    token=$(openstack token issue -f shell | awk -F '=' '/^id=.*/{print $2}' | tr -d '"')
+    cat <<EOF | curl -ks -XPOST -d @- https://${keystone_auth_service_addr}:8443/webhook | python -mjson.tool
+    {
+      "apiVersion": "authentication.k8s.io/v1beta1",
+      "kind": "TokenReview",
+      "metadata": {
+        "creationTimestamp": null
+      },
+      "spec": {
+        "token": "$token"
+      }
+    }
+    EOF
+
+输出如果authenticated": true则说明认证成功。
+
+当然也可以验证webhook的授权，如验证k8s-viewer是否具有list pods权限:
+
+    keystone_auth_service_addr=$(kubectl get svc keystone-auth -o jsonpath={.spec.clusterIP})
+    cat <<EOF | curl -ks -XPOST -d @- https://${keystone_auth_service_addr}:8443/webhook | python -mjson.tool
+    {
+      "apiVersion": "authorization.k8s.io/v1beta1",
+      "kind": "SubjectAccessReview",
+      "spec": {
+        "resourceAttributes": {
+          "namespace": "default",
+          "verb": "list",
+          "group": "",
+          "resource": "pods"
+        },
+        "user": "k8s-viewer",
+        "group": ["423d41d3a02f4b77b4a9bbfbc3a1b3c6"],
+        "extra": {
+            "alpha.kubernetes.io/identity/project/id": ["7c266ba4f14d4a64bda0b6b562f2cd60"],
+            "alpha.kubernetes.io/identity/project/name": ["int32bit-kubernetes"],
+            "alpha.kubernetes.io/identity/roles": ["k8s-viewer"]
+        }
+      }
+    }
+    EOF
+
+如果输出"allowed": true，则说明具有list pods权限。
+
+3、配置Kubernetes使用keystone webhook
+
+按照官方文档，创建webhook conf文件:
+
+    keystone_auth_service_addr=$(kubectl get svc keystone-auth -o jsonpath={.spec.clusterIP})
+    cat <<EOF > /etc/kubernetes/pki/webhookconfig.yaml
+    ---
+    apiVersion: v1
+    kind: Config
+    preferences: {}
+    clusters:
+      - cluster:
+          insecure-skip-tls-verify: true
+          server: https://${keystone_auth_service_addr}:8443/webhook
+        name: webhook
+    users:
+      - name: webhook
+    contexts:
+      - context:
+          cluster: webhook
+          user: webhook
+        name: webhook
+    current-context: webhook
+    EOF
+
+修改api-server配置文件:
+
+    sed -i '/image:/ i \ \ \ \ - --authentication-token-webhook-config-file=/etc/kubernetes/pki/webhookconfig.yaml' /etc/kubernetes/manifests/kube-apiserver.yaml
+    sed -i '/image:/ i \ \ \ \ - --authorization-webhook-config-file=/etc/kubernetes/pki/webhookconfig.yaml' /etc/kubernetes/manifests/kube-apiserver.yaml
+    sed -i "/authorization-mode/c \ \ \ \ - --authorization-mode=Node,Webhook,RBAC" /etc/kubernetes/manifests/kube-apiserver.yaml
+
+如上开启了基于Webhook授权功能，如果仅使用Keystone认证而不使用Keystone授权，可以不开启。
+
+4、使用Keystone认证
+
+下载webhook插件，用于请求认证时获取keystone token：
+
+    curl -sSL https://api.nz-por-1.catalystcloud.io:8443/v1/AUTH_b23a5e41d1af4c20974bf58b4dff8e5a/lingxian-public/client-keystone-auth -o ~/keystone/client-keystone-auth
+    chmod +x ~/keystone/client-keystone-auth
+
+通过如下脚本生成kubeconfig文件:
+
+    #!/bin/bash
+    kubectl config set-cluster "int32bit-kubernetes" \
+      --certificate-authority="/etc/kubernetes/pki/ca.crt" \
+      --server https://192.168.193.172:6443 \
+      --embed-certs=true \
+      --kubeconfig=keystone@int32bit-kubernetes.config
+
+    kubectl config set-credentials keystone \
+      --kubeconfig keystone@int32bit-kubernetes.config
+    sed -i '/user: {}/ d' keystone@int32bit-kubernetes.config
+    cat <<EOF >> keystone@int32bit-kubernetes.config
+      user:
+        exec:
+          command: "/root/keystone/client-keystone-auth"
+          apiVersion: "client.authentication.k8s.io/v1beta1"
+    EOF
+    kubectl config set-context \
+      --cluster=int32bit-kubernetes \
+      --user=keystone keystone@int32bit-kubernetes \
+      --namespace=default --kubeconfig keystone@int32bit-kubernetes.config
+    cp keystone@int32bit-kubernetes.config \
+      ~/users-credentials/credentials/
+
+配置完后就可以通过Keystone实现认证了。
+
+    # cat k8s_viewere_openrc
+    export OS_DOMAIN_NAME=Default
+    export OS_USERNAME=k8s-viewer
+    export OS_PASSWORD=noMoreSecret
+    export OS_PROJECT_NAME=int32bit-kubernetes
+    export OS_USER_DOMAIN_NAME=Default
+    export OS_PROJECT_DOMAIN_NAME=Default
+    export OS_AUTH_URL=http://192.168.193.77:5000/v3
+    export OS_IDENTITY_API_VERSION=3
+    # source k8s_viewere_openrc
+    # kubectl get pod nginx-7cfc94d94-w8tpl
+    NAME                    READY   STATUS    RESTARTS   AGE
+    nginx-7cfc94d94-w8tpl   1/1     Running   0          13d
+    # kubectl delete pod nginx-7cfc94d94-w8tpl
+    Error from server (Forbidden): pods "nginx-7cfc94d94-w8tpl" is forbidden: User "k8s-viewer" cannot delete resource "pods" in API group "" in the namespace "default"
+    可见k8s-viewer用户可以查看pod但没有删除pod的权限。
+
+    # cat k8s_admin_openrc
+    export OS_DOMAIN_NAME=Default
+    export OS_USERNAME=k8s-admin
+    export OS_PASSWORD=noMoreSecret
+    export OS_PROJECT_NAME=int32bit-kubernetes
+    export OS_USER_DOMAIN_NAME=Default
+    export OS_PROJECT_DOMAIN_NAME=Default
+    export OS_AUTH_URL=http://192.168.193.77:5000/v3
+    export OS_IDENTITY_API_VERSION=3
+    # source  k8s_admin_openrc
+    # kubectl get pod nginx-7cfc94d94-w8tpl
+    NAME                    READY   STATUS    RESTARTS   AGE
+    nginx-7cfc94d94-w8tpl   1/1     Running   0          13d
+    # kubectl delete pod nginx-7cfc94d94-w8tpl
+    pod "nginx-7cfc94d94-w8tpl" deleted
+    k8s-admin用户既可以查看pod，也可以删除pod。
+
+我们可以通过kubectl-access_matrix插件查看权限矩阵:
+
+
+进一步说明k8s-admin用户具有default namespace的所有权限，而k8s-viewer只具有可读权限。
+
+如果企业已经部署OpenStack，Kubernetes运行在OpenStack平台之上，或者通过Magnum部署，集成Keystone实现Kubernetes认证和授权非常方便，很好地把Kubernetes的认证和授权与OpenStack的认证授权统一管理整合在一块。
+
+>使用外部认证系统的优势
+
+对比前面的认证方式，使用OpenID Connect认证以及基于Webhook的认证方式优势显而易见:
+
+    安全。基于JWT Token交换认证，JWT具有数字签名，可避免伪造。并且相对Service Account JWT，OpenID Connect认证的JWT具有有效期。
+    灵活。身份认证和集群本身是松耦合的，通过IDP配置账户信息不需要Kubernetes干预。
+    认证功能丰富。可使用企业身份系统的MFA、SSO等功能实现更完善更安全的认证策略。
+
+
+
+
+-->
 
 <h4 id="总结">总结</h4>
 
@@ -1117,9 +1084,21 @@ k8s-admin用户既可以查看pod，也可以删除pod。
 
 <p>若要开启某种模式，需要在 APIServer 启动时，设置参数 &ndash;authorization-mode=RBAC。授权机制目前有 4 种模式：RBAC、ABAC、Node、Webhook。</p>
 
+<p>比如我们在自定义CRD开发的时候，就需要使用到RBAC对新对象进行授权，才能使用。</p>
+
 <h4 id="1-rbac">1、RBAC</h4>
 
 <p>基于角色的权限访问控制，就是对某个用户赋予某个角色，而这个角色通常决定了对哪些资源拥有怎样的权限。</p>
+
+<p>最基本的概念</p>
+
+<ul>
+<li>Role：角色，它其实是一组规则，定义了一组对 Kubernetes API 对象的操作权限。</li>
+<li>Subject：被作用者，既可以是“人”，也可以是“机器”，也可以是你在 Kubernetes 里定义的“用户”。</li>
+<li>RoleBinding：定义了“被作用者”和“角色”的绑定关系。</li>
+</ul>
+
+<p>而这三个概念，其实就是整个 RBAC 体系的核心所在。</p>
 
 <p>首先需要用户，所以我们正常创建sa，然后给他授权</p>
 
@@ -1191,17 +1170,6 @@ roleRef:
 <li>roleRef 字段是用来直接通过名字，引用我们前面定义的 Role 对象（hdls-role），从而定义了 Subject 和 Role 之间的绑定关系。</li>
 </ul>
 
-<p>4、使用</p>
-
-<p>我们再用 kubectl get sa -n hdls -o yaml 命令查看之前的 ServiceAccount，就可以看到 ServiceAccount.secret，这是因为 k8s 会为一个 ServiceAccount 自动创建并分配一个 Secret 对象，而这个 Secret 就是用来跟 APIServer 进行交互的授权文件： Token。
-Token 文件的内容一般是证书或者密码，以一个 Secret 对象的方式保存在 etcd 当中。</p>
-
-<p>这个时候，我们在这个namespace下创建我们的 Pod 的 YAML 文件中定义字段 .spec.serviceAccountName 为上面的 ServiceAccount name 即可声明使用。</p>
-
-<p>如果一个 Pod 没有声明 serviceAccountName，Kubernetes 会自动在它的 Namespace 下创建一个名叫 default 的默认 ServiceAccount，然后分配给这个 Pod。然而这个默认 ServiceAccount 并没有关联任何 Role。也就是说，此时它有访问 APIServer 的绝大多数权限。</p>
-
-<p>4、cluster</p>
-
 <p>Role 和 RoleBinding 对象都是 Namespaced 对象，它们只对自己的 Namespace 内的资源有效。</p>
 
 <p>而某个 Role 需要对于非 Namespaced 对象（比如：Node），或者想要作用于所有的 Namespace 的时候，我们需要使用 ClusterRole 和 ClusterRoleBinding 去做授权。</p>
@@ -1212,11 +1180,12 @@ Token 文件的内容一般是证书或者密码，以一个 Secret 对象的方
 
 <p>Kubernetes 还提供了四个内置的 ClusterRole 来供用户直接使用：</p>
 
-<pre><code>cluster-admin：整个集群的最高权限。如果在 ClusterRoleBinding 中使用，意味着在这个集群中的所有 namespace 中的所有资源都拥有最高权限，为所欲为；如果在 RoleBinding 中使用，即在某个 namespace 中为所欲为。
-admin：管理员权限。如果在 RoleBinding 中使用，意味着在某个 namespace 中，对大部分资源拥有读写权限，包括创建 Role 和 RoleBinding 的权限，但没有对资源 quota 和 namespace 本身的写权限。
-edit：写权限。在某个 namespace 中，拥有对大部分资源的读写权限，但没有对 Role 和 RoleBinding 的读写权限。
-view：读权限。在某个 namespace 中，仅拥有对大部分资源的读权限，没有对 Role 和 RoleBinding 的读权限，也没有对 seccrets 的读权限。
-</code></pre>
+<ul>
+<li>cluster-admin：整个集群的最高权限。如果在 ClusterRoleBinding 中使用，意味着在这个集群中的所有 namespace 中的所有资源都拥有最高权限。</li>
+<li>admin：管理员权限。如果在 RoleBinding 中使用，意味着在某个 namespace 中，对大部分资源拥有读写权限，包括创建 Role 和 RoleBinding 的权限，但没有对资源 quota 和 namespace 本身的写权限。</li>
+<li>edit：写权限。在某个 namespace 中，拥有对大部分资源的读写权限，但没有对 Role 和 RoleBinding 的读写权限。</li>
+<li>view：读权限。在某个 namespace 中，仅拥有对大部分资源的读权限，没有对 Role 和 RoleBinding 的读权限，也没有对 seccrets 的读权限。</li>
+</ul>
 
 <h4 id="2-abac">2、ABAC</h4>
 
@@ -1239,7 +1208,7 @@ view：读权限。在某个 namespace 中，仅拥有对大部分资源的读�
 
 <h4 id="4-webhook">4、Webhook</h4>
 
-<p>Webhook 模式是一种 HTTP 回调模式，是一种通过 HTTP POST 方式实现的简单事件通知。该模式需要 APIServer 配置参数 –authorization-webhook-config-file=<SOME_FILENAME>，HTTP 配置文件的格式跟 kubeconfig 的格式类似。</p>
+<p>Webhook 模式是一种 HTTP 回调模式，是一种通过 HTTP POST 方式实现的简单事件通知。该模式需要 APIServer 配置参数 –authorization-webhook-config-file=<code>&lt;SOME_FILENAME&gt;</code>，HTTP 配置文件的格式跟 kubeconfig 的格式类似。</p>
 
 <h3 id="准入控制-admission-controllers">准入控制（Admission Controllers）</h3>
 
@@ -1274,6 +1243,10 @@ Priority：通过 priorityClassName 来决定优先级；
 ResourceQuota：保证 namespace 下的资源配额；
 ServiceAccount：保证 ServiceAccount 的自动创建，如果用到 ServiceAccount，建议开启；
 </code></pre>
+
+<h2 id="dynamic-admission-controllers">dynamic Admission Controllers</h2>
+
+<p>TODO</p>
 
 <h1 id="使用模式">使用模式</h1>
 
@@ -1380,7 +1353,7 @@ Error from server (Forbidden): serviceaccounts is forbidden: User &quot;system:s
 
 <h2 id="多租户的实现">多租户的实现</h2>
 
-<p>多租户也是基于sa+rbac的基础上实现的，首先用户信息需要单独的系统进行存储，这个可以接入外部的已经成熟的系统，也可以自己开发，我曾经就开发过对应的系统。然后每一个真实的用户对应一个sa，这个时候sa就是正在的用户，每个sa在rbac的基础对namespace角色操作进行关联，完成对应用户的权限管理。</p>
+<p>多租户也是基于sa+rbac的基础上实现的，首先用户信息需要单独的系统进行存储，这个可以接入外部的已经成熟的系统，也可以自己开发，然后每一个真实的用户对应一个sa，这个时候sa就是正在的用户，每个sa在rbac的基础对namespace角色操作进行关联，完成对应用户的权限管理。</p>
             </div>
             
             <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
@@ -1491,6 +1464,7 @@ Error from server (Forbidden): serviceaccounts is forbidden: User &quot;system:s
 </ul></li>
 <li><a href="#准入控制-admission-controllers">准入控制（Admission Controllers）</a></li>
 </ul></li>
+<li><a href="#dynamic-admission-controllers">dynamic Admission Controllers</a></li>
 </ul></li>
 <li><a href="#使用模式">使用模式</a>
 <ul>
