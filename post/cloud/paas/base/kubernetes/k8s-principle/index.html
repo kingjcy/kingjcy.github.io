@@ -93,9 +93,9 @@ Kubernetes 项目所擅长的，是按照用户的意愿和整个系统的规则
 </blockquote>
 
 <ul>
-<li>apiserver: 提供了资源操作的唯一入口，并提供认证、授权、访问控制、API注册和发现等机制；可以说是k8s的内部交互的网关总线。</li>
-<li>controller manager: 负责维护集群的状态，比如故障检测、自动扩展、滚动更新等；是控制器的管理者，负责很多的控制器。</li>
-<li>scheduler: 负责资源的调度，按照（预选优选）调度策略将Pod调度到相应的机器上；</li>
+<li><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">apiserver</a>: 提供了资源操作的唯一入口，并提供<a href="/post/cloud/paas/safe/safe/">认证、授权、访问控制（可以实现envoy的默认注入，使用Dynamic Admission Control，也叫作：Initializer）</a>等机制，可以说是k8s的内部交互的网关总线。</li>
+<li><a href="/post/cloud/paas/base/kubernetes/k8s-controller-manager/">controller manager</a>: 负责维护集群的状态，比如故障检测、自动扩展、滚动更新等；是控制器的管理者，负责很多的控制器。</li>
+<li><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">scheduler</a>: 负责资源的调度，按照（预选优选）调度策略将Pod调度到相应的机器上；</li>
 </ul>
 
 <blockquote>
@@ -157,6 +157,8 @@ Kubernetes 项目所擅长的，是按照用户的意愿和整个系统的规则
 <li>Kubernetes 内部：CRI、CNI、CSI、镜像仓库、Cloud Provider、集群自身的配置和管理等。</li>
 </ul></li>
 </ul>
+
+<p>其实这个层面更加能看出paas的不同的建设方向。</p>
 
 <h1 id="详细说明">详细说明</h1>
 
@@ -243,7 +245,7 @@ Kubernetes 项目所擅长的，是按照用户的意愿和整个系统的规则
 <p>3、为什么需要pod？</p>
 
 <ul>
-<li><p>pod作为k8s原子调度单位，主要解决批调度的问题，主要解决需要调度到一个节点上的conrainer能够分配到全部符合要求的资源。</p></li>
+<li>pod作为k8s原子调度单位，主要解决超亲密关系的批调度的问题，主要解决需要调度到一个节点上的conrainer能够分配到全部符合要求的资源。</li>
 
 <li><p>符合容器设计模式也就是超亲密关系的容器设计思想，实际上就是希望，当用户想在一个容器里跑多个功能并不相关的应用时，应该优先考虑它们是不是更应该被描述成一个 Pod 里的多个容器。</p>
 
@@ -262,9 +264,8 @@ Kubernetes 项目所擅长的，是按照用户的意愿和整个系统的规则
 <p>5、pod的特性</p>
 
 <ol>
-<li><p>你很少会直接在kubernetes中创建单个Pod。因为Pod的生命周期是短暂的，用后即焚的实体。</p></li>
-
-<li><p>Controller可以创建和管理多个Pod，提供副本管理、滚动升级和集群级别的自愈能力。例如，如果一个Node故障，Controller就能自动将该节点上的Pod调度到其他健康的Node上。</p></li>
+<li>你很少会直接在kubernetes中创建单个Pod。因为Pod的生命周期是短暂的，用后即焚的实体。</li>
+<li>Controller可以创建和管理多个Pod，提供副本管理、滚动升级和集群级别的自愈能力。例如，如果一个Node故障，Controller就能自动将该节点上的Pod调度到其他健康的Node上。</li>
 </ol>
 
 <blockquote>
@@ -2672,15 +2673,15 @@ metadata:
 <p>QoS 模型</p>
 </blockquote>
 
-<p>在 Kubernetes 中，不同的 requests 和 limits 的设置方式，其实会将这个 Pod 划分到不同的 QoS 级别当中。</p>
+<p>在 Kubernetes 中，根据requests 和 limits 的设置划分不同的 QoS 级别。</p>
 
 <ul>
-<li>当 Pod 里的每一个 Container 都同时设置了 requests 和 limits，并且 requests 和 limits 值相等的时候，这个 Pod 就属于 Guaranteed 类别,当这个 Pod 创建之后，它的 qosClass 字段就会被 Kubernetes 自动设置为 Guaranteed。需要注意的是，当 Pod 仅设置了 limits 没有设置 requests 的时候，Kubernetes 会自动为它设置与 limits 相同的 requests 值，所以，这也属于 Guaranteed 情况。</li>
+<li>当 Pod 里的每一个 Container 都同时设置了 requests 和 limits，并且 requests 和 limits 值相等的时候，这个 Pod 就属于 Guaranteed 类别,当这个 Pod 创建之后，它的 qosClass 字段就会被 Kubernetes 自动设置为 Guaranteed。当 Pod 仅设置了 limits 没有设置 requests 的时候，Kubernetes 会自动为它设置与 limits 相同的 requests 值，所以这也属于 Guaranteed 情况。</li>
 <li>而当 Pod 不满足 Guaranteed 的条件，但至少有一个 Container 设置了 requests。那么这个 Pod 就会被划分到 Burstable 类别。</li>
 <li>如果一个 Pod 既没有设置 requests，也没有设置 limits，那么它的 QoS 类别就是 BestEffort。</li>
 </ul>
 
-<p>实际上，QoS 划分的主要应用场景，是当宿主机资源紧张的时候，kubelet 对 Pod 进行 Eviction（即资源回收）时需要用到的。具体地说，当 Kubernetes 所管理的宿主机上不可压缩资源短缺时，就有可能触发 Eviction。比如，可用内存（memory.available）、可用的宿主机磁盘空间（nodefs.available），以及容器运行时镜像存储空间（imagefs.available）等等。目前，Kubernetes 为你设置的 Eviction 的默认阈值如下所示：</p>
+<p>实际上，QoS 划分的主要应用是当宿主机资源紧张的时候，kubelet 对 Pod 进行 Eviction（即资源回收）时需要用到的。具体地说，当 Kubernetes 所管理的宿主机上不可压缩资源短缺时，就有可能触发 Eviction。比如，可用内存（memory.available）、可用的宿主机磁盘空间（nodefs.available），以及容器运行时镜像存储空间（imagefs.available）等等。目前，Kubernetes 为你设置的 Eviction 的默认阈值：</p>
 
 <pre><code>memory.available&lt;100Mi
 nodefs.available&lt;10%
