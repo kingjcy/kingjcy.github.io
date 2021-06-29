@@ -111,7 +111,7 @@
 <ul>
 <li>kubelet负责维护容器的生命周期，同时也负责Volume（CVI）和网络（CNI）的管理；主要干活的对象，负责和docker进行交互，创建容器，维护容器。</li>
 <li>kube-proxy负责为Service提供cluster内部的服务发现和负载均衡；提供了一种网络模式。</li>
-<li>docker engine docker引擎，负责docker的创建和管理，目前大有使用containerd的趋势。</li>
+<li>docker engine docker引擎，负责docker的创建和管理，随着cri的发展，不同容器运行时的接入，docker迟早是要重kubelet中出去的，目前开源的containerd对于大家来说是一个不错的选择。</li>
 </ul>
 
 <blockquote>
@@ -688,7 +688,24 @@ service iptables save
 
 <h3 id="kubeadm">kubeadm</h3>
 
+<p>其实在一开始企业级的k8s的部署一直是一个问题，基本上都是使用传统的kvm部署方式，比如ansible，supervisord，slat，可能这些项目本身的学习就要比k8s还要高，使得k8s一直是一个高门槛的技术。
+后来在2017年才有社区推动，发布了这个kubeadm项目（值得一一提的是这个项目是一个18岁的高中生写的，这就是开源项目的魅力）</p>
+
 <p>kubeadm是Kubernetes 1.4开始新增的特性，用于快速搭建Kubernetes集群环境，两个命令就能把一个k8s集群搭建起来。</p>
+
+<blockquote>
+<p>原理</p>
+</blockquote>
+
+<p>kubeadm把 kubelet 直接运行在宿主机上，然后使用容器部署其他的 Kubernetes 组件。</p>
+
+<p>为什么不能使用容器运行kubelet？</p>
+
+<p>kubelet除了跟容器运行时打交道外，kubelet 在配置容器网络、管理容器数据卷时，都需要直接操作宿主机。而如果现在 kubelet 本身就运行在一个容器里，那么直接操作宿主机就会变得很麻烦。对于网络配置来说还好，kubelet 容器可以通过不开启 Network Namespace（即 Docker 的 host network 模式）的方式，直接共享宿主机的网络栈。可是，要让 kubelet 隔着容器的 Mount Namespace 和文件系统，操作宿主机的文件系统，就有点儿困难了。</p>
+
+<blockquote>
+<p>命令</p>
+</blockquote>
 
 <p>kubeadm一共提供了5个子命令：</p>
 
@@ -699,18 +716,30 @@ kubeadm reset
 kubeadm version
 </code></pre>
 
-<p>kubeadm init主要工作：</p>
+<p>正常我们使用两个命令就可以搭建k8s集群了。</p>
 
-<p>创建集群安全相关的的key、certs和conf文件。
-创建kube-apiserver、kube-controller-manager、kube-scheduler、etcd(如果没有配置external etcd)这些static pod的json格式的manifest文件，kubelet负责启动这些master组件。
-通过addons方式启动kube-discovery deployment、kube-proxy daemonSet、kube-dns deployment。</p>
+<pre><code># 创建一个Master节点
+$ kubeadm init
+# 将一个Node节点加入到当前集群中
+$ kubeadm join
+</code></pre>
+
+<p>kubeadm init的主要工作</p>
+
+<ul>
+<li>创建集群安全相关的的key、certs和conf文件。</li>
+<li>创建kube-apiserver、kube-controller-manager、kube-scheduler、etcd(如果没有配置external etcd)这些static pod的json格式的manifest文件，kubelet负责启动这些master组件。</li>
+<li>通过addons方式启动kube-discovery deployment、kube-proxy daemonSet、kube-dns deployment。</li>
+</ul>
 
 <p>kubeadm join主要负责创建kubelet.conf，使kubelet能与API Server建立连接：</p>
 
-<p>访问kube-discovery服务获取cluster info（包含cluster ca证书、API Server endpoint列表和token。
-利用定的token，检验cluster info的签名。
-检验成功后，再与API Server建立连接，请求API Server为该node创建证书。
-根据获取到的证书创建kubelet.conf。</p>
+<ul>
+<li>访问kube-discovery服务获取cluster info（包含cluster ca证书、API Server endpoint列表和token。</li>
+<li>利用定的token，检验cluster info的签名。</li>
+<li>检验成功后，再与API Server建立连接，请求API Server为该node创建证书。</li>
+<li>根据获取到的证书创建kubelet.conf。</li>
+</ul>
 
 <p>随着Kubernetes 1.13 的发布，现在Kubeadm正式成为GA。之前都是测试版本，并不能用于生产。</p>
 
@@ -1538,56 +1567,24 @@ EOF
 
 <p>参数解析</p>
 
-<p>&ndash;v=2 #debug级别是0</p>
-
-<p>&ndash;logtostderr=false \ #不输出到</p>
-
-<p>&ndash;allow-privileged=true \   # docker run &ndash;privileged</p>
-
-<p>&ndash;etcd-servers=“”       #etcd的集群地址</p>
-
-<p>&ndash;insecure-bind-address。      #非安全端口监听的ip</p>
-
-<p>&ndash;advertise-address=192.168.14.132 \ #告诉别人在我是谁</p>
-
-<p>&ndash;bind-address=0.0.0.0 \ # 安全端口监听的ip</p>
-
-<p>kube-apiserver 1.6 版本开始使用 etcd v3 API 和存储格式；</p>
-
-<p>&ndash;authorization-mode=RBAC 指定在安全端口使用 RBAC 授权模式，拒绝未通过授权的请求；</p>
-
-<p>kube-scheduler、kube-controller-manager 一般和 kube-apiserver 部署在同一台机器上，它们使用非安全端口和 kube-apiserver通信;</p>
-
-<p>kubelet、kube-proxy、kubectl 部署在其它 Node 节点上，如果通过安全端口访问 kube-apiserver，则必须先通过 TLS 证书认证，再通过 RBAC 授权；</p>
-
-<p>kube-proxy、kubectl 通过在使用的证书里指定相关的 User、Group 来达到通过 RBAC 授权的目的；</p>
-
-<p>如果使用了 kubelet TLS Boostrap 机制，则不能再指定 &ndash;kubelet-certificate-authority、&ndash;kubelet-client-certificate 和 &ndash;kubelet-client-key 选项，否则后续 kube-apiserver 校验 kubelet 证书时出现 ”x509: certificate signed by unknown authority“ 错误；</p>
-
-<p>&ndash;admission-control 值必须包含 ServiceAccount，否则部署集群插件时会失败；</p>
-
-<p>&ndash;bind-address 不能为 127.0.0.1；</p>
-
-<p>&ndash;service-cluster-ip-range 指定 Service Cluster IP 地址段，该地址段不能路由可达；</p>
-
-<p>&ndash;service-node-port-range=${NODE_PORT_RANGE} 指定 NodePort 的端口范围；</p>
-
-<p>缺省情况下 kubernetes 对象保存在 etcd /registry 路径下，可以通过 &ndash;etcd-prefix 参数进行调整；</p>
-
-<p>&ndash;experimental-bootstrap-token-auth Bootstrap Token Authentication在1.9版本已经变成了正式feature，参数名称改为&ndash;enable-bootstrap-token-auth</p>
-
-<p>如果中途修改过&ndash;service-cluster-ip-range地址，则必须将default命名空间的kubernetes的service给删除，使用命令：kubectl delete service kubernetes，然后系统会自动用新的ip重建这个service，不然apiserver的log有报错the cluster IP x.x.x.x for service kubernetes/default is not within the service CIDR x.x.x.x/16; please recreate</p>
-
-<p>runtime-config配置为rbac.authorization.k8s.io/v1beta1，表示运行时的apiVersion；</p>
-
-<p>如果需要开通http的无认证的接口，则可以增加以下两个参数：&ndash;insecure-port=8080</p>
-
-<p>&ndash;insecure-bind-address=127.0.0.1。注意，生产上不要绑定到非127.0.0.1的地址上</p>
-
-<p>Kubernetes 1.9</p>
-
-<p>对于Kubernetes1.9集群，需要注意配置KUBE_API_ARGS环境变量中的&ndash;authorization-mode=Node,RBAC，增加对Node授权的模式，否则将无法注册node。
-&ndash;experimental-bootstrap-token-auth Bootstrap Token Authentication在kubernetes 1.9版本已经废弃，参数名称改为&ndash;enable-bootstrap-token-auth</p>
+<ul>
+<li>&ndash;v=2 日志级别，debug级别是0</li>
+<li>&ndash;logtostderr=false  不输出到logerr</li>
+<li>&ndash;allow-privileged=true 使用docker run &ndash;privileged</li>
+<li>&ndash;etcd-servers=“” etcd的集群地，kube-apiserver 1.6 版本开始使用 etcd v3 API 和存储格式</li>
+<li>&ndash;insecure-bind-address 非安全端口监听的ip</li>
+<li>&ndash;advertise-address=192.168.14.132 自身地址</li>
+<li>&ndash;bind-address=0.0.0.0 安全端口监听的ip</li>
+<li>&ndash;log-dir=/data/log/kubernetes/kube-apiserver 日志路径，我们一般根据这些参数来查看日志路径，然后去查看相关日志</li>
+<li>&ndash;authorization-mode=RBAC 指定在安全端口使用 RBAC 授权模式，拒绝未通过授权的请求</li>
+<li>&ndash;admission-control 值必须包含 ServiceAccount，否则部署集群插件时会失败</li>
+<li>&ndash;bind-address 绑定地址，不能为 127.0.0.1</li>
+<li>&ndash;service-cluster-ip-range=10.252.0.0/16 指定 Service Cluster IP 地址段，该地址段不能路由可达,如果中途修改过&ndash;service-cluster-ip-range地址，则必须将default命名空间的kubernetes的service给删除，使用命令：kubectl delete service kubernetes，然后系统会自动用新的ip重建这个service，不然apiserver的log有报错the cluster IP x.x.x.x for service kubernetes/default is not within the service CIDR x.x.x.x/16; please recreate</li>
+<li>&ndash;service-node-port-range=30000-40000 指定 NodePort 的端口范围，</li>
+<li>&ndash;experimental-bootstrap-token-auth Bootstrap Token Authentication在1.9版本已经变成了正式feature，参数名称改为&ndash;enable-bootstrap-token-auth</li>
+<li>&ndash;insecure-port=8080 开通http的无认证的接口</li>
+<li>&ndash;insecure-bind-address=127.0.0.1。注意，生产上不要绑定到非127.0.0.1的地址上</li>
+</ul>
 
 <p>启动</p>
 
@@ -2294,174 +2291,7 @@ tar -zxf harbor-offline-installer-v1.3.0-rc4.tgz
 
 <p>然后直接使用harbor目录中的install.sh就可以安装启动了，然后就可以根据域名+port来访问，当然我们正常使用的情况下都是会在harbor前加一层nginx转发，这个nginx需要注意转发大小的设置</p>
 
-<h1 id="参数">参数</h1>
-
-<p>由于参数比较多，可以直接参考K8s权威指南第二张第一节的部署中有很详细的解释，这边就不多写了，需要查阅。</p>
-
-<h1 id="应用">应用</h1>
-
-<h2 id="k8s运行的服务">k8s运行的服务</h2>
-
-<ul>
-<li><p>无状态：deployment</p>
-
-<ul>
-<li>认为所有pod都是一样的，不具备与其他实例有不同的关系。</li>
-<li>没有顺序的要求。</li>
-<li>不用考虑再哪个Node运行。</li>
-<li>随意扩容缩容。</li>
-</ul></li>
-
-<li><p>有状态：SatefulSet</p>
-
-<ul>
-<li>集群节点之间的关系。</li>
-<li>数据不完全一致。</li>
-<li>实例之间不对等的关系。</li>
-<li>依靠外部存储的应用。</li>
-<li>通过dns维持身份</li>
-</ul></li>
-</ul>
-
-<p>还可以细分，在K8S运行的服务，从简单到复杂可以分成三类：无状态服务、普通有状态服务和有状态集群服务。</p>
-
-<p><img src="/media/cloud/k8s/server" alt="" /></p>
-
-<blockquote>
-<p>无状态服务</p>
-</blockquote>
-
-<p>无状态服务，K8S使用RC（或更新的Replica Set）来保证一个服务的实例数量，如果说某个Pod实例由于某种原因Crash了，RC会立刻用这个Pod的模版新启一个Pod来替代它，由于是无状态的服务，新启的Pod与原来健康状态下的Pod一模一样。在Pod被重建后它的IP地址可能发生变化，为了对外提供一个稳定的访问接口，K8S引入了Service的概念。一个Service后面可以挂多个Pod，实现服务的高可用。</p>
-
-<blockquote>
-<p>普通有状态服务</p>
-</blockquote>
-
-<p>普通有状态服务，和无状态服务相比，它多了状态保存的需求。Kubernetes提供了以Volume和Persistent Volume为基础的存储系统，可以实现服务的状态保存。</p>
-
-<blockquote>
-<p>有状态集群服务</p>
-</blockquote>
-
-<p>有状态集群服务，与普通有状态服务相比，它多了集群管理的需求。K8S为此开发了一套以Pet Set为核心的全新特性，方便了有状态集群服务在K8S上的部署和管理。具体来说是通过Init Container来做集群的初始化工作，用 Headless Service 来维持集群成员的稳定关系，用动态存储供给来方便集群扩容，最后用Pet Set来综合管理整个集群。</p>
-
-<p>要运行有状态集群服务要解决的问题有两个,一个是状态保存，另一个是集群管理。</p>
-
-<p>1、状态保存</p>
-
-<p>Kubernetes 有一套以Volume插件为基础的存储系统，通过这套存储系统可以实现应用和服务的状态保存。</p>
-
-<p>K8S的存储系统从基础到高级又大致分为三个层次：普通Volume，Persistent Volume 和动态存储供应。</p>
-
-<blockquote>
-<p>普通Volume</p>
-</blockquote>
-
-<p>最简单的普通Volume是单节点Volume。它和Docker的存储卷类似，使用的是Pod所在K8S节点的本地目录。</p>
-
-<p>第二种类型是跨节点存储卷，这种存储卷不和某个具体的K8S节点绑定，而是独立于K8S节点存在的，整个存储集群和K8S集群是两个集群，相互独立。</p>
-
-<p>跨节点的存储卷在Kubernetes上用的比较多，如果已有的存储不能满足要求，还可以开发自己的Volume插件，只需要实现Volume.go 里定义的接口。如果你是一个存储厂商，想要自己的存储支持Kubernetes 上运行的容器，就可以去开发一个自己的Volume插件。</p>
-
-<blockquote>
-<p>Persistent Volume</p>
-</blockquote>
-
-<p>普通Volume和使用它的Pod之间是一种静态绑定关系，在定义Pod的文件里，同时定义了它使用的Volume。Volume 是Pod的附属品，我们无法单独创建一个Volume，因为它不是一个独立的K8S资源对象。</p>
-
-<p>而Persistent Volume 简称PV是一个K8S资源对象，所以我们可以单独创建一个PV。它不和Pod直接发生关系，而是通过Persistent Volume Claim，简称PVC来实现动态绑定。Pod定义里指定的是PVC，然后PVC会根据Pod的要求去自动绑定合适的PV给Pod使用。</p>
-
-<p>PV的访问模式有三种：</p>
-
-<p>第一种，ReadWriteOnce：是最基本的方式，可读可写，但只支持被单个Pod挂载。</p>
-
-<p>第二种，ReadOnlyMany：可以以只读的方式被多个Pod挂载。</p>
-
-<p>第三种，ReadWriteMany：这种存储可以以读写的方式被多个Pod共享。不是每一种存储都支持这三种方式，像共享方式，目前支持的还比较少，比较常用的是NFS。在PVC绑定PV时通常根据两个条件来绑定，一个是存储的大小，另一个就是访问模式。</p>
-
-<p>刚才提到说PV与普通Volume的区别是动态绑定，我们来看一下这个过程是怎样的。</p>
-
-<p><img src="/media/cloud/k8s/server1" alt="" /></p>
-
-<p>这是PV的生命周期，首先是Provision，即创建PV，这里创建PV有两种方式，静态和动态。所谓静态，是管理员手动创建一堆PV，组成一个PV池，供PVC来绑定。动态方式是通过一个叫 Storage Class的对象由存储系统根据PVC的要求自动创建。</p>
-
-<p>一个PV创建完后状态会变成Available，等待被PVC绑定。</p>
-
-<p>一旦被PVC邦定，PV的状态会变成Bound，就可以被定义了相应PVC的Pod使用。</p>
-
-<p>Pod使用完后会释放PV，PV的状态变成Released。</p>
-
-<p>变成Released的PV会根据定义的回收策略做相应的回收工作。有三种回收策略，Retain、Delete 和 Recycle。Retain就是保留现场，K8S什么也不做，等待用户手动去处理PV里的数据，处理完后，再手动删除PV。Delete 策略，K8S会自动删除该PV及里面的数据。Recycle方式，K8S会将PV里的数据删除，然后把PV的状态变成Available，又可以被新的PVC绑定使用。</p>
-
-<p>在实际使用场景里，PV的创建和使用通常不是同一个人。这里有一个典型的应用场景：管理员创建一个PV池，开发人员创建Pod和PVC，PVC里定义了Pod所需存储的大小和访问模式，然后PVC会到PV池里自动匹配最合适的PV给Pod使用。</p>
-
-<p>前面在介绍PV的生命周期时，提到PV的供给有两种方式，静态和动态。其中动态方式是通过StorageClass来完成的，这是一种新的存储供应方式。</p>
-
-<p>使用StorageClass有什么好处呢？除了由存储系统动态创建，节省了管理员的时间，还有一个好处是可以封装不同类型的存储供PVC选用。在StorageClass出现以前，PVC绑定一个PV只能根据两个条件，一个是存储的大小，另一个是访问模式。在StorageClass出现后，等于增加了一个绑定维度。</p>
-
-<p>比如这里就有两个StorageClass，它们都是用谷歌的存储系统，但是一个使用的是普通磁盘，我们把这个StorageClass命名为slow。另一个使用的是SSD，我们把它命名为fast。</p>
-
-<p>在PVC里除了常规的大小、访问模式的要求外，还通过annotation指定了Storage Class的名字为fast，这样这个PVC就会绑定一个SSD，而不会绑定一个普通的磁盘。</p>
-
-<p>到这里Kubernetes的整个存储系统就都介绍完了。总结一下，两种存储卷：普通Volume 和Persistent Volume。普通Volume在定义Pod的时候直接定义，Persistent Volume通过Persistent Volume Claim来动态绑定。PV可以手动创建,也可以通过StorageClass来动态创建。</p>
-
-<blockquote>
-<p>动态存储供应</p>
-</blockquote>
-
-<p>下面重介绍Kubernetes与有状态集群服务相关的两个新特性：Init Container 和 Pet Set  。</p>
-
-<p>1、Init Container</p>
-
-<p>做初始化工作的容器。可以有一个或多个，如果有多个，这些 Init Container 按照定义的顺序依次执行，只有所有的Init Container 执行完后，主容器才启动。由于一个Pod里的存储卷是共享的，所以 Init Container 里产生的数据可以被主容器使用到。</p>
-
-<p>Init Container可以在多种 K8S 资源里被使用到如 Deployment、Daemon Set, Pet Set, Job等，但归根结底都是在Pod启动时，在主容器启动前执行，做初始化工作。</p>
-
-<p>第一种场景是等待其它模块Ready，比如我们有一个应用里面有两个容器化的服务，一个是Web Server，另一个是数据库。其中Web Server需要访问数据库。但是当我们启动这个应用的时候，并不能保证数据库服务先启动起来，所以可能出现在一段时间内Web Server有数据库连接错误。为了解决这个问题，我们可以在运行Web Server服务的Pod里使用一个Init Container，去检查数据库是否准备好，直到数据库可以连接，Init Container才结束退出，然后Web Server容器被启动，发起正式的数据库连接请求。</p>
-
-<p>第二种场景是做初始化配置，比如集群里检测所有已经存在的成员节点，为主容器准备好集群的配置信息，这样主容器起来后就能用这个配置信息加入集群。</p>
-
-<p>还有其它使用场景，如将pod注册到一个中央数据库、下载应用依赖等。</p>
-
-<p>这个例子创建一个Pod，这个Pod里跑的是一个nginx容器，Pod里有一个叫workdir的存储卷，访问nginx容器服务的时候，就会显示这个存储卷里的index.html 文件。</p>
-
-<p>而这个index.html 文件是如何获得的呢？是由一个Init Container从网络上下载的。这个Init Container 使用一个busybox镜像，起来后，执行一条wget命令，获取index.html文件，然后结束退出。</p>
-
-<p>由于Init Container和nginx容器共享一个存储卷（这里这个存储卷的名字叫workdir），所以在Init container里下载的index.html文件可以在nginx容器里被访问到。</p>
-
-<p>可以看到 Init Container 是在 annotation里定义的。Annotation 是K8S新特性的实验场，通常一个新的Feature出来一般会先在Annotation 里指定，等成熟稳定了，再给它一个正式的属性名或资源对象名。</p>
-
-<p>2、Pet Set</p>
-
-<p>Pet代表有状态服务，Set是集合的意思</p>
-
-<p><img src="/media/cloud/k8s/server2" alt="" /></p>
-
-<p>具体来说，一个Pet有三个特征。</p>
-
-<p>一是有稳定的存储，这是通过我们前面介绍的PV/PVC 来实现的。</p>
-
-<p>二是稳定的网络身份，这是通过一种叫 Headless Service 的特殊Service来实现的。要理解Headless Service是如何工作的，需要先了解Service是如何工作。我们提到过Service可以为多个Pod实例提供一个稳定的对外访问接口。这个稳定的接口是如何实现的的呢，是通过Cluster IP来实现的，Cluster IP是一个虚拟IP，不是真正的IP，所以稳定。K8S会在每个节点上创建一系列的IPTables规则，实现从Cluster IP到实际Pod IP的转发。同时还会监控这些Pod的IP地址变化，如果变了，会更新IP Tables规则，使转发路径保持正确。所以即使Pod IP有变化，外部照样能通过Service的ClusterIP访问到后面的Pod。</p>
-
-<p>普通Service的Cluster IP 是对外的，用于外部访问多个Pod实例。而Headless Service的作用是对内的，用于为一个集群内部的每个成员提供一个唯一的DNS名字，这样集群成员之间就能相互通信了。所以Headless Service没有Cluster IP，这是它和普通Service的区别。</p>
-
-<p>Headless Service为每个集群成员创建的DNS名字是什么样的呢？右下角是一个例子，第一个部分是每个Pet自己的名字，后面foo是Headless Service的名字，default是PetSet所在命名空间的名字，cluser.local是K8S集群的域名。对于同一个Pet Set里的每个Pet，除了Pet自己的名字，后面几部分都是一样的。所以要有一个稳定且唯一的DNS名字，就要求每个Pet的名字是稳定且唯一的。</p>
-
-<p>三是序号命名规则。Pet是一种特殊的Pod，那么Pet能不能用Pod的命名规则呢？答案是不能，因为Pod的名字是不稳定的。Pod的命名规则是，如果一个Pod是由一个RC创建的，那么Pod的名字是RC的名字加上一个随机字符串。为什么要加一个随机字符串，是因为RC里指定的是Pod的模版，为了实现高可用，通常会从这个模版里创建多个一模一样的Pod实例，如果没有这个随机字符串，同一个RC创建的Pod之间就会由名字冲突。</p>
-
-<p>如果说某个Pod由于某种原因死掉了，RC会新建一个来代替它，但是这个新建里的Pod名字里的随机字符串与原来死掉的Pod是不一样的。所以Pod的名字跟它的IP一样是不稳定的。</p>
-
-<p>为了解决名字不稳定的问题，K8S对Pet的名字不再使用随机字符串，而是为每个Pet分配一个唯一不变的序号，比如 Pet Set 的名字叫 mysql，那么第一个启起来的Pet就叫 mysql-0，第二个叫 mysql-1，如此下去。</p>
-
-<p>当一个Pet down 掉后，新创建的Pet 会被赋予跟原来Pet一样的名字。由于Pet名字不变所以DNS名字也跟以前一样，同时通过名字还能匹配到原来Pet用到的存储，实现状态保存。</p>
-
-<p>这些是Pet Set 相关的一些操作：</p>
-
-<pre><code>Peer discovery，这和我们上面的Headless Service有密切关系。通过Pet Set的 Headless Service，可以查到该Service下所有的Pet 的 DNS 名字。这样就能发现一个Pet Set 里所有的Pet。当一个新的Pet起来后，就可以通过Peer Discovery来找到集群里已经存在的所有节点的DNS名字，然后用它们来加入集群。
-更新Replicas的数目、实现扩容和缩容。
-更新Pet Set里Pet的镜像版本，实现升级。
-删除 Pet Set。删除一个Pet Set 会先把这个Pet Set的Replicas数目缩减为0，等到所有的Pet都被删除了，再删除 Pet Set本身。注意Pet用到的存储不会被自动删除。这样用户可以把数据拷贝走了，再手动删除。
-</code></pre>
+<h1 id="基本使用">基本使用</h1>
 
 <h2 id="kubectl">kubectl</h2>
 
@@ -3334,11 +3164,7 @@ kubectl cp ./test.war logtestjbossforone-7b89dd5c9-297pf:/opt/wildfly/standalone
 <p>kubectl help</p>
 </blockquote>
 
-<p>help 帮助命令，可以查找所有的命令，在我们不会用的适合，要学会使用这个命令。</p>
-
-<p>###</p>
-
-<p>kubectl默认会从$HOME/.kube目录下查找文件名为 config 的文件</p>
+<p>help 帮助命令，可以查找所有的命令，在我们不会用的时候，要学会使用这个命令。</p>
 
 <h2 id="yaml文件详解">yaml文件详解</h2>
 
@@ -3459,7 +3285,7 @@ spec:
 <li>搭建基础平台，提供能力</li>
 <li>将单体应用制作镜像云上运行</li>
 <li>制定规范</li>
-<li>将中间件应用上云</li>
+<li>将中间件应用（框架，数据库，队列，负载均衡等等）上云</li>
 <li>最后在以上能力的基础上建设微服务架构，将业务上云</li>
 </ul>
 
@@ -3538,317 +3364,6 @@ KUBE_API_ARGS=&quot;--secure-port=0&quot;
 
 <pre><code>--secure-port=6443: The port on which to serve HTTPS with authentication and authorization. If 0, don't serve HTTPS at all.
 </code></pre>
-
-<h1 id="高级特性">高级特性</h1>
-
-<h2 id="配置和可扩展">配置和可扩展</h2>
-
-<p>Kubernetes 是高度可配置和可扩展的。因此，极少需要分发或提交补丁代码给 Kubernetes 项目。</p>
-
-<p>配置 一般就是更改标志参数、本地配置文件或 API 资源。这个可以参考官方文档各种组件的启动参数的<a href="https://kubernetes.io/docs/reference/command-line-tools-reference/">配置</a>，不用详细说明，主要还是高度可扩展的这种设计模式，使得k8s十分灵活。</p>
-
-<p>整个k8s集群的基本各个点都是支持可扩展的，如何扩展，我们可以看官方这幅图：</p>
-
-<p><img src="/media/cloud/k8s/Expand" alt="" /></p>
-
-<ul>
-<li>用户通常使用 kubectl 与 Kubernetes API 进行交互。kubectl 插件扩展了 kubectl 二进制程序。它们只影响个人用户的本地环境，因此不能执行站点范围的策略。</li>
-<li>apiserver 处理所有请求。apiserver 中的几种类型的扩展点允许对请求进行身份认证或根据其内容对其进行阻止、编辑内容以及处理删除操作。 API 访问扩展。</li>
-<li>apiserver 提供各种内置的资源种类 ，如 pods，由 Kubernetes 项目定义，不能更改。但是可以添加您自己定义的资源或其他项目已定义的资源来进行扩展。自定义资源通常与 API 访问扩展一起使用。</li>
-<li>Kubernetes 调度器决定将 Pod 放置到哪个节点。有几种方法可以扩展调度器。调度器可扩展。</li>
-<li>Kubernetes 的大部分行为都是由称为控制器的程序实现的。自定义控制器通常与自定义资源一起使用来完成扩展。</li>
-<li>kubelet 在主机上运行，并帮助 pod 看起来就像在集群网络上拥有自己的 IP 的虚拟服务器。网络插件让您可以实现不同的 pod 网络的扩展。</li>
-<li>kubelet 也挂载和卸载容器的卷。新的存储类型可以通过存储插件支持扩展。</li>
-</ul>
-
-<h3 id="kubectl-插件扩展">kubectl 插件扩展</h3>
-
-<p>kubectl 插件在 v1.8.0 版本中正式作为 alpha 特性引入。它们已经在 v1.12.0 版本中工作，以支持更广泛的用例，建议使用 1.12.0 或更高版本的 <code>kubectl</code>。</p>
-
-<p>1、安装 kubectl 插件</p>
-
-<p>插件只不过是一个独立的可执行文件，名称以 kubectl- 开头，Kubernetes 不提供包管理器或任何类似于安装或更新插件的东西，所以我们只要将此可执行文件放置到系统路径下就可以</p>
-
-<p>目前无法创建覆盖现有 kubectl 命令的插件，例如，创建一个插件 kubectl-version 将导致该插件永远不会被执行，因为现有的 kubectl-version 命令总是优先于它执行。</p>
-
-<p>2、发现插件</p>
-
-<p>kubectl 提供一个命令 kubectl plugin list，用于搜索系统路径查找有效的插件可执行文件。 执行此命令将遍历路径中的所有文件。任何以 kubectl- 开头的可执行文件都将在这个命令的输出中以它们在路径中出现的顺序显示。 任何以 kubectl- 开头的文件如果不可执行，都将包含一个警告。 对于任何相同的有效插件文件，都将包含一个警告。</p>
-
-<p>3、编写 kubectl 插件</p>
-
-<p>你可以用任何编程语言或脚本编写插件，允许您编写命令行命令，最总就是一个二进制文件，不需要安装插件或预加载，直接执行即可，比如一个插件想要提供一个新的命令 kubectl foo，它将被简单地命名为 kubectl-foo</p>
-
-<pre><code>#!/bin/bash
-
-# optional argument handling
-if [[ &quot;$1&quot; == &quot;version&quot; ]]
-then
-    echo &quot;1.0.0&quot;
-    exit 0
-fi
-
-# optional argument handling
-if [[ &quot;$1&quot; == &quot;config&quot; ]]
-then
-    echo $KUBECONFIG
-    exit 0
-fi
-
-echo &quot;I am a plugin named kubectl-foo&quot;
-</code></pre>
-
-<p>4、使用插件</p>
-
-<p>要使用上面的插件，只需使其可执行：</p>
-
-<pre><code>sudo chmod +x ./kubectl-foo
-</code></pre>
-
-<p>并将它放在你的路径中的任何地方：</p>
-
-<pre><code>sudo mv ./kubectl-foo /usr/local/bin
-</code></pre>
-
-<p>你现在可以调用你的插件作为 kubectl 命令：</p>
-
-<pre><code>kubectl foo
-I am a plugin named kubectl-foo
-</code></pre>
-
-<p>所有参数和标记按原样传递给可执行文件：</p>
-
-<pre><code>kubectl foo version
-1.0.0
-</code></pre>
-
-<p>5、命名规则</p>
-
-<p>虽然 kubectl 插件机制在插件文件名中使用破折号（-）分隔插件处理的子命令序列，但是仍然可以通过在文件名中使用下划线（-）来创建命令行中包含破折号的插件命令。</p>
-
-<pre><code># create a plugin containing an underscore in its filename
-echo -e '#!/bin/bash\n\necho &quot;I am a plugin with a dash in my name&quot;' &gt; ./kubectl-foo_bar
-sudo chmod +x ./kubectl-foo_bar
-
-# move the plugin into your PATH
-sudo mv ./kubectl-foo_bar /usr/local/bin
-
-# our plugin can now be invoked from `kubectl` like so:
-kubectl foo-bar
-</code></pre>
-
-<p>对于插件文件名而言还有另一种弊端，给定用户路径中的两个插件 kubectl-foo-bar 和 kubectl-foo-bar-baz ，kubectl 插件机制总是为给定的用户命令选择尽可能长的插件名称。</p>
-
-<pre><code># for a given kubectl command, the plugin with the longest possible filename will always be preferred
-kubectl foo bar baz
-Plugin kubectl-foo-bar-baz is executed
-kubectl foo bar
-Plugin kubectl-foo-bar is executed
-kubectl foo bar baz buz
-Plugin kubectl-foo-bar-baz is executed, with &quot;buz&quot; as its first argument
-kubectl foo bar buz
-Plugin kubectl-foo-bar is executed, with &quot;buz&quot; as its first argument
-</code></pre>
-
-<h3 id="custom-resource-自定义资源">custom resource（自定义资源）</h3>
-
-<p>自定义资源是k8s api的扩展。</p>
-
-<p>资源就是api对象的一种，比如pod就是一种资源，自定义就是自己定义一种这样的在原生集群中没有的类型。</p>
-
-<p>自定义资源只是一种数据结构对象，只有结合控制器才能提供真正的声明式api。一个声明式API 允许你声明或指定的资源的理想状态，控制器将结构化数据同步到为用户所需状态的记录，并持续保持该状态。</p>
-
-<p>声明式api和命令式api</p>
-
-<ul>
-<li>Declarative（声明式设计）指的是这么一种软件设计理念和做法：我们向一个工具描述我们想要让一个事物达到的目标状态，由这个工具自己内部去figure out如何令这个事物达到目标状态。</li>
-<li>Imperative（命令式设计）模式中，我们描述的是一系列的动作。这一系列的动作如果被正确的顺利执行，最终结果是这个事物达到了我们期望的目标状态的。</li>
-</ul>
-
-<p>Kubernetes提供了两种向集群添加自定义资源的方法</p>
-
-<ul>
-<li><a href="/post/cloud/paas/base/kubernetes/k8s-api/#crd-自定义资源类型">CRD</a>很简单，无需任何编程即可通过CustomResourceDefinition API资源类型进行创建。</li>
-<li><a href="/post/cloud/paas/base/kubernetes/k8s-api/#kubernetes-aggregated-api-servers">API聚合</a>需要编程，但可以更好地控制API行为，例如如何存储数据以及在API版本之间进行转换。</li>
-</ul>
-
-<p>CRD更易于使用，聚合的API更灵活。</p>
-
-<p>我们在来聊聊api group 和 api version</p>
-
-<pre><code>$ kubectl api-versions
-admissionregistration.k8s.io/v1
-admissionregistration.k8s.io/v1beta1
-apiextensions.k8s.io/v1
-apiextensions.k8s.io/v1beta1
-apiregistration.k8s.io/v1
-apiregistration.k8s.io/v1beta1
-apps.kruise.io/v1alpha1
-apps/v1
-authentication.k8s.io/v1
-authentication.k8s.io/v1beta1
-authorization.k8s.io/v1
-authorization.k8s.io/v1beta1
-autoscaling/v1
-autoscaling/v2beta1
-autoscaling/v2beta2
-batch/v1
-batch/v1beta1
-certificates.k8s.io/v1beta1
-coordination.k8s.io/v1
-coordination.k8s.io/v1beta1
-custom.metrics.k8s.io/v1beta1
-discovery.k8s.io/v1beta1
-events.k8s.io/v1beta1
-extensions/v1beta1
-metrics.k8s.io/v1beta1
-monitoring.coreos.com/v1
-networking.k8s.io/v1
-networking.k8s.io/v1beta1
-node.k8s.io/v1beta1
-policy/v1beta1
-rbac.authorization.k8s.io/v1
-rbac.authorization.k8s.io/v1beta1
-scheduling.k8s.io/v1
-scheduling.k8s.io/v1beta1
-storage.k8s.io/v1
-storage.k8s.io/v1beta1
-v1
-</code></pre>
-
-<p>第一个 admissionregistration.k8s.io/v1beta1 中，admissionregistration.k8s.io 是 api group，v1beta1 表示它的版本。所以api都是有APIgroup/apiversion组成的，如果 api group 为空表示核心 api。</p>
-
-<p>每个api其实都是通过apiservice这种类型进行注册的</p>
-
-<pre><code>$ kubectl get apiservice
-NAME                                   SERVICE                                   AVAILABLE                  AGE
-v1.                                    Local                                     True                       20d
-v1.admissionregistration.k8s.io        Local                                     True                       20d
-v1.apiextensions.k8s.io                Local                                     True                       20d
-v1.apps                                Local                                     True                       20d
-v1.authentication.k8s.io               Local                                     True                       20d
-v1.authorization.k8s.io                Local                                     True                       20d
-v1.autoscaling                         Local                                     True                       20d
-v1.batch                               Local                                     True                       20d
-v1.coordination.k8s.io                 Local                                     True                       20d
-v1.monitoring.coreos.com               Local                                     True                       2d20h
-v1.networking.k8s.io                   Local                                     True                       20d
-v1.rbac.authorization.k8s.io           Local                                     True                       20d
-v1.scheduling.k8s.io                   Local                                     True                       20d
-v1.storage.k8s.io                      Local                                     True                       20d
-v1alpha1.apps.kruise.io                Local                                     True                       2d20h
-v1beta1.admissionregistration.k8s.io   Local                                     True                       20d
-v1beta1.apiextensions.k8s.io           Local                                     True                       20d
-v1beta1.authentication.k8s.io          Local                                     True                       20d
-v1beta1.authorization.k8s.io           Local                                     True                       20d
-v1beta1.batch                          Local                                     True                       20d
-v1beta1.certificates.k8s.io            Local                                     True                       20d
-v1beta1.coordination.k8s.io            Local                                     True                       20d
-v1beta1.custom.metrics.k8s.io          custom-metrics/custom-metrics-apiserver   False (MissingEndpoints)   3h18m
-v1beta1.discovery.k8s.io               Local                                     True                       20d
-v1beta1.events.k8s.io                  Local                                     True                       20d
-v1beta1.extensions                     Local                                     True                       20d
-v1beta1.metrics.k8s.io                 monitoring/prometheus-adapter             True                       18h
-v1beta1.networking.k8s.io              Local                                     True                       20d
-v1beta1.node.k8s.io                    Local                                     True                       20d
-v1beta1.policy                         Local                                     True                       20d
-v1beta1.rbac.authorization.k8s.io      Local                                     True                       20d
-v1beta1.scheduling.k8s.io              Local                                     True                       20d
-v1beta1.storage.k8s.io                 Local                                     True                       20d
-v2beta1.autoscaling                    Local                                     True                       20d
-v2beta2.autoscaling                    Local                                     True                       20d
-</code></pre>
-
-<p>kubernetes 的资源都是由 api group 提供的。那么如何知道哪些资源是由哪些 api group 提供的呢？</p>
-
-<pre><code>$ kubectl api-resources
-NAME                              SHORTNAMES   APIGROUP                       NAMESPACED   KIND
-bindings                                                                      true         Binding
-componentstatuses                 cs                                          false        ComponentStatus
-configmaps                        cm                                          true         ConfigMap
-endpoints                         ep                                          true         Endpoints
-events                            ev                                          true         Event
-limitranges                       limits                                      true         LimitRange
-namespaces                        ns                                          false        Namespace
-nodes                             no                                          false        Node
-persistentvolumeclaims            pvc                                         true         PersistentVolumeClaim
-persistentvolumes                 pv                                          false        PersistentVolume
-pods                              po                                          true         Pod
-podtemplates                                                                  true         PodTemplate
-replicationcontrollers            rc                                          true         ReplicationController
-resourcequotas                    quota                                       true         ResourceQuota
-secrets                                                                       true         Secret
-serviceaccounts                   sa                                          true         ServiceAccount
-services                          svc                                         true         Service
-mutatingwebhookconfigurations                  admissionregistration.k8s.io   false        MutatingWebhookConfiguration
-validatingwebhookconfigurations                admissionregistration.k8s.io   false        ValidatingWebhookConfiguration
-customresourcedefinitions         crd,crds     apiextensions.k8s.io           false        CustomResourceDefinition
-apiservices                                    apiregistration.k8s.io         false        APIService
-controllerrevisions                            apps                           true         ControllerRevision
-daemonsets                        ds           apps                           true         DaemonSet
-deployments                       deploy       apps                           true         Deployment
-replicasets                       rs           apps                           true         ReplicaSet
-statefulsets                      sts          apps                           true         StatefulSet
-broadcastjobs                     bj           apps.kruise.io                 true         BroadcastJob
-clonesets                         clone        apps.kruise.io                 true         CloneSet
-sidecarsets                                    apps.kruise.io                 false        SidecarSet
-statefulsets                      sts          apps.kruise.io                 true         StatefulSet
-uniteddeployments                 ud           apps.kruise.io                 true         UnitedDeployment
-tokenreviews                                   authentication.k8s.io          false        TokenReview
-localsubjectaccessreviews                      authorization.k8s.io           true         LocalSubjectAccessReview
-selfsubjectaccessreviews                       authorization.k8s.io           false        SelfSubjectAccessReview
-selfsubjectrulesreviews                        authorization.k8s.io           false        SelfSubjectRulesReview
-subjectaccessreviews                           authorization.k8s.io           false        SubjectAccessReview
-horizontalpodautoscalers          hpa          autoscaling                    true         HorizontalPodAutoscaler
-cronjobs                          cj           batch                          true         CronJob
-jobs                                           batch                          true         Job
-certificatesigningrequests        csr          certificates.k8s.io            false        CertificateSigningRequest
-leases                                         coordination.k8s.io            true         Lease
-endpointslices                                 discovery.k8s.io               true         EndpointSlice
-events                            ev           events.k8s.io                  true         Event
-ingresses                         ing          extensions                     true         Ingress
-nodes                                          metrics.k8s.io                 false        NodeMetrics
-pods                                           metrics.k8s.io                 true         PodMetrics
-alertmanagers                                  monitoring.coreos.com          true         Alertmanager
-podmonitors                                    monitoring.coreos.com          true         PodMonitor
-prometheuses                                   monitoring.coreos.com          true         Prometheus
-prometheusrules                                monitoring.coreos.com          true         PrometheusRule
-servicemonitors                                monitoring.coreos.com          true         ServiceMonitor
-thanosrulers                                   monitoring.coreos.com          true         ThanosRuler
-ingressclasses                                 networking.k8s.io              false        IngressClass
-ingresses                         ing          networking.k8s.io              true         Ingress
-networkpolicies                   netpol       networking.k8s.io              true         NetworkPolicy
-runtimeclasses                                 node.k8s.io                    false        RuntimeClass
-poddisruptionbudgets              pdb          policy                         true         PodDisruptionBudget
-podsecuritypolicies               psp          policy                         false        PodSecurityPolicy
-clusterrolebindings                            rbac.authorization.k8s.io      false        ClusterRoleBinding
-clusterroles                                   rbac.authorization.k8s.io      false        ClusterRole
-rolebindings                                   rbac.authorization.k8s.io      true         RoleBinding
-roles                                          rbac.authorization.k8s.io      true         Role
-priorityclasses                   pc           scheduling.k8s.io              false        PriorityClass
-csidrivers                                     storage.k8s.io                 false        CSIDriver
-csinodes                                       storage.k8s.io                 false        CSINode
-storageclasses                    sc           storage.k8s.io                 false        StorageClass
-volumeattachments                              storage.k8s.io                 false        VolumeAttachment
-</code></pre>
-
-<p>NAME 列就是资源名，它的功能由 APIGROUP 列的 api group 提供。SHORTNAMES 列就是这些资源的缩写了，缩写在使用 kubectl 时非常好用。同样APIGROUP 都为空，表示这些资源都是核心 api 提供的。</p>
-
-<p>所以对于自定义api，我们就需要用到他们的 api group 和 api version 进行注册，就可以同样的作用了。</p>
-
-<p>这边只是资源定义，实现还是要依赖于<a href="/post/cloud/paas/base/kubernetes/k8s-controller/">controller</a>。</p>
-
-<h3 id="schedulers">Schedulers</h3>
-
-<p><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">调度扩展</a>主要是通过调度框架来实现。</p>
-
-<h3 id="网络插件">网络插件</h3>
-
-<p><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">网络扩展</a>主要通过CNI接口来实现。</p>
-
-<h3 id="存储插件">存储插件</h3>
-
-<p><a href="/post/cloud/paas/base/kubernetes/k8s-network-csi/">存储扩展</a>主要通过CSI接口来实现。</p>
 
 <h1 id="k8s原理">k8s原理</h1>
 
@@ -3960,26 +3475,13 @@ volumeattachments                              storage.k8s.io                 fa
 </ul></li>
 </ul></li>
 </ul></li>
-<li><a href="#参数">参数</a></li>
-<li><a href="#应用">应用</a>
+<li><a href="#基本使用">基本使用</a>
 <ul>
-<li><a href="#k8s运行的服务">k8s运行的服务</a></li>
 <li><a href="#kubectl">kubectl</a></li>
 <li><a href="#yaml文件详解">yaml文件详解</a></li>
 <li><a href="#迁移">迁移</a></li>
 <li><a href="#管理">管理</a></li>
 <li><a href="#问题处理">问题处理</a></li>
-</ul></li>
-<li><a href="#高级特性">高级特性</a>
-<ul>
-<li><a href="#配置和可扩展">配置和可扩展</a>
-<ul>
-<li><a href="#kubectl-插件扩展">kubectl 插件扩展</a></li>
-<li><a href="#custom-resource-自定义资源">custom resource（自定义资源）</a></li>
-<li><a href="#schedulers">Schedulers</a></li>
-<li><a href="#网络插件">网络插件</a></li>
-<li><a href="#存储插件">存储插件</a></li>
-</ul></li>
 </ul></li>
 <li><a href="#k8s原理">k8s原理</a></li>
 </ul>
