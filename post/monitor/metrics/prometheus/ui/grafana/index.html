@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="Grafana是一个跨平台的可视化展示工具，提供了丰富灵活的可视化展示方式，包括快速灵活的客户端图表，拥有不同方式的可视化指标和日志的面板插件以及丰富的仪表盘插件，包括热图、折线图、图表等。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="监控metrics系列---- 可视化Grafana - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    监控metrics系列---- 可视化Grafana
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2021年06月27日 
+                </div>
+                <h1 class="post-title">监控metrics系列---- 可视化Grafana</h1>
+            </header>
+
+            <div class="post-content">
+                <p>Grafana是一个跨平台的可视化展示工具，提供了丰富灵活的可视化展示方式，包括快速灵活的客户端图表，拥有不同方式的可视化指标和日志的面板插件以及丰富的仪表盘插件，包括热图、折线图、图表等。</p>
+
+<h1 id="部署">部署</h1>
+
+<blockquote>
+<p>docker部署</p>
+</blockquote>
+
+<pre><code>docker run -d --name=grafana -p 3000:3000 grafana/grafana
+</code></pre>
+
+<blockquote>
+<p>linux</p>
+</blockquote>
+
+<pre><code>wget https://dl.grafana.com/oss/release/grafana-7.5.9.linux-amd64.tar.gz
+tar -zxvf grafana-7.5.9.linux-amd64.tar.gz
+</code></pre>
+
+<blockquote>
+<p>rpm</p>
+</blockquote>
+
+<pre><code>wget https://dl.grafana.com/oss/release/grafana-7.5.9-1.x86_64.rpm
+sudo yum install grafana-7.5.9-1.x86_64.rpm
+</code></pre>
+
+<blockquote>
+<p>k8s</p>
+</blockquote>
+
+<p>在prometheus-operator的部署项目<a href="https://github.com/prometheus-operator/kube-prometheus/tree/main/manifests">kube-prometheus</a>提供来部署的yaml，主要是部署deployment，service以及对外暴露的ingress，配置文件以configmap进行挂载。</p>
+
+<h2 id="配置文件">配置文件</h2>
+
+<p>grafana后端的配置文件可以是多个以.ini结尾的配置文件，主要从三个配置文件读取配置：默认是$WORKING_DIR/conf/defaults.ini，其次用户配置是$WORKING_DIR/conf/custom.ini，用户配置则可以在命令行启动grafana时通过&ndash;config参数重新指定配置文件来覆盖。如果你是以deb或者rpm安装的，则默认的配置文件是/etc/grafana/grafana.ini，这个文件是在init.d的启动脚本中通过&ndash;config参数指定的。</p>
+
+<p>所有在配置文件中的配置都可以通过环境变量来覆盖，使用的语法如下：GF<em><SectionName></em><KeyName>，例如：</p>
+
+<pre><code>[security]
+admin_user = admin
+
+[auth.google]
+client_secret = 0ldS3cretKey
+</code></pre>
+
+<p>如果使用环境变量，则是如下：</p>
+
+<pre><code>export GF_SECURITY_ADMIN_USER=true
+export GF_AUTH_GOOGLE_CLIENT_SECRET=newS3cretKey
+</code></pre>
+
+<p>下面具体看看每个配置段的配置：</p>
+
+<pre><code>app_mode：应用名称，默认是production
+
+[path]
+data：一个grafana用来存储sqlite3、临时文件、回话的地址路径
+logs：grafana存储logs的路径
+
+[server]
+http_addr：监听的ip地址，，默认是0.0.0.0
+http_port：监听的端口，默认是3000
+protocol：http或者https，，默认是http
+domain：这个设置是root_url的一部分，当你通过浏览器访问grafana时的公开的domian名称，默认是localhost
+enforce_domain：如果主机的header不匹配domian，则跳转到一个正确的domain上，默认是false
+root_url：这是一个web上访问grafana的全路径url，默认是%(protocol)s://%(domain)s:%(http_port)s/
+router_logging：是否记录web请求日志，默认是false
+cert_file：如果使用https则需要设置
+cert_key：如果使用https则需要设置
+
+[database]
+grafana默认需要使用数据库存储用户和dashboard信息，默认使用sqlite3来存储，你也可以换成其他数据库
+type：可以是mysql、postgres、sqlite3，默认是sqlite3
+path：只是sqlite3需要，定义sqlite3的存储路径
+host：只是mysql、postgres需要，默认是127.0.0.1:3306
+name：grafana的数据库名称，默认是grafana
+user：连接数据库的用户
+password：数据库用户的密码
+ssl_mode：只是postgres使用
+
+
+[security]
+admin_user：grafana默认的admin用户，默认是admin
+admin_password：grafana admin的默认密码，默认是admin
+login_remember_days：多少天内保持登录状态
+secret_key：保持登录状态的签名
+disable_gravatar：
+
+
+[users]
+allow_sign_up：是否允许普通用户登录，如果设置为false，则禁止用户登录，默认是true，则admin可以创建用户，并登录grafana
+allow_org_create：如果设置为false，则禁止用户创建新组织，默认是true
+auto_assign_org：当设置为true的时候，会自动的把新增用户增加到id为1的组织中，当设置为false的时候，新建用户的时候会新增一个组织
+auto_assign_org_role：新建用户附加的规则，默认是Viewer，还可以是Admin、Editor
+
+
+[auth.anonymous]
+enabled：设置为true，则开启允许匿名访问，默认是false
+org_name：为匿名用户设置组织名称
+org_role：为匿名用户设置的访问规则，默认是Viewer
+
+
+[auth.github]
+针对github项目的，很明显，呵呵
+enabled = false
+allow_sign_up = false
+client_id = some_id
+client_secret = some_secret
+scopes = user:email
+auth_url = https://github.com/login/oauth/authorize
+token_url = https://github.com/login/oauth/access_token
+api_url = https://api.github.com/user
+team_ids =
+allowed_domains =
+allowed_organizations =
+
+
+[auth.google]
+针对google app的，呵呵
+enabled = false
+allow_sign_up = false
+client_id = some_client_id
+client_secret = some_client_secret
+scopes = https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email
+auth_url = https://accounts.google.com/o/oauth2/auth
+token_url = https://accounts.google.com/o/oauth2/token
+api_url = https://www.googleapis.com/oauth2/v1/userinfo
+allowed_domains =
+
+
+[auth.basic]
+enabled：当设置为true，则http api开启基本认证
+
+
+[auth.ldap]
+enabled：设置为true则开启LDAP认证，默认是false
+config_file：如果开启LDAP，指定LDAP的配置文件/etc/grafana/ldap.toml
+
+
+[auth.proxy]
+允许你在一个HTTP反向代理上进行认证设置
+enabled：默认是false
+header_name：默认是X-WEBAUTH-USER
+header_property：默认是个名称username
+auto_sign_up：默认是true。开启自动注册，如果用户在grafana DB中不存在
+
+[analytics]
+reporting_enabled：如果设置为true，则会发送匿名使用分析到stats.grafana.org，主要用于跟踪允许实例、版本、dashboard、错误统计。默认是true
+google_analytics_ua_id：使用GA进行分析，填写你的GA ID即可
+
+
+[dashboards.json]
+如果你有一个系统自动产生json格式的dashboard，则可以开启这个特性试试
+enabled：默认是false
+path：一个全路径用来包含你的json dashboard，默认是/var/lib/grafana/dashboards
+
+
+[session]
+provider：默认是file，值还可以是memory、mysql、postgres
+provider_config：这个值的配置由provider的设置来确定，如果provider是file，则是data/xxxx路径类型，如果provider是mysql，则是user:password@tcp(127.0.0.1:3306)/database_name，如果provider是postgres，则是user=a password=b host=localhost port=5432 dbname=c sslmode=disable
+cookie_name：grafana的cookie名称
+cookie_secure：如果设置为true，则grafana依赖https，默认是false
+session_life_time：session过期时间，默认是86400秒，24小时
+
+
+以下是官方文档没有，配置文件中有的
+[smtp]
+enabled = false
+host = localhost:25
+user =
+password =
+cert_file =
+key_file =
+skip_verify = false
+from_address = admin@grafana.localhost
+
+[emails]
+welcome_email_on_sign_up = false
+templates_pattern = emails/*.html
+
+
+[log]
+mode：可以是console、file，默认是console、file，也可以设置多个，用逗号隔开
+buffer_len：channel的buffer长度，默认是10000
+level：可以是&quot;Trace&quot;, &quot;Debug&quot;, &quot;Info&quot;, &quot;Warn&quot;, &quot;Error&quot;, &quot;Critical&quot;，默认是info
+
+[log.console]
+level：设置级别
+
+[log.file]
+level：设置级别
+log_rotate：是否开启自动轮转
+max_lines：单个日志文件的最大行数，默认是1000000
+max_lines_shift：单个日志文件的最大大小，默认是28，表示256MB
+daily_rotate：每天是否进行日志轮转，默认是true
+max_days：日志过期时间，默认是7,7天后删除
+</code></pre>
+
+<h1 id="基本概念">基本概念</h1>
+
+<ul>
+<li>Data Source：grafana确切的说是一个前端展示工具，将数据以非常美观直接的图形展示出来。那么这些数据必须有一个来源吧，grafana获取数据的地方就称为Data Source。官方文档上说grafana支持以下数据源：Graphite, InfluxDB, OpenTSDB, Prometheus, Elasticsearch, CloudWatch等等，grafana不仅仅支持上面说的这些数据源，还支持一些其它的数据源，这些就称为Grafana Plugins。</li>
+<li>DashBoard：仪表盘，就像汽车仪表盘一样可以展示很多信息，包括车速，水箱温度等。Grafana的DashBoard就是以各种图形的方式来展示从Datasource拿到的数据。</li>
+<li>Row：DashBoard的基本组成单元，一个DashBoard可以包含很多个row。一个row可以展示一种信息或者多种信息的组合，比如系统内存使用率，CPU五分钟及十分钟平均负载等。所以在一个DashBoard上可以集中展示很多内容。</li>
+<li>Panel：面板，实际上就是row展示信息的方式，支持表格（table），列表（alert list），热图（Heatmap）等多种方式，具体可以去官网上查阅。</li>
+<li>Query Editor：用来指定获取哪一部分数据。类似于sql查询语句，比如你要在某个row里面展示test这张表的数据，那么Query Editor里面就可以写成select *from test。</li>
+<li>Organization：org是一个很大的概念，每个用户可以拥有多个org，grafana有一个默认的main org。用户登录后可以在不同的org之间切换，前提是该用户拥有多个org。不同的org之间完全不一样，包括datasource，dashboard等都不一样。创建一个org就相当于开了一个全新的视图，所有的datasource，dashboard等都要再重新开始创建。</li>
+<li>User：这个概念应该很简单，不用多说。Grafana里面用户有三种角色admin,editor,viewer。admin权限最高，可以执行任何操作，包括创建用户，新增Datasource，创建DashBoard。editor角色不可以创建用户，不可以新增Datasource，可以创建DashBoard。viewer角色仅可以查看DashBoard。</li>
+</ul>
+
+<h1 id="基本实践">基本实践</h1>
+
+<h2 id="设置变量var只取top">设置变量var只取top</h2>
+
+<p>grafana可以设置变量var只取top前几个值</p>
+
+<pre><code>query_result(topk(5, avg_over_time(node_scrape_collector_duration_seconds[${__range_s}s])))
+</code></pre>
+
+<h2 id="ip转义">ip转义</h2>
+
+<p>grafana关于ip被转义的问题，可以使用模糊匹配来解决，模糊匹配可以匹配到东西的。</p>
+
+<h2 id="全部的匹配">全部的匹配</h2>
+
+<p>There is a Custom all value setting on variables. You have not said what your data source is, but if it supports wildcards then you can use the wildcard as a Custom all value.</p>
+
+<p>So for example with Prometheus data source the wildcard is .* if I put that in Custom all value then when selecting your metric it would be:</p>
+
+<pre><code>aws_rds_write_latency_maximum{dbinstance_identifier=~&quot;.*&quot;}
+</code></pre>
+
+<p>Which would return all metrics whatever the dbinstance_identifier</p>
+
+<h2 id="grafana升级">grafana升级</h2>
+
+<p>grafana升级是比较简单的，因为grafana本身就是无状态的实例，只要将对应的数据库或者存储进行备份使用即可。升级步骤如下：</p>
+
+<ul>
+<li>对底层存储进行备份</li>
+<li>使用备份新建新版本的grafana实例</li>
+<li>确认无误后，将旧版本的副本数缩小到0，便于回滚</li>
+<li>运行一段时间后，确认新版本没有问题，进行旧版本下线操作</li>
+</ul>
+
+<h2 id="匿名模式">匿名模式</h2>
+
+<p>有时候用户确实没有 Grafana 的账号，但他就是想看面板，此时就得 使用Grafana 的匿名模式。</p>
+
+<p>Grafana 配置文件中有 <code>auth.anonymous</code> 配置段，<code>enabled</code> 控制开关，<code>org_name</code> 控制开启匿名模式的组织，<code>org_role</code> 控制匿名者的权限。组织开启匿名意味着非登录用户能够直接跳过 Grafana 无权限地查询数据源，因此请保证数据源的安全，例如限定内网访问，一般可以给监控跳转链接使用，主要配置如下</p>
+
+<pre><code>    #################################### Anonymous Auth ######################
+    [auth.anonymous]
+    # enable anonymous access
+    enabled = true
+
+    # specify organization name that should be used for unauthenticated users
+    org_name = Main Org.
+
+    # specify role for unauthenticated users
+    org_role = Viewer
+</code></pre>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/monitor/metrics/prometheus/ui/grafana/">https://kingjcy.github.io/post/monitor/metrics/prometheus/ui/grafana/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/ui/">
+                            <i class="fa fa-tags"></i>
+                            ui
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/monitor/">
+                            <i class="fa fa-tags"></i>
+                            monitor
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/metrics/">
+                            <i class="fa fa-tags"></i>
+                            metrics
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/grafana/">
+                            <i class="fa fa-tags"></i>
+                            Grafana
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/metrics/prometheus/prometheus-principle/">监控metrics系列---- Prometheus Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月01日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat-principle/">监控日志系列---- Filebeat原理</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月15日)</span></li><li id="li-rels"><a href="/post/monitor/log/log-scheme/">监控系列---- log</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat/">监控日志系列---- Filebeat</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/monitor-scheme/infrastructure-base/">监控metrics系列---- Infrastructure监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/monitor-scheme/k8s-base/">监控metrics系列---- K8s监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月12日)</span></li><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">监控metrics系列---- Prometheus mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/trace/jaeger/">监控trace系列---- jaeger</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2019年08月13日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous disabled"><a href="#"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#部署">部署</a>
+<ul>
+<li><a href="#配置文件">配置文件</a></li>
+</ul></li>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#基本实践">基本实践</a>
+<ul>
+<li><a href="#设置变量var只取top">设置变量var只取top</a></li>
+<li><a href="#ip转义">ip转义</a></li>
+<li><a href="#全部的匹配">全部的匹配</a></li>
+<li><a href="#grafana升级">grafana升级</a></li>
+<li><a href="#匿名模式">匿名模式</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
