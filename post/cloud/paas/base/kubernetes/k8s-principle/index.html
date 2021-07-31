@@ -208,7 +208,7 @@ Kubernetes 项目所擅长的，是按照用户的意愿和整个系统的规则
 
 <p><img src="/media/cloud/k8s/idea.png" alt="" /></p>
 
-<p>按照这幅图的线索，我们从容器这个最基础的概念出发，首先遇到了容器间“紧密协作”关系的难题，于是就扩展到了 Pod；有了 Pod 之后，我们希望能一次启动多个应用的实例，这样就需要 Deployment 这个 Pod 的多实例管理器；而有了这样一组相同的 Pod 后，我们又需要通过一个固定的 IP 地址和端口以负载均衡的方式访问它，于是就有了 Service。</p>
+<p>按照这幅图的线索，我们从容器这个最基础的概念出发，首先遇到了容器间“紧密协作”关系的难题，于是就扩展到了 Pod；有了 Pod 之后，我们希望能一次启动多个应用的实例，这样就需要 Deployment 这个 Pod 的多实例管理器；而有了这样一组相同的 Pod 后，我们又需要通过一个固定的 IP 地址和端口以负载均衡的方式访问它，于是就有了 Service，然后我们的服务需要对外网提供服务，就有了ingress，这是一条完整的路线，还有针对不同的场景有着不同资源的抽象，都可以在图中展现出来。</p>
 
 <p>所以说k8s的思想很先进，经验很多，直接在上层就做好的架构设计，对于其他的paas简直就是降维打击，所以k8s得天下是必然的。</p>
 
@@ -308,8 +308,95 @@ Terminating： 退出中
 </code></pre>
 
 <blockquote>
-<p>重启策略</p>
+<p>pod的使用</p>
 </blockquote>
+
+<p><strong>基本使用</strong></p>
+
+<ol>
+<li>一般很少会直接在kubernetes中创建单个Pod，而是使用<a href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-controller/">k8s控制器</a>，因为Pod的生命周期是短暂的，用后即焚的实体。</li>
+<li>Controller可以创建和管理多个Pod，提供副本管理、滚动升级和集群级别的自愈能力。例如，如果一个Node故障，Controller就能自动将该节点上的Pod调度到其他健康的Node上，一般这是一个创建删除的过程。</li>
+</ol>
+
+<p><strong>yaml</strong></p>
+
+<p>其实就是我们声明式操作的资源配置清单，具体参数详解可以查看k8s权威指南的第二章第四节。</p>
+
+<p>其实我们很少用pod来创建，一般都是用资源来控制，这边主要说几个重点的字段</p>
+
+<ul>
+<li><p>NodeSelector：是一个供用户将 Pod 与 Node 进行绑定的字段，意味着这个 Pod 永远只能运行在携带了类似“disktype: ssd”标签（Label）的节点上；否则，它将调度失败。</p></li>
+
+<li><p>NodeName：一旦 Pod 的这个字段被赋值，Kubernetes 项目就会被认为这个 Pod 已经经过了调度，调度的结果就是赋值的节点名字。所以，这个字段一般由调度器负责设置，但用户也可以设置它来“骗过”调度器，当然这个做法一般是在测试或者调试的时候才会用到。</p></li>
+
+<li><p>HostAliases：定义了 Pod 的 hosts 文件（比如 /etc/hosts）里的内容，在这个 Pod 的 YAML 文件中，我设置了一组 IP 和 hostname 的数据。这样，这个 Pod 启动后，会写入/etc/hosts 文件的内容，在 Kubernetes 项目中，如果要设置 hosts 文件里的内容，一定要通过这种方法。否则，如果直接修改了 hosts 文件的话，在 Pod 被删除重建之后，kubelet 会自动覆盖掉被修改的内容。</p>
+
+<pre><code>  apiVersion: v1
+  kind: Pod
+  ...
+  spec:
+    hostAliases:
+    - ip: &quot;10.1.2.3&quot;
+      hostnames:
+      - &quot;foo.remote&quot;
+      - &quot;bar.remote&quot;
+  ...
+</code></pre></li>
+
+<li><p>共享namespace，比如我定义了共享宿主机的 Network、IPC 和 PID Namespace。</p>
+
+<pre><code>  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: nginx
+  spec:
+    hostNetwork: true
+    hostIPC: true
+    hostPID: true
+    containers:
+    - name: nginx
+      image: nginx
+    - name: shell
+      image: busybox
+      stdin: true
+      tty: true
+</code></pre></li>
+
+<li><p>Containers是对容器的定义，Init Containers 的生命周期，会先于所有的 Containers，并且严格按照定义的顺序执行。Kubernetes 项目中对 Container 的定义，和 Docker 相比并没有什么太大区别。 Image（镜像）、Command（启动命令）、workingDir（容器的工作目录）、Ports（容器要开发的端口），以及 volumeMounts（容器要挂载的 Volume）都是构成 Kubernetes 项目中 Container 的主要字段。不过在这里，还有这么几个属性值得你额外关注。</p>
+
+<ul>
+<li>ImagePullPolicy 字段。它定义了镜像拉取的策略。上面已经介绍</li>
+<li>Lifecycle 字段。它定义的是 Container Lifecycle Hooks。顾名思义，Container Lifecycle Hooks 的作用，是在容器状态发生变化时触发一系列“钩子”。上面已经介绍</li>
+</ul></li>
+
+<li><p>Pod 生命周期的变化，主要体现在 Pod API 对象的 Status 部分，这是它除了 Metadata 和 Spec 之外的第三个重要字段。其中，pod.status.phase，就是 Pod 的当前状态，上面已经介绍。</p></li>
+
+<li><p>volume主要是卷的挂载。</p></li>
+
+<li><p>podTemplate</p>
+
+<p>控制器通常使用 <em>Pod 模板（Pod Template）</em> 来替你创建 Pod 并管理它们。我们通过实例来看一下模板的使用</p>
+
+<pre><code class="language-yaml">apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hello
+spec:
+  template:
+    # 这里是 Pod 模版
+    spec:
+      containers:
+      - name: hello
+        image: busybox
+        command: ['sh', '-c', 'echo &quot;Hello, Kubernetes!&quot; &amp;&amp; sleep 3600']
+      restartPolicy: OnFailure
+    # 以上为 Pod 模版
+</code></pre>
+
+<p>这边要注意pod模板的修改并不会对已经存在的pod进行更新，新创建的pod是按照新的模板来创建，对应已经存在pod，每个控制器都是有自己的控制逻辑，大部分都是会删除旧的pod，然后创建新的pod来代替，比如deployment就是这样处理的。</p></li>
+</ul>
+
+<p><strong>重启策略</strong></p>
 
 <p>pod的重启策略：kubelet将根据RestartPolicy的设置来进行相应的操作</p>
 
@@ -319,9 +406,7 @@ Terminating： 退出中
 <li>Never: 不论容器运行状态如何, kubelet都不会重启该容器</li>
 </ul>
 
-<blockquote>
-<p>镜像拉取策略</p>
-</blockquote>
+<p><strong>镜像拉取策略</strong></p>
 
 <p>支持三种ImagePullPolicy</p>
 
@@ -340,9 +425,7 @@ Terminating： 退出中
 <li>生产环境中应该尽量避免使用:latest标签，而开发环境中可以借助:latest标签自动拉取最新的镜像。</li>
 </ul>
 
-<blockquote>
-<p>资源限制</p>
-</blockquote>
+<p><strong>资源限制</strong></p>
 
 <pre><code>spec.containers[].resources.limits.cpu：CPU上限，可以短暂超过，容器也不会被停止
 spec.containers[].resources.limits.memory：内存上限，不可以超过；如果超过，容器可能会被停止或调度到其他资源充足的机器上
@@ -354,11 +437,9 @@ spec.containers[].resources.requests.memory：内存请求，可以超过；但�
 
 <p>limit是上限，如果应用超过limit，会kill掉</p>
 
-<p>request给调度用的  调度在选择pod调度到那个node上，会看node上已经调度的pod所声明的request。你如果设置最小需求，那么你node上可能会被调度很多pod, 但是业务大的时候，会使得node的压力比较大，所以设置为正常的时候的需求，request不应该是一个下线值，而是一个运行参考值。</p>
+<p>request给调度用的 调度在选择pod调度到那个node上，会看node上已经调度的pod所声明的request。你如果设置最小需求，那么你node上可能会被调度很多pod, 但是业务大的时候，会使得node的压力比较大，所以设置为正常的时候的需求，request不应该是一个下线值，而是一个运行参考值。</p>
 
-<blockquote>
-<p>钩子</p>
-</blockquote>
+<p><strong>钩子</strong></p>
 
 <p>容器生命周期钩子（Container Lifecycle Hooks）监听容器生命周期的特定事件，并在事件发生时执行已注册的回调函数。支持两种钩子：</p>
 
@@ -393,21 +474,11 @@ spec:
           command: [&quot;/usr/sbin/nginx&quot;,&quot;-s&quot;,&quot;quit&quot;]
 </code></pre>
 
-<blockquote>
-<p>控制器</p>
-</blockquote>
+<p><strong>扩缩容</strong></p>
 
-<p>pod只是运行的最小单元，我们一般不会直接使用pod。大部分情况下我们都是使用deployment（RS），deamonset，statefulset，job等控制器来完成部署调度使用，具体可以查看<a href="/post/cloud/paas/base/kubernetes/k8s-controller/">k8s控制器</a>。</p>
+<p>Pod 水平自动伸缩（Horizontal Pod Autoscaler）和垂直扩展（Vertical Pod Autoscaler）以及CA（ cluster-autoscaler）特性，可以说是很实用的特性，完全自动化实现了资源的充分利用，所以单独拿出来说说，具体可以查看<a href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-autoscaler/">k8s autoscaler</a>。。</p>
 
-<blockquote>
-<p>扩缩容</p>
-</blockquote>
-
-<p>Pod 水平自动伸缩（Horizontal Pod Autoscaler）和垂直扩展（Vertical Pod Autoscaler）以及CA（ cluster-autoscaler）特性，可以说是很实用的特性，完全自动化实现了资源的充分利用，所以单独拿出来说说，具体可以查看<a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">k8s autoscaler</a>。。</p>
-
-<blockquote>
-<p>限制带宽</p>
-</blockquote>
+<p><strong>限制带宽</strong></p>
 
 <p>可以通过给Pod增加kubernetes.io/ingress-bandwidth和kubernetes.io/egress-bandwidth这两个annotation来限制Pod的网络带宽</p>
 
@@ -427,51 +498,58 @@ spec:
     - -s
 </code></pre>
 
-<blockquote>
-<p>yaml模版</p>
-</blockquote>
+<p><strong>pod的配置管理</strong></p>
+
+<p>configmap，下面有详解的使用说明。</p>
+
+<p><strong>yaml</strong></p>
 
 <p>其实就是我们声明式操作的资源配置清单，具体参数详解可以查看k8s权威指南的第二章第四节。</p>
 
 <p>其实我们很少用pod来创建，一般都是用资源来控制，这边主要说几个重点的字段</p>
 
 <ul>
-<li>NodeSelector：是一个供用户将 Pod 与 Node 进行绑定的字段，意味着这个 Pod 永远只能运行在携带了类似“disktype: ssd”标签（Label）的节点上；否则，它将调度失败。</li>
-<li>NodeName：一旦 Pod 的这个字段被赋值，Kubernetes 项目就会被认为这个 Pod 已经经过了调度，调度的结果就是赋值的节点名字。所以，这个字段一般由调度器负责设置，但用户也可以设置它来“骗过”调度器，当然这个做法一般是在测试或者调试的时候才会用到。</li>
+<li><p>NodeSelector：是一个供用户将 Pod 与 Node 进行绑定的字段，意味着这个 Pod 永远只能运行在携带了类似“disktype: ssd”标签（Label）的节点上；否则，它将调度失败。</p></li>
 
-<li><p>HostAliases：定义了 Pod 的 hosts 文件（比如 /etc/hosts）里的内容，在这个 Pod 的 YAML 文件中，我设置了一组 IP 和 hostname 的数据。这样，这个 Pod 启动后，会写入/etc/hosts 文件的内容，在 Kubernetes 项目中，如果要设置 hosts 文件里的内容，一定要通过这种方法。否则，如果直接修改了 hosts 文件的话，在 Pod 被删除重建之后，kubelet 会自动覆盖掉被修改的内容。</p>
+<li><p>NodeName：一旦 Pod 的这个字段被赋值，Kubernetes 项目就会被认为这个 Pod 已经经过了调度，调度的结果就是赋值的节点名字。所以，这个字段一般由调度器负责设置，但用户也可以设置它来“骗过”调度器，当然这个做法一般是在测试或者调试的时候才会用到。</p></li>
 
-<pre><code>apiVersion: v1
-kind: Pod
-...
-spec:
-  hostAliases:
-  - ip: &quot;10.1.2.3&quot;
-    hostnames:
-    - &quot;foo.remote&quot;
-    - &quot;bar.remote&quot;
-...
-</code></pre></li>
+<li><p>HostAliases：定义了 Pod 的 hosts 文件（比如 /etc/hosts）里的内容，在这个 Pod 的 YAML 文件中，我设置了一组 IP 和 hostname 的数据。这样，这个 Pod 启动后，会写入/etc/hosts 文件的内容，在 Kubernetes 项目中，如果要设置 hosts 文件里的内容，一定要通过这种方法。否则，如果直接修改了 hosts 文件的话，在 Pod 被删除重建之后，kubelet 会自动覆盖掉被修改的内容。</p></li>
+</ul>
 
-<li><p>共享namespace，比如我定义了共享宿主机的 Network、IPC 和 PID Namespace。</p>
+<pre><code>  apiVersion: v1
+  kind: Pod
+  ...
+  spec:
+    hostAliases:
+    - ip: &quot;10.1.2.3&quot;
+      hostnames:
+      - &quot;foo.remote&quot;
+      - &quot;bar.remote&quot;
+  ...
+</code></pre>
 
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: nginx
-spec:
-  hostNetwork: true
-  hostIPC: true
-  hostPID: true
-  containers:
-  - name: nginx
-    image: nginx
-  - name: shell
-    image: busybox
-    stdin: true
-    tty: true
-</code></pre></li>
+<ul>
+<li>共享namespace，比如我定义了共享宿主机的 Network、IPC 和 PID Namespace。</li>
+</ul>
 
+<pre><code>  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: nginx
+  spec:
+    hostNetwork: true
+    hostIPC: true
+    hostPID: true
+    containers:
+    - name: nginx
+      image: nginx
+    - name: shell
+      image: busybox
+      stdin: true
+      tty: true
+</code></pre>
+
+<ul>
 <li><p>Containers是对容器的定义，Init Containers 的生命周期，会先于所有的 Containers，并且严格按照定义的顺序执行。Kubernetes 项目中对 Container 的定义，和 Docker 相比并没有什么太大区别。 Image（镜像）、Command（启动命令）、workingDir（容器的工作目录）、Ports（容器要开发的端口），以及 volumeMounts（容器要挂载的 Volume）都是构成 Kubernetes 项目中 Container 的主要字段。不过在这里，还有这么几个属性值得你额外关注。</p>
 
 <ul>
@@ -481,14 +559,8 @@ spec:
 
 <li><p>Pod 生命周期的变化，主要体现在 Pod API 对象的 Status 部分，这是它除了 Metadata 和 Spec 之外的第三个重要字段。其中，pod.status.phase，就是 Pod 的当前状态，上面已经介绍。</p></li>
 
-<li><p>volume主要是卷的挂载，比如<a href="#projectd volume">projectvolume</a></p></li>
+<li><p>volume主要是卷的挂载，比如<a href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-principle/#projectd volume">projectvolume</a></p></li>
 </ul>
-
-<blockquote>
-<p>pod的配置管理</p>
-</blockquote>
-
-<p>configmap，下面有详解的使用说明</p>
 
 <blockquote>
 <p>健康检查</p>
@@ -807,49 +879,11 @@ spec:
 
 <p>如果你定义了同时作用于一个 Pod 对象的多个 PodPreset，会发生什么呢？实际上，Kubernetes 项目会帮你合并（Merge）这两个 PodPreset 要做的修改。而如果它们要做的修改有冲突的话，这些冲突字段就不会被修改。</p>
 
-<h2 id="projectd-volume">projectd volume</h2>
+<h2 id="secret">secret</h2>
 
-<p>在 Kubernetes 中，有几种特殊的 Volume，它们存在的意义不是为了存放容器里的数据，也不是用来进行容器和宿主机之间的数据交换。这些特殊 Volume 的作用，是为容器提供预先定义好的数据。所以，从容器的角度来看，这些 Volume 里的信息就是仿佛是被 Kubernetes“投射”（Project）进入容器当中的。这正是 Projected Volume 的含义。到目前为止，Kubernetes 支持的 Projected Volume 一共有四种：</p>
+<p>Secret解决了密码、token、密钥等敏感数据的配置问题，而不需要把这些敏感数据暴露到镜像或者Pod Spec中，也可以使用挂载的方式来解决灵活配置的问题。</p>
 
-<ul>
-<li>Secret；</li>
-<li>ConfigMap；</li>
-<li>Downward API；</li>
-<li>ServiceAccountToken。</li>
-</ul>
-
-<h3 id="secret">secret</h3>
-
-<p>Secret解决了密码、token、密钥等敏感数据的配置问题，而不需要把这些敏感数据暴露到镜像或者Pod Spec中。Secret可以以Volume或者环境变量的方式使用。</p>
-
-<p>Secret 最典型的使用场景，莫过于存放数据库的 Credential 信息，比如下面这个例子：</p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: test-projected-volume
-spec:
-  containers:
-  - name: test-secret-volume
-    image: busybox
-    args:
-    - sleep
-    - &quot;86400&quot;
-    volumeMounts:
-    - name: mysql-cred
-      mountPath: &quot;/projected-volume&quot;
-      readOnly: true
-  volumes:
-  - name: mysql-cred
-    projected:
-      sources:
-      - secret:
-          name: user
-      - secret:
-          name: pass
-</code></pre>
-
-<p>在这个 Pod 中，我定义了一个简单的容器。它声明挂载的 Volume，并不是常见的 emptyDir 或者 hostPath 类型，而是 projected 类型。而这个 Volume 的数据来源（sources），则是名为 user 和 pass 的 Secret 对象，分别对应的是数据库的用户名和密码。这里用到的数据库的用户名、密码，正是以 Secret 对象的方式交给 Kubernetes 保存的。完成这个操作的指令，如下所示：</p>
+<p>我们先通过一个简单的实例了解一下secret：</p>
 
 <pre><code>$ cat ./username.txt
 admin
@@ -880,7 +914,7 @@ data:
   pass: MWYyZDFlMmU2N2Rm
 </code></pre>
 
-<p>可以看到，通过编写 YAML 文件创建出来的 Secret 对象只有一个。但它的 data 字段，却以 Key-Value 的格式保存了两份 Secret 数据。其中，“user”就是第一份数据的 Key，“pass”是第二份数据的 Key。需要注意的是，Secret 对象要求这些数据必须是经过 Base64 转码的，以免出现明文密码的安全隐患。这个转码操作也很简单，比如：</p>
+<p>可以看到，通过编写 YAML 文件创建出来的 Secret 对象只有一个。但它的 data 字段，却以 Key-Value 的格式保存了两份 Secret 数据。其中，“user”就是第一份数据的 Key，“pass”是第二份数据的 Key。<strong>需要注意的是，Secret 对象要求这些数据必须是经过 Base64 转码的，以免出现明文密码的安全隐患，这也是我说的最好是使用文件命令行进行secret的创建，避免转码的麻烦</strong>，当然这个转码操作也很简单，比如：</p>
 
 <pre><code>$ echo -n 'admin' | base64
 YWRtaW4=
@@ -888,40 +922,13 @@ $ echo -n '1f2d1e2e67df' | base64
 MWYyZDFlMmU2N2Rm
 </code></pre>
 
-<p>像这样通过挂载方式进入到容器里的 Secret，一旦其对应的 Etcd 里的数据被更新，这些 Volume 里的文件内容，同样也会被更新。其实，这是 kubelet 组件在定时维护这些 Volume。</p>
+<p>解码</p>
 
-<p>在上面我们可以看到Secret有一个type，都是使用的Opaque，其实有三种类型：</p>
-
-<pre><code>Service Account：用来访问Kubernetes API，由Kubernetes自动创建，并且会自动挂载到Pod的/run/secrets/kubernetes.io/serviceaccount目录中；
-Opaque：base64编码格式的Secret，用来存储密码、密钥等；
-kubernetes.io/dockerconfigjson：用来存储私有docker registry的认证信息。
+<pre><code>$ echo -n 'YWRtaW4=' | base64 -d
+admin
+$ echo -n 'MWYyZDFlMmU2N2Rm' | base64 -d
+1f2d1e2e67df
 </code></pre>
-
-<blockquote>
-<p>Opaque Secret</p>
-</blockquote>
-
-<p>Opaque类型的数据是一个map类型，要求value是base64编码格式：</p>
-
-<pre><code>$ echo -n &quot;admin&quot; | base64
-YWRtaW4=
-$ echo -n &quot;1f2d1e2e67df&quot; | base64
-MWYyZDFlMmU2N2Rm
-</code></pre>
-
-<p>secrets.yml</p>
-
-<pre><code>apiVersion: v1
-kind: Secret
-metadata:
-  name: mysecret
-type: Opaque
-data:
-  password: MWYyZDFlMmU2N2Rm
-  username: YWRtaW4=
-</code></pre>
-
-<p>接着，就可以创建secret了：kubectl create -f secrets.yml。</p>
 
 <p>创建好secret之后，有两种方式来使用它：</p>
 
@@ -932,26 +939,42 @@ data:
 <pre><code>apiVersion: v1
 kind: Pod
 metadata:
-  labels:
-    name: db
-  name: db
+  name: mypod
 spec:
+  containers:
+  - name: mypod
+    image: redis
+    volumeMounts:
+    - name: foo
+      mountPath: &quot;/etc/foo&quot;
+      readOnly: true
   volumes:
-  - name: secrets
+  - name: foo
     secret:
       secretName: mysecret
-  containers:
-  - image: gcr.io/my_project_id/pg:v1
-    name: db
-    volumeMounts:
-    - name: secrets
-      mountPath: &quot;/etc/secrets&quot;
-      readOnly: true
-    ports:
-    - name: cp
-      containerPort: 5432
-      hostPort: 5432
 </code></pre>
+
+<p>你还可以指定 Secret 将拥有的权限模式位。如果不指定，默认使用 <code>0644</code>。 你可以为整个 Secret 卷指定默认模式；如果需要，可以通过defaultMode为每个密钥设定重载值。比如</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: mypod
+spec:
+  containers:
+  - name: mypod
+    image: redis
+    volumeMounts:
+    - name: foo
+      mountPath: &quot;/etc/foo&quot;
+  volumes:
+  - name: foo
+    secret:
+      secretName: mysecret
+      defaultMode: 256
+</code></pre>
+
+<p>当已经存储于卷中被使用的 Secret 被更新时，被映射的键也将终将被更新。 组件 kubelet 在周期性同步时检查被挂载的 Secret 是不是最新的。使用 Secret 作为<a href="https://kubernetes.io/zh/docs/concepts/storage/volumes#using-subpath">子路径</a>卷挂载的容器 不会收到 Secret 更新。</p>
 
 <p>2、以环境变量方式</p>
 
@@ -989,75 +1012,176 @@ spec:
               key: password
 </code></pre>
 
+<p>对应的环节变量就获取了secret对应的值。</p>
+
+<p>在上面我们可以看到Secret有一个type，都是使用的Opaque，其实type有很多类型：</p>
+
+<table>
+<thead>
+<tr>
+<th>内置类型</th>
+<th>用法</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td><code>Opaque</code></td>
+<td>用户定义的任意数据，base64编码格式的Secret，用来存储密码、密钥等；</td>
+</tr>
+
+<tr>
+<td><code>kubernetes.io/service-account-token</code></td>
+<td>服务账号令牌</td>
+</tr>
+
+<tr>
+<td><code>kubernetes.io/dockercfg</code></td>
+<td><code>~/.dockercfg</code> 文件的序列化形式</td>
+</tr>
+
+<tr>
+<td><code>kubernetes.io/dockerconfigjson</code></td>
+<td><code>~/.docker/config.json</code> 文件的序列化形式，用来存储私有docker registry的认证信息。</td>
+</tr>
+
+<tr>
+<td><code>kubernetes.io/basic-auth</code></td>
+<td>用于基本身份认证的凭据</td>
+</tr>
+
+<tr>
+<td><code>kubernetes.io/ssh-auth</code></td>
+<td>用于 SSH 身份认证的凭据</td>
+</tr>
+
+<tr>
+<td><code>kubernetes.io/tls</code></td>
+<td>用于 TLS 客户端或者服务器端的数据</td>
+</tr>
+
+<tr>
+<td><code>bootstrap.kubernetes.io/token</code></td>
+<td>启动引导令牌数据</td>
+</tr>
+</tbody>
+</table>
+
+<ul>
+<li><p>Opaque</p>
+
+<ul>
+<li>当 Secret 配置文件中未作显式设定时，默认的 Secret 类型是 <code>Opaque</code>。 当你使用 <code>kubectl</code> 来创建一个 Secret 时，你会使用 <code>generic</code> 子命令来标明 要创建的是一个 <code>Opaque</code> 类型 Secret。</li>
+</ul></li>
+</ul>
+
+<pre><code>  kubectl create secret generic empty-secret
+</code></pre>
+
+<ul>
+<li><p><code>kubernetes.io/service-account-token</code></p>
+
+<ul>
+<li>类型为 <code>kubernetes.io/service-account-token</code> 的 Secret 用来存放标识某 服务账号的令牌。使用这种 Secret 类型时，你需要确保对象的注解 <code>kubernetes.io/service-account-name</code> 被设置为某个已有的服务账号名称。Kubernetes 在创建 Pod 时会自动创建一个服务账号 Secret 并自动修改你的 Pod 以使用该 Secret。该服务账号令牌 Secret 中包含了访问 Kubernetes API 所需要的凭据。</li>
+</ul></li>
+
+<li><p>其他类型可以在使用的时候到官方文档查询，很详细。</p></li>
+</ul>
+
+<h2 id="configmap">configmap</h2>
+
+<p>最常用的两种配置模式，一种就是正常的配置configmap，另外一种就是加密的secret，在上已经说过，我们来看看configmap。</p>
+
 <blockquote>
-<p>kubernetes.io/dockerconfigjson</p>
+<p>configmap</p>
 </blockquote>
 
-<p>可以直接用kubectl命令来创建用于docker registry认证的secret：</p>
+<p>1、ConfigMap 在设计上不是用来保存大量数据的，在 ConfigMap 中保存的数据不可超过 1 MiB。如果你需要保存超出此尺寸限制的数据，你可能希望考虑挂载存储卷 或者使用独立的数据库或者文件服务。</p>
 
-<pre><code>$ kubectl create secret docker-registry myregistrykey --docker-server=DOCKER_REGISTRY_SERVER --docker-username=DOCKER_USER --docker-password=DOCKER_PASSWORD --docker-email=DOCKER_EMAIL
-secret &quot;myregistrykey&quot; created.
-</code></pre>
+<p>2、ConfigMap 使用 <code>data</code> 和 <code>binaryData</code> 字段。这些字段能够接收键-值对作为其取值。<code>data</code> 和 <code>binaryData</code> 字段都是可选的。<code>data</code> 字段设计用来保存 UTF-8 字节序列，而 <code>binaryData</code> 则 被设计用来保存二进制数据作为 base64 编码的字串。<code>data</code> 或 <code>binaryData</code> 字段下面的每个键的名称都必须由字母数字字符或者 <code>-</code>、<code>_</code> 或 <code>.</code> 组成。在 <code>data</code> 下保存的键名不可以与在 <code>binaryData</code> 下 出现的键名有重叠。</p>
 
-<p>也可以直接读取~/.docker/config.json的内容来创建：</p>
+<p>3、ConfigMap 的名字必须是一个合法的 <a href="https://kubernetes.io/zh/docs/concepts/overview/working-with-objects/names#dns-subdomain-names">DNS 子域名</a>。</p>
 
-<pre><code>$ cat ~/.docker/config.json | base64
-$ cat &gt; myregistrykey.yaml &lt;&lt;EOF
-apiVersion: v1
-kind: Secret
-metadata:
-  name: myregistrykey
-data:
-  .dockerconfigjson: UmVhbGx5IHJlYWxseSByZWVlZWVlZWVlZWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGxsbGx5eXl5eXl5eXl5eXl5eXl5eXl5eSBsbGxsbGxsbGxsbGxsbG9vb29vb29vb29vb29vb29vb29vb29vb29vb25ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubmdnZ2dnZ2dnZ2dnZ2dnZ2dnZ2cgYXV0aCBrZXlzCg==
-type: kubernetes.io/dockerconfigjson
-EOF
+<p>4、从 v1.19 开始，你可以添加一个 <code>immutable</code> 字段到 ConfigMap 定义中，创建 <a href="https://kubernetes.io/zh/docs/concepts/configuration/configmap/#configmap-immutable">不可变更的 ConfigMap</a>。</p>
 
-$ kubectl create -f myregistrykey.yaml
-</code></pre>
-
-<p>在创建Pod的时候，通过imagePullSecrets来引用刚创建的myregistrykey:</p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: foo
-spec:
-  containers:
-    - name: foo
-      image: janedoe/awesomeapp:v1
-  imagePullSecrets:
-    - name: myregistrykey
-</code></pre>
-
-<blockquote>
-<p>Service Account</p>
-</blockquote>
-
-<p>Service Account用来访问Kubernetes API，由Kubernetes自动创建，并且会自动挂载到Pod的/run/secrets/kubernetes.io/serviceaccount目录中。</p>
-
-<pre><code>$ kubectl run nginx --image nginx
-deployment &quot;nginx&quot; created
-$ kubectl get pods
-NAME                     READY     STATUS    RESTARTS   AGE
-nginx-3137573019-md1u2   1/1       Running   0          13s
-$ kubectl exec nginx-3137573019-md1u2 ls /run/secrets/kubernetes.io/serviceaccount
-ca.crt
-namespace
-token
-</code></pre>
-
-<h3 id="configmap">configmap</h3>
-
-<p>k8s提供了两种配置模式，一种就是正常的配置configmap，另外一种就是加密的secret。</p>
+<p>5、你可以写一个引用 ConfigMap 的 Pod 的 <code>spec</code>，并根据 ConfigMap 中的数据 在该 Pod 中配置容器。这个 Pod 和 ConfigMap 必须要在同一个 <a href="https://kubernetes.io/zh/docs/concepts/overview/working-with-objects/namespaces/">名字空间</a> 中。</p>
 
 <blockquote>
 <p>configmap的作用</p>
 </blockquote>
 
-<p>应用部署的一个最佳实战是将应用所需的配置信息与程序进行分离，这样可以使应用程序被更好的复用，通过不同的配置也能实现更灵活的功能，将应用打包为容器镜像后，可以通过环境变量或者外挂文件的方式在创建容器时进行配置注入，但在大规模容器集群的环境中，对多个容器进行不同的配置讲变得非常复杂，Kubernetes 1.2开始提供了一种统一的应用配置管理方案-configMap</p>
+<p>应用部署的一个最佳方案是将应用所需的配置信息与程序进行分离，这样可以使应用程序被更好的复用，通过不同的配置也能实现更灵活的功能，Kubernetes 1.2开始提供了这样一种统一的应用配置管理方案-configMap。</p>
 
 <blockquote>
-<p>configmap的用法</p>
+<p>configmap的基本用法</p>
+</blockquote>
+
+<p>以一个简单的例子开始我们的使用说明</p>
+
+<pre><code class="language-yaml">apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: game-demo
+data:
+  # 类属性键；每一个键都映射到一个简单的值
+  player_initial_lives: &quot;3&quot;
+  ui_properties_file_name: &quot;user-interface.properties&quot;
+
+  # 类文件键
+  game.properties: |
+    enemy.types=aliens,monsters
+    player.maximum-lives=5
+  user-interface.properties: |
+    color.good=purple
+    color.bad=yellow
+    allow.textmode=true
+</code></pre>
+
+<p>可见在我们的data字段中有着不同的用法，可以是keyvalue的键值对，也可以是file。我们可以用多种方法将这个cm配置到pod中去，其实也就是我们下面要说的典型使用场景，我们先简单的看一下yaml配置：</p>
+
+<pre><code class="language-yaml">apiVersion: v1
+kind: Pod
+metadata:
+  name: configmap-demo-pod
+spec:
+  containers:
+    - name: demo
+      image: alpine
+      command: [&quot;sleep&quot;, &quot;3600&quot;]
+      env:
+        # 定义环境变量
+        - name: PLAYER_INITIAL_LIVES # 请注意这里和 ConfigMap 中的键名是不一样的
+          valueFrom:
+            configMapKeyRef:
+              name: game-demo           # 这个值来自 ConfigMap
+              key: player_initial_lives # 需要取值的键
+        - name: UI_PROPERTIES_FILE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: game-demo
+              key: ui_properties_file_name
+      volumeMounts:
+      - name: config
+        mountPath: &quot;/config&quot;
+        readOnly: true
+  volumes:
+    # 你可以在 Pod 级别设置卷，然后将其挂载到 Pod 内的容器中
+    - name: config
+      configMap:
+        # 提供你想要挂载的 ConfigMap 的名字
+        name: game-demo
+        # 来自 ConfigMap 的一组键，将被创建为文件
+        items:
+        - key: &quot;game.properties&quot;
+          path: &quot;game.properties&quot;
+        - key: &quot;user-interface.properties&quot;
+          path: &quot;user-interface.properties&quot;
+</code></pre>
+
+<p>下面我们通过典型场景来详细说明各种基本用法。</p>
+
+<blockquote>
+<p>configmap典型场景</p>
 </blockquote>
 
 <p>ConfigMap供容器使用的典型用法如下：</p>
@@ -1209,28 +1333,13 @@ SERVICE_NGINX_PORT_80_TCP_ADDR=10.99.184.186
 
 <p>可以发现configMap当中的环境变量已经注入到了pod容器当中</p>
 
-<p>这里要注意的是，如果是用这种环境变量的注入方式，pod启动后，如果在去修改configMap当中的变量，对于pod是无效的，如果是以卷的方式挂载，是可的实时更新的，这一点要清楚</p>
+<p>这里要注意的是，如果是用这种环境变量的注入方式，pod启动后，如果在去修改configMap当中的变量，对于pod是无效的，如果是以卷的方式挂载，是可的实时更新的，这一点要清楚。</p>
 
 <p>2、用configMap以存储卷的形式挂载到pod中</p>
 
-<p>上面说到了configMap以变量的形式虽然可以注入到pod当中，但是如果在修改变量的话pod是不会更新的，如果想让configMap中的配置跟pod内部的实时更新，就需要以存储卷的形式挂载</p>
+<p>上面说到了configMap以变量的形式虽然可以注入到pod当中，但是如果在修改变量的话pod是不会更新的，如果想让configMap中的配置跟pod内部的实时更新，就需要以存储卷的形式挂载，在1.19中提供了不可变的configmap，应对新的需求。</p>
 
 <pre><code>[root@master ~]# cat test2.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: service-nginx
-  namespace: default
-spec:
-  type: NodePort
-  selector:
-    app: nginx
-  ports:
-  - name: nginx
-    port: 80
-    targetPort: 80
-    nodePort: 30080
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1266,7 +1375,6 @@ spec:
 <p>执行yaml文件</p>
 
 <pre><code>[root@master ~]# kubectl create -f test2.yaml
-service/service-nginx created
 deployment.apps/mydeploy created
 </code></pre>
 
@@ -1321,7 +1429,7 @@ metadata:
 root@mydeploy-6f6b6c8d9d-pfzjs:/nginx/vars#
 </code></pre>
 
-<p>3、configMap创建配置文件注入到pod当中</p>
+<p>3、用configMap挂载配置文件</p>
 
 <p>这里以nginx配置文件为例子，我们在宿主机上配置好nginx的配置文件，创建configmap，最后通过configmap注入到容器中</p>
 
@@ -1352,21 +1460,6 @@ nginx-var      2      63m
 <p>创建pod并挂载configMap存储卷</p>
 
 <pre><code>[root@master ~]# cat test2.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: service-nginx
-  namespace: default
-spec:
-  type: NodePort
-  selector:
-    app: nginx
-  ports:
-  - name: nginx
-    port: 80
-    targetPort: 80
-    nodePort: 30080
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1402,7 +1495,6 @@ spec:
 <p>启动容器，并让容器启动的时候就加载configMap当中的配置</p>
 
 <pre><code>[root@master ~]# kubectl create -f test2.yaml
-service/service-nginx created
 deployment.apps/mydeploy created
 </code></pre>
 
@@ -1480,6 +1572,72 @@ curl: (7) Failed connect to 10.244.1.46:80; 拒绝连接
 this is test web
 </code></pre>
 
+<p>4、<strong>用作命令行参数</strong></p>
+
+<p>将 ConfigMap 用作命令行参数时，需要先把 ConfigMap 的数据保存在环境变量中，然后通过 $(VAR_NAME) 的方式引用环境变量.</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: dapi-test-pod
+spec:
+  containers:
+    - name: test-container
+      image: gcr.io/google_containers/busybox
+      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;echo $(SPECIAL_LEVEL_KEY) $(SPECIAL_TYPE_KEY)&quot; ]
+      env:
+        - name: SPECIAL_LEVEL_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: special-config
+              key: special.how
+        - name: SPECIAL_TYPE_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: special-config
+              key: special.type
+  restartPolicy: Never
+</code></pre>
+
+<p>当 Pod 结束后会输出</p>
+
+<pre><code>very charm
+</code></pre>
+
+<p>5、<strong>使用 subpath 将 ConfigMap 作为单独的文件挂载到目录</strong></p>
+
+<p>在一般情况下 configmap 挂载文件时，会先覆盖掉挂载目录，然后再将 congfigmap 中的内容作为文件挂载进行。如果想不对原来的文件夹下的文件造成覆盖，只是将 configmap 中的每个 key，按照文件的方式挂载到目录下，可以使用 subpath 参数。</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: dapi-test-pod
+spec:
+  containers:
+    - name: test-container
+      image: nginx
+      command: [&quot;/bin/sh&quot;,&quot;-c&quot;,&quot;sleep 36000&quot;]
+      volumeMounts:
+      - name: config-volume
+        mountPath: /etc/nginx/special.how
+        subPath: special.how
+  volumes:
+    - name: config-volume
+      configMap:
+        name: special-config
+        items:
+        - key: special.how
+          path: special.how
+  restartPolicy: Never
+
+
+root@dapi-test-pod:/# ls /etc/nginx/
+conf.d    fastcgi_params    koi-utf  koi-win  mime.types  modules  nginx.conf  scgi_params    special.how  uwsgi_params  win-utf
+root@dapi-test-pod:/# cat /etc/nginx/special.how
+very
+root@dapi-test-pod:/#
+</code></pre>
+
 <blockquote>
 <p>configmap的实际应用</p>
 </blockquote>
@@ -1516,7 +1674,7 @@ metadata:
   uid: 0ebf9112-3ae6-11ea-ad4e-6c92bf8d8058
 </code></pre>
 
-<p>然后在pod启动的时候可以设置这些探针，但是由于这种方式并不是实时的，如果修改还是需要重新发布，所以并不常用，对于这些配置我们设置一个配置中心，然后在每次发布的时候，拉去配置来设置环境变量，我们更多的是使用env，比如日志采集的环境变量</p>
+<p>对于这些配置我们设置一个配置中心，然后在每次发布的时候，拉去配置来在yaml设置环境变量，如下，我们更多的是使用env，比如日志采集的环境变量，但是由于这种方式并不是实时的，如果修改还是需要重新发布，所以并不常用。</p>
 
 <pre><code>spec:
   containers:
@@ -1644,13 +1802,13 @@ spec:
         - /opt/filebeats/bin/filebeat
         env:
         - name: ldc
-          value: NJXZ
+          value: DEV
         - name: appid
-          value: PCC
+          value: APP
         - name: envType
           value: prd
         - name: system_MwType_serviceID
-          value: PCC_filebeat_01
+          value: APP_filebeat_01
         - name: cloudHostGroupId
           value: &quot;01&quot;
         - name: KUBERNETES_POD_IP
@@ -1663,7 +1821,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: status.hostIP
-        image: xgharbor01.sncloud.com/sncloud/filebeat:7.5.2-4
+        image: test/filebeat:7.5.2-4
         imagePullPolicy: Always
         name: filebeat
         resources:
@@ -1694,13 +1852,13 @@ spec:
         - /opt/filebeats/bin/filebeat
         env:
         - name: ldc
-          value: NJXZ
+          value: DEV
         - name: appid
-          value: PCC
+          value: APP
         - name: envType
           value: prd
         - name: system_MwType_serviceID
-          value: PCC_filebeat_01
+          value: APP_filebeat_01
         - name: cloudHostGroupId
           value: &quot;01&quot;
         - name: KUBERNETES_POD_IP
@@ -1713,7 +1871,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: status.hostIP
-        image: xgharbor01.sncloud.com/sncloud/filebeat:7.5.2-4
+        image: test/filebeat:7.5.2-4
         imagePullPolicy: Always
         name: filebeat-k8slog
         resources:
@@ -1744,13 +1902,13 @@ spec:
         - /opt/log-pilot/bin/log-pilot
         env:
         - name: ldc
-          value: NJXZ
+          value: DEV
         - name: appid
-          value: PCC
+          value: APP
         - name: envType
           value: prd
         - name: system_MwType_serviceID
-          value: PCC_filebeat_01
+          value: APP_filebeat_01
         - name: cloudHostGroupId
           value: &quot;01&quot;
         - name: KUBERNETES_POD_IP
@@ -1763,7 +1921,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: spec.nodeName
-        image: xgharbor01.sncloud.com/sncloud/log-pilot:1.0.2
+        image: test/log-pilot:1.0.2
         imagePullPolicy: Always
         name: log-pilot
         resources:
@@ -1830,304 +1988,6 @@ status:
   observedGeneration: 2
   updatedNumberScheduled: 128
 </code></pre>
-
-<p>实例</p>
-
-<pre><code>apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: special-config
-  namespace: default
-data:
-  special.how: very
-  special.type: charm
-</code></pre>
-
-<p>创建</p>
-
-<pre><code>$ kubectl create  -f  config.yaml
-configmap &quot;special-config&quot; created
-</code></pre>
-
-<p><strong>用作环境变量</strong></p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: test-pod
-spec:
-  containers:
-    - name: test-container
-      image: gcr.io/google_containers/busybox
-      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;env&quot;]
-      env:
-        - name: SPECIAL_LEVEL_KEY
-          valueFrom:
-            configMapKeyRef:
-              name: special-config
-              key: special.how
-        - name: SPECIAL_TYPE_KEY
-          valueFrom:
-            configMapKeyRef:
-              name: special-config
-              key: special.type
-      envFrom:
-        - configMapRef:
-            name: env-config
-  restartPolicy: Never
-</code></pre>
-
-<p>当 Pod 结束后会输出</p>
-
-<pre><code>SPECIAL_LEVEL_KEY=very
-SPECIAL_TYPE_KEY=charm
-log_level=INFO
-</code></pre>
-
-<p><strong>用作命令行参数</strong></p>
-
-<p>将 ConfigMap 用作命令行参数时，需要先把 ConfigMap 的数据保存在环境变量中，然后通过 $(VAR_NAME) 的方式引用环境变量.</p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: dapi-test-pod
-spec:
-  containers:
-    - name: test-container
-      image: gcr.io/google_containers/busybox
-      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;echo $(SPECIAL_LEVEL_KEY) $(SPECIAL_TYPE_KEY)&quot; ]
-      env:
-        - name: SPECIAL_LEVEL_KEY
-          valueFrom:
-            configMapKeyRef:
-              name: special-config
-              key: special.how
-        - name: SPECIAL_TYPE_KEY
-          valueFrom:
-            configMapKeyRef:
-              name: special-config
-              key: special.type
-  restartPolicy: Never
-</code></pre>
-
-<p>当 Pod 结束后会输出</p>
-
-<pre><code>very charm
-</code></pre>
-
-<p><strong>使用 volume 将 ConfigMap 作为文件或目录直接挂载</strong></p>
-
-<p>将创建的 ConfigMap 直接挂载至 Pod 的 / etc/config 目录下，其中每一个 key-value 键值对都会生成一个文件，key 为文件名，value 为内容</p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: vol-test-pod
-spec:
-  containers:
-    - name: test-container
-      image: gcr.io/google_containers/busybox
-      command: [&quot;/bin/sh&quot;, &quot;-c&quot;, &quot;cat /etc/config/special.how&quot;]
-      volumeMounts:
-      - name: config-volume
-        mountPath: /etc/config
-  volumes:
-    - name: config-volume
-      configMap:
-        name: special-config
-  restartPolicy: Never
-</code></pre>
-
-<p>当 Pod 结束后会输出</p>
-
-<pre><code>very
-</code></pre>
-
-<p>将创建的 ConfigMap 中 special.how 这个 key 挂载到 / etc/config 目录下的一个相对路径 / keys/special.level。如果存在同名文件，直接覆盖。其他的 key 不挂载</p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: dapi-test-pod
-spec:
-  containers:
-    - name: test-container
-      image: gcr.io/google_containers/busybox
-      command: [&quot;/bin/sh&quot;,&quot;-c&quot;,&quot;cat /etc/config/keys/special.level&quot;]
-      volumeMounts:
-      - name: config-volume
-        mountPath: /etc/config
-  volumes:
-    - name: config-volume
-      configMap:
-        name: special-config
-        items:
-        - key: special.how
-          path: keys/special.level
-  restartPolicy: Never
-</code></pre>
-
-<p>当 Pod 结束后会输出</p>
-
-<pre><code>very
-</code></pre>
-
-<p>ConfigMap 支持同一个目录下挂载多个 key 和多个目录。例如下面将 special.how 和 special.type 通过挂载到 / etc/config 下。并且还将 special.how 同时挂载到 / etc/config2 下。</p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: dapi-test-pod
-spec:
-  containers:
-    - name: test-container
-      image: gcr.io/google_containers/busybox
-      command: [&quot;/bin/sh&quot;,&quot;-c&quot;,&quot;sleep 36000&quot;]
-      volumeMounts:
-      - name: config-volume
-        mountPath: /etc/config
-      - name: config-volume2
-        mountPath: /etc/config2
-  volumes:
-    - name: config-volume
-      configMap:
-        name: special-config
-        items:
-        - key: special.how
-          path: keys/special.level
-        - key: special.type
-          path: keys/special.type
-    - name: config-volume2
-      configMap:
-        name: special-config
-        items:
-        - key: special.how
-          path: keys/special.level
-  restartPolicy: Never
-
-# ls  /etc/config/keys/
-special.level  special.type
-# ls  /etc/config2/keys/
-special.level
-# cat  /etc/config/keys/special.level
-very
-# cat  /etc/config/keys/special.type
-charm
-</code></pre>
-
-<p>使用 subpath 将 ConfigMap 作为单独的文件挂载到目录</p>
-
-<p>在一般情况下 configmap 挂载文件时，会先覆盖掉挂载目录，然后再将 congfigmap 中的内容作为文件挂载进行。如果想不对原来的文件夹下的文件造成覆盖，只是将 configmap 中的每个 key，按照文件的方式挂载到目录下，可以使用 subpath 参数。</p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: dapi-test-pod
-spec:
-  containers:
-    - name: test-container
-      image: nginx
-      command: [&quot;/bin/sh&quot;,&quot;-c&quot;,&quot;sleep 36000&quot;]
-      volumeMounts:
-      - name: config-volume
-        mountPath: /etc/nginx/special.how
-        subPath: special.how
-  volumes:
-    - name: config-volume
-      configMap:
-        name: special-config
-        items:
-        - key: special.how
-          path: special.how
-  restartPolicy: Never
-
-
-root@dapi-test-pod:/# ls /etc/nginx/
-conf.d    fastcgi_params    koi-utf  koi-win  mime.types  modules  nginx.conf  scgi_params    special.how  uwsgi_params  win-utf
-root@dapi-test-pod:/# cat /etc/nginx/special.how
-very
-root@dapi-test-pod:/#
-</code></pre>
-
-<h3 id="downward-api">Downward API</h3>
-
-<p>Downward API作用是：让 Pod 里的容器能够直接获取到这个 Pod API 对象本身的信息。</p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: test-downwardapi-volume
-  labels:
-    zone: us-est-coast
-    cluster: test-cluster1
-    rack: rack-22
-spec:
-  containers:
-    - name: client-container
-      image: k8s.gcr.io/busybox
-      command: [&quot;sh&quot;, &quot;-c&quot;]
-      args:
-      - while true; do
-          if [[ -e /etc/podinfo/labels ]]; then
-            echo -en '\n\n'; cat /etc/podinfo/labels; fi;
-          sleep 5;
-        done;
-      volumeMounts:
-        - name: podinfo
-          mountPath: /etc/podinfo
-          readOnly: false
-  volumes:
-    - name: podinfo
-      projected:
-        sources:
-        - downwardAPI:
-            items:
-              - path: &quot;labels&quot;
-                fieldRef:
-                  fieldPath: metadata.labels
-</code></pre>
-
-<p>在这个 Pod 的 YAML 文件中，我定义了一个简单的容器，声明了一个 projected 类型的 Volume。只不过这次 Volume 的数据来源，变成了 Downward API。而这个 Downward API Volume，则声明了要暴露 Pod 的 metadata.labels 信息给容器。通过这样的声明方式，当前 Pod 的 Labels 字段的值，就会被 Kubernetes 自动挂载成为容器里的 /etc/podinfo/labels 文件。而这个容器的启动命令，则是不断打印出 /etc/podinfo/labels 里的内容。所以，当我创建了这个 Pod 之后，就可以通过 kubectl logs 指令，查看到这些 Labels 字段被打印出来，如下所示：</p>
-
-<pre><code>$ kubectl create -f dapi-volume.yaml
-$ kubectl logs test-downwardapi-volume
-cluster=&quot;test-cluster1&quot;
-rack=&quot;rack-22&quot;
-zone=&quot;us-est-coast&quot;
-</code></pre>
-
-<p>目前，Downward API 支持的字段已经非常丰富了，比如：</p>
-
-<pre><code>1. 使用fieldRef可以声明使用:
-spec.nodeName - 宿主机名字
-status.hostIP - 宿主机IP
-metadata.name - Pod的名字
-metadata.namespace - Pod的Namespace
-status.podIP - Pod的IP
-spec.serviceAccountName - Pod的Service Account的名字
-metadata.uid - Pod的UID
-metadata.labels['&lt;KEY&gt;'] - 指定&lt;KEY&gt;的Label值
-metadata.annotations['&lt;KEY&gt;'] - 指定&lt;KEY&gt;的Annotation值
-metadata.labels - Pod的所有Label
-metadata.annotations - Pod的所有Annotation
-
-2. 使用resourceFieldRef可以声明使用:
-容器的CPU limit
-容器的CPU request
-容器的memory limit
-容器的memory request
-</code></pre>
-
-<p>上面这个列表的内容，随着 Kubernetes 项目的发展肯定还会不断增加。所以这里列出来的信息仅供参考，你在使用 Downward API 时，还是要记得去查阅一下官方文档。</p>
-
-<p>需要注意的是，Downward API 能够获取到的信息，一定是 Pod 里的容器进程启动之前就能够确定下来的信息。而如果你想要获取 Pod 容器运行后才会出现的信息，比如，容器进程的 PID，那就肯定不能使用 Downward API 了，而应该考虑在 Pod 里定义一个 sidecar 容器。</p>
-
-<h3 id="serviceaccounttoken">ServiceAccountToken</h3>
-
-<p>Kubernetes 项目的 Projected Volume 其实只有三种，因为第四种 ServiceAccountToken，只是一种特殊的 Secret 而已。</p>
-
-<p><a href="/post/cloud/paas/safe/safe/#service-account"> Service Account</a> 的授权信息和文件，实际上保存在它所绑定的一个特殊的 Secret 对象里的。这个特殊的 Secret 对象，就叫作 ServiceAccountToken。</p>
 
 <h2 id="label">label</h2>
 
@@ -2538,13 +2398,37 @@ subsets:
 <h2 id="volume-pv-pvc-storageclass">Volume,pv,pvc,StorageClass</h2>
 
 <blockquote>
+<p>基本概念</p>
+</blockquote>
+
+<p>Kubernetes中存储中有四个重要的概念：[Volume]()、PV(PersistentVolume)、PVC(PersistentVolumeClaim) 、StorageClass。掌握了这四个概念，就掌握了Kubernetes中存储系统的核心。</p>
+
+<ul>
+<li>Volumes就是存储卷，是最基础的存储抽象，其支持多种类型，包括本地存储、NFS以及众多的云存储，我们也可以编写自己的存储插件来支持特定的存储系统。Volume可以被Pod直接使用，也可以被PV使用。普通的Volume和Pod之间是一种静态的绑定关系，在定义Pod的同时，通过volume属性来定义存储的类型，通过volumeMount来定义容器内的挂载点，这两种属性的具体配置针对每一种存储都不相同，具体实例可以查看<a href="https://kubernetes.io/zh/docs/concepts/storage/volumes/">官方文档</a>。</li>
+<li>PersistentVolume。与普通的Volume不同，PV是Kubernetes中的一个api资源对象，创建一个PV相当于创建了一个存储资源对象，这个资源的使用要通过PVC来请求。描述的，是持久化存储数据卷。这个 API 对象主要定义的是一个持久化存储在宿主机上的目录，比如一个 NFS 的挂载目录。</li>
+<li>PersistentVolumeClaim。PVC是用户对存储资源PV的请求，根据PVC中指定的条件Kubernetes动态的寻找系统中的PV资源并进行绑定。目前PVC与PV匹配可以通过StorageClassName、matchLabels或者matchExpressions三种方式。描述的，则是 Pod 所希望使用的持久化存储的属性。比如，Volume 存储的大小、可读写权限等等。</li>
+<li>StorageClass就是动态创建pv。</li>
+</ul>
+
+<blockquote>
 <p>为什么需要pvc/pv？</p>
 </blockquote>
 
-<p>其一，如果不懂得 Ceph RBD 的使用方法，那么这个 Pod 里 Volumes 字段，你十有八九也完全看不懂。
-其二，这个 Ceph RBD 对应的存储服务器的地址、用户名、授权文件的位置，也都被轻易地暴露给了全公司的所有开发人员，这是一个典型的信息被“过度暴露”的例子。</p>
+<ul>
+<li>如果不懂得 Ceph RBD 的使用方法，那么这个 Pod 里 Volumes 字段，你十有八九也完全看不懂。</li>
+<li>这个 Ceph RBD 对应的存储服务器的地址、用户名、授权文件的位置，也都被轻易地暴露给了全公司的所有开发人员，这是一个典型的信息被“过度暴露”的例子。</li>
+</ul>
 
-<p>这也是为什么，在后来的演化中，Kubernetes 项目引入了一组叫作 Persistent Volume Claim（PVC）和 Persistent Volume（PV）的 API 对象，大大降低了用户声明和使用持久化 Volume 的门槛。</p>
+<p>这也是为什么，在后来的演化中，Kubernetes 项目引入了一组叫作 Persistent Volume Claim（PVC）和 Persistent Volume（PV）的 API 对象，大大降低了用户声明和使用持久化 Volume 的门槛，当然这只是一些表面的原因，还有很多场景需要分离共享来实现，比如：</p>
+
+<ul>
+<li>pod 重建销毁，如用 Deployment 管理的 pod，在做镜像升级的过程中，会产生新的 pod 并且删除旧的 pod ，那新旧 pod 之间如何复用数据？</li>
+<li>宿主机宕机的时候，要把上面的 pod 迁移，这个时候 StatefulSet 管理的 pod，其实已经实现了带卷迁移的语义。这时通过 Pod Volumes 显然是做不到的；</li>
+<li>多个 pod 之间，如果想要共享数据，应该如何去声明呢？我们知道，同一个 pod 中多个容器想共享数据，可以借助 Pod Volumes 来解决；当多个 pod 想共享数据时，Pod Volumes 就很难去表达这种语义；</li>
+<li>如果要想对数据卷做一些功能扩展性，如：snapshot、resize 这些功能，又应该如何去做呢？</li>
+</ul>
+
+<p>以上场景中，通过 Pod Volumes 很难准确地表达它的<strong>复用 / 共享</strong>语义，对它的扩展也比较困难。因此 K8s 中又引入了 Persistent Volumes 概念，它可以将存储和计算分离，通过不同的组件来管理存储资源和计算资源，然后解耦 pod 和 Volume 之间生命周期的关联。这样，当把 pod 删除之后，它使用的 PV 仍然存在，还可以被新建的 pod 复用。其实就是一句话，<strong>实现隔离，完成持久化的存储。</strong></p>
 
 <p>举个例子，有了 PVC 之后，一个开发人员想要使用一个 Volume，只需要简单的两步即可。第一步：定义一个 PVC，声明想要的 Volume 的属性：</p>
 
@@ -2612,19 +2496,6 @@ spec:
 </code></pre>
 
 <p>可以看到，这个 PV 对象的 spec.rbd 字段，正是我们前面介绍过的 Ceph RBD Volume 的详细定义。而且，它还声明了这个 PV 的容量是 10 GiB。这样，Kubernetes 就会为我们刚刚创建的 PVC 对象绑定这个 PV。所以，Kubernetes 中 PVC 和 PV 的设计，实际上类似于“接口”和“实现”的思想。开发者只要知道并会使用“接口”，即：PVC；而运维人员则负责给“接口”绑定具体的实现，即：PV。</p>
-
-<blockquote>
-<p>基本概念</p>
-</blockquote>
-
-<p>Kubernetes中存储中有四个重要的概念：Volume、PersistentVolume PV、PersistentVolumeClaim PVC、StorageClass。掌握了这四个概念，就掌握了Kubernetes中存储系统的核心。</p>
-
-<ul>
-<li>Volumes是最基础的存储抽象，其支持多种类型，包括本地存储、NFS、FC以及众多的云存储，我们也可以编写自己的存储插件来支持特定的存储系统。Volume可以被Pod直接使用，也可以被PV使用。普通的Volume和Pod之间是一种静态的绑定关系，在定义Pod的同时，通过volume属性来定义存储的类型，通过volumeMount来定义容器内的挂载点。</li>
-<li>PersistentVolume。与普通的Volume不同，PV是Kubernetes中的一个api资源对象，创建一个PV相当于创建了一个存储资源对象，这个资源的使用要通过PVC来请求。描述的，是持久化存储数据卷。这个 API 对象主要定义的是一个持久化存储在宿主机上的目录，比如一个 NFS 的挂载目录。</li>
-<li>PersistentVolumeClaim。PVC是用户对存储资源PV的请求，根据PVC中指定的条件Kubernetes动态的寻找系统中的PV资源并进行绑定。目前PVC与PV匹配可以通过StorageClassName、matchLabels或者matchExpressions三种方式。描述的，则是 Pod 所希望使用的持久化存储的属性。比如，Volume 存储的大小、可读写权限等等。</li>
-<li>StorageClass就是动态创建pv。</li>
-</ul>
 
 <p>具体使用可以看<a href="/post/cloud/paas/base/kubernetes/k8s-store/">k8s存储</a>。</p>
 
@@ -3855,7 +3726,7 @@ Status:
                 
                 
                 <h4 id="real-rels">相关文章</h4>
-                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/prometheus-principle/">监控metrics系列---- Prometheus Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月01日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">云计算K8s组件系列（二）---- K8s scheduler 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月24日)</span></li></ul>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-image/">云计算容器系列---- Docker image 优化</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年07月31日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/prometheus-principle/">监控metrics系列---- Prometheus Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月01日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li></ul>
             </aside>
                 
             
@@ -3906,13 +3777,8 @@ Status:
 <li><a href="#基本概念">基本概念</a>
 <ul>
 <li><a href="#pod">pod</a></li>
-<li><a href="#projectd-volume">projectd volume</a>
-<ul>
 <li><a href="#secret">secret</a></li>
 <li><a href="#configmap">configmap</a></li>
-<li><a href="#downward-api">Downward API</a></li>
-<li><a href="#serviceaccounttoken">ServiceAccountToken</a></li>
-</ul></li>
 <li><a href="#label">label</a></li>
 <li><a href="#service">service</a>
 <ul>

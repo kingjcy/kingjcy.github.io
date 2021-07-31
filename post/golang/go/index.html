@@ -2846,6 +2846,59 @@ SIGHUP: 重启/重新加载进程 (例如: nginx, sshd, apache)
 4、旧进程处理完毕后立即停止。
 </code></pre>
 
+<h2 id="错误处理-函数式编程">错误处理（函数式编程）</h2>
+
+<p>if err !=nil 的代码在golang编码过程中经常会大量出现，我们可以通过函数式编程解决一部分问题，如下</p>
+
+<pre><code>func parse(r io.Reader) (*Point, error) {
+
+    var p Point
+
+    if err := binary.Read(r, binary.BigEndian, &amp;p.Longitude); err != nil {
+        return nil, err
+    }
+    if err := binary.Read(r, binary.BigEndian, &amp;p.Latitude); err != nil {
+        return nil, err
+    }
+    if err := binary.Read(r, binary.BigEndian, &amp;p.Distance); err != nil {
+        return nil, err
+    }
+    if err := binary.Read(r, binary.BigEndian, &amp;p.ElevationGain); err != nil {
+        return nil, err
+    }
+    if err := binary.Read(r, binary.BigEndian, &amp;p.ElevationLoss); err != nil {
+        return nil, err
+    }
+}
+</code></pre>
+
+<p>可见上面出现了大量的if err !=nil 的代码，我们可以优化成下面的代码</p>
+
+<pre><code>func parse(r io.Reader) (*Point, error) {
+    var p Point
+    var err error
+    read := func(data interface{}) {
+        if err != nil {
+            return
+        }
+        err = binary.Read(r, binary.BigEndian, data)
+    }
+
+    read(&amp;p.Longitude)
+    read(&amp;p.Latitude)
+    read(&amp;p.Distance)
+    read(&amp;p.ElevationGain)
+    read(&amp;p.ElevationLoss)
+
+    if err != nil {
+        return &amp;p, err
+    }
+    return &amp;p, nil
+}
+</code></pre>
+
+<p>可见将if err != nil的代码函数化，可以大量的错误处理代码，这是处理错误代码的一种方式，但是也是有针对性。</p>
+
 <h1 id="标准库-常用">标准库（常用）</h1>
 
 <p>标准库：<a href="https://books.studygolang.com/The-Golang-Standard-Library-by-Example/">https://books.studygolang.com/The-Golang-Standard-Library-by-Example/</a></p>
@@ -3249,6 +3302,7 @@ func main() {
 <li><a href="#go-内存和指针">go 内存和指针</a></li>
 <li><a href="#golang中-json-map-struct-之间的相互转化">GoLang中 json、map、struct 之间的相互转化</a></li>
 <li><a href="#优雅重启升级">优雅重启升级</a></li>
+<li><a href="#错误处理-函数式编程">错误处理（函数式编程）</a></li>
 </ul></li>
 <li><a href="#标准库-常用">标准库（常用）</a>
 <ul>

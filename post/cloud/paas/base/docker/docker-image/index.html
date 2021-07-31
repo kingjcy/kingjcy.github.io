@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="我们一般都是使用dockerfile来制作镜像。但是在镜像制作中，也有着很多的注意点，比如优化构建后的体积，还要优化构建速度，时区，证书等等。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算容器系列---- Docker image 优化 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算容器系列---- Docker image 优化
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2021年07月31日 
+                </div>
+                <h1 class="post-title">云计算容器系列---- Docker image 优化</h1>
+            </header>
+
+            <div class="post-content">
+                <p>我们一般都是使用dockerfile来制作镜像。但是在镜像制作中，也有着很多的注意点，比如优化构建后的体积，还要优化构建速度，时区，证书等等。</p>
+
+<h1 id="基本使用">基本使用</h1>
+
+<p>整个文章的说明过程都是通过对实例的操作来展示，先看实例，我们假设要构建一个 http 服务。</p>
+
+<pre><code>package main
+
+import (
+	&quot;fmt&quot;
+	&quot;net/http&quot;
+	&quot;time&quot;
+
+	&quot;github.com/gin-gonic/gin&quot;
+)
+
+func main() {
+	fmt.Println(&quot;Server Ready&quot;)
+	router := gin.Default()
+	router.GET(&quot;/&quot;, func(c *gin.Context) {
+		c.String(200, &quot;hello world, this time is: &quot;+time.Now().Format(time.RFC1123Z))
+	})
+	router.GET(&quot;/github&quot;, func(c *gin.Context) {
+		_, err := http.Get(&quot;https://api.github.com/&quot;)
+		if err != nil {
+			c.String(500, err.Error())
+			return
+		}
+		c.String(200, &quot;access github api ok&quot;)
+	})
+
+	if err := router.Run(&quot;:9900&quot;); err != nil {
+		panic(err)
+	}
+}
+
+</code></pre>
+
+<p>说明：</p>
+
+<ul>
+<li>这里选择 Gin 作为例子，是为了演示我们有第三方包条件下要优化构建速度</li>
+<li>main函数第一行打印了一行字，为了演示后面启动时遇到的一个坑</li>
+<li>跟路由打印了时间，为了演示后面遇到的关于时区的坑</li>
+<li>路由 github 尝试访问 <code>https://api.github.com</code>，为了演示后面遇到的证书坑</li>
+</ul>
+
+<p>这里我们可以先试一试构建后包的体积</p>
+
+<pre><code>$ go build -o server
+$ ls -alh | grep server
+-rwxrwxrwx 1 eyas eyas  14.6M May 29 10:26 server
+</code></pre>
+
+<p>14.6MB，这是一个http服务的 hello world，当然这是因为使用了 gin ，所以有些大，如果用标准包 <code>net/http</code> 写的 hello world，体积大概是接近 7 MB。</p>
+
+<h1 id="镜像优化过程">镜像优化过程</h1>
+
+<h2 id="分层编译">分层编译</h2>
+
+<p>直接看dockerfile，关于<a href="/post/cloud/paas/base/docker/docker/#镜像">dockerfile的使用</a>这边就不多说了。</p>
+
+<pre><code>FROM golang:1.14-alpine as builder
+WORKDIR /usr/src/app
+ENV GOPROXY=https://goproxy.cn
+COPY ./go.mod ./
+COPY ./go.sum ./
+RUN go mod download
+COPY . .
+RUN go build -ldflags &quot;-s -w&quot; -o server
+
+FROM scratch as runner
+COPY --from=builder /usr/src/app/server /opt/app/
+CMD [&quot;/opt/app/server&quot;]
+复制代码
+</code></pre>
+
+<p>说明：</p>
+
+<ul>
+<li>选择 <code>golang:1.14-alpine</code> 作为编译环境，是因为这是体积最小的golang编译环境</li>
+<li>设置 GOPROXY 是为了提升构建速度</li>
+<li>先复制 <code>go.mod</code> 和 <code>go.sum</code> ，然后 <code>go mod download</code>，是为了防止每次构建都会重新下载依赖包，利用docker构建缓存提升构建速度</li>
+<li>go build 时加上 <code>-ldflags &quot;-s -w&quot;</code> 去除构建包的调试信息，减小go构建后程序体积，大概能减小 <code>1/4</code> 吧</li>
+<li>使用了多阶段构建，也就是 <code>FROM XXX as xxx</code> ，在构建程序包的时候，使用带编译环境的镜像去构建，运行的时候其实完全不需要go的编译环境，所以在运行阶段使用docker的空镜像 <code>scratch</code> （只有linux内核）去运行。这部是减小镜像体积最有效的方法了。</li>
+</ul>
+
+<p>好了，下面开始构建镜像</p>
+
+<pre><code>$ docker build -t server .
+...
+Successfully built 8d3b91210721
+Successfully tagged server:latest
+</code></pre>
+
+<p>到了这一步，构建成功，看看镜像大小</p>
+
+<pre><code>$ docker images
+server          latest         8d3b91210721      1 minutes ago        11MB
+</code></pre>
+
+<p>11MB，还行，现在运行一下</p>
+
+<pre><code>$ docker run -p 9900:9900 server
+standard_init_linux.go:211: exec user process caused &quot;no such file or directory&quot;
+</code></pre>
+
+<p>发现启动报错了，而且main函数的第一行打印语句都没有出现，所以整个程序完全没有运行。</p>
+
+<h2 id="解决报错">解决报错</h2>
+
+<p>上面的错误原因是缺少库依赖文件。这其实是构建的 go 程序还依赖底层的 so 库文件，不信可以在物理机编译后看看它的依赖</p>
+
+<pre><code>$ go build -o server
+$ ldd server
+        linux-vdso.so.1 (0x00007ffcfb775000)
+        libpthread.so.0 =&gt; /lib/x86_64-linux-gnu/libpthread.so.0 (0x00007f9a8dc47000)
+        libc.so.6 =&gt; /lib/x86_64-linux-gnu/libc.so.6 (0x00007f9a8d856000)
+        /lib64/ld-linux-x86-64.so.2 (0x00007f9a8de66000)
+</code></pre>
+
+<p>这是因为go build 是默认启用 CGO 的，可以通过命令 <code>go env CGO_ENABLED</code>查看，在 CGO 开启情况下，无论代码有没有用CGO，都会有库依赖文件，解决方法也很简单，手动指定关闭CGO就行，而且包体积并不会增加，正常还会减少。</p>
+
+<pre><code>$ CGO_ENABLED=0 go build -o server
+$ ldd server
+        not a dynamic executable
+</code></pre>
+
+<p>修改dockerfile</p>
+
+<pre><code>FROM golang:1.14-alpine as builder
+WORKDIR /usr/src/app
+ENV GOPROXY=https://goproxy.cn
+COPY ./go.mod ./
+COPY ./go.sum ./
+RUN go mod download
+COPY . .
+-RUN go build -ldflags &quot;-s -w&quot; -o server
++RUN CGO_ENABLED=0 go build -ldflags &quot;-s -w&quot; -o server
+
+FROM scratch as runner
+COPY --from=builder /usr/src/app/server /opt/app/
+CMD [&quot;/opt/app/server&quot;]
+</code></pre>
+
+<p>改动点: go build 前加了 <code>CGO_ENABLED=0</code></p>
+
+<pre><code>$ docker build -t server .
+...
+Successfully built a81385160e25
+Successfully tagged server:latest
+$ docker run -p 9900:9900 server
+[GIN-debug] GET    /                         --&gt; main.main.func1 (3 handlers)
+[GIN-debug] GET    /github                   --&gt; main.main.func2 (3 handlers)
+[GIN-debug] Listening and serving HTTP on :9900
+</code></pre>
+
+<p>正常启动了，我们访问一下试试，访问之前看看当前时间</p>
+
+<pre><code>$ date
+Fri May 29 13:11:28 CST 2020
+
+$ curl http://localhost:9900
+hello world, this time is: Fri, 29 May 2020 05:18:28 +0000
+
+$ curl http://localhost:9900/github
+Get &quot;https://api.github.com/&quot;: x509: certificate signed by unknown authority
+</code></pre>
+
+<p>发现有问题</p>
+
+<ul>
+<li>当前系统时间是 <code>13:11:28</code> ，但是根据由显示的时间是 <code>05:11:53</code>，其实是docker 容器内的时区不对，默认是 0 时区，可是我们国家是 东8区</li>
+<li>尝试访问 <code>https://api.github.com/</code> 这是 https 站点，报证书错误</li>
+</ul>
+
+<p>解决问题</p>
+
+<ul>
+<li>在容器放置根证书</li>
+<li>设置容器时区</li>
+</ul>
+
+<h2 id="解决运行环境时区与证书问题">解决运行环境时区与证书问题</h2>
+
+<pre><code>FROM golang:1.14-alpine as builder
+WORKDIR /usr/src/app
+ENV GOPROXY=https://goproxy.cn
++RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories &amp;&amp; \
++  apk add --no-cache ca-certificates tzdata
+COPY ./go.mod ./
+COPY ./go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -ldflags &quot;-s -w&quot; -o server
+
+FROM scratch as runner
++COPY --from=builder /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
++COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/src/app/server /opt/app/
+CMD [&quot;/opt/app/server&quot;]
+</code></pre>
+
+<p>在 builder 阶段，安装了 ca-certificates tzdata 两个库，在runner阶段，将时区配置和根证书复制了一份</p>
+
+<pre><code>$ docker build -t server .
+...
+Successfully built e0825838043d
+Successfully tagged server:latest
+$ docker run -p 9900:9900 server
+[GIN-debug] GET    /                         --&gt; main.main.func1 (3 handlers)
+[GIN-debug] GET    /github                   --&gt; main.main.func2 (3 handlers)
+[GIN-debug] Listening and serving HTTP on :9900
+</code></pre>
+
+<p>访问一下试试</p>
+
+<pre><code>$ date
+Fri May 29 13:27:16 CST 2020
+
+$ curl http://localhost:9900
+hello world, this time is: Fri, 29 May 2020 13:27:16 +0800
+
+$ curl http://localhost:9900/github
+access github api ok
+</code></pre>
+
+<p>一切正常了，看看当前镜像大小</p>
+
+<pre><code>$ docker images
+server          latest         e0825838043d      9 minutes ago        11.3MB
+</code></pre>
+
+<p>才 11.3MB，已经很小了，但是，还可以更小，就是把构建后的包再压缩一次</p>
+
+<h2 id="进一步减小体积">进一步减小体积</h2>
+
+<pre><code>FROM golang:1.14-alpine as builder
+WORKDIR /usr/src/app
+ENV GOPROXY=https://goproxy.cn
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories &amp;&amp; \
+-  apk add --no-cache ca-certificates tzdata
++  apk add --no-cache upx ca-certificates tzdata
+COPY ./go.mod ./
+COPY ./go.sum ./
+RUN go mod download
+COPY . .
+-RUN CGO_ENABLED=0 go build -ldflags &quot;-s -w&quot; -o server
++RUN CGO_ENABLED=0 go build -ldflags &quot;-s -w&quot; -o server &amp;&amp;\
++ upx --best server -o _upx_server &amp;&amp; \
++ mv -f _upx_server server
+
+FROM scratch as runner
+COPY --from=builder /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/src/app/server /opt/app/
+CMD [&quot;/opt/app/server&quot;]
+</code></pre>
+
+<p>在 builder 阶段，安装了 upx ，并且go build 完成后，使用 upx 压缩了一下，执行一下构建，你会发现这个构建时间变长了，这是因为我给 upx 设置的参数是 <code>--best</code> ，也就是最大压缩级别，这样压缩出来的后会尽可能的小，如果嫌慢，可以降低压缩级别从 <code>-1</code> 到 <code>-9</code> ，数字越大压缩级别越高，也越慢。我使用 <code>--best</code> 构建完成后看看镜像体积。</p>
+
+<pre><code>$ docker build -t server .
+...
+Successfully built 80c3f3cde1f7
+Successfully tagged server:latest
+$ docker images
+server          latest         80c3f3cde1f7      1 minutes ago        4.26MB
+</code></pre>
+
+<p>这下子可小了，才 4.26MB，再去试试那两个接口，一切正常，优化到此结束，但是我们正常还是很少压缩的，一般都是解决上面几个问题。</p>
+
+<h2 id="最终的dockerfile">最终的Dockerfile</h2>
+
+<pre><code>FROM golang:1.14-alpine as builder
+WORKDIR /usr/src/app
+ENV GOPROXY=https://goproxy.cn
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories &amp;&amp; \
+  apk add --no-cache upx ca-certificates tzdata
+COPY ./go.mod ./
+COPY ./go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -ldflags &quot;-s -w&quot; -o server &amp;&amp;\
+  upx --best server -o _upx_server &amp;&amp; \
+  mv -f _upx_server server
+
+FROM scratch as runner
+COPY --from=builder /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /usr/src/app/server /opt/app/
+CMD [&quot;/opt/app/server&quot;]
+</code></pre>
+
+<h2 id="总结">总结</h2>
+
+<p>要减小镜像体积，首先多阶段构建这很重要，这样就可以把编译环境和运行环境分开。</p>
+
+<p>另外，选择 <code>scratch</code> 这个镜像其实很不明智，它虽然很小，但是它太原始了，里面什么工具都没有，程序启动后，连容器都进不去，就算进去了什么都做不了。所以就算一昧的追求尽可能小的镜像体积，也不建议选择 <code>scratch</code> 作为运行环境，</p>
+
+<ul>
+<li>编译环境建议选择语言包，比如golang的程序一般使用golang的镜像golang:1.14-alpine作为编译的基础容器环境。</li>
+<li>运行环境一般建议选择 <a href="https://hub.docker.com/_/alpine"><code>alpine</code></a> ，alpine 的镜像大小是 <code>5.61MB</code> 这个大小其实还是镜像解压后的大小，实际上下载镜像的时候，只需要下载 <code>2.68 MB</code> 。</li>
+<li>还有个很小的镜像是 <a href="https://hub.docker.com/_/busybox"><code>busybox</code></a>，它的体积是 <code>1.22MB</code>，下载 <code>705.6 KB</code> ，有大部分的linux命令可用。</li>
+</ul>
+
+<p>无论是 alpine 还是 busybox ，他们都会上述时区和证书问题，同样按照上面方法就能解决。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/docker/docker-image/">https://kingjcy.github.io/post/cloud/paas/base/docker/docker-image/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/docker/">
+                            <i class="fa fa-tags"></i>
+                            docker
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/image/">
+                            <i class="fa fa-tags"></i>
+                            image
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">云计算K8s组件系列（二）---- K8s scheduler 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月24日)</span></li><li id="li-rels"><a href="/post/cloud/cncf/">云计算系列---- 云计算概念</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月02日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous disabled"><a href="#"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/ui/grafana/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本使用">基本使用</a></li>
+<li><a href="#镜像优化过程">镜像优化过程</a>
+<ul>
+<li><a href="#分层编译">分层编译</a></li>
+<li><a href="#解决报错">解决报错</a></li>
+<li><a href="#解决运行环境时区与证书问题">解决运行环境时区与证书问题</a></li>
+<li><a href="#进一步减小体积">进一步减小体积</a></li>
+<li><a href="#最终的dockerfile">最终的Dockerfile</a></li>
+<li><a href="#总结">总结</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
