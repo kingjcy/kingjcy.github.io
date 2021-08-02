@@ -2767,7 +2767,7 @@ fi
 <p>使用</p>
 </blockquote>
 
-<p>kubectl的原理是将输入的转化为REST API来调用，将返回结果输出。只是对REST API的一种封装，可以说是apiserver的一个客户端</p>
+<p>kubectl的原理是将输入的转化为REST API来调用，将返回结果输出。只是对REST API的一种封装，可以说是apiserver的一个客户端。</p>
 
 <p><img src="/media/cloud/k8s/kubectl.jpg" alt="" /></p>
 
@@ -2776,15 +2776,13 @@ fi
 <pre><code>kubectl [command] [options]
 </code></pre>
 
-<p>主要命令详解</p>
+<p>比较核心和常用的命令都在上面的图中，这边对主要命令做一个简单的说明。</p>
 
 <blockquote>
 <p>kubectl annotate</p>
 </blockquote>
 
-<p>更新某个资源的注解</p>
-
-<p>支持的资源包括但不限于（大小写不限）：pods (po)、services (svc)、 replicationcontrollers (rc)、nodes (no)、events (ev)、componentstatuses (cs)、 limitranges (limits)、persistentvolumes (pv)、persistentvolumeclaims (pvc)、 resourcequotas (quota)和secrets。</p>
+<p>更新某个资源的注解，支持的资源包括但不限于（大小写不限）：pods (po)、services (svc)、 replicationcontrollers (rc)、nodes (no)、events (ev)、componentstatuses (cs)、 limitranges (limits)、persistentvolumes (pv)、persistentvolumeclaims (pvc)、 resourcequotas (quota)和secrets。</p>
 
 <p>示例</p>
 
@@ -2884,6 +2882,8 @@ kubectl delete po rc-nginx-btv4j
 kubectl delete po -lapp=nginx-2
 </code></pre>
 
+<p>我们一般重启容器，使用kubectl是没有办法重启的，需要到对应的node节点上，然后使用docker kill，如果没有办法，就只能使用kubectl delete pod然后控制器会重启pod，当然这种情况下，pod是重启的，关于pod相关的都会发生变化，和重启容器还是有区别的。有时候删除pod，我们需要保存控制器，我们只要将副本数调整成0，也是我们常用的方法。</p>
+
 <blockquote>
 <p>kubectl describe</p>
 </blockquote>
@@ -2913,26 +2913,17 @@ $ kubectl describe po -l name=myLabel
 $ kubectl describe pods frontend
 </code></pre>
 
-<p>node详解</p>
+<p>describe是我们常用的命令，比如我们使用describe分析node信息：</p>
 
 <pre><code>[root@xgpccsit02m010243129129 ~]# kubectl get nodes
-NAME                                  STATUS   ROLES         AGE    VERSION
-xgpccsit02m010243129129.sncloud.com   Ready    master.node   515d   v1.14.8-sn.3
-xgpccsit02m010243129130.sncloud.com   Ready    master.node   515d   v1.14.8-sn.3
-xgpccsit02m010243129131.sncloud.com   Ready    master.node   515d   v1.14.8-sn.3
-xgpccsit02n010243129139.sncloud.com   Ready    node          305d   v1.14.8-sn.3
-xgpccsit02n010243129140.sncloud.com   Ready    node          509d   v1.14.8-sn.3
-xgpccsit02n010243129142.sncloud.com   Ready    node          504d   v1.14.8-sn.3
-xgpccsit02n010243129144.sncloud.com   Ready    node          261d   v1.14.8-sn.3
-xgpccsit02n010243129156.sncloud.com   Ready    node          212d   v1.14.8-sn.3
-xgpccsit02n010243129158.sncloud.com   Ready    node          369d   v1.14.8-sn.3
-xgpccsit02n010243129163.sncloud.com   Ready    node          74d    v1.14.8-sn.3
-xgpccsit02n010243129164.sncloud.com   Ready    node          86d    v1.14.8-sn.3
-xgpccsit02n010243129167.sncloud.com   Ready    node          40d    v1.14.8-sn.3
-xgpccsit02n010243129170.sncloud.com   Ready    node          32d    v1.14.8-sn.3
-xgpccsit02n010243133002.sncloud.com   Ready    node          152d   v1.14.8-sn.3
-[root@xgpccsit02m010243129129 ~]# kubectl describe node xgpccsit02n010243133002.sncloud.com
-Name:               xgpccsit02n010243133002.sncloud.com
+NAME   STATUS   ROLES         AGE    VERSION
+dev1   Ready    master.node   515d   v1.14.8
+dev2   Ready    master.node   515d   v1.14.8
+dev3   Ready    master.node   515d   v1.14.8
+dev4   Ready    node          305d   v1.14.8
+dev5   Ready    node          509d   v1.14.8
+[root@xgpccsit02m010243129129 ~]# kubectl describe node dev5
+Name:               dev5
 Roles:              node
 Labels:             APP=true
                     WEB=true
@@ -2940,12 +2931,12 @@ Labels:             APP=true
                     beta.kubernetes.io/os=linux
                     dragonflyTest=true
                     kubernetes.io/arch=amd64
-                    kubernetes.io/hostname=xgpccsit02n010243133002.sncloud.com
+                    kubernetes.io/hostname=dev5
                     kubernetes.io/os=linux
                     netType=B2C
                     node-network-driver=ovs
                     node-role.kubernetes.io/node=
-Annotations:        csi.volume.kubernetes.io/nodeid: {&quot;ossplugin.csi.sncloud.com&quot;:&quot;10.243.133.2&quot;}
+Annotations:        csi.volume.kubernetes.io/nodeid: {&quot;ossplugin.csi&quot;:&quot;10.243.133.2&quot;}
                     node.alpha.kubernetes.io/ttl: 0
                     sncloud.com/cpu-policy: none
                     sncloud.com/diskIOPSCapacity: 1000000
@@ -2969,7 +2960,7 @@ Conditions:
   Ready                    True    Tue, 12 May 2020 10:17:09 +0800   Thu, 07 May 2020 09:57:01 +0800   KubeletReady                 kubelet is posting ready status
 Addresses:
   InternalIP:  10.243.133.2
-  Hostname:    xgpccsit02n010243133002.sncloud.com
+  Hostname:    dev5
 Capacity:
  cpu:                24
  ephemeral-storage:  51877124Ki
@@ -2993,8 +2984,8 @@ System Info:
  Operating System:           linux
  Architecture:               amd64
  Container Runtime Version:  docker://18.9.9
- Kubelet Version:            v1.14.8-sn.3
- Kube-Proxy Version:         v1.14.8-sn.3
+ Kubelet Version:            v1.14.8
+ Kube-Proxy Version:         v1.14.8
 Non-terminated Pods:         (10 in total)
   Namespace                  Name                           CPU Requests  CPU Limits  Memory Requests  Memory Limits  AGE
   ---------                  ----                           ------------  ----------  ---------------  -------------  ---
@@ -3108,6 +3099,9 @@ $ kubectl logs -f -c ruby web-1
 # 仅输出pod nginx中最近的20条日志
 $ kubectl logs --tail=20 nginx
 
+# 持续输出pod nginx中的日志，重最近的20条日志开始
+$ kubectl logs --tail=20 -f nginx
+
 # 输出pod nginx中最近一小时内产生的所有日志
 $ kubectl logs --since=1h nginx
 </code></pre>
@@ -3158,6 +3152,31 @@ $ kubectl logs --since=1h nginx
 
 <pre><code>kubectl cp 文件 pod：路径
 kubectl cp ./test.war logtestjbossforone-7b89dd5c9-297pf:/opt/wildfly/standalone/deployments
+</code></pre>
+
+<p>将文件重容器中拷贝到本地</p>
+
+<pre><code>kubectl cp namespace(默认是default)/pod：路径 路径
+kubectl cp logtestjbossforone-7b89dd5c9-297pf:/opt/wildfly/standalone/deployments ./
+</code></pre>
+
+<blockquote>
+<p>kubectl label</p>
+</blockquote>
+
+<p>给节点打上label</p>
+
+<pre><code>kubectl label nodes &lt;node-name&gt; &lt;label-key&gt;=&lt;label-value&gt;
+</code></pre>
+
+<p>可以通过&ndash;show-labels来查看node上的label</p>
+
+<pre><code>kubectl get node --show-labels
+</code></pre>
+
+<p>删除label</p>
+
+<pre><code>kubectl label nodes &lt;node-name&gt; &lt;label-key&gt;-
 </code></pre>
 
 <blockquote>
