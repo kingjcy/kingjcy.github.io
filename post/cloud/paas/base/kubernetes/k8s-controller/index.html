@@ -112,7 +112,7 @@
 </code></pre>
 
 <ul>
-<li>第一步：main 函数根据我提供的 Master 配置（APIServer 的地址端口和 kubeconfig 的路径），创建一个 Kubernetes 的 client（kubeClient）和 Network 对象的 client（networkClient）。但是，如果我没有提供 Master 配置呢？这时，main 函数会直接使用一种名叫 InClusterConfig 的方式来创建这个 client。这个方式，会假设你的自定义控制器是以 Pod 的方式运行在 Kubernetes 集群里的。</li>
+<li>第一步：main 函数根据我提供的 Master 配置（APIServer 的地址端口和 kubeconfig 的路径），创建一个 Kubernetes 的 client（kubeClient）和 Network 对象的 client（networkClient）。没有提供 Master 配置，main 函数会直接使用一种名叫 InClusterConfig 的方式来创建这个 client。这个方式，会假设你的自定义控制器是以 Pod 的方式运行在 Kubernetes 集群里的。</li>
 <li>第二步：main 函数为 Network 对象创建一个叫作 InformerFactory（即：networkInformerFactory）的工厂，并使用它生成一个 Network 对象的 Informer，传递给控制器。</li>
 <li>第三步：main 函数启动上述的 Informer，然后执行 controller.Run，启动自定义控制器。</li>
 </ul>
@@ -123,7 +123,7 @@
 <p>补充</p>
 </blockquote>
 
-<p>这个是在老版本的crd开发中的一个main情况，在最新的kuberbuilder构建的crd中，有所不同，下面有详细说明。但是整体的原理还是不变的。</p>
+<p>这个是在老版本的crd开发中的一个main情况，在最新的kuberbuilder构建的crd中，有所不同，下面<a href="#kubebuilder">kubebuilder</a>有详细说明，但是整体的原理还是不变的。</p>
 
 <h2 id="编写自定义控制器的定义">编写自定义控制器的定义</h2>
 
@@ -131,11 +131,20 @@
 
 <p><img src="/media/cloud/k8s/istio/controller11.png" alt="" /></p>
 
-<p>这个控制器要做的第一件事，是从 Kubernetes 的 APIServer 里获取它所关心的对象，也就是我定义的 Network 对象。这个操作，依靠的是一个叫作 Informer（可以翻译为：通知器）的代码库完成的。Informer 与 API 对象是一一对应的，所以我传递给自定义控制器的，正是一个 Network 对象的 Informer（Network Informer）。不知你是否已经注意到，我在创建这个 Informer 工厂的时候，需要给它传递一个 networkClient。事实上，Network Informer 正是使用这个 networkClient，跟 APIServer 建立了连接。不过，真正负责维护这个连接的，则是 Informer 所使用的 Reflector 包。更具体地说，Reflector 使用的是一种叫作 ListAndWatch 的方法，来“获取”并“监听”这些 Network 对象实例的变化。</p>
+<ul>
+<li><p>控制器首先通过Informer从 Kubernetes 的 APIServer 里获取它所关心的对象，这里就是定义的 Network 对象。Informer 与 API 对象是一一对应的，在创建这个 Informer 工厂的时候，需要给它传递一个client结构体 networkClient，然后 Network Informer 正是使用这个 networkClient跟 APIServer 建立了连接。然后 Informer 中的 Reflector 包负责维护这个连接的，Reflector 使用了ListAndWatch 的方法，来“获取”并“监听”这些 Network 对象实例的变化。</p></li>
 
-<p>在 ListAndWatch 机制下，一旦 APIServer 端有新的 Network 实例被创建、删除或者更新，Reflector 都会收到“事件通知”。这时，该事件及它对应的 API 对象这个组合，就被称为增量（Delta），它会被放进一个 Delta FIFO Queue（即：增量先进先出队列）中。而另一方面，Informe 会不断地从这个 Delta FIFO Queue 里读取（Pop）增量。每拿到一个增量，Informer 就会判断这个增量里的事件类型，然后创建或者更新本地对象的缓存。这个缓存，在 Kubernetes 里一般被叫作 Store。比如，如果事件类型是 Added（添加对象），那么 Informer 就会通过一个叫作 Indexer 的库把这个增量里的 API 对象保存在本地缓存中，并为它创建索引。相反，如果增量的事件类型是 Deleted（删除对象），那么 Informer 就会从本地缓存中删除这个对象。这个同步本地缓存的工作，是 Informer 的第一个职责，也是它最重要的职责。</p>
+<li><p>APIServer 端有新的 Network 实例被创建、删除或者更新等变化，Reflector通过ListAndWatch接口 都会收到“事件通知”，然后将该事件及它对应的 API 对象这个组合（称为增量（Delta））放进一个 Delta FIFO Queue（即：增量先进先出队列）中。</p></li>
 
-<p>而 Informer 的第二个职责，则是根据这些事件的类型，触发事先注册好的 ResourceEventHandler。这些 Handler，需要在创建控制器的时候注册给它对应的 Informer。</p>
+<li><p>Informer 会不断地从这个 Delta FIFO Queue 里读取（Pop）增量。Informer 就会判断当前获取的这个增量里的事件类型，然后创建或者更新本地对象的缓存（在 Kubernetes 里一般被叫作 Store）。Informer 最重要的职责就是同步本地缓存的工作。</p>
+
+<ul>
+<li>如果事件类型是 Added（添加对象），那么 Informer 会通过Indexer 的库把这个增量里的 API 对象保存在本地缓存中，并为它创建索引。</li>
+<li>如果增量的事件类型是 Deleted（删除对象），那么 Informer 就会从本地缓存中删除这个对象。</li>
+</ul></li>
+
+<li><p>Informer 的第二个职责也就是下面的流程，根据这些事件的类型，触发事先注册好的 ResourceEventHandler。这些 Handler，需要在创建控制器的时候注册给它对应的 Informer。</p></li>
+</ul>
 
 <p>接下来，我们就来编写这个控制器的定义，它的主要内容如下所示：</p>
 
@@ -167,13 +176,19 @@
 }
 </code></pre>
 
-<p>我前面在 main 函数里创建了两个 client（kubeclientset 和 networkclientset），然后在这段代码里，使用这两个 client 和前面创建的 Informer，初始化了自定义控制器。值得注意的是，在这个自定义控制器里，我还设置了一个工作队列（work queue），它正是处于示意图中间位置的 WorkQueue。这个工作队列的作用是，负责同步 Informer 和控制循环之间的数据。</p>
+<p>控制器结构体说明</p>
 
-<p>然后，我为 networkInformer 注册了三个 Handler（AddFunc、UpdateFunc 和 DeleteFunc），分别对应 API 对象的“添加”“更新”和“删除”事件。而具体的处理操作，都是将该事件对应的 API 对象加入到工作队列中。</p>
+<ul>
+<li>前面在 main 函数里创建了两个 client（kubeclientset 和 networkclientset），然后在这段代码里，使用这两个 client 和前面创建的 Informer，初始化了自定义控制器。</li>
+<li>在这个自定义控制器里，还设置了一个工作队列（work queue），它正是处于示意图中间位置的 WorkQueue。这个工作队列的作用是，负责同步 Informer 和控制循环之间的数据。</li>
+<li>然后，networkInformer 注册了三个 Handler（AddFunc、UpdateFunc 和 DeleteFunc），分别对应 API 对象的“添加”“更新”和“删除”事件。而具体的处理操作，都是将该事件对应的 API 对象加入到工作队列中。实际入队的并不是 API 对象本身，而是它们的 Key（ API 对象的namespace/name），也是下面我们控制循环获取的值。</li>
+</ul>
 
-<p>需要注意的是，实际入队的并不是 API 对象本身，而是它们的 Key，即：该 API 对象的namespace/name，也是下面我们控制循环获取的值。</p>
+<p>到这里整个Informer流程其实已经结束了，可见informer就是一个带有本地缓存和索引机制的、可以注册 EventHandler 的 client。</p>
 
-<p>所谓 Informer，其实就是一个带有本地缓存和索引机制的、可以注册 EventHandler 的 client。它是自定义控制器跟 APIServer 进行数据同步的重要组件。更具体地说，Informer 通过一种叫作 ListAndWatch 的方法，把 APIServer 中的 API 对象缓存在了本地，并负责更新和维护这个缓存。其中，ListAndWatch 方法的含义是：首先，通过 APIServer 的 LIST API“获取”所有最新版本的 API 对象；然后，再通过 WATCH API 来“监听”所有这些 API 对象的变化。而通过监听到的事件变化，Informer 就可以实时地更新本地缓存，并且调用这些事件对应的 EventHandler 了。此外，在这个过程中，每经过 resyncPeriod 指定的时间，Informer 维护的本地缓存，都会使用最近一次 LIST 返回的结果强制更新一次，从而保证缓存的有效性。在 Kubernetes 中，这个缓存强制更新的操作就叫作：resync。需要注意的是，这个定时 resync 操作，也会触发 Informer 注册的“更新”事件。但此时，这个“更新”事件对应的 Network 对象实际上并没有发生变化，即：新、旧两个 Network 对象的 ResourceVersion 是一样的。在这种情况下，Informer 就不需要对这个更新事件再做进一步的处理了。这也是为什么我在上面的 UpdateFunc 方法里，先判断了一下新、旧两个 Network 对象的版本（ResourceVersion）是否发生了变化，然后才开始进行的入队操作。以上，就是 Kubernetes 中的 Informer 库的工作原理了。</p>
+<p>它是自定义控制器跟 APIServer 进行数据同步的重要组件，通过一种叫作 ListAndWatch 的方法，把 APIServer 中的 API 对象缓存在了本地，并负责更新和维护这个缓存。在informer中定义了 resyncPeriod，这是一个定时更新的时间，达到这个时间Informer 维护的本地缓存都会使用最近一次 LIST 返回的结果强制更新一次，从而保证缓存的有效性（这个缓存强制更新的操作就叫作：resync）。<strong>这个定时 resync 操作，也会触发 Informer 注册的“更新”事件。实际上Network 对象实际上并没有发生变化，新、旧两个 Network 对象的 ResourceVersion 是一样的。这时，Informer 就不需要对这个更新事件做进一步的处理了。其实这种先判断了一下新、旧两个 Network 对象的版本（ResourceVersion）是否发生了变化，然后才开始进行的入队操作，是listandwatch机制保证顺序性的功能。</strong></p>
+
+<p>ListAndWatch 其实我们在<a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">apiserver</a>中有过详细的讲解，就是通过 APIServer 的 LIST API“获取”所有最新版本的 API 对象；然后，再通过 WATCH API 来“监听”所有这些 API 对象的变化。然后Informer 就可以通过上面讲解的流程实时地更新本地缓存，并且调用这些事件对应的 EventHandler 了。</p>
 
 <p>其实这一块基本上都可以使用工具生成了，我们只要知道informer的原理。</p>
 
@@ -344,17 +359,15 @@ func (c *Controller) syncHandler(key string) error {
 
 <ul>
 <li>如果控制循环从缓存中拿不到这个对象（即：networkLister 返回了 IsNotFound 错误），那就意味着这个 Network 对象的 Key 是通过前面的“删除”事件添加进工作队列的。所以，尽管队列里有这个 Key，但是对应的 Network 对象已经被删除了。这时候，我就需要调用网络插件的API，把这个 Key 对应的网络从真实的集群里删除掉。</li>
-<li>如果能够获取到对应的 Network 对象，我就可以执行控制器模式里的对比“期望状态”和“实际状态”的逻辑了。其中，自定义控制器“千辛万苦”拿到的这个 Network 对象，正是 APIServer 里保存的“期望状态”，即：用户通过 YAML 文件提交到 APIServer 里的信息。当然，在我们的例子里，它已经被 Informer 缓存在了本地。</li>
+<li>如果能够获取到对应的 Network 对象，我就可以执行控制器模式里的对比“期望状态”和“实际状态”的逻辑了，也是我们主要开发的reconcile的逻辑。</li>
 </ul>
 
-<p>那么，“实际状态”又从哪里来呢？当然是来自于实际的集群了。所以，我们的控制循环需要通过 Neutron API 来查询实际的网络情况。比如，我可以先通过 Neutron 来查询这个 Network 对象对应的真实网络是否存在。</p>
+<p>其中，自定义控制器“千辛万苦”拿到的这个 Network 对象，正是 APIServer 里保存的“期望状态”，即：用户通过 YAML 文件提交到 APIServer 里的信息。“实际状态”来自于实际的集群中kubelet的上报了。</p>
 
 <ul>
-<li>如果不存在，这就是一个典型的“期望状态”与“实际状态”不一致的情形。这时，我就需要使用这个 Network 对象里的信息（比如：CIDR 和 Gateway），调用网络插件的API 来创建真实的网络。</li>
-<li>如果存在，那么，我就要读取这个真实网络的信息，判断它是否跟 Network 对象里的信息一致，从而决定我是否要通过 Neutron 来更新这个已经存在的真实网络。</li>
+<li>如果实际不存在，这就是一个典型的“期望状态”与“实际状态”不一致的情形。这时，我就需要使用这个 Network 对象里的信息（比如：CIDR 和 Gateway），调用网络插件的API 来创建真实的网络。</li>
+<li>如果存在，那么，我就要读取这个真实网络的信息，判断它是否跟 Network 对象里的信息一致，从而决定我是否更新这个已经存在的真实网络。</li>
 </ul>
-
-<p>我就通过对比“期望状态”和“实际状态”的差异，完成了一次调协（Reconcile）的过程。</p>
 
 <blockquote>
 <p>总结</p>
@@ -380,24 +393,39 @@ func (c *Controller) syncHandler(key string) error {
 <li>期望状态spec，一般来自于用户提交的 YAML 文件。比如，Deployment 对象中 Replicas 字段的值。很明显，这些信息往往都保存在 Etcd 中。</li>
 </ul>
 
-<p>外界通过修改资源 spec 来控制资源，控制器比较资源 spec 和 status，从而计算一个 diff，diff 最后会用来决定执行对系统进行什么样的控制操作，控制操作会使得系统产生新的输出，并被传感器以资源 status 形式上报，控制器的各个组件将都会是独立自主地运行，不断使系统向 spec 表示终态趋近。</p>
+<p>外界通过修改资源 spec 来控制资源，控制器比较资源 spec 和 status，从而计算一个 diff，diff 最后会用来决定执行对系统进行什么样的控制操作。</p>
 
 <p><img src="/media/cloud/k8s/controller4.png" alt="" /></p>
 
-<p>控制循环中逻辑的传感器主要由 Reflector、Informer、Indexer 三个组件构成。</p>
+<!--
 
-<p><img src="/media/cloud/k8s/controller5.png" alt="" />
-<img src="/media/cloud/k8s/controller6.png" alt="" /></p>
+控制循环中逻辑的传感器主要由 Reflector、Informer、Indexer 三个组件构成。
 
-<ul>
-<li>Reflector就是监听List和Watch资源，并将更新和变化放到队列中。Reflector 通过 List 和 Watch K8s server 来获取资源的数据。List 用来在 Controller 重启以及 Watch 中断的情况下，进行系统资源的全量更新；而 Watch 则在多次 List 之间进行增量的资源更新；Reflector 在获取新的资源数据后，会在 Delta 队列中塞入一个包括资源对象信息本身以及资源对象事件类型的 Delta 记录，Delta 队列中可以保证同一个对象在队列中仅有一条记录，从而避免 Reflector 重新 List 和 Watch 的时候产生重复的记录。</li>
-<li>Informer启动一个中间分发的作用，1是将信息放到indexer中，2是告知相关Hander进行实际的动作。Informer 组件不断地从 Delta 队列中弹出 delta 记录，然后把资源对象交给 indexer，让 indexer 把资源记录在一个缓存中，缓存在默认设置下是用资源的命名空间来做索引的，并且可以被 Controller Manager 或多个 Controller 所共享。之后，再把这个事件交给事件的回调函数；</li>
-<li>Indexer主要是将数据以k/v的形式进行缓存，并且提供查询缓存的能力。</li>
-<li>控制循环中的控制器组件主要由事件处理函数以及 worker 组成，事件处理函数之间会相互关注资源的新增、更新、删除的事件，并根据控制器的逻辑去决定是否需要处理。对需要处理的事件，会把事件关联资源的命名空间以及名字塞入一个工作队列中，并且由后续的 worker 池中的一个 Worker 来处理，工作队列会对存储的对象进行去重，从而避免多个 Woker 处理同一个资源的情况。</li>
-<li>Worker 在处理资源对象时，一般需要用资源的名字来重新获得最新的资源数据重Indexer，用来创建或者更新资源对象，或者调用其他的外部服务，Worker 如果处理失败的时候，一般情况下会把资源的名字重新加入到工作队列中，从而方便之后进行重试。</li>
-</ul>
+![](/media/cloud/k8s/controller5.png)
+![](/media/cloud/k8s/controller6.png)
+
+- Reflector就是监听List和Watch资源，并将更新和变化放到队列中。Reflector 通过 List 和 Watch K8s server 来获取资源的数据。List 用来在 Controller 重启以及 Watch 中断的情况下，进行系统资源的全量更新；而 Watch 则在多次 List 之间进行增量的资源更新；Reflector 在获取新的资源数据后，会在 Delta 队列中塞入一个包括资源对象信息本身以及资源对象事件类型的 Delta 记录，Delta 队列中可以保证同一个对象在队列中仅有一条记录，从而避免 Reflector 重新 List 和 Watch 的时候产生重复的记录。
+- Informer启动一个中间分发的作用，1是将信息放到indexer中，2是告知相关Hander进行实际的动作。Informer 组件不断地从 Delta 队列中弹出 delta 记录，然后把资源对象交给 indexer，让 indexer 把资源记录在一个缓存中，缓存在默认设置下是用资源的命名空间来做索引的，并且可以被 Controller Manager 或多个 Controller 所共享。之后，再把这个事件交给事件的回调函数；
+- Indexer主要是将数据以k/v的形式进行缓存，并且提供查询缓存的能力。
+- 控制循环中的控制器组件主要由事件处理函数以及 worker 组成，事件处理函数之间会相互关注资源的新增、更新、删除的事件，并根据控制器的逻辑去决定是否需要处理。对需要处理的事件，会把事件关联资源的命名空间以及名字塞入一个工作队列中，并且由后续的 worker 池中的一个 Worker 来处理，工作队列会对存储的对象进行去重，从而避免多个 Woker 处理同一个资源的情况。
+- Worker 在处理资源对象时，一般需要用资源的名字来重新获得最新的资源数据重Indexer，用来创建或者更新资源对象，或者调用其他的外部服务，Worker 如果处理失败的时候，一般情况下会把资源的名字重新加入到工作队列中，从而方便之后进行重试。
+
+
+-->
 
 <p>其实我们核心的开发就是控制循环的逻辑，负责获取事件（给定的 Kubernetes 服务器只会保留一定的时间内发生的历史变更列表。 使用 etcd3 的集群默认保存过去 5 分钟内发生的变更。），并且对事件进行对比，然后做创建删除的操作，其他的组件官方提供的工具都能自动生成，即：pkg/client/{informers, listers, clientset}里的内容。。</p>
+
+<p>reconcile的逻辑我们也可以使用一段伪代码来表示，其实和上面的核心控制循环路基差不多，也是我们正常开发的流程，当然在真正的开发中要比这个复杂的多。</p>
+
+<pre><code>event := 获取事件（namespace/name）
+期望状态 := 获取对应api对象在缓存中的状态，也就是期望的状态
+实际状态 := 获取对应api对象的实际状态，也就是status的状态
+if 期望状态 == 实际状态 {
+    不在做进一步的处理
+}else{
+    调用client-go的库来修改对应的api在etcd中存储的资源
+}
+</code></pre>
 
 <h2 id="实例">实例</h2>
 
@@ -416,39 +444,45 @@ func (c *Controller) syncHandler(key string) error {
 
 <h2 id="rc">RC</h2>
 
-<p>Replication Controller 保证了在所有时间内，都有特定数量的Pod副本正在运行，如果太多了，Replication Controller就杀死几个，如果太少了，Replication Controller会新建几个，和直接创建的pod不同的是，Replication Controller会替换掉那些删除的或者被终止的pod，不管删除的原因是什么（维护阿，更新啊，Replication Controller都不关心）。基于这个理由，我们建议即使是只创建一个pod，我们也要使用Replication Controller。Replication Controller 就像一个进程管理器，监管着不同node上的多个pod,而不是单单监控一个node上的pod,Replication Controller 会委派本地容器来启动一些节点上服务（Kubelet ,Docker）。</p>
+<p>Replication Controller 保证了在所有时间内，都有特定数量的Pod副本正在运行，如果太多了，Replication Controller就杀死几个，如果太少了，Replication Controller会新建几个。</p>
 
-<p>后来这种kind和kube-controller-manager的模块同名，所以修改为ReplicaSet，一样的功能。</p>
+<p>后来这种资源控制器和kube-controller-manager的模块同名，所以修改为ReplicaSet，一样的功能。</p>
 
 <h2 id="depolymemt">depolymemt</h2>
 
-<p>Deployment为Pod和ReplicaSet提供了一个声明式定义(declarative)方法，用来替代以前的ReplicationController来方便的管理应用。典型的应用场景包括：</p>
+<p>Deployment为Pod和ReplicaSet提供了一个声明式定义(declarative)方法，主要是在RS的基础上实现以下的功能：</p>
 
 <ul>
 <li>定义Deployment来创建Pod和ReplicaSet</li>
 <li>滚动升级和回滚应用</li>
 <li>扩容和缩容</li>
-<li>暂停和继续Deployment</li>
 </ul>
 
 <blockquote>
 <p>定义</p>
 </blockquote>
 
-<p>Deployment 这种控制器的设计原理，就是用一种对象管理另一种对象的“艺术”。</p>
+<p>Deployment 这种控制器的设计原理，就是用一种对象管理另一种对象的“艺术”，在k8s中很常见但是很好的设计思想，在这里就是指deployment控制RS，两个在k8s中都是API对象。</p>
 
 <ul>
 <li>这个控制器对象本身，负责定义被管理对象的期望状态。比如，Deployment 里的 replicas=2 这个字段。</li>
-<li>被控制对象的定义，则来自于一个“模板”。比如，Deployment 里的 template 字段。Deployment 这个 template 字段里的内容，跟一个标准的 Pod 对象的 API 定义，丝毫不差。而所有被这个 Deployment 管理的 Pod 实例，其实都是根据这个 template 字段的内容创建出来的。像 Deployment 定义的 template 字段，在 Kubernetes 项目中有一个专有的名字，叫作 PodTemplate（Pod 模板）。这个概念非常重要，大多数控制器都会使用 PodTemplate 来统一定义它所要管理的 Pod。我们还会看到其他类型的对象模板，比如 Volume 的模板。</li>
+<li>被控制对象的定义，则是一个“模板”。Deployment 这个 template 字段里的内容，跟一个标准的 Pod 对象的 API 定义，丝毫不差。而所有被这个 Deployment 管理的 Pod 实例，其实都是根据这个 template 字段的内容创建出来的。像 Deployment 定义的 template 字段，在 Kubernetes 项目中有一个专有的名字，叫作 PodTemplate（Pod 模板）。这个概念非常重要，大多数控制器都会使用 PodTemplate 来统一定义它所要管理的 Pod。我们还会看到其他类型的对象模板，比如 Volume 的模板。</li>
 </ul>
 
-<p>所以类似 Deployment 这样的一个控制器的yaml文件，<strong>实际上都是由上半部分的控制器定义（包括期望状态），加上下半部分的被控制对象的模板组成的。</strong></p>
+<p>所以Deployment 这个控制器的yaml文件，<strong>实际上都是由上半部分的控制器自身的定义（包括期望状态），加上下半部分的被控制对象的模板组成的。</strong></p>
 
 <p><img src="/media/cloud/k8s/deploymemt.png" alt="" /></p>
 
-<p>所以在所有 API 对象的 Metadata 里，都有一个字段叫作 ownerReference，用于保存当前这个 API 对象的拥有者（Owner）的信息。对于一个 Deployment 所管理的 Pod，它的 ownerReference 是谁？所以，这个问题的答案就是：ReplicaSet。</p>
+<p>我们简单的看一下deployment控制器的必须的字段有</p>
 
-<p>deploymemt就是使用ReplicaSet来实现的，现在基本都是使用这个。一般适用于无状态的应用部署。</p>
+<ul>
+<li>apiVersion 版本</li>
+<li>kind 类型</li>
+<li>metadata 元数据，API 对象的 Metadata 里，都有一个字段叫作 ownerReference，用于保存当前这个 API 对象的拥有者（Owner）的信息。对于一个 Deployment 所管理的 Pod，它的 ownerReference 是谁？所以，这个问题的答案就是：ReplicaSet。</li>
+<li>spec 详细信息，在spec中必须有的两个字段是.spec.template<code>和</code>.spec.selector，还包含一些其他定义的字段如下，查看官方文档。</li>
+</ul>
+
+<p>deploymemt就是使用ReplicaSet来实现的，现在基本都是使用这个来进行无状态的应用部署。</p>
 
 <p>实例：一个简单的nginx应用</p>
 
@@ -479,12 +513,12 @@ spec:
 <pre><code>kubectl scale deployment nginx-deployment --replicas 10
 </code></pre>
 
-<p>如果集群支持 horizontal pod autoscaling 的话，还可以为Deployment设置自动扩展：</p>
+<p>通过scale直接扩展副本的个数，如果集群支持 horizontal pod autoscaling 的话，还可以为Deployment设置自动扩展：</p>
 
 <pre><code>kubectl autoscale deployment nginx-deployment --min=10 --max=15 --cpu-percent=80
 </code></pre>
 
-<p>“水平扩展 / 收缩”非常容易实现，Deployment Controller 只需要修改它所控制的 ReplicaSet 的 Pod 副本个数就可以了。</p>
+<p>可见，“水平扩展 / 收缩”非常容易实现，Deployment Controller 只需要修改它所控制的 ReplicaSet 的 Pod 副本个数就可以了。</p>
 
 <blockquote>
 <p>滚动更新</p>
@@ -498,9 +532,7 @@ spec:
 deployment &quot;nginx-deployment&quot; created
 </code></pre>
 
-<p>将kubectl的 —record 的flag设置为 true可以在annotation中记录当前命令创建或者升级了该资源。</p>
-
-<p>获取信息</p>
+<p>将kubectl的 —record 的flag设置为 true可以在annotation中记录当前命令创建或者升级了该资源。获取信息</p>
 
 <pre><code>$ kubectl get deployments
 NAME               DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
@@ -536,7 +568,7 @@ nginx-deployment-2035384211-kzszj   1/1       Running   0          18s       app
 nginx-deployment-2035384211-qqcnn   1/1       Running   0          18s       app=nginx,pod-template-hash=2035384211
 </code></pre>
 
-<p>在用户提交了一个 Deployment 对象后，Deployment Controller 就会立即创建一个 Pod 副本个数为 3 的 ReplicaSet。这个 ReplicaSet 的名字，则是由 Deployment 的名字和一个随机字符串共同组成。这个随机字符串叫作 pod-template-hash，在我们这个例子里就是：2035384211。ReplicaSet 会把这个随机字符串加在它所控制的所有 Pod 的标签里，从而保证这些 Pod 不会与集群里的其他 Pod 混淆。而 ReplicaSet 的 DESIRED、CURRENT 和 READY 字段的含义，和 Deployment 中是一致的。所以，相比之下，Deployment 只是在 ReplicaSet 的基础上，添加了 UP-TO-DATE 这个跟版本有关的状态字段。这个时候，如果我们修改了 Deployment 的 Pod 模板，“滚动更新”就会被自动触发。</p>
+<p>在用户提交了一个 Deployment 对象后，Deployment Controller 就会立即创建一个 Pod 副本个数为 3 的 ReplicaSet。这个 ReplicaSet 的名字，则是由 Deployment 的名字和一个随机字符串共同组成。这个随机字符串叫作 pod-template-hash，也就是上面的2035384211。ReplicaSet 会把这个随机字符串加在它所控制的所有 Pod 的标签里，从而保证这些 Pod 不会与集群里的其他 Pod 混淆。而 ReplicaSet 的 DESIRED、CURRENT 和 READY 字段的含义，和 Deployment 中是一致的。所以，相比之下，Deployment 只是在 ReplicaSet 的基础上，添加了 UP-TO-DATE 这个跟版本有关的状态字段。这个时候，如果我们修改了 Deployment 的 Pod 模板，“滚动更新”就会被自动触发。</p>
 
 <p>更新镜像也比较简单:</p>
 
@@ -572,9 +604,9 @@ Events:
   Normal  ScalingReplicaSet  14s   deployment-controller  Scaled down replica set nginx-deployment-3167673210 to 0
 </code></pre>
 
-<p>可以看到，首先，当你修改了 Deployment 里的 Pod 定义之后，Deployment Controller 会使用这个修改后的 Pod 模板，创建一个新的 ReplicaSet（hash=1764197365），这个新的 ReplicaSet 的初始 Pod 副本数是：0。然后，在 Age=24 s 的位置，Deployment Controller 开始将这个新的 ReplicaSet 所控制的 Pod 副本数从 0 个变成 1 个，即：“水平扩展”出一个副本。紧接着，在 Age=22 s 的位置，Deployment Controller 又将旧的 ReplicaSet（hash=3167673210）所控制的旧 Pod 副本数减少一个，即：“水平收缩”成两个副本。如此交替进行，新 ReplicaSet 管理的 Pod 副本数，从 0 个变成 1 个，再变成 2 个，最后变成 3 个。而旧的 ReplicaSet 管理的 Pod 副本数则从 3 个变成 2 个，再变成 1 个，最后变成 0 个。这样，就完成了这一组 Pod 的版本升级过程。像这样，将一个集群中正在运行的多个 Pod 版本，交替地逐一升级的过程，就是“滚动更新”。</p>
+<p>Deployment Controller 会使用这个修改后的 Pod 模板，创建一个新的 ReplicaSet（hash=1764197365），这个新的 ReplicaSet 的初始 Pod 副本数是：0。然后，在 Age=24 s 的位置，Deployment Controller 开始将这个新的 ReplicaSet 所控制的 Pod 副本数从 0 个变成 1 个。紧接着，在 Age=22 s 的位置，Deployment Controller 又将旧的 ReplicaSet（hash=3167673210）所控制的旧 Pod 副本数减少一个。如此交替进行，新 ReplicaSet 管理的 Pod 副本数，从 0 个变成 1 个，再变成 2 个，最后变成 3 个。而旧的 ReplicaSet 管理的 Pod 副本数则从 3 个变成 2 个，再变成 1 个，最后变成 0 个。这样，就完成了这一组 Pod 的版本升级过程。</p>
 
-<p>在这个“滚动更新”过程完成之后，你可以查看一下新、旧两个 ReplicaSet 的最终状态：</p>
+<p>像这样，将一个集群中正在运行的多个 Pod 版本，交替地逐一升级的过程，就是“滚动更新”。在这个“滚动更新”过程完成之后，你可以查看一下新、旧两个 ReplicaSet 的最终状态：</p>
 
 <pre><code>$ kubectl get rs
 NAME                          DESIRED   CURRENT   READY   AGE
@@ -582,7 +614,7 @@ nginx-deployment-1764197365   3         3         3       6s
 nginx-deployment-3167673210   0         0         0       30s
 </code></pre>
 
-<p>这种“滚动更新”的好处是显而易见的。比如，在升级刚开始的时候，集群里只有 1 个新版本的 Pod。如果这时，新版本 Pod 有问题启动不起来，那么“滚动更新”就会停止，从而允许开发和运维人员介入。而在这个过程中，由于应用本身还有两个旧版本的 Pod 在线，所以服务并不会受到太大的影响。当然，这也就要求你一定要使用 Pod 的 Health Check 机制检查应用的运行状态，而不是简单地依赖于容器的 Running 状态。要不然的话，虽然容器已经变成 Running 了，但服务很有可能尚未启动，“滚动更新”的效果也就达不到了。</p>
+<p>这种“滚动更新”的好处是显而易见的，就是及时停止，不影响服务能力。比如，在升级刚开始的时候，集群里只有 1 个新版本的 Pod。如果这时，新版本 Pod 有问题启动不起来，那么“滚动更新”就会停止，从而允许开发和运维人员介入。而在这个过程中，由于应用本身还有两个旧版本的 Pod 在线，所以服务并不会受到太大的影响。在这个升级过程中一定要使用 Pod 的 Health Check 机制检查应用的运行状态，而不是简单地依赖于容器的 Running 状态。要不然的话，虽然容器已经变成 Running 了，但服务很有可能尚未启动，“滚动更新”的效果也就达不到了。</p>
 
 <p>而为了进一步保证服务的连续性，Deployment Controller 还会确保，在任何时间窗口内，只有指定比例的 Pod 处于离线状态。同时，它也会确保，在任何时间窗口内，只有指定比例的新 Pod 被创建出来。这两个比例的值都是可以配置的，默认都是 DESIRED 值的 25%。</p>
 
@@ -605,7 +637,7 @@ spec:
 
 <p>在上面这个 RollingUpdateStrategy 的配置中，maxSurge 指定的是除了 DESIRED 数量之外，在一次“滚动”中，Deployment 控制器还可以创建多少个新 Pod；而 maxUnavailable 指的是，在一次“滚动”中，Deployment 控制器可以删除多少个旧 Pod。同时，这两个配置还可以用前面我们介绍的百分比形式来表示，比如：maxUnavailable=50%，指的是我们最多可以一次删除“50%*DESIRED 数量”个 Pod。</p>
 
-<p>我们对 Deployment 进行的每一次更新操作，都会生成一个新的 ReplicaSet 对象，用于回滚，是不是有些多余，甚至浪费资源呢？没错。所以，Kubernetes 项目还提供了一个指令，使得我们对 Deployment 的多次更新操作，最后 只生成一个 ReplicaSet。具体的做法是，在更新 Deployment 前，你要先执行一条 kubectl rollout pause 指令。它的用法如下所示：</p>
+<p>我们对 Deployment 进行的每一次更新操作，都会生成一个新的 ReplicaSet 对象，用于回滚，但是这样浪费资源，所以，Kubernetes 项目还提供了一个指令，使得我们对 Deployment 的多次更新操作，最后 只生成一个 ReplicaSet。具体的做法是，在更新 Deployment 前，你要先执行一条 kubectl rollout pause 指令。它的用法如下所示：</p>
 
 <pre><code>$ kubectl rollout pause deployment/nginx-deployment
 deployment.extensions/nginx-deployment paused
@@ -650,121 +682,7 @@ REVISION    CHANGE-CAUSE
 deployment.extensions/nginx-deployment
 </code></pre>
 
-<p>即使你像上面这样小心翼翼地控制了 ReplicaSet 的生成数量，随着应用版本的不断增加，Kubernetes 中还是会为同一个 Deployment 保存很多很多不同的 ReplicaSet。那么，我们又该如何控制这些“历史”ReplicaSet 的数量呢？很简单，Deployment 对象有一个字段，叫作 spec.revisionHistoryLimit，就是 Kubernetes 为 Deployment 保留的“历史版本”个数。所以，如果把它设置为 0，你就再也不能做回滚操作了。</p>
-
-<blockquote>
-<p>调度</p>
-</blockquote>
-
-<p>deployment是基于rs的基础之上的，根据调度算法，选择合适的node，维持pod的数量，还可以指定调度和优化调度等。</p>
-
-<ul>
-<li><p>指定node(nodeselector)</p>
-
-<p>通过nodeSelector，一个Pod可以指定它所想要运行的Node节点。</p>
-
-<p>首先给Node加上标签：</p>
-
-<pre><code>kubectl label nodes &lt;your-node-name&gt; disktype=ssd
-</code></pre>
-
-<p>接着，指定该Pod只想运行在带有disktype=ssd标签的Node上：</p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: nginx
-  labels:
-    env: test
-spec:
-  containers:
-  - name: nginx
-    image: nginx
-    imagePullPolicy: IfNotPresent
-  nodeSelector:
-    disktype: ssd
-</code></pre></li>
-
-<li><p>亲和度调度（nodeaffinity）</p>
-
-<p>目前主要的node affinity：</p>
-
-<ul>
-<li>requiredDuringSchedulingIgnoredDuringExecution
-表示pod必须部署到满足条件的节点上，如果没有满足条件的节点，就不停重试。其中IgnoreDuringExecution表示pod部署之后运行的时候，如果节点标签发生了变化，不再满足pod指定的条件，pod也会继续运行。</li>
-<li>requiredDuringSchedulingRequiredDuringExecution
-表示pod必须部署到满足条件的节点上，如果没有满足条件的节点，就不停重试。其中RequiredDuringExecution表示pod部署之后运行的时候，如果节点标签发生了变化，不再满足pod指定的条件，则重新选择符合要求的节点。</li>
-<li>preferredDuringSchedulingIgnoredDuringExecution
-表示优先部署到满足条件的节点上，如果没有满足条件的节点，就忽略这些条件，按照正常逻辑部署。</li>
-<li>preferredDuringSchedulingRequiredDuringExecution
-表示优先部署到满足条件的节点上，如果没有满足条件的节点，就忽略这些条件，按照正常逻辑部署。其中RequiredDuringExecution表示如果后面节点标签发生了变化，满足了条件，则重新调度到满足条件的节点。</li>
-</ul>
-
-<p>实例</p>
-
-<pre><code>apiVersion: v1
-kind: Pod
-metadata:
-  name: with-node-affinity
-spec:
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-        - matchExpressions:
-          - key: kubernetes.io/e2e-az-name
-            operator: In
-            values:
-            - e2e-az1
-            - e2e-az2
-      preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 1
-        preference:
-          matchExpressions:
-          - key: another-node-label-key
-            operator: In
-            values:
-            - another-node-label-value
-  containers:
-  - name: with-node-affinity
-    image: gcr.io/google_containers/pause:2.0
-</code></pre>
-
-<p>这个 pod 同时定义了 requiredDuringSchedulingIgnoredDuringExecution 和 preferredDuringSchedulingIgnoredDuringExecution 两种 nodeAffinity。第一个要求 pod 运行在特定 AZ 的节点上，第二个希望节点最好有对应的 another-node-label-key:another-node-label-value 标签。</p>
-
-<p>这里的匹配逻辑是label在某个列表中，可选的操作符有：</p>
-
-<ul>
-<li>In: label的值在某个列表中</li>
-<li>NotIn：label的值不在某个列表中</li>
-<li>Exists：某个label存在</li>
-<li>DoesNotExist：某个label不存在</li>
-<li>Gt：label的值大于某个值（字符串比较）</li>
-<li>Lt：label的值小于某个值（字符串比较）</li>
-</ul>
-
-<p>如果nodeAffinity中nodeSelector有多个选项，节点满足任何一个条件即可；如果matchExpressions有多个选项，则节点必须同时满足这些选项才能运行pod 。</p></li>
-
-<li><p>不被调度</p>
-
-<p>Taints 和 tolerations</p>
-
-<p>Taints 和 tolerations 用于保证 Pod 不被调度到不合适的 Node 上，Taint 应用于 Node 上，而 toleration 则应用于 Pod 上（Toleration 是可选的）。</p>
-
-<pre><code>比如，可以使用 taint 命令给 node1 添加 taints：
-kubectl taint nodes node1 key1=value1:NoSchedule
-kubectl taint nodes node1 key1=value2:NoExecute
-</code></pre>
-
-<p>实例</p>
-
-<pre><code>[root@kube-manager01 rebuild]# kubectl cordon  kube-node02
-
-node/kube-node02 already cordoned
-</code></pre>
-
-<p>通过这个命令会使得node那个字段被设置成node转维护状态，不会被调度新pod</p></li>
-</ul>
+<p>即使你像上面这样小心翼翼地控制了 ReplicaSet 的生成数量，随着应用版本的不断增加，Kubernetes 中还是会为同一个 Deployment 保存很多很多不同的 ReplicaSet。Deployment 对象有一个字段，叫作 spec.revisionHistoryLimit，就是 Kubernetes 为 Deployment 保留的“历史版本”个数。所以，如果把它设置为 0，你就再也不能做回滚操作了。</p>
 
 <h2 id="statefulset">StatefulSet</h2>
 
@@ -2620,6 +2538,7 @@ I0331 23:44:37.236118   21540 controller.go:145] Successfully synced 'default/ne
 <li>kubectl version v1.11.3+.</li>
 <li>kustomize v3.1.0+</li>
 <li>能够访问 Kubernetes v1.11.3+ 集群</li>
+<li>版本：2.3.1</li>
 </ul>
 
 <p>还有一些kubebuilder依赖的重要库</p>
