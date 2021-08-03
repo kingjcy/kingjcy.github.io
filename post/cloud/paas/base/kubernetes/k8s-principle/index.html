@@ -2751,7 +2751,9 @@ NotBestEffort   与BestEffort相反
    [ Services ]
 </code></pre>
 
-<p>Ingress可以给service提供集群外部访问的URL、负载均衡、SSL终止、HTTP路由等。为了配置这些Ingress规则，集群管理员需要部署一个Ingress controller，它监听Ingress和service的变化，并根据规则配置负载均衡并提供访问入口。</p>
+<p>Ingress可以给service提供集群外部访问的URL、负载均衡、SSL终止、HTTP路由等。Ingress 不会公开任意端口或协议。 将 HTTP 和 HTTPS 以外的服务公开到 Internet 时，通常使用 <a href="https://kubernetes.io/zh/docs/concepts/services-networking/service/#nodeport">Service.Type=NodePort</a> 或 <a href="https://kubernetes.io/zh/docs/concepts/services-networking/service/#loadbalancer">Service.Type=LoadBalancer</a> 类型的服务，当然也可以使用ClusterIP类型的服务。</p>
+
+<p>集群管理员需要部署一个Ingress controller，仅创建 Ingress 资源本身没有任何效果，控制器可以监听Ingress和service的变化，配置这些Ingress规则，并根据规则配置负载均衡并提供访问入口，其实控制器就是我们正常使用的类似的nginx的代理，生成了对应的配置，然后就是nginx的功能，将请求发送到对应的代理端，所以我们的ingress调试的时候，可以直接将域名解析到一个Ingress controller的pod上，然后本地curl，就能看到对应请求变化了，有问题可以看对应pod上的配置和日志。关于控制器有很多，比如我们经常使用的nginx-ingress-controller，<a href="https://traefik.io/traefik/">Traefik</a> 等，我们可以在官方提供的 <a href="https://kubernetes.io/zh/docs/concepts/services-networking/ingress-controllers">Ingress 控制器</a> 中选择。</p>
 
 <p>这边讲一下L4和L7</p>
 
@@ -2764,7 +2766,9 @@ NotBestEffort   与BestEffort相反
 
 <p>4 层负载均衡本质是转发，而 7 层负载本质是内容交换和代理，7层是基于4层的。</p>
 
+<blockquote>
 <p>Ingress格式</p>
+</blockquote>
 
 <pre><code>apiVersion: extensions/v1beta1
 kind: Ingress
@@ -2780,7 +2784,54 @@ spec:
           servicePort: 80
 </code></pre>
 
-<p>可见ingress也是一个api对象，每个Ingress都需要配置rules，目前Kubernetes仅支持http规则。上面的示例表示请求/testpath时转发到服务test的80端口。</p>
+<p>可见ingress也是一个api对象，每个Ingress都需要配置rules，每个 HTTP 规则都包含以下信息：</p>
+
+<ul>
+<li><p>可选的 <code>host</code>。在此示例中，未指定 <code>host</code>，因此该规则适用于通过指定 IP 地址的所有入站 HTTP 通信。 如果提供了 <code>host</code>（例如 foo.bar.com），则 <code>rules</code> 适用于该 <code>host</code>，host支持通配符（*）。</p></li>
+
+<li><p>路径列表 paths（例如，<code>/testpath</code>）， 在负载均衡器将流量定向到引用的服务之前，主机和路径都必须匹配传入请求的内容。有一个pathType字段来确定支持的类型</p>
+
+<ul>
+<li><code>ImplementationSpecific</code>：对于这种路径类型，匹配方法取决于 IngressClass</li>
+<li><code>Exact</code>：精确匹配 URL 路径，且区分大小写。</li>
+<li><code>Prefix</code>：基于以 <code>/</code> 分隔的 URL 路径前缀匹配。匹配区分大小写，并且对路径中的元素逐个完成。</li>
+</ul></li>
+
+<li><p><code>backend</code>（后端）是 服务和端口名称的组合。 与规则的 <code>host</code> 和 <code>path</code> 匹配的对 Ingress 的 HTTP（和 HTTPS ）请求将发送到列出的 <code>backend</code>。</p>
+
+<ul>
+<li><p>通常在 Ingress 控制器中会配置 <code>defaultBackend</code>（默认后端），以服务于任何不符合规约中 <code>path</code> 的请求。</p></li>
+
+<li><p>还有一种资源后端，将所有入站数据导向带有静态资产的对象存储后端。比如</p></li>
+</ul>
+
+<pre><code>apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-resource-backend
+spec:
+  defaultBackend:
+    resource:
+      apiGroup: k8s.example.com
+      kind: StorageBucket
+      name: static-assets
+  rules:
+    - http:
+        paths:
+          - path: /icons
+            pathType: ImplementationSpecific
+            backend:
+              resource:
+                apiGroup: k8s.example.com
+                kind: StorageBucket
+                name: icon-assets
+
+</code></pre>
+
+<p>注意：<code>Resource</code> 与 <code>Service</code> 配置是互斥的，在 二者均被设置时会无法通过合法性检查。</p></li>
+</ul>
+
+<p>上面的示例表示请求/testpath时转发到服务test的80端口。</p>
 
 <p>根据Ingress Spec配置的不同，Ingress可以分为以下几种类型：</p>
 
@@ -2995,7 +3046,7 @@ spec:
 
 <p>有了 Ingress 这样一个统一的抽象，Kubernetes 的用户就无需关心 Ingress 的具体细节了。在实际的使用中，你只需要从社区里选择一个具体的 Ingress Controller，把它部署在 Kubernetes 集群里即可。然后，这个 Ingress Controller 会根据你定义的 Ingress 对象，提供对应的代理能力。目前，业界常用的各种反向代理项目，比如 Nginx、HAProxy、Envoy、Traefik 等，都已经为 Kubernetes 专门维护了对应的 Ingress Controller。</p>
 
-<p>接下来，我就以最常用的 Nginx Ingress Controller 为例，在我们前面用 kubeadm 部署的 Bare-metal 环境中，和你实践一下 Ingress 机制的使用过程。部署 Nginx Ingress Controller 的方法非常简单，如下所示：</p>
+<p>接下来，我就以最常用的 Nginx Ingress Controller 为例，部署 Nginx Ingress Controller 的方法非常简单，如下所示：</p>
 
 <pre><code>$ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/mandatory.yaml
 
@@ -3073,6 +3124,12 @@ spec:
 <p>如果我的请求没有匹配到任何一条 IngressRule，那么会发生什么呢？首先，既然 Nginx Ingress Controller 是用 Nginx 实现的，那么它当然会为你返回一个 Nginx 的 404 页面。不过，Ingress Controller 也允许你通过 Pod 启动命令里的–default-backend-service 参数，设置一条默认规则，比如：–default-backend-service=nginx-default-backend。这样，任何匹配失败的请求，就都会被转发到这个名叫 nginx-default-backend 的 Service。所以，你就可以通过部署一个专门的 Pod，来为用户返回自定义的 404 页面了。</p>
 
 <p>Kubernetes 提出 Ingress 概念的原因其实也非常容易理解，有了 Ingress 这个抽象，用户就可以根据自己的需求来自由选择 Ingress Controller。比如，如果你的应用对代理服务的中断非常敏感，那么你就应该考虑选择类似于 Traefik 这样支持“热加载”的 Ingress Controller 实现。更重要的是，一旦你对社区里现有的 Ingress 方案感到不满意，或者你已经有了自己的负载均衡方案时，你只需要做很少的编程工作，就可以实现一个自己的 Ingress Controller。在实际的生产环境中，Ingress 带来的灵活度和自由度，对于使用容器的用户来说，其实是非常有意义的。</p>
+
+<blockquote>
+<p>问题处理</p>
+</blockquote>
+
+<p>一般我们遇到问题都是使用logs或者describe去查看对应pod的日志，ingress也不例外，我们一般回去查看对应的controller的pod对应的日志来解决问题。</p>
 
 <h2 id="dns">DNS</h2>
 
