@@ -78,20 +78,261 @@
 
 <p>DNS 有两种配置方式，在 1.3 之前使用 etcd + kube2sky + skydns 的方式，在 1.3 之后可以使用 kubedns + dnsmasq 的方式。从 Kubernetes v1.12 开始，CoreDNS 是推荐的 DNS 服务器，取代了kube-dns。</p>
 
-<h2 id="k8s-dns-策略">K8s DNS 策略</h2>
+<h2 id="coredns">coredns</h2>
 
-<p>Kubernetes 中 Pod 的 DNS 策略有四种类型。</p>
+<p><a href="https://coredns.io/">CoreDNS</a> 是一个灵活可扩展的 DNS 服务器，可以作为 Kubernetes 集群 DNS。</p>
+
+<h2 id="部署coredns">部署CoreDNS</h2>
+
+<p>部署 CoreDNS 需要使用到官方提供的两个文件 <a href="https://github.com/coredns/deployment/blob/master/kubernetes/deploy.sh">deploy.sh</a>和<a href="https://github.com/coredns/deployment/blob/master/kubernetes/coredns.yaml.sed">coredns.yaml.sed</a>（这两个文件已经放入manifest的coredns目录中）</p>
+
+<p><code>deploy.sh</code> 是一个用于在已经运行kube-dns的集群中生成运行CoreDNS部署文件（manifest）的工具脚本。它使用 <code>coredns.yaml.sed</code>文件作为模板，创建一个ConfigMap和CoreDNS的deployment，然后更新集群中已有的kube-dns 服务的selector使用CoreDNS的deployment。重用已有的服务并不会在服务的请求中发生冲突。</p>
+
+<p><code>deploy.sh</code>文件并不会删除kube-dns的deployment或者replication controller。如果要删除kube-dns，你必须在部署CoreDNS后手动的删除kube-dns。</p>
+
+<p>总结为下面的两个命令：</p>
+
+<pre><code class="language-bash">$ ./deploy.sh | kubectl apply -f -
+$ kubectl delete --namespace=kube-system deployment kube-dns
+</code></pre>
+
+<p>建议在部署CoreDNS后删除kube-dns。否则如果CoreDNS和kube-dns同时运行，服务查询可能会随机的在CoreDNS和kube-dns之间产生。这是一段来自官方的部署方案，</p>
+
+<p>实战部署</p>
+
+<pre><code>[root@taas-mpi-prd-10-193-28-21.v-bj-4.vivo.lan:/data/log/kubernetes/kube-apiserver]
+# kubectl get deployments.apps coredns-autoscaling-v2 -n kube-system -oyaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    addonmanager.kubernetes.io/mode: Reconcile
+    k8s-app-vivodns: coredns
+    kubernetes.io/cluster-service: &quot;true&quot;
+    kubernetes.io/name: CoreDNS
+  name: coredns-autoscaling-v2
+  namespace: kube-system
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 10
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      k8s-app: coredns
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        k8s-app: coredns
+        k8s-app-vivodns: coredns
+    spec:
+      containers:
+      - args:
+        - -conf
+        - /etc/coredns/Corefile
+        image: coredns/coredns:1.2.2
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /health
+            port: 48080
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: coredns
+        ports:
+        - containerPort: 53
+          name: dns
+          protocol: UDP
+        - containerPort: 53
+          name: dns-tcp
+          protocol: TCP
+        resources:
+          limits:
+            cpu: &quot;8&quot;
+            memory: 4Gi
+          requests:
+            cpu: &quot;8&quot;
+            memory: 4Gi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/coredns
+          name: config-volume
+      dnsPolicy: Default
+      nodeSelector:
+        k8s-app-vivodns: coredns
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: coredns
+      serviceAccountName: coredns
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      - key: CriticalAddonsOnly
+        operator: Exists
+      volumes:
+      - configMap:
+          defaultMode: 420
+          items:
+          - key: Corefile
+            path: Corefile
+          name: coredns-v2
+        name: config-volume
+status:
+  availableReplicas: 10
+  conditions:
+  - lastTransitionTime: 2020-09-23T08:36:24Z
+    lastUpdateTime: 2020-09-23T08:38:59Z
+    message: ReplicaSet &quot;coredns-autoscaling-v2-86dc8bf5c7&quot; has successfully progressed.
+    reason: NewReplicaSetAvailable
+    status: &quot;True&quot;
+    type: Progressing
+  - lastTransitionTime: 2021-03-16T12:02:31Z
+    lastUpdateTime: 2021-03-16T12:02:31Z
+    message: Deployment has minimum availability.
+    reason: MinimumReplicasAvailable
+    status: &quot;True&quot;
+    type: Available
+  observedGeneration: 8
+  readyReplicas: 10
+  replicas: 10
+  updatedReplicas: 10
+
+[root@taas-mpi-prd-10-193-28-21.v-bj-4.vivo.lan:/data/log/kubernetes/kube-apiserver]
+# kubectl get horizontalpodautoscalers.autoscaling --all-namespaces -o wide| grep coredns
+kube-system     coredns-autoscaling-hpa-v2                    Deployment/coredns-autoscaling-v2                        1%/25%                         10        20        10         249d
+
+[root@taas-mpi-prd-10-193-28-21.v-bj-4.vivo.lan:/data/log/kubernetes/kube-apiserver]
+# kubectl get horizontalpodautoscalers.autoscaling coredns-autoscaling-hpa-v2 -n kube-system -oyaml
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  labels:
+    k8s-app: kube-dns
+  name: coredns-autoscaling-hpa-v2
+  namespace: kube-system
+spec:
+  maxReplicas: 20
+  minReplicas: 10
+  scaleTargetRef:
+    apiVersion: extensions/v1beta1
+    kind: Deployment
+    name: coredns-autoscaling-v2
+  targetCPUUtilizationPercentage: 25
+status:
+  currentCPUUtilizationPercentage: 1
+  currentReplicas: 10
+  desiredReplicas: 10
+  lastScaleTime: 2021-01-08T01:39:38Z
+[root@taas-mpi-prd-10-193-28-21.v-bj-4.vivo.lan:/data/log/kubernetes/kube-apiserver]
+# kubectl get pod -n kube-system -o wide | grep coredns
+coredns-autoscaling-v2-86dc8bf5c7-4zb9f          1/1     Running             0          100d   10.225.18.149    10.193.28.169
+coredns-autoscaling-v2-86dc8bf5c7-695nb          1/1     Running             0          100d   10.225.17.2      10.193.28.156
+coredns-autoscaling-v2-86dc8bf5c7-79pf2          1/1     Running             0          100d   10.225.12.29     10.193.28.22
+coredns-autoscaling-v2-86dc8bf5c7-87tsb          1/1     Running             0          100d   10.225.18.225    10.193.28.141
+coredns-autoscaling-v2-86dc8bf5c7-9pb87          1/1     Running             0          100d   10.225.18.229    10.193.28.141
+coredns-autoscaling-v2-86dc8bf5c7-bhhjz          1/1     Running             0          100d   10.225.18.147    10.193.28.169
+coredns-autoscaling-v2-86dc8bf5c7-lsztk          1/1     Running             0          100d   10.225.13.131    10.193.28.35
+coredns-autoscaling-v2-86dc8bf5c7-vdn82          1/1     Running             0          100d   10.225.62.31     10.194.36.14
+coredns-autoscaling-v2-86dc8bf5c7-wn94q          1/1     Running             0          100d   10.225.18.241    10.193.28.168
+coredns-autoscaling-v2-86dc8bf5c7-xgswf          1/1     Running             0          100d   10.225.18.240    10.193.28.168
+coredns-hostnetwork-7f7fdd47cb-8z6nn             1/1     Running             2          100d   10.193.28.35     10.193.28.35
+coredns-hostnetwork-7f7fdd47cb-gp5zh             1/1     Running             0          100d   10.193.28.22     10.193.28.22
+coredns-hostnetwork-7f7fdd47cb-sjvxf             1/1     Running             0          100d   10.193.28.169    10.193.28.169
+
+
+正在使用的就是hpa的coredns
+
+</code></pre>
+
+<h2 id="配置文件">配置文件</h2>
+
+<p>CoreDNS 的配置文件是 Corefile 形式的，我们来看一下</p>
+
+<pre><code>[root@localhost ~]# kubectl -n kube-system get cm coredns -oyaml
+apiVersion: v1
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           upstream
+           fallthrough in-addr.arpa ip6.arpa
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+kind: ConfigMap
+metadata:
+  creationTimestamp: &quot;2019-06-10T03:19:01Z&quot;
+  name: coredns
+  namespace: kube-system
+</code></pre>
+
+<p>1、第一部分</p>
+
+<pre><code>kubernetes cluster.local in-addr.arpa ip6.arpa {
+   pods insecure
+   upstream
+   fallthrough in-addr.arpa ip6.arpa
+}
+</code></pre>
+
+<p>指明 cluster.local 后缀的域名，都是 kubernetes 内部域名，coredns 会监听 service 的变化来维护域名关系，所以cluster.local 相关域名都在这里解析。在这里也实现了启动服务后进行的DNS注册</p>
+
+<p>2、第二部分</p>
+
+<pre><code>proxy . /etc/resolv.conf
+</code></pre>
+
+<p>proxy 指 coredns 中没有找到记录，则去 /etc/resolv.conf 中的 nameserver 请求解析，而 coredns 容器中的 /etc/resolv.conf 是继承自宿主机的。实际效果是如果不是 k8s 内部域名，就会去默认的 dns 服务器请求解析，并返回给 coredns 的请求者。</p>
+
+<p>3、其他</p>
 
 <ul>
-<li>Default：Pod 继承所在主机上的 DNS 配置；</li>
-<li>ClusterFirst：K8s 的默认设置；先在 K8s 集群配置的 coreDNS 中查询，查不到的再去继承自主机的上游 nameserver 中查询；</li>
-<li>ClusterFirstWithHostNet：对于网络配置为 hostNetwork 的 Pod 而言，其 DNS 配置规则与 ClusterFirst 一致；</li>
-<li>None：忽略 K8s 环境的 DNS 配置，只认 Pod 的 dnsConfig 设置。</li>
+<li>prometheus：CoreDNS 的监控地址为： <a href="http://localhost:9153/metrics">http://localhost:9153/metrics</a> ，满足 Prometheus 的格式。</li>
+<li>cache：允许缓存</li>
+<li>loop：如果找到循环，则检测简单的转发循环并停止 CoreDNS 进程。</li>
+<li>reload：允许 Corefile 的配置自动更新。在更改 ConfigMap 后两分钟，修改生效</li>
+<li>loadbalance：这是一个循环 DNS 负载均衡器，可以在答案中随机化 A，AAAA 和 MX 记录的顺序。</li>
 </ul>
 
-<h2 id="coredns-解析域名的过程">coreDNS 解析域名的过程</h2>
+<h2 id="基本原理">基本原理</h2>
 
-<p>在部署 pod 的时候，如果用的是 K8s 集群的 DNS(修改 kubelet 的启动配置项，告诉 kubelet，给每个启动的 pod 设置对应的 DNS 信息，一共有两个参数：&ndash;cluster_dns=10.10.10.10 &ndash;cluster_domain=cluster.local，分别是 DNS 在集群中的 vip 和域名后缀，要和 DNS rc 中保持一致)，那么 kubelet 在起 pause 容器的时候，会将其 DNS 解析配置初始化成集群内的配置。</p>
+<h3 id="k8s服务注册">k8s服务注册</h3>
+
+<p>Kubernetes 使用 DNS 作为服务注册表。为了满足这一需要，每个 Kubernetes 集群都会在 kube-system 命名空间中用 Pod 的形式运行一个 DNS 服务，通常称之为集群 DNS。DNS会监听service的变化，每个 Kubernetes 服务都会自动注册到集群 DNS 之中。注册过程大致如下：</p>
+
+<ul>
+<li>向 API Server 用 POST 方式提交一个新的 Service 定义；</li>
+<li>这个请求需要经过认证、鉴权以及其它的准入策略检查过程之后才会放行；</li>
+<li>Service 得到一个 ClusterIP（虚拟 IP 地址），并保存到集群数据仓库；</li>
+<li>在集群范围内传播 Service 配置；</li>
+<li>集群 DNS 服务得知该 Service 的创建，据此创建必要的 DNS A 记录。DNS 中注册的名称就是 metadata.name，而 ClusterIP 则由 Kubernetes 自行分配。</li>
+</ul>
+
+<p>CoreDNS 实现了一个控制器，会对 API Server 进行监听，一旦发现有新建的 Service 对象，就创建一个从 Service 名称映射到 ClusterIP 的域名记录。这样 Service 就不必自行向 DNS 进行注册，CoreDNS 控制器会关注新创建的 Service 对象，并实现后续的 DNS 过程。</p>
+
+<h3 id="域名解析">域名解析</h3>
+
+<p>在部署 pod 的时候，如果用的是 K8s 集群的 DNS(修改 kubelet 的启动配置项，告诉 kubelet，给每个启动的 pod 设置对应的 DNS 信息，一共有两个参数：–cluster_dns=10.10.10.10 –cluster_domain=cluster.local，分别是 DNS 在集群中的 vip 和域名后缀，要和 DNS rc 中保持一致)，那么 kubelet 在起 pause 容器的时候，会将其 DNS 解析配置初始化成集群内的配置resolv.conf。</p>
 
 <p>比如我创建了一个叫 my-nginx 的 deployment，其 pod 中的 resolv.conf 文件如下：</p>
 
@@ -129,91 +370,52 @@ kube-dns   ClusterIP   10.96.0.10   &lt;none&gt;        53/UDP,53/TCP,9153/TCP  
 <pre><code>a.b.c.e.f.g. -&gt; a.b.c.e.f.g.default.svc.cluster.local. -&gt; a.b.c.e.f.g.svc.cluster.local. -&gt; a.b.c.e.f.g.cluster.local.
 </code></pre>
 
-<p>如果我访问的是 a.b.c.e，那么域名查找的顺序如下：</p>
-
-<pre><code>a.b.c.e.default.svc.cluster.local. -&gt; a.b.c.e.svc.cluster.local. -&gt; a.b.c.e.cluster.local. -&gt;
-</code></pre>
-
 <h2 id="k8s域名的策略">k8s域名的策略</h2>
 
 <p>Kubernetes 中，域名的全称，必须是 service-name.namespace.svc.cluster.local 这种模式，服务名，就是Kubernetes中 Service 的名称，namespace就是namespace的名称。</p>
 
-<p>在 Kubernetes 中，Service 和 Pod 都会被分配对应的 DNS A 记录（从域名解析 IP 的记录）。对于 ClusterIP 模式的 Service 来说（比如我们上面的例子），它的 A 记录的格式是：..svc.cluster.local。当你访问这条 A 记录的时候，它解析到的就是该 Service 的 VIP 地址。而对于指定了 clusterIP=None 的 Headless Service 来说，它的 A 记录的格式也是：..svc.cluster.local。但是，当你访问这条 A 记录的时候，它返回的是所有被代理的 Pod 的 IP 地址的集合。当然，如果你的客户端没办法解析这个集合的话，它可能会只会拿到第一个 Pod 的 IP 地址。此外，对于 ClusterIP 模式的 Service 来说，它代理的 Pod 被自动分配的 A 记录的格式是：..pod.cluster.local。这条记录指向 Pod 的 IP 地址。而对 Headless Service 来说，它代理的 Pod 被自动分配的 A 记录的格式是：&hellip;svc.cluster.local。这条记录也指向 Pod 的 IP 地址。但如果你为 Pod 指定了 Headless Service，并且 Pod 本身声明了 hostname 和 subdomain 字段，那么这时候 Pod 的 A 记录就会变成：<pod 的 hostname>&hellip;svc.cluster.local</p>
+<p>在 Kubernetes 中，Service 和 Pod 都会被分配对应的 DNS A 记录（从域名解析 IP 的记录）。对于 ClusterIP 模式的 Service 来说（比如我们上面的例子），它的 A 记录的格式是：..svc.cluster.local。当你访问这条 A 记录的时候，它解析到的就是该 Service 的 VIP 地址。而对于指定了 clusterIP=None 的 Headless Service 来说，它的 A 记录的格式也是：..svc.cluster.local。但是，当你访问这条 A 记录的时候，它返回的是所有被代理的 Pod 的 IP 地址的集合。当然，如果你的客户端没办法解析这个集合的话，它可能会只会拿到第一个 Pod 的 IP 地址。此外，对于 ClusterIP 模式的 Service 来说，它代理的 Pod 被自动分配的 A 记录的格式是：..pod.cluster.local。这条记录指向 Pod 的 IP 地址。而对 Headless Service 来说，它代理的 Pod 被自动分配的 A 记录的格式是：…svc.cluster.local。这条记录也指向 Pod 的 IP 地址。但如果你为 Pod 指定了 Headless Service，并且 Pod 本身声明了 hostname 和 subdomain 字段，那么这时候 Pod 的 A 记录就会变成：…svc.cluster.local</p>
 
-<h2 id="配置文件">配置文件</h2>
+<p>我们可以使用nslookup命令来解析域名</p>
 
-<p>CoreDNS 的配置文件是 Corefile 形式的，我们来看一下</p>
+<pre><code>kubectl exec -i -t dnsutils -- nslookup kubernetes.default
+Server:    10.0.0.10
+Address 1: 10.0.0.10
 
-<pre><code>[root@localhost ~]# kubectl -n kube-system get cm coredns -oyaml
-apiVersion: v1
-data:
-  Corefile: |
-    .:53 {
-        errors
-        health
-        kubernetes cluster.local in-addr.arpa ip6.arpa {
-           pods insecure
-           upstream
-           fallthrough in-addr.arpa ip6.arpa
-        }
-        prometheus :9153
-        forward . /etc/resolv.conf
-        cache 30
-        loop
-        reload
-        loadbalance
-    }
-kind: ConfigMap
+Name:      kubernetes.default
+Address 1: 10.0.0.1
+</code></pre>
+
+<h2 id="k8s创建pod的-dns-策略">K8s创建pod的 DNS 策略</h2>
+
+<p>Kubernetes 中 Pod 的 DNS 策略有四种类型，这些策略可以在 Pod 规约中的 <code>dnsPolicy</code> 字段设置。</p>
+
+<ul>
+<li>Default：Pod 继承所在主机上的 DNS 配置；</li>
+<li>ClusterFirst：K8s 的默认设置；先在 K8s 集群配置的 coreDNS 中查询，查不到的再去继承自主机的上游 nameserver 中查询；</li>
+<li>ClusterFirstWithHostNet：对于网络配置为 hostNetwork 的 Pod 而言，其 DNS 配置规则与 ClusterFirst 一致；</li>
+<li>None：忽略 K8s 环境的 DNS 配置，只认 Pod 的 dnsConfig 设置。</li>
+</ul>
+
+<p>比如下面的示例显示了一个 Pod，其 DNS 策略设置为 &ldquo;<code>ClusterFirstWithHostNet</code>&ldquo;， 因为它已将 <code>hostNetwork</code> 设置为 <code>true</code>。</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
 metadata:
-  creationTimestamp: &quot;2019-06-10T03:19:01Z&quot;
-  name: coredns
-  namespace: kube-system
-  resourceVersion: &quot;3380134&quot;
-  selfLink: /api/v1/namespaces/kube-system/configmaps/coredns
-  uid: 7e845ca2-8b2e-11e9-b4eb-005056b40224
+  name: busybox
+  namespace: default
+spec:
+  containers:
+  - image: busybox:1.28
+    command:
+      - sleep
+      - &quot;3600&quot;
+    imagePullPolicy: IfNotPresent
+    name: busybox
+  restartPolicy: Always
+  hostNetwork: true
+  dnsPolicy: ClusterFirstWithHostNet
 </code></pre>
-
-<p>1、第一部分</p>
-
-<pre><code>kubernetes cluster.local in-addr.arpa ip6.arpa {
-   pods insecure
-   upstream
-   fallthrough in-addr.arpa ip6.arpa
-}
-</code></pre>
-
-<p>指明 cluster.local 后缀的域名，都是 kubernetes 内部域名，coredns 会监听 service 的变化来维护域名关系，所以cluster.local 相关域名都在这里解析。在这里也实现了启动服务后进行的DNS注册</p>
-
-<p>2、第二部分</p>
-
-<pre><code>proxy . /etc/resolv.conf
-</code></pre>
-
-<p>proxy 指 coredns 中没有找到记录，则去 /etc/resolv.conf 中的 nameserver 请求解析，而 coredns 容器中的 /etc/resolv.conf 是继承自宿主机的。实际效果是如果不是 k8s 内部域名，就会去默认的 dns 服务器请求解析，并返回给 coredns 的请求者。</p>
-
-<p>3、其他</p>
-
-<ul>
-<li>prometheus：CoreDNS 的监控地址为： <a href="http://localhost:9153/metrics">http://localhost:9153/metrics</a> ，满足 Prometheus 的格式。</li>
-<li>cache：允许缓存</li>
-<li>loop：如果找到循环，则检测简单的转发循环并停止 CoreDNS 进程。</li>
-<li>reload：允许 Corefile 的配置自动更新。在更改 ConfigMap 后两分钟，修改生效</li>
-<li>loadbalance：这是一个循环 DNS 负载均衡器，可以在答案中随机化 A，AAAA 和 MX 记录的顺序。</li>
-</ul>
-
-<h2 id="k8s服务注册">k8s服务注册</h2>
-
-<p>Kubernetes 使用 DNS 作为服务注册表。为了满足这一需要，每个 Kubernetes 集群都会在 kube-system 命名空间中用 Pod 的形式运行一个 DNS 服务，通常称之为集群 DNS。DNS会监听service的变化，每个 Kubernetes 服务都会自动注册到集群 DNS 之中。注册过程大致如下：</p>
-
-<ul>
-<li>向 API Server 用 POST 方式提交一个新的 Service 定义；</li>
-<li>这个请求需要经过认证、鉴权以及其它的准入策略检查过程之后才会放行；</li>
-<li>Service 得到一个 ClusterIP（虚拟 IP 地址），并保存到集群数据仓库；</li>
-<li>在集群范围内传播 Service 配置；</li>
-<li>集群 DNS 服务得知该 Service 的创建，据此创建必要的 DNS A 记录。DNS 中注册的名称就是 metadata.name，而 ClusterIP 则由 Kubernetes 自行分配。</li>
-</ul>
-
-<p>CoreDNS 实现了一个控制器，会对 API Server 进行监听，一旦发现有新建的 Service 对象，就创建一个从 Service 名称映射到 ClusterIP 的域名记录。这样 Service 就不必自行向 DNS 进行注册，CoreDNS 控制器会关注新创建的 Service 对象，并实现后续的 DNS 过程。</p>
             </div>
             
             <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
@@ -269,7 +471,7 @@ metadata:
                 
                 
                 <h4 id="real-rels">相关文章</h4>
-                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-image/">云计算容器系列---- Docker image 优化</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年07月31日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-scheduler/">云计算K8s组件系列（二）---- K8s scheduler 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年09月24日)</span></li></ul>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-store/">云计算K8s组件系列（八）---- 存储</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年08月03日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-image/">云计算容器系列---- Docker image 优化</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年07月31日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li></ul>
             </aside>
                 
             
@@ -305,11 +507,16 @@ metadata:
 <ul>
 <li><a href="#dns">DNS</a>
 <ul>
-<li><a href="#k8s-dns-策略">K8s DNS 策略</a></li>
-<li><a href="#coredns-解析域名的过程">coreDNS 解析域名的过程</a></li>
-<li><a href="#k8s域名的策略">k8s域名的策略</a></li>
+<li><a href="#coredns">coredns</a></li>
+<li><a href="#部署coredns">部署CoreDNS</a></li>
 <li><a href="#配置文件">配置文件</a></li>
+<li><a href="#基本原理">基本原理</a>
+<ul>
 <li><a href="#k8s服务注册">k8s服务注册</a></li>
+<li><a href="#域名解析">域名解析</a></li>
+</ul></li>
+<li><a href="#k8s域名的策略">k8s域名的策略</a></li>
+<li><a href="#k8s创建pod的-dns-策略">K8s创建pod的 DNS 策略</a></li>
 </ul></li>
 </ul>
 </nav>
