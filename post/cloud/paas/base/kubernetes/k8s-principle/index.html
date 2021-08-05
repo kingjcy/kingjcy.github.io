@@ -396,6 +396,96 @@ spec:
 </code></pre>
 
 <p>这边要注意pod模板的修改并不会对已经存在的pod进行更新，新创建的pod是按照新的模板来创建，对应已经存在pod，每个控制器都是有自己的控制逻辑，大部分都是会删除旧的pod，然后创建新的pod来代替，比如deployment就是这样处理的。</p></li>
+
+<li><p>安全性上下文（securityContext）</p>
+
+<p>安全上下文（Security Context）定义 Pod 或 Container 的特权与访问控制设置。 安全上下文包括但不限于：</p>
+
+<ul>
+<li>自主访问控制（Discretionary Access Control）：基于 <a href="https://wiki.archlinux.org/index.php/users_and_groups">用户 ID（UID）和组 ID（GID）</a>. 来判定对对象（例如文件）的访问权限。</li>
+<li><a href="https://zh.wikipedia.org/wiki/安全增强式Linux">安全性增强的 Linux（SELinux）</a>： 为对象赋予安全性标签。</li>
+<li>以特权模式或者非特权模式运行。</li>
+
+<li><p><a href="https://linux-audit.com/linux-capabilities-hardening-linux-binaries-by-removing-setuid/">Linux 权能</a>: 为进程赋予 root 用户的部分特权而非全部特权。</p></li>
+
+<li><p><a href="https://kubernetes.io/zh/docs/tutorials/clusters/apparmor/">AppArmor</a>：使用程序框架来限制个别程序的权能。</p></li>
+
+<li><p><a href="https://en.wikipedia.org/wiki/Seccomp">Seccomp</a>：过滤进程的系统调用。</p></li>
+
+<li><p>AllowPrivilegeEscalation：控制进程是否可以获得超出其父进程的特权。 此布尔值直接控制是否为容器进程设置 <a href="https://www.kernel.org/doc/Documentation/prctl/no_new_privs.txt"><code>no_new_privs</code></a>标志。 当容器以特权模式运行或者具有 <code>CAP_SYS_ADMIN</code> 权能时，AllowPrivilegeEscalation 总是为 true。</p></li>
+
+<li><p>readOnlyRootFilesystem：以只读方式加载容器的根文件系统。</p></li>
+</ul>
+
+<p>以上条目不是安全上下文设置的完整列表 &ndash; 请参阅 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.21/#securitycontext-v1-core">SecurityContext</a> 了解其完整列表。</p>
+
+<p>关于在 Linux 系统中的安全机制的更多信息，可参阅 <a href="https://www.linux.com/learn/overview-linux-kernel-security-features">Linux 内核安全性能力概述</a>。我们常用的就是为Pod 或 Container设置访问权限和linux权能。</p>
+
+<p>1、为pod或者container设置安全上下文</p>
+
+<p>直接使用实例查看</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: security-context-demo
+spec:
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 3000
+    fsGroup: 2000
+  volumes:
+  - name: sec-ctx-vol
+    emptyDir: {}
+  containers:
+  - name: sec-ctx-demo
+    image: busybox
+    command: [ &quot;sh&quot;, &quot;-c&quot;, &quot;sleep 1h&quot; ]
+    volumeMounts:
+    - name: sec-ctx-vol
+      mountPath: /data/demo
+    securityContext:
+      allowPrivilegeEscalation: false
+</code></pre>
+
+<p>在配置文件中，<code>runAsUser</code> 字段指定 Pod 中的所有容器内的进程都使用用户 ID 1000 来运行。<code>runAsGroup</code> 字段指定所有容器中的进程都以主组 ID 3000 来运行。 如果忽略此字段，则容器的主组 ID 将是 root（0）。 当 <code>runAsGroup</code> 被设置时，所有创建的文件也会划归用户 1000 和组 3000。 由于 <code>fsGroup</code> 被设置，容器中所有进程也会是附组 ID 2000 的一部分。 卷 <code>/data/demo</code> 及在该卷中创建的任何文件的属主都会是组 ID 2000。</p>
+
+<p>如果在container级别设置将会覆盖pod级别，比如</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: security-context-demo-2
+spec:
+  securityContext:
+    runAsUser: 1000
+  containers:
+  - name: sec-ctx-demo-2
+    image: gcr.io/google-samples/node-hello:1.0
+    securityContext:
+      runAsUser: 2000
+      allowPrivilegeEscalation: false
+
+</code></pre>
+
+<p>对应的uid就是2000。</p>
+
+<p>2、为container设置权能</p>
+
+<p>使用 <a href="https://man7.org/linux/man-pages/man7/capabilities.7.html">Linux 权能</a>，你可以 赋予进程 root 用户所拥有的某些特权，但不必赋予其全部特权。 要为 Container 添加或移除 Linux 权能，可以在 Container 清单的 <code>securityContext</code> 节 包含 <code>capabilities</code> 字段。比如</p>
+
+<pre><code>apiVersion: v1
+kind: Pod
+metadata:
+  name: security-context-demo-4
+spec:
+  containers:
+  - name: sec-ctx-4
+    image: gcr.io/google-samples/node-hello:1.0
+    securityContext:
+      capabilities:
+        add: [&quot;NET_ADMIN&quot;, &quot;SYS_TIME&quot;]
+</code></pre></li>
 </ul>
 
 <p><strong>重启策略</strong></p>
@@ -503,66 +593,6 @@ spec:
 <p><strong>pod的配置管理</strong></p>
 
 <p>configmap，下面有详解的使用说明。</p>
-
-<p><strong>yaml</strong></p>
-
-<p>其实就是我们声明式操作的资源配置清单，具体参数详解可以查看k8s权威指南的第二章第四节。</p>
-
-<p>其实我们很少用pod来创建，一般都是用资源来控制，这边主要说几个重点的字段</p>
-
-<ul>
-<li><p>NodeSelector：是一个供用户将 Pod 与 Node 进行绑定的字段，意味着这个 Pod 永远只能运行在携带了类似“disktype: ssd”标签（Label）的节点上；否则，它将调度失败。</p></li>
-
-<li><p>NodeName：一旦 Pod 的这个字段被赋值，Kubernetes 项目就会被认为这个 Pod 已经经过了调度，调度的结果就是赋值的节点名字。所以，这个字段一般由调度器负责设置，但用户也可以设置它来“骗过”调度器，当然这个做法一般是在测试或者调试的时候才会用到。</p></li>
-
-<li><p>HostAliases：定义了 Pod 的 hosts 文件（比如 /etc/hosts）里的内容，在这个 Pod 的 YAML 文件中，我设置了一组 IP 和 hostname 的数据。这样，这个 Pod 启动后，会写入/etc/hosts 文件的内容，在 Kubernetes 项目中，如果要设置 hosts 文件里的内容，一定要通过这种方法。否则，如果直接修改了 hosts 文件的话，在 Pod 被删除重建之后，kubelet 会自动覆盖掉被修改的内容。</p></li>
-</ul>
-
-<pre><code>  apiVersion: v1
-  kind: Pod
-  ...
-  spec:
-    hostAliases:
-    - ip: &quot;10.1.2.3&quot;
-      hostnames:
-      - &quot;foo.remote&quot;
-      - &quot;bar.remote&quot;
-  ...
-</code></pre>
-
-<ul>
-<li>共享namespace，比如我定义了共享宿主机的 Network、IPC 和 PID Namespace。</li>
-</ul>
-
-<pre><code>  apiVersion: v1
-  kind: Pod
-  metadata:
-    name: nginx
-  spec:
-    hostNetwork: true
-    hostIPC: true
-    hostPID: true
-    containers:
-    - name: nginx
-      image: nginx
-    - name: shell
-      image: busybox
-      stdin: true
-      tty: true
-</code></pre>
-
-<ul>
-<li><p>Containers是对容器的定义，Init Containers 的生命周期，会先于所有的 Containers，并且严格按照定义的顺序执行。Kubernetes 项目中对 Container 的定义，和 Docker 相比并没有什么太大区别。 Image（镜像）、Command（启动命令）、workingDir（容器的工作目录）、Ports（容器要开发的端口），以及 volumeMounts（容器要挂载的 Volume）都是构成 Kubernetes 项目中 Container 的主要字段。不过在这里，还有这么几个属性值得你额外关注。</p>
-
-<ul>
-<li>ImagePullPolicy 字段。它定义了镜像拉取的策略。上面已经介绍</li>
-<li>Lifecycle 字段。它定义的是 Container Lifecycle Hooks。顾名思义，Container Lifecycle Hooks 的作用，是在容器状态发生变化时触发一系列“钩子”。上面已经介绍</li>
-</ul></li>
-
-<li><p>Pod 生命周期的变化，主要体现在 Pod API 对象的 Status 部分，这是它除了 Metadata 和 Spec 之外的第三个重要字段。其中，pod.status.phase，就是 Pod 的当前状态，上面已经介绍。</p></li>
-
-<li><p>volume主要是卷的挂载，比如<a href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-principle/#projectd volume">projectvolume</a></p></li>
-</ul>
 
 <blockquote>
 <p>健康检查</p>

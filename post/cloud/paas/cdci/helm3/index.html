@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="在以前的一篇文章中云计算CDCI系列&mdash;- helm2中，我们说明了helm的架构使用，目前helm已经发展到了helm3，重架构方面发送了很大的变化，所以今天我们来看看helm3。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算CDCI系列---- helm3 - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算CDCI系列---- helm3
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2020年08月04日 
+                </div>
+                <h1 class="post-title">云计算CDCI系列---- helm3</h1>
+            </header>
+
+            <div class="post-content">
+                <p>在以前的一篇文章中<a href="/post/cloud/paas/CDCI/helm">云计算CDCI系列&mdash;- helm2</a>中，我们说明了helm的架构使用，目前helm已经发展到了helm3，重架构方面发送了很大的变化，所以今天我们来看看helm3。</p>
+
+<h1 id="基本概念">基本概念</h1>
+
+<p>helm的精髓就在于打包一次，随处（kuberentes平台之上）运行，helm也提供了应用部署，存储和分发的完整的机制。</p>
+
+<p>基础概念基本上没有改变，核心在于helm3移除了tiller服务端的概念，一切接在helm，我们在下面的架构做详细的说明。下面我们简单看看原来的几个概念。</p>
+
+<ul>
+<li>Chart： 就是一个用helm打包好的应用。 包含运行该应用的所有资源的定义或工具。</li>
+<li>Repository（仓库）：用于存储和分享打包好的应用（chart）</li>
+<li>Release（实例）：应用在kuberentes中运行的一个实例。一个chart可以在一个集群中多次安装，每次安装都会有一个新的实例。多个实例需要有不同的命名。</li>
+</ul>
+
+<h1 id="架构">架构</h1>
+
+<p>helm在helm 3中有重大更新，在helm2版本及以前，helm有一个在集群中运行的服务叫Tiller，需要安装部署在集群中去执行同kuberentes的交互操作。但是在helm3中删除了Tiller这个架构，在客户端的位置几乎重新写了一个类似tiller作用的Library，很多时出于安全性的目的，设计成将所有的同kuberentes api交互的操作都采用kuberentes原生的client进行管理。</p>
+
+<p>所以helm 3的架构变得更加的简单，只有helm完成所有的客户端和服务端的工作，主要结构如下：</p>
+
+<ul>
+<li>Helm Client： Helm的命令行客户端helm cli，用于helm的操作</li>
+<li>Helm Library： helm的服务端，通kuberents api进行交互，用于接收客户端的指令并执行部署，更新，删除和版本的管理，可见这个部分就是取代tiller的功能。</li>
+</ul>
+
+<h1 id="部署">部署</h1>
+
+<p>由于架构的改变，部署变得更加的简单，总结来说，只要拥有helm的二进制文件就可以。</p>
+
+<ul>
+<li><p>下载指定版本的helm安装包（<a href="https://github.com/helm/helm/releases）">https://github.com/helm/helm/releases）</a></p></li>
+
+<li><p>解压 # tar -zxvf helm-v3.0.0-linux-amd64.tar.gz</p></li>
+
+<li><p>找到helm命令的位置，然后放到希望放到的位置，例如/usr/local/bin，然后在任意位置都可以执行helm命令了</p>
+
+<pre><code>  # mv linux-amd64/helm /usr/local/bin/helm
+</code></pre></li>
+
+<li><p>查看版本信息</p>
+
+<pre><code>  # helm version
+  WARNING: Kubernetes configuration file is group-readable. This is insecure. Location: /root/.kube/config
+  version.BuildInfo{Version:&quot;v3.5.4&quot;, GitCommit:&quot;1b5edb69df3d3a08df77c9902dc17af864ff05d1&quot;, GitTreeState:&quot;clean&quot;, GoVersion:&quot;go1.15.11&quot;}
+</code></pre></li>
+</ul>
+
+<h1 id="使用">使用</h1>
+
+<p>其实基本使用还是一样的，我们可以利用<code>helm create</code>命令，创建一个简单的示例。<code>helm create</code>的示例chart也并不是一无所有，它包含了大部分的资源抽象，例如kubernetes deployment，service，ingress，serviceaccount等资源。</p>
+
+<pre><code>$ helm create helloworld
+Creating hellworld
+$ tree hellworld
+hellworld
+├── charts										# 这个 charts 依赖的其他 charts，始终被安装
+├── Chart.yaml									# 描述这个 Chart 的相关信息、包括名字、描述信息、版本等
+├── templates									# 模板目录
+│   ├── deployment.yaml							# deployment 控制器的 Go 模板文件
+│   ├── _helpers.tpl							# 以 _ 开头的文件不会部署到 k8s 上，可用于定制通用信息
+│   ├── ingress.yaml							# ingress 的模板文件
+│   ├── NOTES.txt								# Chart 部署到集群后的一些信息，例如：如何使用、列出缺省值
+│   ├── serviceaccount.yaml
+│   ├── service.yaml							# service 的 Go 模板文件
+│   └── tests
+│       └── test-connection.yaml
+└── values.yaml									# 模板的值文件，这些值会在安装时应用到 GO 模板生成部署文件
+
+3 directories, 9 files
+</code></pre>
+
+<ul>
+<li><p>charts： 用于存放其他依赖和关联的chart。例如应用依赖数据库的chart。</p></li>
+
+<li><p>Chart.yaml：存储一些元数据，例如chart的信息，描述等等</p></li>
+
+<li><p>templates文件夹：是所有资源的位置，我们可以看到很多kubernetes的资源文件都在这里存放。</p>
+
+<ul>
+<li>其中的_helpers.tpl，用于存储模板片段，可以在文件中直接使用template函数调用。</li>
+<li>NOTES.txt：相当于你运行helm install的时候给用户输出的提示。</li>
+</ul></li>
+
+<li><p>value.yaml：存储该chart的默认值，实际安装时可以对默认值进行覆盖。</p></li>
+</ul>
+
+<h1 id="实战">实战</h1>
+
+<p>首先我们有部署的grafana的yaml文件，我们可以通过下面的方法进行操作</p>
+
+<ul>
+<li>网上找到一个charts，人家考虑还是比较全面的，选择其中相关的template，然后对应的做修改，然后提交使用就可以</li>
+<li>对着自己的yaml文件，提出自己认为重要或者可变的变量，比如image，然后提交使用，这个可以个人考虑不够完善，甚至直接提交源文件也是可以使用的。</li>
+</ul>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/cdci/helm3/">https://kingjcy.github.io/post/cloud/paas/cdci/helm3/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cdci/">
+                            <i class="fa fa-tags"></i>
+                            CDCI
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/helm/">
+                            <i class="fa fa-tags"></i>
+                            helm
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-store/">云计算K8s组件系列（八）---- 存储</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年08月03日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-image/">云计算容器系列---- Docker image 优化</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年07月31日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-proxy/">云计算K8s组件系列（五）---- K8s proxy 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月13日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/monitor/log/log-scheme/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/log/collect/filebeat/filebeat/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#基本概念">基本概念</a></li>
+<li><a href="#架构">架构</a></li>
+<li><a href="#部署">部署</a></li>
+<li><a href="#使用">使用</a></li>
+<li><a href="#实战">实战</a></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
