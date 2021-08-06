@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <meta name="author" content="fatedier">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
-<meta name="description" content="Prometheus-Operator是一套为了方便整合prometheus和kubernetes的开源方案，使用Prometheus-Operator可以非常简单的在kubernetes集群中部署Prometheus服务，用户能够使用简单的声明性配置来配置和管理Prometheus实例，这些配置将响应、创建、配置和管理Prometheus监控实例。">
+<meta name="description" content="Prometheus-Operator是一套为了方便整合prometheus和kubernetes的开源方案，使用Prometheus-Operator可以非常简单的在kubernetes集群中部署Prometheus生态服务，用户能够使用简单的声明性配置来配置和管理Prometheus实例，这些配置将响应、创建、配置和管理Prometheus监控实例。">
 <meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
 <meta property="og:title" content="监控metrics系列---- Prometheus Operator - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
 
@@ -72,7 +72,7 @@
             </header>
 
             <div class="post-content">
-                <p>Prometheus-Operator是一套为了方便整合prometheus和kubernetes的开源方案，使用Prometheus-Operator可以非常简单的在kubernetes集群中部署Prometheus服务，用户能够使用简单的声明性配置来配置和管理Prometheus实例，这些配置将响应、创建、配置和管理Prometheus监控实例。</p>
+                <p>Prometheus-Operator是一套为了方便整合prometheus和kubernetes的开源方案，使用Prometheus-Operator可以非常简单的在kubernetes集群中部署Prometheus生态服务，用户能够使用简单的声明性配置来配置和管理Prometheus实例，这些配置将响应、创建、配置和管理Prometheus监控实例。</p>
 
 <h1 id="operator">operator</h1>
 
@@ -176,9 +176,13 @@ spec:
   jobLabel: k8s-app
 </code></pre>
 
-<p>Spec 的 endpoints 部分用于配置需要收集 metrics 的 Endpoints 的端口和其他参数。endpoints（小写）是 ServiceMonitor CRD 中的一个字段，而 Endpoints（大写）是 Kubernetes 资源类型。</p>
+<ul>
+<li><p>Spec 的 endpoints 部分用于配置需要收集 metrics 的 Endpoints 的端口和其他参数。endpoints（小写）是 ServiceMonitor CRD 中的一个字段，而 Endpoints（大写）是 Kubernetes 资源类型。</p></li>
 
-<p>Spec 下的 namespaceSelector 可以现在允许发现 Endpoints 对象的命名空间。要发现所有命名空间下的目标，namespaceSelector 必须为空。</p>
+<li><p>Spec 下的 namespaceSelector 可以现在允许发现 Endpoints 对象的命名空间。要发现所有命名空间下的目标，namespaceSelector 必须为空。</p></li>
+</ul>
+
+<p>相关crd的api可以去查看<a href="https://github.com/prometheus-operator/prometheus-operator/blob/master/Documentation/api.md#servicemonitor">官方文档</a>。</p>
 
 <h3 id="alertmanager">Alertmanager</h3>
 
@@ -1083,7 +1087,45 @@ spec:
     protocol: TCP
 </code></pre>
 
-<p>具体在上面的schduler讲解过，不多说了，到此一个完整的监控就新增好了。</p>
+<p>到此一个完整的监控就新增好了，我们简单总结，基本都是通过label进行匹配，大体流程如下</p>
+
+<pre><code>prometheus--&gt;servicemonitor--&gt;service--&gt;pod/ep
+</code></pre>
+
+<blockquote>
+<p>新增自定义的标签</p>
+</blockquote>
+
+<p>通过ServiceMonitor来给采集指标新增自定义的标签这个功能目前是不支持的，我们可以通过 relabelings的功能来实现，比如我们在采集harbor想新增一个harbor集群的标签，我们可以将现有的标签进行重定义赋值，如下：</p>
+
+<pre><code>apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: harbor-exporter
+  namespace: monitoring
+  labels:
+    app: harbor-exporter
+spec:
+  endpoints:
+  - interval: 30s
+    honorLabels: true
+    port: http
+    path: /metrics
+    scheme: http
+    relabelings:
+    - sourceLabels: [__meta_kubernetes_endpoint_port_protocol]（被替换的meta数据）
+      targetLabel:  harbor_name（label的key）
+      replacement: test（label的value）
+  selector:
+    matchLabels:
+      app: harbor-exporter
+  namespaceSelector:
+    matchNames:
+    - monitoring
+
+</code></pre>
+
+<p>还有很多的用法，需要在我们实践中大量的积累。</p>
 
 <h2 id="自定义告警规则">自定义告警规则</h2>
 
@@ -1572,7 +1614,7 @@ pvc-1938de6b-047b-11e9-a777-525400db4df7   10Gi       RWO            Delete     
                 
                 
                 <h4 id="real-rels">相关文章</h4>
-                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/metrics/prometheus/ui/grafana/">监控metrics系列---- 可视化Grafana</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年06月27日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/prometheus-principle/">监控metrics系列---- Prometheus Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月01日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat-principle/">监控日志系列---- Filebeat原理</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月15日)</span></li><li id="li-rels"><a href="/post/monitor/log/log-scheme/">监控系列---- log</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat/">监控日志系列---- Filebeat</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/monitor-scheme/infrastructure-base/">监控metrics系列---- Infrastructure监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/monitor-scheme/k8s-base/">监控metrics系列---- K8s监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月12日)</span></li><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/mtail/">监控metrics系列---- Prometheus mtail</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li></ul>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/monitor/metrics/prometheus/ui/grafana/">监控metrics系列---- 可视化Grafana</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年06月27日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/prometheus-principle/">监控metrics系列---- Prometheus Principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月01日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat-principle/">监控日志系列---- Filebeat原理</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月15日)</span></li><li id="li-rels"><a href="/post/monitor/log/log-scheme/">监控系列---- log</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年08月13日)</span></li><li id="li-rels"><a href="/post/monitor/log/collect/filebeat/filebeat/">监控日志系列---- Filebeat</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年07月08日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/prometheus/">监控metrics系列---- Prometheus入门</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年06月29日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/monitor-scheme/infrastructure-base/">监控metrics系列---- Infrastructure监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年06月13日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/monitor-scheme/k8s-base/">监控metrics系列---- K8s监控方案</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年05月12日)</span></li><li id="li-rels"><a href="/post/monitor/log/loki/loki/">监控日志系列---- loki</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月18日)</span></li><li id="li-rels"><a href="/post/monitor/metrics/prometheus/exporter/log/grok_exporter/">监控metrics系列---- Prometheus Grok_exporter</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年01月10日)</span></li></ul>
             </aside>
                 
             

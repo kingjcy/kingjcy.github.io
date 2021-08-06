@@ -80,9 +80,17 @@
 
 <h1 id="https">HTTPS</h1>
 
-<p>先声明一个个人容易混淆的概念，https中的安全验证是验证证书的可信性，比如单向验证，是客户端端验证服务端发来的证书是不是可靠，而服务端验证客户端的信息是否正确也是一种验证，也就是我们常用的登陆认证方式，可以是用户名密码，也可以是令牌等。当然也存在一种特殊的方式，就是使用证书可以完成登陆认证的一种特例。</p>
+<p>先声明一些个人容易混淆的概念</p>
 
-<p>所以SSL/TLS不一定和TOKEN等信息有关系，不使用https，还是可以使用token来认证，使用https，就是增加了一个证书的验证过程，SSL/TLS主要还是完成加密传输的验证，完成安全性保证，当然证书可以包含一些认证信息，具体可以看上面的证书的签发过程。</p>
+<ul>
+<li><p>https中的安全验证是验证证书的可信性，比如单向验证，是客户端端验证服务端发来的证书是不是可靠。双向验证，则包含服务端验证客户端发来证书的可靠性，服务端和客户端都会根据ca来签发自己的证书然后发给对应方，对应方会使用ca数字证书来验证。比如我们在编程的时候，会在客户端或者服务端加载ca证书，就使用用来验证对方发来的证书的可靠性。</p></li>
+
+<li><p>对于证书的验证也可以跳过验证，其实就是自己不验证对方的证书。但是有一些服务端是必须要客户端验证证书，然后带着公钥给服务端发送信息，才能获取接口信息，比如harbor的/statistics接口请求。</p></li>
+
+<li><p>https中登录验证也就是http中的登录认证，这个和tls/ssl没有关系，也就是和上面的证书认证没有什么关系，即使不使用https也可以使用登录认证的，使用了https也可以使用登录认证，比如harbor的/statistics接口请求。</p></li>
+
+<li><p>服务端验证的证书中包含一些登录认证的信息，是既可以完成证书的认证，也可以完成登录的认证的，这是两者之间的联系，当然SSL/TLS主要还是完成加密传输的验证，完成安全性保证。</p></li>
+</ul>
 
 <h2 id="概述">概述</h2>
 
@@ -222,7 +230,13 @@ Thumbprint，Thumbprint algorithm--指纹以及指纹算法（一种HASH算法�
 <p>FormBase认证</p>
 </blockquote>
 
-<p>web应用程序各自实现的认证方式</p>
+<p>web应用程序各自实现的认证方式，比如</p>
+
+<ul>
+<li>OAuth对于Http来说，就是放在Authorization header中的不是用户名密码， 而是一个token。</li>
+<li>Cookie认证机制：用户输入用户名和密码发起请求，服务器认证后给每个Session分配一个唯一的JSESSIONID，并通过Cookie发送给客户端。
+当客户端发起新的请求的时候，将在Cookie头中携带这个JSESSIONID。这样服务器能够找到这个客户端对应的Session。默认的，当我们关闭浏览器的时候，客户端cookie会被删除，可以通过修改cookie 的expire time使cookie在一定时间内有效。但是服务器端的session不会被销毁，除非通过invalidate或超时。</li>
+</ul>
 
 <p>使用率：web应用常用的认证方式</p>
 
@@ -566,11 +580,12 @@ Getting CA Private Key
 
 <pre><code>CA:
     私钥文件 ca.key
-    数字证书 ca.crt
+    数字证书 ca.crt     也可以是pem格式，一样的。
 
 Server:
     私钥文件 server.key
     数字证书 server.crt
+还可以有一个证书请求文件csr
 </code></pre>
 
 <p>接下来，我们就来完成我们的程序。</p>
@@ -609,6 +624,7 @@ import (
 )
 
 func main() {
+    //加载ca证书来验证服务端发来的证书
     pool := x509.NewCertPool()
     caCertPath := &quot;ca.crt&quot;
 
@@ -640,6 +656,29 @@ func main() {
 
 go run client.go
 Hi, This is an example of http service in golang!
+</code></pre>
+
+<p>这边编码使用了NewCertPool来读取对应的ca证书，我们也可以直接使用系统证书，使用函数SystemCertPool，就是默认使用/etc/ssl/certs/这个路径下的证书，还有通过环境变量SSL_CERT_FILE and SSL_CERT_DIR 来指定。</p>
+
+<pre><code>rootCAs, err := x509.SystemCertPool()
+if err != nil {
+    return nil, err
+}
+
+tlsClientConfig := &amp;tls.Config{
+    MinVersion: tls.VersionTLS12,
+    RootCAs:    rootCAs,
+}
+if skipVerify {
+    tlsClientConfig.InsecureSkipVerify = true
+}
+transport := &amp;http.Transport{
+    TLSClientConfig: tlsClientConfig,
+}
+client := &amp;http.Client{
+    Transport: transport,
+    Timeout:   time.Second * 10,
+}
 </code></pre>
 
 <blockquote>
@@ -726,6 +765,7 @@ import (
 )
 
 func main() {
+    //加载ca证书来验证服务端发来的证书
     pool := x509.NewCertPool()
     caCertPath := &quot;ca.crt&quot;
 
@@ -736,6 +776,7 @@ func main() {
     }
     pool.AppendCertsFromPEM(caCrt)
 
+    //发送过程中加上自身的证书给对方验证
     cliCrt, err := tls.LoadX509KeyPair(&quot;client.crt&quot;, &quot;client.key&quot;)
     if err != nil {
         fmt.Println(&quot;Loadx509keypair err:&quot;, err)

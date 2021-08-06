@@ -66,7 +66,7 @@
 
             <header>
                 <div class="post-date">
-                    2017年06月29日 
+                    2020年06月29日 
                 </div>
                 <h1 class="post-title">监控metrics系列---- Prometheus入门</h1>
             </header>
@@ -433,29 +433,319 @@ file_sd_configs:
 <p>kubernetes_sd_configs</p>
 </blockquote>
 
-<p>主要参考<a href="/post/monitor/metrics/prometheus/monitor-scheme/k8s/#使用k8s的服务发现">k8s监控方案中的prometheus in k8s的配置文件解析</a>。</p>
+<p>Prometheus支持通过kubernetes的Rest API动态发现采集的目标Target信息，包括kubernetes下的node,service,pod,endpoints等信息，我们通过<a href="https://github.com/prometheus/prometheus/blob/release-2.27/documentation/examples/prometheus-kubernetes.yml">官方的原生文件</a>来看一下对应的配置方式。</p>
 
-<p>这里我们主要关注在kubernetes下的采集目标发现的配置，Prometheus支持通过kubernetes的Rest API动态发现采集的目标Target信息，包括kubernetes下的node,service,pod,endpoints等信息。</p>
+<pre><code># A scrape configuration for running Prometheus on a Kubernetes cluster.
+# This uses separate scrape configs for cluster components (i.e. API server, node)
+# and services to allow each to use different authentication configs.
+#
+# Kubernetes labels will be added as Prometheus labels on metrics via the
+# `labelmap` relabeling action.
+#
+# If you are using Kubernetes 1.7.2 or earlier, please take note of the comments
+# for the kubernetes-cadvisor job; you will need to edit or remove this job.
 
-<p>kubernets_sd_config下面role类型中的任何一个都能在发现目标上配置：</p>
+# Scrape config for API servers.
+#
+# Kubernetes exposes API servers as endpoints to the default/kubernetes
+# service so this uses `endpoints` role and uses relabelling to only keep
+# the endpoints associated with the default/kubernetes service using the
+# default named port `https`. This works for single API server deployments as
+# well as HA API server deployments.
+scrape_configs:
+- job_name: 'kubernetes-apiservers'
 
-<p>节点node</p>
+  kubernetes_sd_configs:
+  - role: endpoints
 
-<p>这个node角色发现带有地址的每一个集群节点一个目标，都指向Kublelet的HTTP端口。这个目标地址默认为Kubernetes节点对象的第一个现有地址，地址类型为NodeInernalIP, NodeExternalIP, NodeLegacyHostIP和NodeHostName。</p>
+  # Default to scraping over https. If required, just disable this or change to
+  # `http`.
+  scheme: https
 
-<p>可用的meta标签：</p>
+  # This TLS &amp; bearer token file config is used to connect to the actual scrape
+  # endpoints for cluster components. This is separate to discovery auth
+  # configuration because discovery &amp; scraping are two separate concerns in
+  # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+  # the cluster. Otherwise, more config options have to be provided within the
+  # &lt;kubernetes_sd_config&gt;.
+  tls_config:
+    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    # If your node certificates are self-signed or use a different CA to the
+    # master CA, then disable certificate verification below. Note that
+    # certificate verification is an integral part of a secure infrastructure
+    # so this should only be disabled in a controlled environment. You can
+    # disable certificate verification by uncommenting the line below.
+    #
+    # insecure_skip_verify: true
+  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
 
-<pre><code>__meta_kubernetes_node_name: 节点对象的名称
-__meta_kubernetes_node_label_&lt;labelname&gt;: 节点对象的每个标签
-__meta_kubernetes_node_annotation_&lt;annotationname&gt;: 节点对象的每个注释
-_meta_kubernetes_node_address&lt;address_type&gt;: 如果存在，每一个节点对象类型的第一个地址
+  # Keep only the default/kubernetes service endpoints for the https port. This
+  # will add targets for each API server which Kubernetes adds an endpoint to
+  # the default/kubernetes service.
+  relabel_configs:
+  - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+    action: keep
+    regex: default;kubernetes;https
+
+# Scrape config for nodes (kubelet).
+#
+# Rather than connecting directly to the node, the scrape is proxied though the
+# Kubernetes apiserver.  This means it will work if Prometheus is running out of
+# cluster, or can't connect to nodes for some other reason (e.g. because of
+# firewalling).
+- job_name: 'kubernetes-nodes'
+
+  # Default to scraping over https. If required, just disable this or change to
+  # `http`.
+  scheme: https
+
+  # This TLS &amp; bearer token file config is used to connect to the actual scrape
+  # endpoints for cluster components. This is separate to discovery auth
+  # configuration because discovery &amp; scraping are two separate concerns in
+  # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+  # the cluster. Otherwise, more config options have to be provided within the
+  # &lt;kubernetes_sd_config&gt;.
+  tls_config:
+    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+  kubernetes_sd_configs:
+  - role: node
+
+  relabel_configs:
+  # 即从 __meta_kubernetes_node_label_&lt;labelname&gt; 这个配置中取出 labelname 以及 value
+  - action: labelmap
+    regex: __meta_kubernetes_node_label_(.+)
+  # 配置 address 为 k8s api 的地址，相关的 ca 证书以及 token 在上面配置
+  - target_label: __address__
+    replacement: kubernetes.default.svc:443
+   # 取出所有的 node，然后设置 /api/v1/nodes/&lt;node_name&gt;/proxy/metrics 为 metrics path
+  - source_labels: [__meta_kubernetes_node_name]
+    regex: (.+)
+    target_label: __metrics_path__
+    replacement: /api/v1/nodes/${1}/proxy/metrics
+
+# Scrape config for Kubelet cAdvisor.
+#
+# This is required for Kubernetes 1.7.3 and later, where cAdvisor metrics
+# (those whose names begin with 'container_') have been removed from the
+# Kubelet metrics endpoint.  This job scrapes the cAdvisor endpoint to
+# retrieve those metrics.
+#
+# In Kubernetes 1.7.0-1.7.2, these metrics are only exposed on the cAdvisor
+# HTTP endpoint; use &quot;replacement: /api/v1/nodes/${1}:4194/proxy/metrics&quot;
+# in that case (and ensure cAdvisor's HTTP server hasn't been disabled with
+# the --cadvisor-port=0 Kubelet flag).
+#
+# This job is not necessary and should be removed in Kubernetes 1.6 and
+# earlier versions, or it will cause the metrics to be scraped twice.
+- job_name: 'kubernetes-cadvisor'
+
+  # Default to scraping over https. If required, just disable this or change to
+  # `http`.
+  scheme: https
+
+  # This TLS &amp; bearer token file config is used to connect to the actual scrape
+  # endpoints for cluster components. This is separate to discovery auth
+  # configuration because discovery &amp; scraping are two separate concerns in
+  # Prometheus. The discovery auth config is automatic if Prometheus runs inside
+  # the cluster. Otherwise, more config options have to be provided within the
+  # &lt;kubernetes_sd_config&gt;.
+  tls_config:
+    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+  kubernetes_sd_configs:
+  - role: node
+
+  relabel_configs:
+  - action: labelmap
+    regex: __meta_kubernetes_node_label_(.+)
+  - target_label: __address__
+    replacement: kubernetes.default.svc:443
+  - source_labels: [__meta_kubernetes_node_name]
+    regex: (.+)
+    target_label: __metrics_path__
+    replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+
+# Scrape config for service endpoints.
+#
+# The relabeling allows the actual service scrape endpoint to be configured
+# via the following annotations:
+#
+# * `prometheus.io/scrape`: Only scrape services that have a value of `true`
+# * `prometheus.io/scheme`: If the metrics endpoint is secured then you will need
+# to set this to `https` &amp; most likely set the `tls_config` of the scrape config.
+# * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+# * `prometheus.io/port`: If the metrics are exposed on a different port to the
+# service then set this appropriately.
+- job_name: 'kubernetes-service-endpoints'
+
+  kubernetes_sd_configs:
+  - role: endpoints
+
+  relabel_configs:
+  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+    action: keep
+    regex: true
+  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+    action: replace
+    target_label: __scheme__
+    regex: (https?)
+  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+    action: replace
+    target_label: __metrics_path__
+    regex: (.+)
+  - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+    action: replace
+    target_label: __address__
+    regex: ([^:]+)(?::\d+)?;(\d+)
+    replacement: $1:$2
+  - action: labelmap
+    regex: __meta_kubernetes_service_label_(.+)
+  - source_labels: [__meta_kubernetes_namespace]
+    action: replace
+    target_label: kubernetes_namespace
+  - source_labels: [__meta_kubernetes_service_name]
+    action: replace
+    target_label: kubernetes_name
+
+# Example scrape config for probing services via the Blackbox Exporter.
+#
+# The relabeling allows the actual service scrape endpoint to be configured
+# via the following annotations:
+#
+# * `prometheus.io/probe`: Only probe services that have a value of `true`
+- job_name: 'kubernetes-services'
+
+  metrics_path: /probe
+  params:
+    module: [http_2xx]
+
+  kubernetes_sd_configs:
+  - role: service
+
+  relabel_configs:
+  - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_probe]
+    action: keep
+    regex: true
+  - source_labels: [__address__]
+    target_label: __param_target
+  - target_label: __address__
+    replacement: blackbox-exporter.example.com:9115
+  - source_labels: [__param_target]
+    target_label: instance
+  - action: labelmap
+    regex: __meta_kubernetes_service_label_(.+)
+  - source_labels: [__meta_kubernetes_namespace]
+    target_label: kubernetes_namespace
+  - source_labels: [__meta_kubernetes_service_name]
+    target_label: kubernetes_name
+
+# Example scrape config for probing ingresses via the Blackbox Exporter.
+#
+# The relabeling allows the actual ingress scrape endpoint to be configured
+# via the following annotations:
+#
+# * `prometheus.io/probe`: Only probe services that have a value of `true`
+- job_name: 'kubernetes-ingresses'
+
+  metrics_path: /probe
+  params:
+    module: [http_2xx]
+
+  kubernetes_sd_configs:
+    - role: ingress
+
+  relabel_configs:
+    - source_labels: [__meta_kubernetes_ingress_annotation_prometheus_io_probe]
+      action: keep
+      regex: true
+    - source_labels: [__meta_kubernetes_ingress_scheme,__address__,__meta_kubernetes_ingress_path]
+      regex: (.+);(.+);(.+)
+      replacement: ${1}://${2}${3}
+      target_label: __param_target
+    - target_label: __address__
+      replacement: blackbox-exporter.example.com:9115
+    - source_labels: [__param_target]
+      target_label: instance
+    - action: labelmap
+      regex: __meta_kubernetes_ingress_label_(.+)
+    - source_labels: [__meta_kubernetes_namespace]
+      target_label: kubernetes_namespace
+    - source_labels: [__meta_kubernetes_ingress_name]
+      target_label: kubernetes_name
+
+# Example scrape config for pods
+#
+# The relabeling allows the actual pod scrape endpoint to be configured via the
+# following annotations:
+#
+# * `prometheus.io/scrape`: Only scrape pods that have a value of `true`
+# * `prometheus.io/path`: If the metrics path is not `/metrics` override this.
+# * `prometheus.io/port`: Scrape the pod on the indicated port instead of the
+# pod's declared ports (default is a port-free target if none are declared).
+- job_name: 'kubernetes-pods'
+
+  kubernetes_sd_configs:
+  - role: pod
+
+  relabel_configs:
+  - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+    action: keep
+    regex: true
+  - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+    action: replace
+    target_label: __metrics_path__
+    regex: (.+)
+  - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+    action: replace
+    regex: ([^:]+)(?::\d+)?;(\d+)
+    replacement: $1:$2
+    target_label: __address__
+  - action: labelmap
+    regex: __meta_kubernetes_pod_label_(.+)
+  - source_labels: [__meta_kubernetes_namespace]
+    action: replace
+    target_label: kubernetes_namespace
+  - source_labels: [__meta_kubernetes_pod_name]
+    action: replace
+    target_label: kubernetes_pod_name
 </code></pre>
 
-<p>另外，对于节点的instance标签，将会被设置成从API服务中获取的节点名称。</p>
+<p>当然这是一种最古老的k8s部署prometheus的方式，具体可以看<a href="https://kingjcy.github.io/post/monitor/metrics/prometheus/monitor-scheme/k8s-base/#%E4%BD%BF%E7%94%A8k8s%E7%9A%84%E6%9C%8D%E5%8A%A1%E5%8F%91%E7%8E%B0">k8s监控方案中的prometheus in k8s的配置文件解析</a>， 现在都是使用prometheus-operator的功能，当然这个在这边不是重点，这边重点是如何配置。</p>
 
-<p>服务service</p>
+<ul>
+<li><code>&lt;scrape_config&gt;</code>:首先肯定是在scrape_config中进行job的配置</li>
+<li>job_name：然后就是对应job的配置，在job中支持常规的job参数，比如metrics_paths，params等，然后就是对应的target了，这边就是我们今天的主题k8s的服务发现</li>
+<li>kubernets_sd_config的核心配置
 
-<p>对于每个服务每个服务端口，service角色发现一个目标。对于一个服务的黑盒监控是通常有用的。这个地址被设置成这个服务的Kubernetes DNS域名, 以及各自的服务端口。</p>
+<ul>
+<li>role：k8s的服务发现设定了node，service，pod，ingress的类型角色，通过role来采集不同的组件，下面再详细说明。</li>
+<li>relabel_configs：就是prometheus中替换的作用，我们在这里常用设置标签或采集地址。如果没有配置relabel_configs对标签进行过滤，那么会采集到很多其他信息设置采集失败，比如有些目标并不没有相应的/metrics路径，采集状态都为down。</li>
+</ul></li>
+</ul>
+
+<p>每一中role都有着不同的作用，主要用于发现和采集不同的目标。</p>
+
+<p>1、node</p>
+
+<p>这个node角色发现带有地址的每一个集群节点一个目标，都指向Kublelet的HTTP端口。</p>
+
+<p>每一种角色都有meta数据，node可用的meta标签：</p>
+
+<pre><code>__meta_kubernetes_node_name：节点对象的名称。
+__meta_kubernetes_node_label_&lt;labelname&gt;: 节点对象的每个标签
+__meta_kubernetes_node_annotation_&lt;annotationname&gt;: 节点对象的每个注释
+_meta_kubernetes_node_annotation：来自节点对象的每个注释。
+_meta_kubernetes_node_annotationpresent：true用于节点对象的每个注释。
+_meta_kubernetes_node_address&lt;address_type&gt;: 如果存在，每一个节点对象类型的第一个地址
+
+</code></pre>
+
+<p>2、service</p>
+
+<p>对于每个服务每个服务端口，service角色发现对应的采集目标。</p>
 
 <p>可用的meta标签：</p>
 
@@ -470,9 +760,9 @@ __meta_kubernetes_service_port_portocol: 目标服务端口的协议
 
 <p>note：这里Service中同样标注了 prometheus.io/scrape: ‘true’从而确保prometheus会采集数据。</p>
 
-<p>pod</p>
+<p>3、pod</p>
 
-<p>pod角色发现所有的pods，并暴露它们的容器作为目标。对于每一个容器的声明端口，单个目标被生成。 如果一个容器没有指定端口，每个容器的无端口目标都是通过relabeling手动添加端口而创建的。</p>
+<p>pod角色发现所有的pods，并暴露它们的容器作为目标。</p>
 
 <p>可用的meta标签：</p>
 
@@ -490,56 +780,175 @@ __meta_kubernetes_pod_node_name: pod调度的node名称
 __meta_kubernetes_pod_host_ip: 节点对象的主机IP
 </code></pre>
 
-<p>endpoints端点</p>
+<p>4、endpoints端点</p>
 
-<p>endpoints角色发现来自于一个服务的列表端点目标。对于每一个终端地址，一个目标被一个port发现。如果这个终端被写入到pod中，这个节点的所有其他容器端口，未绑定到端点的端口，也会被目标发现。</p>
+<p>endpoints角色发现来自于一个服务的列表端点目标。</p>
 
 <p>可用的meta标签：</p>
 
 <pre><code>__meta_kubernetes_namespace: 端点对象的命名空间
 __meta_kubernetes_endpoints_name: 端点对象的名称
+
 对于直接从端点列表中获取的所有目标，下面的标签将会被附加上。
 __meta_kubernetes_endpoint_ready: endpoint ready状态设置为true或者false。
 __meta_kubernetes_endpoint_port_name: 端点的端口名称
 __meta_kubernetes_endpoint_port_protocol: 端点的端口协议
-
-如果端点属于一个服务，这个角色的所有标签：服务发现被附加上。
-对于在pod中的所有目标，这个角色的所有表掐你：pod发现被附加上
 </code></pre>
 
-<p>对于Kuberntes发现，看看下面的配置选项：</p>
+<p>实现原理</p>
 
-<pre><code># The information to access the Kubernetes API.
+<p>主要实现让prometheus程序可以访问kube-apiserver，进而进行服务发现，然后采集对应的指标。在下列代码中可以看到对应的四个角色：node，service，ingress，pod。</p>
 
-# The API server addresses. If left empty, Prometheus is assumed to run inside
-# of the cluster and will discover API servers automatically and use the pod's
-# CA certificate and bearer token file at /var/run/secrets/kubernetes.io/serviceaccount/.
-[ api_server: &lt;host&gt; ]
+<pre><code>switch d.role {
+case &quot;endpoints&quot;:
+    var wg sync.WaitGroup
 
-# The Kubernetes role of entities that should be discovered.
-role: &lt;role&gt;
+    for _, namespace := range namespaces {
+        elw := cache.NewListWatchFromClient(rclient, &quot;endpoints&quot;, namespace, nil)
+        slw := cache.NewListWatchFromClient(rclient, &quot;services&quot;, namespace, nil)
+        plw := cache.NewListWatchFromClient(rclient, &quot;pods&quot;, namespace, nil)
+        eps := NewEndpoints(
+            log.With(d.logger, &quot;role&quot;, &quot;endpoint&quot;),
+            cache.NewSharedInformer(slw, &amp;apiv1.Service{}, resyncPeriod),
+            cache.NewSharedInformer(elw, &amp;apiv1.Endpoints{}, resyncPeriod),
+            cache.NewSharedInformer(plw, &amp;apiv1.Pod{}, resyncPeriod),
+        )
+        go eps.endpointsInf.Run(ctx.Done())
+        go eps.serviceInf.Run(ctx.Done())
+        go eps.podInf.Run(ctx.Done())
 
-# Optional authentication information used to authenticate to the API server.
-# Note that `basic_auth`, `bearer_token` and `bearer_token_file` options are
-# mutually exclusive.
+        for !eps.serviceInf.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        for !eps.endpointsInf.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        for !eps.podInf.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            eps.Run(ctx, ch)
+        }()
+    }
+    wg.Wait()
+case &quot;pod&quot;:
+    var wg sync.WaitGroup
+    for _, namespace := range namespaces {
+        plw := cache.NewListWatchFromClient(rclient, &quot;pods&quot;, namespace, nil)
+        pod := NewPod(
+            log.With(d.logger, &quot;role&quot;, &quot;pod&quot;),
+            cache.NewSharedInformer(plw, &amp;apiv1.Pod{}, resyncPeriod),
+        )
+        go pod.informer.Run(ctx.Done())
 
-# Optional HTTP basic authentication information.
-basic_auth:
-  [ username: &lt;string&gt; ]
-  [ password: &lt;string&gt; ]
+        for !pod.informer.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            pod.Run(ctx, ch)
+        }()
+    }
+    wg.Wait()
+case &quot;service&quot;:
+    var wg sync.WaitGroup
+    for _, namespace := range namespaces {
+        slw := cache.NewListWatchFromClient(rclient, &quot;services&quot;, namespace, nil)
+        svc := NewService(
+            log.With(d.logger, &quot;role&quot;, &quot;service&quot;),
+            cache.NewSharedInformer(slw, &amp;apiv1.Service{}, resyncPeriod),
+        )
+        go svc.informer.Run(ctx.Done())
 
-# Optional bearer token authentication information.
-[ bearer_token: &lt;string&gt; ]
+        for !svc.informer.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            svc.Run(ctx, ch)
+        }()
+    }
+    wg.Wait()
+case &quot;ingress&quot;:
+    var wg sync.WaitGroup
+    for _, namespace := range namespaces {
+        ilw := cache.NewListWatchFromClient(reclient, &quot;ingresses&quot;, namespace, nil)
+        ingress := NewIngress(
+            log.With(d.logger, &quot;role&quot;, &quot;ingress&quot;),
+            cache.NewSharedInformer(ilw, &amp;extensionsv1beta1.Ingress{}, resyncPeriod),
+        )
+        go ingress.informer.Run(ctx.Done())
 
-# Optional bearer token file authentication information.
-[ bearer_token_file: &lt;filename&gt; ]
+        for !ingress.informer.HasSynced() {
+            time.Sleep(100 * time.Millisecond)
+        }
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            ingress.Run(ctx, ch)
+        }()
+    }
+    wg.Wait()
+case &quot;node&quot;:
+    nlw := cache.NewListWatchFromClient(rclient, &quot;nodes&quot;, api.NamespaceAll, nil)
+    node := NewNode(
+        log.With(d.logger, &quot;role&quot;, &quot;node&quot;),
+        cache.NewSharedInformer(nlw, &amp;apiv1.Node{}, resyncPeriod),
+    )
+    go node.informer.Run(ctx.Done())
 
-# TLS configuration.
-tls_config:
-  [ &lt;tls_config&gt; ]
+    for !node.informer.HasSynced() {
+        time.Sleep(100 * time.Millisecond)
+    }
+    node.Run(ctx, ch)
+
+default:
+    level.Error(d.logger).Log(&quot;msg&quot;, &quot;unknown Kubernetes discovery kind&quot;, &quot;role&quot;, d.role)
+}
 </code></pre>
 
-<p><code>&lt;role&gt;</code>必须是endpoints, service, pod或者node。</p>
+<ul>
+<li><p>kubernetes-nodes</p>
+
+<p>发现node以后，通过/api/v1/nodes/${1}/proxy/metrics来获取node的metrics。</p></li>
+
+<li><p>kubernetes-cadvisor</p>
+
+<p>cadvisor已经被集成在kubelet中，所以发现了node就相当于发现了cadvisor。通过 /api/v1/nodes/${1}/proxy/metrics/cadvisor采集容器指标。</p></li>
+
+<li><p>kubernetes-services和kubernetes-ingresses</p>
+
+<p>该两种资源监控方式差不多，都是需要安装black-box，然后类似于探针去定时访问，根据返回的http状态码来判定service和ingress的服务可用性。</p></li>
+
+<li><p>kubernetes-pods</p>
+
+<p>对于pod的监测也是需要加注解：</p>
+
+<pre><code>  prometheus.io/scrape，为true则会将pod作为监控目标。
+  prometheus.io/path，默认为/metrics
+  prometheus.io/port , 端口
+</code></pre>
+
+<p>所以看到此处可以看出，该job并不是监控pod的指标，pod已经通过前面的cadvisor采集。此处是对pod中应用的监控，加上对应的注解，那么该应用的metrics会定时被采集走。</p></li>
+
+<li><p>kubernetes-service-endpoints</p>
+
+<p>对于服务的终端节点，也需要加注解：</p>
+
+<pre><code>  prometheus.io/scrape，为true则会将pod作为监控目标。
+  prometheus.io/path，默认为/metrics
+  prometheus.io/port , 端口
+  prometheus.io/scheme 默认http，如果为了安全设置了https，此处需要改为https
+</code></pre>
+
+<p>这个基本上同上的。采集service-endpoints的metrics。</p></li>
+</ul>
+
+<p>个人认为：如果某些部署应用只有pod没有service，那么这种情况只能在pod上加注解，通过kubernetes-pods采集metrics。如果有service，那么就无需在pod加注解了，直接在service上加即可。毕竟service-endpoints最终也会落到pod上。</p>
 
 <blockquote>
 <p>consul服务发现</p>
@@ -686,6 +1095,18 @@ __address__ = 10.243.129.101:9115。
 <li>labelmap: Match regex against all label names. Then copy the values of the matching labels to label names given by replacement with match group references (${1}, ${2}, &hellip;) in replacement substituted by their value.</li>
 <li>labeldrop: Match regex against all label names. Any label that matches will be removed from the set of labels.</li>
 <li>labelkeep: Match regex against all label names. Any label that does not match will be removed from the set of labels.</li>
+</ul>
+
+<p>具体我们来看看</p>
+
+<ul>
+<li>replace: 根据 regex 的配置匹配 source_labels 标签的值（注意：多个 source_label 的值会按照separator 进行拼接），并且将匹配到的值写入到 target_label 当中，如果有多个匹配组，则可以使用 ${1}, ${2}确定写入的内容。如果没匹配到任何内容则不对 target_label 进行重新， 默认为 replace。</li>
+<li>keep: 丢弃 source_labels 的值中没有匹配到 regex 正则表达式内容的 Target 实例</li>
+<li>drop: 丢弃 source_labels 的值中匹配到 regex 正则表达式内容的 Target 实例</li>
+<li>hashmod: 将 target_label 设置为关联的 source_label 的哈希模块</li>
+<li>labelmap: 根据 regex 去匹配 Target 实例所有标签的名称（注意是名称），并且将捕获到的内容作为为新的标签名称，regex 匹配到标签的的值作为新标签的值</li>
+<li>labeldrop: 对 Target 标签进行过滤，会移除匹配过滤条件的所有标签</li>
+<li>labelkeep: 对 Target 标签进行过滤，会移除不匹配过滤条件的所有标签</li>
 </ul>
 
 <p>重新贴标签的工作如下（对应每行数据）：</p>
@@ -1476,13 +1897,13 @@ redis_memory_fragmentation_ratio{ip=&quot;$ip&quot;}  or redis_memory_used_rss_b
                     <ul class="pager">
 
                         
-                        <li class="previous"><a href="/post/cloud/paas/platform/racher/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        <li class="previous"><a href="/post/cloud/paas/base/kubernetes/k8s-store-csi/"><span aria-hidden="true">&larr;</span> Prev</a></li>
                         
 
                         <li><a href="/post/">All Posts</a></li>
 
                         
-                        <li class="next"><a href="/post/middleware/mq/nsq/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        <li class="next"><a href="/post/cloud/paas/base/kubernetes/k8s-controller-manager/">Next <span aria-hidden="true">&rarr;</span></a></li>
                         
 
                     </ul>
