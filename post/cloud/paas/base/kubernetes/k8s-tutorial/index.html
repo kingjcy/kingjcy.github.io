@@ -316,6 +316,80 @@ gpgcheck=0
 –docker-env HTTPS_PROXY=http://proxy.sha.sap.corp:8080/
 </code></pre>
 
+<p>运行结果如下</p>
+
+<pre><code>$ minikube start --image-mirror-country='cn' --image-repository='registry.cn-hangzhou.aliyuncs.com/google_containers' --cache-images=true --vm-driver=virtualbox --kubernetes-version=1.18.3
+😄  minikube v1.11.0 on Darwin 10.15.2
+✨  Using the virtualbox driver based on user configuration
+✅  Using image repository registry.cn-hangzhou.aliyuncs.com/google_containers
+👍  Starting control plane node minikube in cluster minikube
+🔥  Creating virtualbox VM (CPUs=2, Memory=4000MB, Disk=20000MB) ...
+🌐  Found network options:
+    ▪ HTTP_PROXY=http://127.0.0.1:6666
+❗  You appear to be using a proxy, but your NO_PROXY environment does not include the minikube IP (192.168.99.107).
+📘  Please see https://minikube.sigs.k8s.io/docs/handbook/vpn_and_proxy/ for more details
+    ▪ HTTPS_PROXY=http://127.0.0.1:6666
+❗  This VM is having trouble accessing https://registry.cn-hangzhou.aliyuncs.com/google_containers
+💡  To pull new external images, you may need to configure a proxy: https://minikube.sigs.k8s.io/docs/reference/networking/proxy/
+🐳  Preparing Kubernetes v1.18.3 on Docker 19.03.8 ...
+    ▪ env HTTP_PROXY=http://127.0.0.1:6666
+    ▪ env HTTPS_PROXY=http://127.0.0.1:6666
+^@🔎  Verifying Kubernetes components...
+🌟  Enabled addons: default-storageclass, storage-provisioner
+🏄  Done! kubectl is now configured to use &quot;minikube&quot;
+
+❗  /usr/local/bin/kubectl is version 1.20.2, which may be incompatible with Kubernetes 1.18.3.
+💡  You can also use 'minikube kubectl -- get pods' to invoke a matching version
+</code></pre>
+
+<p>可以看到使用vmbox创建了一个虚拟机，然后在虚拟机中运行了k8s，我们下面会进入虚拟机查看对应的进程。我们先来看一下，对应的配置文件</p>
+
+<pre><code>$ cat .kube/config
+apiVersion: v1
+clusters:
+- cluster:
+    certificate-authority: ~/.minikube/ca.crt
+    server: https://192.168.99.107:8443
+  name: minikube
+contexts:
+- context:
+    cluster: minikube
+    user: minikube
+  name: minikube
+current-context: minikube
+kind: Config
+preferences: {}
+users:
+- name: minikube
+  user:
+    client-certificate: ~/.minikube/profiles/minikube/client.crt
+    client-key: ~/.minikube/profiles/minikube/client.key
+</code></pre>
+
+<p>可以看到minikube start自动创建一个minikube的context，我们kubectl就是使用的这个配置，我们可以看到对应的证书都是在~/.minikube，我们看一下这个目录</p>
+
+<pre><code>.minikube $ ll
+total 64
+drwxr-xr-x  2 chunyinjiang  staff    64 Aug  9 09:49 addons
+-rw-r--r--  1 chunyinjiang  staff  1066 Aug  9 10:24 ca.crt
+-rw-------  1 chunyinjiang  staff  1679 Aug  9 10:24 ca.key
+-rwxr-xr-x  1 chunyinjiang  staff  1054 Aug  9 10:45 ca.pem
+drwxr-xr-x  6 chunyinjiang  staff   192 Aug  9 10:47 cache
+-rwxr-xr-x  1 chunyinjiang  staff  1094 Aug  9 10:45 cert.pem
+drwxr-xr-x  6 chunyinjiang  staff   192 Aug  9 10:05 certs
+drwxr-xr-x  3 chunyinjiang  staff    96 Aug  9 10:44 config
+drwxr-xr-x  2 chunyinjiang  staff    64 Aug  9 09:49 files
+-rwxr-xr-x  1 chunyinjiang  staff  1675 Aug  9 10:45 key.pem
+-rw-r--r--  1 chunyinjiang  staff    29 Aug  9 09:50 last_update_check
+drwxr-xr-x  2 chunyinjiang  staff    64 Aug  9 09:49 logs
+drwxr-xr-x  5 chunyinjiang  staff   160 Aug  9 10:45 machines
+drwx------  3 chunyinjiang  staff    96 Aug  9 10:45 profiles
+-rw-r--r--  1 chunyinjiang  staff  1074 Aug  9 10:24 proxy-client-ca.crt
+-rw-------  1 chunyinjiang  staff  1675 Aug  9 10:24 proxy-client-ca.key
+</code></pre>
+
+<p>简单的可以看出minikube相关文件都在这里，后面有需要深入研究的在看。</p>
+
 <blockquote>
 <p><strong>安装kubectl</strong></p>
 </blockquote>
@@ -357,6 +431,8 @@ Server Version: version.Info{Major:&quot;1&quot;, Minor:&quot;18&quot;, GitVersi
 
 <pre><code>kubectl cluster-info dump
 </code></pre>
+
+<p>至于<a href="#kubectl">kubectl的具体使用</a>，下面下面会详细说明。</p>
 
 <blockquote>
 <p><strong>启用 shell 自动补全功能</strong></p>
@@ -639,6 +715,8 @@ kubeconfig: Configured
 
 <pre><code>minikube delete --all
 </code></pre>
+
+<p>大体上minikube到这边也就够用了，如果还需要深入研究，可以去看<a href="https://minikube.sigs.k8s.io/docs/">minikube</a>，<a href="https://v1-18.docs.kubernetes.io/zh/docs/setup/learning-environment/minikube/">kubernetes</a>官方文档。</p>
 
 <h2 id="集群">集群</h2>
 
@@ -3184,6 +3262,8 @@ kubectl cp logtestjbossforone-7b89dd5c9-297pf:/opt/wildfly/standalone/deployment
 </blockquote>
 
 <p>help 帮助命令，可以查找所有的命令，在我们不会用的时候，要学会使用这个命令。</p>
+
+<p>kubectl其实也是k8s一个比较核心的组件，只不够体现在客户端，我们也是很有必要研究以下它的<a href="/post/cloud/paas/base/kubernetes/k8s-kubectl/">原理</a>。</p>
 
 <h2 id="yaml文件详解">yaml文件详解</h2>
 
