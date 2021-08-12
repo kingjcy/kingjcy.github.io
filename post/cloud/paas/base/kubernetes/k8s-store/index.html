@@ -93,10 +93,10 @@
 <p>K8S里存储相关的组件，从顶层来讲，主要包含4大组件：</p>
 
 <ul>
-<li>Volume Plugins — 存储提供的扩展接口, 包含了各类存储提供者的plugin实现</li>
-<li>Volume Manager — 运行在kubelet 里让存储Ready的部件，负责管理数据卷的 Mount/Umount 操作（也负责数据卷的 Attach/Detach 操作，需配置 kubelet 相关参数开启该特性）、卷设备的格式化等等；</li>
+<li>Volume Plugins — 存储提供的扩展接口, 包含了各类存储提供者的plugin实现。</li>
+<li>Volume Manager — 运行在kubelet 里让存储Ready的部件，负责管理数据卷的 Mount/Umount 操作（也负责数据卷的 Attach/Detach 操作，需配置 kubelet 相关参数开启该特性）、卷设备的格式化等等。</li>
 <li>PV/PVC Controller — 运行在Master上的部件，主要提供卷生命周期管理，负责 PV/PVC 绑定及周期管理，根据需求进行数据卷的 Provision/Delete 操作；所谓将一个 PV 与 PVC 进行“绑定”，其实就是将这个 PV 对象的名字，填在了 PVC 对象的 spec.volumeName 字段上。</li>
-<li>Attach/Detach — 运行在Master上，负责数据卷的 Attach/Detach 操作，将设备挂接到目标节点；</li>
+<li>Attach/Detach — 运行在Master上，负责数据卷的 Attach/Detach 操作，将设备挂接到目标节点。</li>
 </ul>
 
 <p>其中Volume Plugins是一个基础部件，后三个是逻辑部件，依赖于Volume Plugins。</p>
@@ -742,7 +742,44 @@ Class， 根据StorageClass的class名称选择, 通过annotation指定了Storag
 <li><a href="https://kubernetes.io/zh/docs/concepts/storage/volumes/#vspherevolume"><code>vsphereVolume</code></a> - vSphere VMDK 卷</li>
 </ul>
 
-<p>其中最常用的有NFS，ceph rbd，cephFS，hostpath，csi等。下面我简单看看这些存储制作pv的使用说明。</p>
+<p>其中最常用的有NFS，ceph rbd，cephFS，hostpath，csi等。后面我们会简单看看这些存储制作pv的使用说明，先看一下常见的pv创建方式。</p>
+
+<h4 id="pv创建方式">pv创建方式</h4>
+
+<p>我们先了解一下创建 PV 的两种方式</p>
+
+<ul>
+<li>一种是集群管理员通过手动方式静态创建应用所需要的 PV，内置的原生的方式。</li>
+<li>另一种是用户手动创建 PVC 并由 Provisioner 组件动态创建对应的 PV。</li>
+</ul>
+
+<blockquote>
+<p>静态创建存储卷</p>
+</blockquote>
+
+<p><img src="https://kingjcy.github.io/media/cloud/k8s/store7.png" alt="img" /></p>
+
+<ul>
+<li>集群管理员创建 NFS PV，NFS 属于 K8s 原生支持的 in-tree 存储类型。</li>
+<li>用户创建 PVC，通过 kubectl get pv 命令可看到 PV 和 PVC 自动绑定</li>
+<li>用户创建应用，并使用第二步创建的 PVC。</li>
+</ul>
+
+<p>就完成了静态创建存储卷并且使用，也就是我们最初使用的方式。</p>
+
+<blockquote>
+<p>动态创建存储卷</p>
+</blockquote>
+
+<p>动态创建存储卷相比静态创建存储卷，少了集群管理员的干预，动态创建存储卷，要求集群中部署有 provisioner 以及对应的 storageclass。</p>
+
+<p><img src="https://kingjcy.github.io/media/cloud/k8s/store8.png" alt="img" /></p>
+
+<ul>
+<li>集群管理员只需要保证环境中有相关的 storageclass 即可</li>
+<li>用户创建 PVC，此处 PVC 的 storageClassName 指定为上面的 storageclass 名称，集群中的 provisioner 会动态创建相应 PV。</li>
+<li>用户创建应用，并使用第二步创建的 PVC，同静态创建存储卷的第三步。</li>
+</ul>
 
 <h4 id="nfs">NFS</h4>
 
@@ -1761,7 +1798,7 @@ EOF
 
 <h2 id="核心流程">核心流程</h2>
 
-<p>无论是docker存储也好，K8S存储也好，亦或者是其它类的容器相关的存储抽象，其本质都是一样的——让存储在容器里ready，核心做三件工作：</p>
+<p>无论是docker存储也好，K8S存储也好，亦或者是其它类的容器相关的存储抽象，其本质都是一样的——让存储在容器里ready，所谓容器的 Volume，其实就是将一个宿主机上的目录，跟一个容器里的目录绑定挂载在了一起。核心做三件工作：</p>
 
 <ul>
 <li>Provision/Delete（创建/删除存储卷，处理pv和pvc之间的关系）</li>
@@ -1912,6 +1949,7 @@ EOF
 <li><a href="#persistentvolumeclaim">persistentVolumeClaim</a></li>
 <li><a href="#pv">pv</a>
 <ul>
+<li><a href="#pv创建方式">pv创建方式</a></li>
 <li><a href="#nfs">NFS</a></li>
 <li><a href="#glusterfs">glusterfs</a></li>
 <li><a href="#ceph">ceph</a></li>
