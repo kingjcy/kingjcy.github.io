@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<meta name="author" content="fatedier">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="description" content="client-go就是字面意思，一个go的client库，用于和k8s的各种资源对象进行交互，但是它比传统的api客户端库多了很多高级的交互机制，比如informer，dynamic机制，这些也和k8s机制有一定的关系。">
+<meta property="og:url" content="https://kingjcy.github.io/"><meta property="og:type" content="article">
+<meta property="og:title" content="云计算K8s系列---- K8s client - kingjcy blog"><meta property="og:site_name" content="kingjcy blog">
+
+<title>
+    
+    云计算K8s系列---- K8s client
+    
+</title>
+
+<link rel="stylesheet" href="/onlyone/onlyone.css">
+<link rel="shortcut icon" href="/assets/favicon.ico">
+<script src="/onlyone/onlyone.js"></script>
+<link rel="alternate" type="application/rss+xml" title="RSS" href="/index.xml">
+</head>
+<body>
+
+
+<div class="container">
+    <header class="nav">
+        <nav class="navbar navbar-default">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar-collapse">
+                        <span class="sr-only">Toggle navigation</span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                        <span class="icon-bar"></span>
+                    </button>
+                    <a class="navbar-brand" href="/">kingjcy blog</a>
+                </div>
+
+                <div class="collapse navbar-collapse" id="navbar-collapse">
+                    <ul class="nav navbar-nav">
+                        <li><a href="/categories/技术文章/">技术文章</a></li>
+			<li><a href="/categories/读书笔记/">读书笔记</a></li>
+                        <li><a href="/categories/人生感悟/">人生感悟</a></li>
+                        <li><a href="/categories/">归档</a></li>
+                        <li><a href="/tags/">分类</a></li>
+                        <li><a href="/about/">关于我</a></li>
+                        <li>
+                            <form method="get" style="padding: 8px" action="https://www.google.com/search" target="_blank">
+                                <input type="hidden" name="sitesearch" value="https://kingjcy.github.io/"/>
+                                <input type="text" class="form-control" name="q" placeholder="Press enter to search">
+                            </form>
+                        </li>
+                    </ul>
+
+                </div>
+            </div>
+        </nav>
+    </header>
+
+
+<div class="row">
+    <div class="col-md-8">
+        <article class="post single">
+
+            <header>
+                <div class="post-date">
+                    2021年07月04日 
+                </div>
+                <h1 class="post-title">云计算K8s系列---- K8s client</h1>
+            </header>
+
+            <div class="post-content">
+                <p>client-go就是字面意思，一个go的client库，用于和k8s的各种资源对象进行交互，但是它比传统的api客户端库多了很多高级的交互机制，比如informer，dynamic机制，这些也和k8s机制有一定的关系。</p>
+
+<h1 id="client-go">client-go</h1>
+
+<p>其源码目录结构如下：</p>
+
+<ul>
+<li><strong>rest</strong>: 提供 RESTClient 客户端，对 K8S API Server 执行 RESTful 操作，是最基础也是我们最常见的httpclient，所有客户端都是在这个基础上进行封装。</li>
+
+<li><p><strong>kubernetes</strong>: 提供 ClientSet 客户端，ClientSet在 RESTClient 的基础上封装了对资源和版本的管理方法。</p></li>
+
+<li><p><strong>discovery</strong>: 提供 DiscoveryClient 发现客户端。</p></li>
+
+<li><p><strong>dynamic</strong>: 提供 DynamicClient 动态客户端。</p></li>
+
+<li><p><strong>informers</strong>: 每种 K8S 资源的 Informer 实现。</p></li>
+</ul>
+
+<ol>
+<li><strong>listers</strong>: 为每一个 K8S 资源提供 Lister 功能，该功能对 Get 和 List 请求提供只读的缓存数据。</li>
+
+<li><p><strong>plugin</strong>: 提供 OpenStack，GCP 和 Azure 等云服务商授权插件。</p></li>
+
+<li><p><strong>scale</strong>: 提供 ScaleClient 客户端，用于扩容或缩容 Deployment, Replicaset, Replication Controller 等资源对象。</p></li>
+
+<li><p><strong>tools</strong>: 提供常用工具，例如 SharedInformer, Reflector, DeltaFIFO 及 Indexers。 提供 Client 查询和缓存机制，以减少向 kube-apiserver 发起的请求数等。主要子目录为/tools/cache。</p></li>
+
+<li><p><strong>transport</strong>: 提供安全的 TCP 连接，支持 HTTP Stream，某些操作需要在客户端和容器之间传输二进制流，例如 exec，attach 等操作。该功能由内部的 SPDY 包提供支持。</p></li>
+
+<li><p><strong>util</strong>: 提供常用方法。例如 WorkQueue 工作队列，Certificate 证书管理等。</p></li>
+</ol>
+
+<blockquote>
+<p>RESTClient 客户端</p>
+</blockquote>
+
+<p>RESTful Client 是最基础的客户端，它主要是对 HTTP 请求进行了封装，并且支持 JSON 和 Protobuf 格式数据。</p>
+
+<h2 id="dynamicclient-客户端">DynamicClient 客户端</h2>
+
+<p>DynamicClient 是一种动态客户端，它可以动态的指定资源的组，版本和资源。因此它可以对任意 K8S 资源进行 RESTful 操作，包括 CRD 自定义资源。它封装了 RESTClient。所以同样提供 RESTClient 的各种方法。</p>
+
+<p>具体使用方法，可参考官方示例：<a href="https://github.com/kubernetes/client-go/tree/master/examples/dynamic-create-update-delete-deployment">dynamic-create-update-delete-deployment</a>。</p>
+
+<p><strong>注意</strong>: 该官方示例是基于集群外的环境，如果你需要在集群内部使用（例如你需要在 container 中访问），你将需要调用 <code>rest.InClusterConfig()</code> 生成一个 configuration。具体的示例请参考 <a href="https://github.com/kubernetes/client-go/tree/master/examples/in-cluster-client-configuration">in-cluster-client-configuration</a>。</p>
+
+<h2 id="clientset-客户端">ClientSet 客户端</h2>
+
+<p>ClientSet 客户端在 RESTClient 的基础上封装了对资源和版本的管理方法。每个资源可以理解为一个客户端，而 ClientSet 则是多个客户端的集合，每一个资源和版本都以函数的方式暴露给开发者。</p>
+
+<p>具体使用方法，可参考官方示例：<a href="https://github.com/kubernetes/client-go/tree/master/examples/create-update-delete-deployment">create-update-delete-deployment</a>。</p>
+
+<h2 id="discoveryclient-客户端">DiscoveryClient 客户端</h2>
+
+<p>DiscoveryClient 是一个发现客户端，它主要用于发现 K8S API Server 支持的资源组，资源版本和资源信息。所以开发者可以通过使用 DiscoveryClient 客户端查看所支持的资源组，资源版本和资源信息。</p>
+
+<h2 id="clientset-vs-dynamicclient">ClientSet VS DynamicClient</h2>
+
+<p>类型化 <code>ClientSets</code> 使得使用预先生成的本地 API 对象与 API 服务器通信变得简单，从而获得类似 <code>RPC</code> 的编程体验。类型化客户端使用程序编译来强制执行数据安全性和一些验证。然而，在使用类型化客户端时，程序被迫与所使用的版本和类型紧密耦合。</p>
+
+<p>而 <code>DynamicClient</code> 则使用 <code>unstructured.Unstructured</code> 表示来自 API Server 的所有对象值。<code>Unstructured</code> 类型是一个嵌套的 <code>map[string]inferface{}</code> 值的集合来创建一个内部结构，该结构和服务端的 REST 负载非常相似。</p>
+
+<p><code>DynamicClient</code> 将所有数据绑定推迟到运行时，这意味着程序运行之前，使用 <code>DynamicClient</code> 的的程序将不会获取到类型验证的任何好处。对于某些需要强数据类型检查和验证的应用程序来说，这可能是一个问题。</p>
+
+<p>然而，松耦合意味着当客户端 API 发生变化时，使用 <code>DynamicClient</code> 的程序不需要重新编译。客户端程序在处理 API 表面更新时具有更大的灵活性，而无需提前知道这些更改是什么。</p>
+
+<h2 id="基本使用和原理分析">基本使用和原理分析</h2>
+
+<p>我们先看一个实例</p>
+
+<pre><code>package main
+
+import(
+	&quot;flag&quot;
+	&quot;fmt&quot;
+	&quot;os&quot;
+	&quot;path/filepath&quot;
+	&quot;time&quot;
+	metav1 &quot;k8s.io/apimachinery/pkg/apis/meta/v1&quot;
+	&quot;k8s.io/client-go/kubernetes&quot;
+	&quot;k8s.io/client-go/tools/clientcmd&quot;
+)
+
+func main(){
+	//get kubeconfig
+	var kubeconfig *string
+	if home := homeDir(); home !=&quot;&quot;{
+		kubeconfig = flag.String(&quot;kubeconfig&quot;, filepath.Join(home,&quot;.kube&quot;,&quot;config&quot;),&quot;(optional) absolute path to the kubeconfig file&quot;)
+	}else{
+		kubeconfig = flag.String(&quot;kubeconfig&quot;,&quot;&quot;,&quot;absolute path to the kubeconfig file&quot;)
+	}
+	flag.Parse()
+
+	// uses the current context in kubeconfig
+	config, err := clientcmd.BuildConfigFromFlags(&quot;&quot;,*kubeconfig)
+	if err !=nil{
+		panic(err.Error())
+	}
+
+	// creates the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err !=nil{
+		panic(err.Error())
+	}
+	for{
+		//option
+		pods, err := clientset.CoreV1().Pods(&quot;&quot;).List(metav1.ListOptions{})
+		if err !=nil{
+			panic(err.Error())
+		}
+		fmt.Printf(&quot;There are %d pods in the cluster\n&quot;, len(pods.Items))
+		time.Sleep(10* time.Second)
+	}
+}
+func homeDir()string{
+	if h := os.Getenv(&quot;HOME&quot;); h !=&quot;&quot;{
+		return h
+	}
+	return os.Getenv(&quot;USERPROFILE&quot;)// windows
+}
+
+</code></pre>
+
+<p>运行结果</p>
+
+<pre><code>There are 9 pods in the cluster
+There are 7 pods in the cluster
+There are 7 pods in the cluster
+There are 7 pods in the cluster
+There are 7 pods in the cluster
+</code></pre>
+
+<p>分析</p>
+
+<p>1、获取kubeconfig</p>
+
+<p>获取kubernetes配置文件kubeconfig的绝对路径。一般路径为<code>$HOME/.kube/config</code>。该文件主要用来配置本地连接的kubernetes集群。</p>
+
+<pre><code>kubeconfig = flag.String(&quot;kubeconfig&quot;, filepath.Join(home,&quot;.kube&quot;,&quot;config&quot;),&quot;(optional) absolute path to the kubeconfig file&quot;)
+</code></pre>
+
+<p>2、通过参数（master的url或者kubeconfig路径）和<code>BuildConfigFromFlags</code>方法来获取<code>restclient.Config</code>对象</p>
+
+<pre><code>config, err := clientcmd.BuildConfigFromFlags(&quot;&quot;,*kubeconfig)
+</code></pre>
+
+<p>3、通过<code>restclient.Config</code>参数和<code>NewForConfig</code>方法来获取<code>clientset</code>对象，<code>clientset</code>是多个<code>client</code>的集合，每个<code>client</code>可能包含不同版本的方法调用。</p>
+
+<pre><code>clientset, err := kubernetes.NewForConfig(config)
+</code></pre>
+
+<p>我们看一下clientset这个结构体</p>
+
+<pre><code>// Clientset contains the clients for groups. Each group has exactly one
+// version included in a Clientset.
+type Clientset struct {
+	*discovery.DiscoveryClient
+	admissionregistrationV1      *admissionregistrationv1.AdmissionregistrationV1Client
+	admissionregistrationV1beta1 *admissionregistrationv1beta1.AdmissionregistrationV1beta1Client
+	internalV1alpha1             *internalv1alpha1.InternalV1alpha1Client
+	appsV1                       *appsv1.AppsV1Client
+	appsV1beta1                  *appsv1beta1.AppsV1beta1Client
+	appsV1beta2                  *appsv1beta2.AppsV1beta2Client
+	authenticationV1             *authenticationv1.AuthenticationV1Client
+	authenticationV1beta1        *authenticationv1beta1.AuthenticationV1beta1Client
+	authorizationV1              *authorizationv1.AuthorizationV1Client
+	authorizationV1beta1         *authorizationv1beta1.AuthorizationV1beta1Client
+	autoscalingV1                *autoscalingv1.AutoscalingV1Client
+	autoscalingV2beta1           *autoscalingv2beta1.AutoscalingV2beta1Client
+	autoscalingV2beta2           *autoscalingv2beta2.AutoscalingV2beta2Client
+	batchV1                      *batchv1.BatchV1Client
+	batchV1beta1                 *batchv1beta1.BatchV1beta1Client
+	certificatesV1               *certificatesv1.CertificatesV1Client
+	certificatesV1beta1          *certificatesv1beta1.CertificatesV1beta1Client
+	coordinationV1beta1          *coordinationv1beta1.CoordinationV1beta1Client
+	coordinationV1               *coordinationv1.CoordinationV1Client
+	coreV1                       *corev1.CoreV1Client
+	discoveryV1                  *discoveryv1.DiscoveryV1Client
+	discoveryV1beta1             *discoveryv1beta1.DiscoveryV1beta1Client
+	eventsV1                     *eventsv1.EventsV1Client
+	eventsV1beta1                *eventsv1beta1.EventsV1beta1Client
+	extensionsV1beta1            *extensionsv1beta1.ExtensionsV1beta1Client
+	flowcontrolV1alpha1          *flowcontrolv1alpha1.FlowcontrolV1alpha1Client
+	flowcontrolV1beta1           *flowcontrolv1beta1.FlowcontrolV1beta1Client
+	networkingV1                 *networkingv1.NetworkingV1Client
+	networkingV1beta1            *networkingv1beta1.NetworkingV1beta1Client
+	nodeV1                       *nodev1.NodeV1Client
+	nodeV1alpha1                 *nodev1alpha1.NodeV1alpha1Client
+	nodeV1beta1                  *nodev1beta1.NodeV1beta1Client
+	policyV1                     *policyv1.PolicyV1Client
+	policyV1beta1                *policyv1beta1.PolicyV1beta1Client
+	rbacV1                       *rbacv1.RbacV1Client
+	rbacV1beta1                  *rbacv1beta1.RbacV1beta1Client
+	rbacV1alpha1                 *rbacv1alpha1.RbacV1alpha1Client
+	schedulingV1alpha1           *schedulingv1alpha1.SchedulingV1alpha1Client
+	schedulingV1beta1            *schedulingv1beta1.SchedulingV1beta1Client
+	schedulingV1                 *schedulingv1.SchedulingV1Client
+	storageV1beta1               *storagev1beta1.StorageV1beta1Client
+	storageV1                    *storagev1.StorageV1Client
+	storageV1alpha1              *storagev1alpha1.StorageV1alpha1Client
+}
+</code></pre>
+
+<p>再来看一下NewForConfig函数</p>
+
+<pre><code>// NewForConfig creates a new Clientset for the given config.
+// If config's RateLimiter is not set and QPS and Burst are acceptable,
+// NewForConfig will generate a rate-limiter in configShallowCopy.
+func NewForConfig(c *rest.Config) (*Clientset, error) {
+	configShallowCopy := *c
+	if configShallowCopy.RateLimiter == nil &amp;&amp; configShallowCopy.QPS &gt; 0 {
+		if configShallowCopy.Burst &lt;= 0 {
+			return nil, fmt.Errorf(&quot;burst is required to be greater than 0 when RateLimiter is not set and QPS is set to greater than 0&quot;)
+		}
+		configShallowCopy.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(configShallowCopy.QPS, configShallowCopy.Burst)
+	}
+	var cs Clientset
+	var err error
+	cs.admissionregistrationV1, err = admissionregistrationv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.admissionregistrationV1beta1, err = admissionregistrationv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.internalV1alpha1, err = internalv1alpha1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.appsV1, err = appsv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.appsV1beta1, err = appsv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.appsV1beta2, err = appsv1beta2.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.authenticationV1, err = authenticationv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.authenticationV1beta1, err = authenticationv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.authorizationV1, err = authorizationv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.authorizationV1beta1, err = authorizationv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.autoscalingV1, err = autoscalingv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.autoscalingV2beta1, err = autoscalingv2beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.autoscalingV2beta2, err = autoscalingv2beta2.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.batchV1, err = batchv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.batchV1beta1, err = batchv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.certificatesV1, err = certificatesv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.certificatesV1beta1, err = certificatesv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.coordinationV1beta1, err = coordinationv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.coordinationV1, err = coordinationv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.coreV1, err = corev1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.discoveryV1, err = discoveryv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.discoveryV1beta1, err = discoveryv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.eventsV1, err = eventsv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.eventsV1beta1, err = eventsv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.extensionsV1beta1, err = extensionsv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.flowcontrolV1alpha1, err = flowcontrolv1alpha1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.flowcontrolV1beta1, err = flowcontrolv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.networkingV1, err = networkingv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.networkingV1beta1, err = networkingv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.nodeV1, err = nodev1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.nodeV1alpha1, err = nodev1alpha1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.nodeV1beta1, err = nodev1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.policyV1, err = policyv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.policyV1beta1, err = policyv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.rbacV1, err = rbacv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.rbacV1beta1, err = rbacv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.rbacV1alpha1, err = rbacv1alpha1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.schedulingV1alpha1, err = schedulingv1alpha1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.schedulingV1beta1, err = schedulingv1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.schedulingV1, err = schedulingv1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.storageV1beta1, err = storagev1beta1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.storageV1, err = storagev1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	cs.storageV1alpha1, err = storagev1alpha1.NewForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+
+	cs.DiscoveryClient, err = discovery.NewDiscoveryClientForConfig(&amp;configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
+	return &amp;cs, nil
+}
+</code></pre>
+
+<p>可见通过config创建了结构体中所有的client，我们常用的client有<code>CoreV1Client</code>、<code>AppsV1beta1Client</code>、<code>ExtensionsV1beta1Client</code>等，我们就以实例中的CoreV1Client来继续分析</p>
+
+<p>4、CoreV1Client</p>
+
+<p><code>corev1.NewForConfig</code>方法本质是调用了<code>rest.RESTClientFor(&amp;config)</code>方法创建<code>RESTClient</code>对象，即<code>CoreV1Client</code>的本质就是一个<code>RESTClient</code>对象，赋值到对应的CoreV1Client结构体。</p>
+
+<pre><code>cs.coreV1, err = corev1.NewForConfig(&amp;configShallowCopy)
+
+// NewForConfig creates a new CoreV1Client for the given config.
+func NewForConfig(c *rest.Config) (*CoreV1Client, error) {
+	config := *c
+	if err := setConfigDefaults(&amp;config); err != nil {
+		return nil, err
+	}
+	client, err := rest.RESTClientFor(&amp;config)
+	if err != nil {
+		return nil, err
+	}
+	return &amp;CoreV1Client{client}, nil
+}
+</code></pre>
+
+<p>5、CoreV1Interface</p>
+
+<p><code>CoreV1Client</code>实现了<code>CoreV1Interface</code>的接口，<code>CoreV1Interface</code>中包含了各种<code>kubernetes</code>对象的调用接口，对kubernetes的资源对象进行增删改查的操作，例如<code>PodsGetter</code>是对kubernetes中<code>pod</code>对象增删改查操作的接口。<code>ServicesGetter</code>是对<code>service</code>对象的操作的接口。</p>
+
+<pre><code>type CoreV1Interface interface {
+	RESTClient() rest.Interface
+	ComponentStatusesGetter
+	ConfigMapsGetter
+	EndpointsGetter
+	EventsGetter
+	LimitRangesGetter
+	NamespacesGetter
+	NodesGetter
+	PersistentVolumesGetter
+	PersistentVolumeClaimsGetter
+	PodsGetter
+	PodTemplatesGetter
+	ReplicationControllersGetter
+	ResourceQuotasGetter
+	SecretsGetter
+	ServicesGetter
+	ServiceAccountsGetter
+}
+</code></pre>
+
+<p>对应的结构体CoreV1Client的实现</p>
+
+<pre><code>// CoreV1Client is used to interact with features provided by the  group.
+type CoreV1Client struct {
+	restClient rest.Interface
+}
+
+func (c *CoreV1Client) ComponentStatuses() ComponentStatusInterface {
+	return newComponentStatuses(c)
+}
+
+func (c *CoreV1Client) ConfigMaps(namespace string) ConfigMapInterface {
+	return newConfigMaps(c, namespace)
+}
+
+func (c *CoreV1Client) Endpoints(namespace string) EndpointsInterface {
+	return newEndpoints(c, namespace)
+}
+
+func (c *CoreV1Client) Events(namespace string) EventInterface {
+	return newEvents(c, namespace)
+}
+
+func (c *CoreV1Client) LimitRanges(namespace string) LimitRangeInterface {
+	return newLimitRanges(c, namespace)
+}
+
+func (c *CoreV1Client) Namespaces() NamespaceInterface {
+	return newNamespaces(c)
+}
+
+func (c *CoreV1Client) Nodes() NodeInterface {
+	return newNodes(c)
+}
+
+func (c *CoreV1Client) PersistentVolumes() PersistentVolumeInterface {
+	return newPersistentVolumes(c)
+}
+
+func (c *CoreV1Client) PersistentVolumeClaims(namespace string) PersistentVolumeClaimInterface {
+	return newPersistentVolumeClaims(c, namespace)
+}
+
+func (c *CoreV1Client) Pods(namespace string) PodInterface {
+	return newPods(c, namespace)
+}
+
+func (c *CoreV1Client) PodTemplates(namespace string) PodTemplateInterface {
+	return newPodTemplates(c, namespace)
+}
+
+func (c *CoreV1Client) ReplicationControllers(namespace string) ReplicationControllerInterface {
+	return newReplicationControllers(c, namespace)
+}
+
+func (c *CoreV1Client) ResourceQuotas(namespace string) ResourceQuotaInterface {
+	return newResourceQuotas(c, namespace)
+}
+
+func (c *CoreV1Client) Secrets(namespace string) SecretInterface {
+	return newSecrets(c, namespace)
+}
+
+func (c *CoreV1Client) Services(namespace string) ServiceInterface {
+	return newServices(c, namespace)
+}
+
+func (c *CoreV1Client) ServiceAccounts(namespace string) ServiceAccountInterface {
+	return newServiceAccounts(c, namespace)
+}
+
+</code></pre>
+
+<p>6、PodsGetter</p>
+
+<p>我们以实例中的操作为例</p>
+
+<pre><code>pods, err := clientset.CoreV1().Pods(&quot;&quot;).List(metav1.ListOptions{})
+</code></pre>
+
+<p>可以看到CoreV1Client的Pods函数就是调用<strong>newPods</strong>函数，创建了一个<code>pods</code>对象。</p>
+
+<p>7、pods对象</p>
+
+<pre><code>// pods implements PodInterface
+type pods struct{
+    client rest.Interface
+    ns     string
+}
+</code></pre>
+
+<p><code>pods</code>对象实现了<code>PodInterface</code>接口。</p>
+
+<p>8、PodInterface</p>
+
+<pre><code>// PodInterface has methods to work with Pod resources.
+type PodInterface interface {
+	Create(ctx context.Context, pod *v1.Pod, opts metav1.CreateOptions) (*v1.Pod, error)
+	Update(ctx context.Context, pod *v1.Pod, opts metav1.UpdateOptions) (*v1.Pod, error)
+	UpdateStatus(ctx context.Context, pod *v1.Pod, opts metav1.UpdateOptions) (*v1.Pod, error)
+	Delete(ctx context.Context, name string, opts metav1.DeleteOptions) error
+	DeleteCollection(ctx context.Context, opts metav1.DeleteOptions, listOpts metav1.ListOptions) error
+	Get(ctx context.Context, name string, opts metav1.GetOptions) (*v1.Pod, error)
+	List(ctx context.Context, opts metav1.ListOptions) (*v1.PodList, error)
+	Watch(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions, subresources ...string) (result *v1.Pod, err error)
+	Apply(ctx context.Context, pod *corev1.PodApplyConfiguration, opts metav1.ApplyOptions) (result *v1.Pod, err error)
+	ApplyStatus(ctx context.Context, pod *corev1.PodApplyConfiguration, opts metav1.ApplyOptions) (result *v1.Pod, err error)
+	GetEphemeralContainers(ctx context.Context, podName string, options metav1.GetOptions) (*v1.EphemeralContainers, error)
+	UpdateEphemeralContainers(ctx context.Context, podName string, ephemeralContainers *v1.EphemeralContainers, opts metav1.UpdateOptions) (*v1.EphemeralContainers, error)
+
+	PodExpansion
+}
+</code></pre>
+
+<p>对应的pods对象的实现</p>
+
+<pre><code>// pods implements PodInterface
+type pods struct {
+	client rest.Interface
+	ns     string
+}
+
+// newPods returns a Pods
+func newPods(c *CoreV1Client, namespace string) *pods {
+	return &amp;pods{
+		client: c.RESTClient(),
+		ns:     namespace,
+	}
+}
+
+// Get takes name of the pod, and returns the corresponding pod object, and an error if there is any.
+func (c *pods) Get(ctx context.Context, name string, options metav1.GetOptions) (result *v1.Pod, err error) {
+	result = &amp;v1.Pod{}
+	err = c.client.Get().
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		Name(name).
+		VersionedParams(&amp;options, scheme.ParameterCodec).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// List takes label and field selectors, and returns the list of Pods that match those selectors.
+func (c *pods) List(ctx context.Context, opts metav1.ListOptions) (result *v1.PodList, err error) {
+	var timeout time.Duration
+	if opts.TimeoutSeconds != nil {
+		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
+	}
+	result = &amp;v1.PodList{}
+	err = c.client.Get().
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		VersionedParams(&amp;opts, scheme.ParameterCodec).
+		Timeout(timeout).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// Watch returns a watch.Interface that watches the requested pods.
+func (c *pods) Watch(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
+	var timeout time.Duration
+	if opts.TimeoutSeconds != nil {
+		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
+	}
+	opts.Watch = true
+	return c.client.Get().
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		VersionedParams(&amp;opts, scheme.ParameterCodec).
+		Timeout(timeout).
+		Watch(ctx)
+}
+
+// Create takes the representation of a pod and creates it.  Returns the server's representation of the pod, and an error, if there is any.
+func (c *pods) Create(ctx context.Context, pod *v1.Pod, opts metav1.CreateOptions) (result *v1.Pod, err error) {
+	result = &amp;v1.Pod{}
+	err = c.client.Post().
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		VersionedParams(&amp;opts, scheme.ParameterCodec).
+		Body(pod).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// Update takes the representation of a pod and updates it. Returns the server's representation of the pod, and an error, if there is any.
+func (c *pods) Update(ctx context.Context, pod *v1.Pod, opts metav1.UpdateOptions) (result *v1.Pod, err error) {
+	result = &amp;v1.Pod{}
+	err = c.client.Put().
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		Name(pod.Name).
+		VersionedParams(&amp;opts, scheme.ParameterCodec).
+		Body(pod).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// UpdateStatus was generated because the type contains a Status member.
+// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
+func (c *pods) UpdateStatus(ctx context.Context, pod *v1.Pod, opts metav1.UpdateOptions) (result *v1.Pod, err error) {
+	result = &amp;v1.Pod{}
+	err = c.client.Put().
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		Name(pod.Name).
+		SubResource(&quot;status&quot;).
+		VersionedParams(&amp;opts, scheme.ParameterCodec).
+		Body(pod).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// Delete takes name of the pod and deletes it. Returns an error if one occurs.
+func (c *pods) Delete(ctx context.Context, name string, opts metav1.DeleteOptions) error {
+	return c.client.Delete().
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		Name(name).
+		Body(&amp;opts).
+		Do(ctx).
+		Error()
+}
+
+// DeleteCollection deletes a collection of objects.
+func (c *pods) DeleteCollection(ctx context.Context, opts metav1.DeleteOptions, listOpts metav1.ListOptions) error {
+	var timeout time.Duration
+	if listOpts.TimeoutSeconds != nil {
+		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
+	}
+	return c.client.Delete().
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		VersionedParams(&amp;listOpts, scheme.ParameterCodec).
+		Timeout(timeout).
+		Body(&amp;opts).
+		Do(ctx).
+		Error()
+}
+
+// Patch applies the patch and returns the patched pod.
+func (c *pods) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions, subresources ...string) (result *v1.Pod, err error) {
+	result = &amp;v1.Pod{}
+	err = c.client.Patch(pt).
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		Name(name).
+		SubResource(subresources...).
+		VersionedParams(&amp;opts, scheme.ParameterCodec).
+		Body(data).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// Apply takes the given apply declarative configuration, applies it and returns the applied pod.
+func (c *pods) Apply(ctx context.Context, pod *corev1.PodApplyConfiguration, opts metav1.ApplyOptions) (result *v1.Pod, err error) {
+	if pod == nil {
+		return nil, fmt.Errorf(&quot;pod provided to Apply must not be nil&quot;)
+	}
+	patchOpts := opts.ToPatchOptions()
+	data, err := json.Marshal(pod)
+	if err != nil {
+		return nil, err
+	}
+	name := pod.Name
+	if name == nil {
+		return nil, fmt.Errorf(&quot;pod.Name must be provided to Apply&quot;)
+	}
+	result = &amp;v1.Pod{}
+	err = c.client.Patch(types.ApplyPatchType).
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		Name(*name).
+		VersionedParams(&amp;patchOpts, scheme.ParameterCodec).
+		Body(data).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// ApplyStatus was generated because the type contains a Status member.
+// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
+func (c *pods) ApplyStatus(ctx context.Context, pod *corev1.PodApplyConfiguration, opts metav1.ApplyOptions) (result *v1.Pod, err error) {
+	if pod == nil {
+		return nil, fmt.Errorf(&quot;pod provided to Apply must not be nil&quot;)
+	}
+	patchOpts := opts.ToPatchOptions()
+	data, err := json.Marshal(pod)
+	if err != nil {
+		return nil, err
+	}
+
+	name := pod.Name
+	if name == nil {
+		return nil, fmt.Errorf(&quot;pod.Name must be provided to Apply&quot;)
+	}
+
+	result = &amp;v1.Pod{}
+	err = c.client.Patch(types.ApplyPatchType).
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		Name(*name).
+		SubResource(&quot;status&quot;).
+		VersionedParams(&amp;patchOpts, scheme.ParameterCodec).
+		Body(data).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// GetEphemeralContainers takes name of the pod, and returns the corresponding v1.EphemeralContainers object, and an error if there is any.
+func (c *pods) GetEphemeralContainers(ctx context.Context, podName string, options metav1.GetOptions) (result *v1.EphemeralContainers, err error) {
+	result = &amp;v1.EphemeralContainers{}
+	err = c.client.Get().
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		Name(podName).
+		SubResource(&quot;ephemeralcontainers&quot;).
+		VersionedParams(&amp;options, scheme.ParameterCodec).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// UpdateEphemeralContainers takes the top resource name and the representation of a ephemeralContainers and updates it. Returns the server's representation of the ephemeralContainers, and an error, if there is any.
+func (c *pods) UpdateEphemeralContainers(ctx context.Context, podName string, ephemeralContainers *v1.EphemeralContainers, opts metav1.UpdateOptions) (result *v1.EphemeralContainers, err error) {
+	result = &amp;v1.EphemeralContainers{}
+	err = c.client.Put().
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		Name(podName).
+		SubResource(&quot;ephemeralcontainers&quot;).
+		VersionedParams(&amp;opts, scheme.ParameterCodec).
+		Body(ephemeralContainers).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+</code></pre>
+
+<p>可以看出最后对pods对象进行的操作都是通过corev1client调用来操作的，corev1client本质是创建了RESTClient，即最终的实现本质是<code>RESTClient</code>的HTTP调用。</p>
+
+<p>9、list</p>
+
+<p>pods.List()方法通过<code>RESTClient</code>的HTTP调用来实现对kubernetes的pod资源的获取。</p>
+
+<pre><code>// List takes label and field selectors, and returns the list of Pods that match those selectors.
+func (c *pods) List(ctx context.Context, opts metav1.ListOptions) (result *v1.PodList, err error) {
+	var timeout time.Duration
+	if opts.TimeoutSeconds != nil {
+		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
+	}
+	result = &amp;v1.PodList{}
+	err = c.client.Get().
+		Namespace(c.ns).
+		Resource(&quot;pods&quot;).
+		VersionedParams(&amp;opts, scheme.ParameterCodec).
+		Timeout(timeout).
+		Do(ctx).
+		Into(result)
+	return
+}
+</code></pre>
+
+<p>10、RESTClient</p>
+
+<p>在来看RESTClient，restclient是在corev1client创建的函数中创建的，<code>RESTClient</code>对象的创建同样是依赖传入的config信息。</p>
+
+<pre><code>client, err := rest.RESTClientFor(&amp;config)
+</code></pre>
+
+<p>我们在RESTClientFor函数中看到了对应的http.Client的创建，在RESTClient结构体中包含了<code>http.Client</code>，即本质上RESTClient就是一个<code>http.Client</code>的封装实现，这里的实现就不一一看了，很简单可以想到的http client的封装。</p>
+
+<pre><code>// RESTClient imposes common Kubernetes API conventions on a set of resource paths.
+// The baseURL is expected to point to an HTTP or HTTPS path that is the parent
+// of one or more resources.  The server should return a decodable API resource
+// object, or an api.Status object which contains information about the reason for
+// any failure.
+//
+// Most consumers should use client.New() to get a Kubernetes API client.
+type RESTClientstruct{
+// base is the root URL for all invocations of the client
+base*url.URL
+// versionedAPIPath is a path segment connecting the base URL to the resource root
+    versionedAPIPath string
+// contentConfig is the information used to communicate with the server.
+    contentConfig ContentConfig
+// serializers contain all serializers for underlying content type.
+    serializers Serializers
+// creates BackoffManager that is passed to requests.
+    createBackoffMgr func()BackoffManager
+// TODO extract this into a wrapper interface via the RESTClient interface in kubectl.
+Throttle flowcontrol.RateLimiter
+// Set specific behavior of the client.  If not set http.DefaultClient will be used.
+Client*http.Client
+}
+</code></pre>
+
+<p>通过http client实现了对应的get，post等请求，最后都是通过http Do函数来实现一个http request，所以我们可以看到restclient的rest接口interface和我们想的差不多。</p>
+
+<pre><code>// Interface captures the set of operations for generically interacting with Kubernetes REST apis.
+type Interface interface {
+	GetRateLimiter() flowcontrol.RateLimiter
+	Verb(verb string) *Request
+	Post() *Request
+	Put() *Request
+	Patch(pt types.PatchType) *Request
+	Get() *Request
+	Delete() *Request
+	APIVersion() schema.GroupVersion
+}
+</code></pre>
+
+<blockquote>
+<p>总结</p>
+</blockquote>
+
+<p>整个调用的过程如下：</p>
+
+<p>kubeconfig→rest.config→clientset→具体的client(CoreV1Client)→具体的资源对象(pod)→RESTClient→http.Client→HTTP请求的发送及响应</p>
+
+<p>总结成图（todo）</p>
+
+<h2 id="常用操作实现">常用操作实现</h2>
+
+<p><strong>创建clientset</strong>，原生所有的资源操作都要先创建clientset。</p>
+
+<pre><code class="language-//获取kubeconfig">//获取kubeconfig
+kubeconfig = flag.String(&quot;kubeconfig&quot;, filepath.Join(home,&quot;.kube&quot;,&quot;config&quot;),&quot;(optional) absolute path to the kubeconfig file&quot;)
+//创建config
+config, err := clientcmd.BuildConfigFromFlags(&quot;&quot;,*kubeconfig)
+//创建clientset
+clientset, err := kubernetes.NewForConfig(config)
+//具体的资源调用见以下例子
+</code></pre>
+
+<h3 id="deployment">deployment</h3>
+
+<pre><code>//声明deployment对象var deployment *v1beta1.Deployment//构造deployment对象//创建deploymentdeployment, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Create(&lt;deployment&gt;)//更新deploymentdeployment, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Update(&lt;deployment&gt;)//删除deploymenterr := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Delete(&lt;deployment.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询deploymentdeployment, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Get(&lt;deployment.Name&gt;, meta_v1.GetOptions{})//列出deploymentdeploymentList, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch deploymentwatchInterface, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+</code></pre>
+
+<h2 id="3-2-service">3.2 service</h2>
+
+<pre><code>//声明service对象var service *v1.Service//构造service对象//创建serviceservice, err := clientset.CoreV1().Services(&lt;namespace&gt;).Create(&lt;service&gt;)//更新serviceservice, err := clientset.CoreV1().Services(&lt;namespace&gt;).Update(&lt;service&gt;)//删除serviceerr := clientset.CoreV1().Services(&lt;namespace&gt;).Delete(&lt;service.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询serviceservice, err := clientset.CoreV1().Services(&lt;namespace&gt;).Get(&lt;service.Name&gt;, meta_v1.GetOptions{})//列出serviceserviceList, err := clientset.CoreV1().Services(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch servicewatchInterface, err := clientset.CoreV1().Services(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+</code></pre>
+
+<h2 id="3-3-ingress">3.3 ingress</h2>
+
+<pre><code>//声明ingress对象var ingress *v1beta1.Ingress//构造ingress对象//创建ingressingress, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Create(&lt;ingress&gt;)//更新ingressingress, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Update(&lt;ingress&gt;)//删除ingresserr := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Delete(&lt;ingress.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询ingressingress, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Get(&lt;ingress.Name&gt;, meta_v1.GetOptions{})//列出ingressingressList, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch ingresswatchInterface, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+</code></pre>
+
+<h2 id="3-4-replicaset">3.4 replicaSet</h2>
+
+<pre><code>//声明replicaSet对象var replicaSet *v1beta1.ReplicaSet//构造replicaSet对象//创建replicaSetreplicaSet, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Create(&lt;replicaSet&gt;)//更新replicaSetreplicaSet, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Update(&lt;replicaSet&gt;)//删除replicaSeterr := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Delete(&lt;replicaSet.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询replicaSetreplicaSet, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Get(&lt;replicaSet.Name&gt;, meta_v1.GetOptions{})//列出replicaSetreplicaSetList, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch replicaSetwatchInterface, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+</code></pre>
+
+<p>新版的kubernetes中一般通过deployment来创建replicaSet，再通过replicaSet来控制pod。</p>
+
+<h2 id="3-5-pod">3.5 pod</h2>
+
+<pre><code>//声明pod对象var pod *v1.Pod//创建podpod, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Create(&lt;pod&gt;)//更新podpod, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Update(&lt;pod&gt;)//删除poderr := clientset.CoreV1().Pods(&lt;namespace&gt;).Delete(&lt;pod.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询podpod, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Get(&lt;pod.Name&gt;, meta_v1.GetOptions{})//列出podpodList, err := clientset.CoreV1().Pods(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch podwatchInterface, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+</code></pre>
+
+<h2 id="3-6-statefulset">3.6 statefulset</h2>
+
+<pre><code>//声明statefulset对象var statefulset *v1.StatefulSet//创建statefulsetstatefulset, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Create(&lt;statefulset&gt;)//更新statefulsetstatefulset, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Update(&lt;statefulset&gt;)//删除statefulseterr := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Delete(&lt;statefulset.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询statefulsetstatefulset, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Get(&lt;statefulset.Name&gt;, meta_v1.GetOptions{})//列出statefulsetstatefulsetList, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch statefulsetwatchInterface, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+</code></pre>
+
+<p>通过以上对kubernetes的资源对象的操作函数可以看出，每个资源对象都有增删改查等方法，基本调用逻辑类似。一般二次开发只需要创建deployment、service、ingress三个资源对象即可，pod对象由deployment包含的replicaSet来控制创建和删除。函数调用的入参一般只有<code>NAMESPACE</code>和<code>kubernetesObject</code>两个参数，部分操作有<code>Options</code>的参数。在创建前，需要对资源对象构造数据，可以理解为编辑一个资源对象的yaml文件，然后通过<code>kubectl create -f xxx.yaml</code>来创建对象。</p>
+            </div>
+            
+            <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
+                <div>
+                    <p style="margin-top:0px;">作者：<a target="_blank" href="https://kingjcy.github.io/">kingjcy</a>
+                    <br />本文出处：<a target="_blank" href="https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-client/">https://kingjcy.github.io/post/cloud/paas/base/kubernetes/k8s-client/</a>
+                    <br />
+                    文章版权归本人所有，欢迎转载，但未经作者同意必须保留此段声明，且在文章页面明显位置给出原文链接，否则保留追究法律责任的权利。 </p>
+                </div>
+            </div>
+
+            <aside>
+                
+                <ul class="list-inline post-tags">
+                    
+                    <li>
+                        <a href="/tags/cloudnative/">
+                            <i class="fa fa-tags"></i>
+                            cloudnative
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/paas/">
+                            <i class="fa fa-tags"></i>
+                            paas
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/k8s/">
+                            <i class="fa fa-tags"></i>
+                            k8s
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/client/">
+                            <i class="fa fa-tags"></i>
+                            client
+                        </a>
+                    </li>
+                    
+                    <li>
+                        <a href="/tags/base/">
+                            <i class="fa fa-tags"></i>
+                            base
+                        </a>
+                    </li>
+                    
+                </ul>
+
+                
+                
+                <h4 id="real-rels">相关文章</h4>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-store-csi/">云计算K8s组件系列—- 存储CSI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年08月12日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-store/">云计算K8s组件系列（八）---- 存储</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年08月03日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-image/">云计算容器系列---- Docker image 优化</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年07月31日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li></ul>
+            </aside>
+                
+            
+            <footer>
+                <nav>
+                    <ul class="pager">
+
+                        
+                        <li class="previous"><a href="/post/cloud/paas/base/docker/docker-image/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        
+
+                        <li><a href="/post/">All Posts</a></li>
+
+                        
+                        <li class="next"><a href="/post/monitor/metrics/prometheus/ui/grafana/">Next <span aria-hidden="true">&rarr;</span></a></li>
+                        
+
+                    </ul>
+                </nav>
+            </footer>
+
+        </article>
+    </div>
+    <div class="col-md-4">
+        
+<aside>
+        <div class="toc panel panel-default hidden-xs hidden-sm affix-top" data-spy="affix" data-offset-top="125" data-offset-bottom="300">
+            <div class="panel-heading">
+                <h2 class="panel-title">Catalog</h2>
+            </div>
+
+            <nav id="TableOfContents">
+<ul>
+<li><a href="#client-go">client-go</a>
+<ul>
+<li><a href="#dynamicclient-客户端">DynamicClient 客户端</a></li>
+<li><a href="#clientset-客户端">ClientSet 客户端</a></li>
+<li><a href="#discoveryclient-客户端">DiscoveryClient 客户端</a></li>
+<li><a href="#clientset-vs-dynamicclient">ClientSet VS DynamicClient</a></li>
+<li><a href="#基本使用和原理分析">基本使用和原理分析</a></li>
+<li><a href="#常用操作实现">常用操作实现</a>
+<ul>
+<li><a href="#deployment">deployment</a></li>
+</ul></li>
+<li><a href="#3-2-service">3.2 service</a></li>
+<li><a href="#3-3-ingress">3.3 ingress</a></li>
+<li><a href="#3-4-replicaset">3.4 replicaSet</a></li>
+<li><a href="#3-5-pod">3.5 pod</a></li>
+<li><a href="#3-6-statefulset">3.6 statefulset</a></li>
+</ul></li>
+</ul>
+</nav>
+        </div>
+</aside>
+
+    </div>
+</div>
+
+</div>
+<hr>
+
+<footer class="container copy">
+    <p>&copy; 2021  kingjcy blog </p>
+	<p>Powered by <a href="https://gohugo.io" target="_blank">Hugo</a></p>
+</footer>
+
+<script>hljs.initHighlightingOnLoad();</script>
+
+<script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?ace3ec99de96c4080ead1eb8d52db3b3";
+  var s = document.getElementsByTagName("script")[0]; 
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-92600390-2', 'auto');
+  ga('send', 'pageview');
+</script>
+</body>
+</html>
+
