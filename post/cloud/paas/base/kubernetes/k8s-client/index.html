@@ -74,73 +74,63 @@
             <div class="post-content">
                 <p>client-go就是字面意思，一个go的client库，用于和k8s的各种资源对象进行交互，但是它比传统的api客户端库多了很多高级的交互机制，比如informer，dynamic机制，这些也和k8s机制有一定的关系。</p>
 
-<h1 id="client-go">client-go</h1>
+<h1 id="client-go客户端">client-go客户端</h1>
 
-<p>其源码目录结构如下：</p>
+<p>client-go的核心就是客户端，我们直接看其源码目录结构如下：</p>
 
 <ul>
 <li><strong>rest</strong>: 提供 RESTClient 客户端，对 K8S API Server 执行 RESTful 操作，是最基础也是我们最常见的httpclient，所有客户端都是在这个基础上进行封装。</li>
-
-<li><p><strong>kubernetes</strong>: 提供 ClientSet 客户端，ClientSet在 RESTClient 的基础上封装了对资源和版本的管理方法。</p></li>
-
-<li><p><strong>discovery</strong>: 提供 DiscoveryClient 发现客户端。</p></li>
-
-<li><p><strong>dynamic</strong>: 提供 DynamicClient 动态客户端。</p></li>
-
-<li><p><strong>informers</strong>: 每种 K8S 资源的 Informer 实现。</p></li>
-</ul>
-
-<ol>
+<li><strong>kubernetes</strong>: 提供 ClientSet 客户端，ClientSet在 RESTClient 的基础上封装了对资源和版本的管理方法。</li>
+<li><strong>discovery</strong>: 提供 DiscoveryClient 发现客户端。</li>
+<li><strong>dynamic</strong>: 提供 DynamicClient 动态客户端。</li>
+<li><strong>informers</strong>: 每种 K8S 资源的 Informer 实现机制。</li>
+<li><strong>tools</strong>: 提供常用工具，例如 SharedInformer, Reflector, DeltaFIFO 及 Indexers。 提供 Client 查询和缓存机制，以减少向 kube-apiserver 发起的请求数等。informer的核心逻辑就是在子目录/tools/cache中实现的，cache也是tools的核心。</li>
 <li><strong>listers</strong>: 为每一个 K8S 资源提供 Lister 功能，该功能对 Get 和 List 请求提供只读的缓存数据。</li>
-
-<li><p><strong>plugin</strong>: 提供 OpenStack，GCP 和 Azure 等云服务商授权插件。</p></li>
-
-<li><p><strong>scale</strong>: 提供 ScaleClient 客户端，用于扩容或缩容 Deployment, Replicaset, Replication Controller 等资源对象。</p></li>
-
-<li><p><strong>tools</strong>: 提供常用工具，例如 SharedInformer, Reflector, DeltaFIFO 及 Indexers。 提供 Client 查询和缓存机制，以减少向 kube-apiserver 发起的请求数等。主要子目录为/tools/cache。</p></li>
-
-<li><p><strong>transport</strong>: 提供安全的 TCP 连接，支持 HTTP Stream，某些操作需要在客户端和容器之间传输二进制流，例如 exec，attach 等操作。该功能由内部的 SPDY 包提供支持。</p></li>
-
-<li><p><strong>util</strong>: 提供常用方法。例如 WorkQueue 工作队列，Certificate 证书管理等。</p></li>
-</ol>
+<li><strong>transport</strong>: 提供安全的 TCP 连接，支持 HTTP Stream，某些操作需要在客户端和容器之间传输二进制流，例如 exec，attach 等操作。该功能由内部的 SPDY 包提供支持。</li>
+<li><strong>util</strong>: 提供常用方法。例如 WorkQueue 工作队列，Certificate 证书管理等。</li>
+<li><strong>scale</strong>: 提供 ScaleClient 客户端，用于扩容或缩容 Deployment, Replicaset, Replication Controller 等资源对象。</li>
+<li><strong>plugin</strong>: 提供 OpenStack，GCP 和 Azure 等云服务商授权插件。</li>
+</ul>
 
 <blockquote>
 <p>RESTClient 客户端</p>
 </blockquote>
 
-<p>RESTful Client 是最基础的客户端，它主要是对 HTTP 请求进行了封装，并且支持 JSON 和 Protobuf 格式数据。</p>
+<p>RESTful Client 是最基础的客户端，它主要是对 HTTP 请求进行了封装，并且支持 JSON 和 Protobuf 格式数据，直接和k8s通过http进行交互。</p>
 
-<h2 id="dynamicclient-客户端">DynamicClient 客户端</h2>
-
-<p>DynamicClient 是一种动态客户端，它可以动态的指定资源的组，版本和资源。因此它可以对任意 K8S 资源进行 RESTful 操作，包括 CRD 自定义资源。它封装了 RESTClient。所以同样提供 RESTClient 的各种方法。</p>
-
-<p>具体使用方法，可参考官方示例：<a href="https://github.com/kubernetes/client-go/tree/master/examples/dynamic-create-update-delete-deployment">dynamic-create-update-delete-deployment</a>。</p>
-
-<p><strong>注意</strong>: 该官方示例是基于集群外的环境，如果你需要在集群内部使用（例如你需要在 container 中访问），你将需要调用 <code>rest.InClusterConfig()</code> 生成一个 configuration。具体的示例请参考 <a href="https://github.com/kubernetes/client-go/tree/master/examples/in-cluster-client-configuration">in-cluster-client-configuration</a>。</p>
-
-<h2 id="clientset-客户端">ClientSet 客户端</h2>
+<blockquote>
+<p>ClientSet 客户端</p>
+</blockquote>
 
 <p>ClientSet 客户端在 RESTClient 的基础上封装了对资源和版本的管理方法。每个资源可以理解为一个客户端，而 ClientSet 则是多个客户端的集合，每一个资源和版本都以函数的方式暴露给开发者。</p>
 
 <p>具体使用方法，可参考官方示例：<a href="https://github.com/kubernetes/client-go/tree/master/examples/create-update-delete-deployment">create-update-delete-deployment</a>。</p>
 
-<h2 id="discoveryclient-客户端">DiscoveryClient 客户端</h2>
+<p>类型化 <code>ClientSets</code> 使得使用预先生成的本地 API 对象与 API 服务器通信变得简单，交互和 <code>RPC</code> 类似。同时，ClientSets使得程序被迫与所使用的版本和类型紧密耦合。</p>
+
+<blockquote>
+<p>DynamicClient 客户端</p>
+</blockquote>
+
+<p>DynamicClient 是一种动态客户端，它可以动态的指定资源的组，版本和资源。因此它可以对任意 K8S 资源进行 RESTful 操作，包括 CRD 自定义资源。它封装了 RESTClient。所以同样提供 RESTClient 的各种方法。</p>
+
+<p>具体使用方法，可参考官方示例：<a href="https://github.com/kubernetes/client-go/tree/master/examples/dynamic-create-update-delete-deployment">dynamic-create-update-delete-deployment</a>。</p>
+
+<p><strong>NOTE</strong>: 该官方示例是基于集群外的环境，如果你需要在集群内部使用（例如你需要在 container 中访问），你将需要调用 <code>rest.InClusterConfig()</code> 生成一个 configuration。具体的示例请参考 <a href="https://github.com/kubernetes/client-go/tree/master/examples/in-cluster-client-configuration">in-cluster-client-configuration</a>。</p>
+
+<p><code>DynamicClient</code> 则使用 <code>unstructured.Unstructured</code> 表示来自 API Server 的所有对象值。<code>Unstructured</code> 类型是一个嵌套的 <code>map[string]inferface{}</code> 值的集合来创建一个内部结构。通过这个结构，<code>DynamicClient</code> 将所有数据绑定推迟到运行时，松耦合意味着当客户端 API 发生变化时，使用 <code>DynamicClient</code> 的程序不需要重新编译。客户端程序在处理 API 表面更新时具有更大的灵活性，而无需提前知道这些更改是什么。</p>
+
+<p>当然 <code>DynamicClient</code> 也有一定的弊端，不能类似rpc编程，某些需要强数据类型检查和验证的应用程也可能是一个问题，所以和clientset各有利弊，合理使用。</p>
+
+<blockquote>
+<p>DiscoveryClient 客户端</p>
+</blockquote>
 
 <p>DiscoveryClient 是一个发现客户端，它主要用于发现 K8S API Server 支持的资源组，资源版本和资源信息。所以开发者可以通过使用 DiscoveryClient 客户端查看所支持的资源组，资源版本和资源信息。</p>
 
-<h2 id="clientset-vs-dynamicclient">ClientSet VS DynamicClient</h2>
+<h1 id="clientset基本使用和原理分析">ClientSet基本使用和原理分析</h1>
 
-<p>类型化 <code>ClientSets</code> 使得使用预先生成的本地 API 对象与 API 服务器通信变得简单，从而获得类似 <code>RPC</code> 的编程体验。类型化客户端使用程序编译来强制执行数据安全性和一些验证。然而，在使用类型化客户端时，程序被迫与所使用的版本和类型紧密耦合。</p>
-
-<p>而 <code>DynamicClient</code> 则使用 <code>unstructured.Unstructured</code> 表示来自 API Server 的所有对象值。<code>Unstructured</code> 类型是一个嵌套的 <code>map[string]inferface{}</code> 值的集合来创建一个内部结构，该结构和服务端的 REST 负载非常相似。</p>
-
-<p><code>DynamicClient</code> 将所有数据绑定推迟到运行时，这意味着程序运行之前，使用 <code>DynamicClient</code> 的的程序将不会获取到类型验证的任何好处。对于某些需要强数据类型检查和验证的应用程序来说，这可能是一个问题。</p>
-
-<p>然而，松耦合意味着当客户端 API 发生变化时，使用 <code>DynamicClient</code> 的程序不需要重新编译。客户端程序在处理 API 表面更新时具有更大的灵活性，而无需提前知道这些更改是什么。</p>
-
-<h2 id="基本使用和原理分析">基本使用和原理分析</h2>
-
-<p>我们先看一个实例</p>
+<p>client-go中除了基本的rest http客户端，最先使用的就是ClientSet，这个客户端和我们常见的客户端使用差不多，我们先看一个实例。</p>
 
 <pre><code>package main
 
@@ -949,7 +939,7 @@ type Interface interface {
 
 <p>总结成图（todo）</p>
 
-<h2 id="常用操作实现">常用操作实现</h2>
+<h1 id="常用操作实现">常用操作实现</h1>
 
 <p><strong>创建clientset</strong>，原生所有的资源操作都要先创建clientset。</p>
 
@@ -962,36 +952,118 @@ clientset, err := kubernetes.NewForConfig(config)
 //具体的资源调用见以下例子
 </code></pre>
 
-<h3 id="deployment">deployment</h3>
+<h2 id="deployment">deployment</h2>
 
-<pre><code>//声明deployment对象var deployment *v1beta1.Deployment//构造deployment对象//创建deploymentdeployment, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Create(&lt;deployment&gt;)//更新deploymentdeployment, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Update(&lt;deployment&gt;)//删除deploymenterr := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Delete(&lt;deployment.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询deploymentdeployment, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Get(&lt;deployment.Name&gt;, meta_v1.GetOptions{})//列出deploymentdeploymentList, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch deploymentwatchInterface, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+<pre><code>//声明deployment对象
+var deployment *v1beta1.Deployment
+//构造deployment对象
+//创建deployment
+deployment, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Create(&lt;deployment&gt;)
+//更新deployment
+deployment, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Update(&lt;deployment&gt;)
+//删除deployment
+err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Delete(&lt;deployment.Name&gt;, &amp;meta_v1.DeleteOptions{})
+//查询deployment
+deployment, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Get(&lt;deployment.Name&gt;, meta_v1.GetOptions{})
+//列出deployment
+deploymentList, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})
+//watch deployment
+watchInterface, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
 </code></pre>
 
-<h2 id="3-2-service">3.2 service</h2>
+<h2 id="service">service</h2>
 
-<pre><code>//声明service对象var service *v1.Service//构造service对象//创建serviceservice, err := clientset.CoreV1().Services(&lt;namespace&gt;).Create(&lt;service&gt;)//更新serviceservice, err := clientset.CoreV1().Services(&lt;namespace&gt;).Update(&lt;service&gt;)//删除serviceerr := clientset.CoreV1().Services(&lt;namespace&gt;).Delete(&lt;service.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询serviceservice, err := clientset.CoreV1().Services(&lt;namespace&gt;).Get(&lt;service.Name&gt;, meta_v1.GetOptions{})//列出serviceserviceList, err := clientset.CoreV1().Services(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch servicewatchInterface, err := clientset.CoreV1().Services(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+<pre><code>//声明service对象
+var service *v1.Service
+//构造service对象
+//创建service
+service, err := clientset.CoreV1().Services(&lt;namespace&gt;).Create(&lt;service&gt;)
+//更新service
+service, err := clientset.CoreV1().Services(&lt;namespace&gt;).Update(&lt;service&gt;)
+//删除service
+err := clientset.CoreV1().Services(&lt;namespace&gt;).Delete(&lt;service.Name&gt;, &amp;meta_v1.DeleteOptions{})
+//查询service
+service, err := clientset.CoreV1().Services(&lt;namespace&gt;).Get(&lt;service.Name&gt;, meta_v1.GetOptions{})
+//列出service
+serviceList, err := clientset.CoreV1().Services(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})
+//watch service
+watchInterface, err := clientset.CoreV1().Services(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
 </code></pre>
 
-<h2 id="3-3-ingress">3.3 ingress</h2>
+<h2 id="ingress">ingress</h2>
 
-<pre><code>//声明ingress对象var ingress *v1beta1.Ingress//构造ingress对象//创建ingressingress, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Create(&lt;ingress&gt;)//更新ingressingress, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Update(&lt;ingress&gt;)//删除ingresserr := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Delete(&lt;ingress.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询ingressingress, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Get(&lt;ingress.Name&gt;, meta_v1.GetOptions{})//列出ingressingressList, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch ingresswatchInterface, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+<pre><code>//声明ingress对象
+var ingress *v1beta1.Ingress
+//构造ingress对象
+//创建ingress
+ingress, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Create(&lt;ingress&gt;)
+//更新ingress
+ingress, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Update(&lt;ingress&gt;)
+//删除ingress
+err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Delete(&lt;ingress.Name&gt;, &amp;meta_v1.DeleteOptions{})
+//查询ingress
+ingress, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Get(&lt;ingress.Name&gt;, meta_v1.GetOptions{})
+//列出ingress
+ingressList, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})
+//watch ingress
+watchInterface, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
 </code></pre>
 
-<h2 id="3-4-replicaset">3.4 replicaSet</h2>
+<h2 id="replicaset">replicaSet</h2>
 
-<pre><code>//声明replicaSet对象var replicaSet *v1beta1.ReplicaSet//构造replicaSet对象//创建replicaSetreplicaSet, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Create(&lt;replicaSet&gt;)//更新replicaSetreplicaSet, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Update(&lt;replicaSet&gt;)//删除replicaSeterr := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Delete(&lt;replicaSet.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询replicaSetreplicaSet, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Get(&lt;replicaSet.Name&gt;, meta_v1.GetOptions{})//列出replicaSetreplicaSetList, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch replicaSetwatchInterface, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+<pre><code>//声明replicaSet对象
+var replicaSet *v1beta1.ReplicaSet
+//构造replicaSet对象
+//创建replicaSet
+replicaSet, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Create(&lt;replicaSet&gt;)
+//更新replicaSet
+replicaSet, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Update(&lt;replicaSet&gt;)
+//删除replicaSet
+err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Delete(&lt;replicaSet.Name&gt;, &amp;meta_v1.DeleteOptions{})
+//查询replicaSet
+replicaSet, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Get(&lt;replicaSet.Name&gt;, meta_v1.GetOptions{})
+//列出replicaSet
+replicaSetList, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})
+//watch replicaSet
+watchInterface, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
 </code></pre>
 
 <p>新版的kubernetes中一般通过deployment来创建replicaSet，再通过replicaSet来控制pod。</p>
 
-<h2 id="3-5-pod">3.5 pod</h2>
+<h2 id="pod">pod</h2>
 
-<pre><code>//声明pod对象var pod *v1.Pod//创建podpod, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Create(&lt;pod&gt;)//更新podpod, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Update(&lt;pod&gt;)//删除poderr := clientset.CoreV1().Pods(&lt;namespace&gt;).Delete(&lt;pod.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询podpod, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Get(&lt;pod.Name&gt;, meta_v1.GetOptions{})//列出podpodList, err := clientset.CoreV1().Pods(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch podwatchInterface, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+<pre><code>//声明pod对象
+var pod *v1.Pod
+//创建pod
+pod, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Create(&lt;pod&gt;)
+//更新pod
+pod, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Update(&lt;pod&gt;)
+//删除pod
+err := clientset.CoreV1().Pods(&lt;namespace&gt;).Delete(&lt;pod.Name&gt;, &amp;meta_v1.DeleteOptions{})
+//查询pod
+pod, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Get(&lt;pod.Name&gt;, meta_v1.GetOptions{})
+//列出pod
+podList, err := clientset.CoreV1().Pods(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})
+//watch pod
+watchInterface, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
 </code></pre>
 
-<h2 id="3-6-statefulset">3.6 statefulset</h2>
+<h2 id="statefulset">statefulset</h2>
 
-<pre><code>//声明statefulset对象var statefulset *v1.StatefulSet//创建statefulsetstatefulset, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Create(&lt;statefulset&gt;)//更新statefulsetstatefulset, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Update(&lt;statefulset&gt;)//删除statefulseterr := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Delete(&lt;statefulset.Name&gt;,&amp;meta_v1.DeleteOptions{})//查询statefulsetstatefulset, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Get(&lt;statefulset.Name&gt;, meta_v1.GetOptions{})//列出statefulsetstatefulsetList, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})//watch statefulsetwatchInterface, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
+<pre><code>//声明statefulset对象
+var statefulset *v1.StatefulSet
+//创建statefulset
+statefulset, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Create(&lt;statefulset&gt;)
+//更新statefulset
+statefulset, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Update(&lt;statefulset&gt;)
+//删除statefulset
+err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Delete(&lt;statefulset.Name&gt;, &amp;meta_v1.DeleteOptions{})
+//查询statefulset
+statefulset, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Get(&lt;statefulset.Name&gt;, meta_v1.GetOptions{})
+//列出statefulset
+statefulsetList, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).List(&amp;meta_v1.ListOptions{})
+//watch statefulset
+watchInterface, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
 </code></pre>
 
 <p>通过以上对kubernetes的资源对象的操作函数可以看出，每个资源对象都有增删改查等方法，基本调用逻辑类似。一般二次开发只需要创建deployment、service、ingress三个资源对象即可，pod对象由deployment包含的replicaSet来控制创建和删除。函数调用的入参一般只有<code>NAMESPACE</code>和<code>kubernetesObject</code>两个参数，部分操作有<code>Options</code>的参数。在创建前，需要对资源对象构造数据，可以理解为编辑一个资源对象的yaml文件，然后通过<code>kubectl create -f xxx.yaml</code>来创建对象。</p>
@@ -1084,22 +1156,16 @@ clientset, err := kubernetes.NewForConfig(config)
 
             <nav id="TableOfContents">
 <ul>
-<li><a href="#client-go">client-go</a>
-<ul>
-<li><a href="#dynamicclient-客户端">DynamicClient 客户端</a></li>
-<li><a href="#clientset-客户端">ClientSet 客户端</a></li>
-<li><a href="#discoveryclient-客户端">DiscoveryClient 客户端</a></li>
-<li><a href="#clientset-vs-dynamicclient">ClientSet VS DynamicClient</a></li>
-<li><a href="#基本使用和原理分析">基本使用和原理分析</a></li>
+<li><a href="#client-go客户端">client-go客户端</a></li>
+<li><a href="#clientset基本使用和原理分析">ClientSet基本使用和原理分析</a></li>
 <li><a href="#常用操作实现">常用操作实现</a>
 <ul>
 <li><a href="#deployment">deployment</a></li>
-</ul></li>
-<li><a href="#3-2-service">3.2 service</a></li>
-<li><a href="#3-3-ingress">3.3 ingress</a></li>
-<li><a href="#3-4-replicaset">3.4 replicaSet</a></li>
-<li><a href="#3-5-pod">3.5 pod</a></li>
-<li><a href="#3-6-statefulset">3.6 statefulset</a></li>
+<li><a href="#service">service</a></li>
+<li><a href="#ingress">ingress</a></li>
+<li><a href="#replicaset">replicaSet</a></li>
+<li><a href="#pod">pod</a></li>
+<li><a href="#statefulset">statefulset</a></li>
 </ul></li>
 </ul>
 </nav>
