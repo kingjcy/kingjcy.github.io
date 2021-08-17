@@ -74,12 +74,12 @@
             <div class="post-content">
                 <p>client-go就是字面意思，一个go的client库，用于和k8s的各种资源对象进行交互，但是它比传统的api客户端库多了很多高级的交互机制，比如informer，dynamic机制，这些也和k8s机制有一定的关系。</p>
 
-<h1 id="client-go客户端">client-go客户端</h1>
+<h1 id="client-go">client-go</h1>
 
 <p>client-go的核心就是客户端，我们直接看其源码目录结构如下：</p>
 
 <ul>
-<li><strong>rest</strong>: 提供 RESTClient 客户端，对 K8S API Server 执行 RESTful 操作，是最基础也是我们最常见的httpclient，所有客户端都是在这个基础上进行封装。</li>
+<li><strong>rest</strong>: 提供 RESTClient 客户端，对 K8S API Server 执行 RESTful http操作，是最基础也是我们最常见的httpclient，所有客户端都是在这个基础上进行封装。</li>
 <li><strong>kubernetes</strong>: 提供 ClientSet 客户端，ClientSet在 RESTClient 的基础上封装了对资源和版本的管理方法。</li>
 <li><strong>discovery</strong>: 提供 DiscoveryClient 发现客户端。</li>
 <li><strong>dynamic</strong>: 提供 DynamicClient 动态客户端。</li>
@@ -96,7 +96,7 @@
 <p>RESTClient 客户端</p>
 </blockquote>
 
-<p>RESTful Client 是最基础的客户端，它主要是对 HTTP 请求进行了封装，并且支持 JSON 和 Protobuf 格式数据，直接和k8s通过http进行交互。</p>
+<p>RESTful Client 是最基础的客户端，它主要是对 HTTP 请求进行了封装，并且支持 JSON 和 Protobuf 格式数据，直接和k8s通过restful http进行交互。</p>
 
 <blockquote>
 <p>ClientSet 客户端</p>
@@ -128,7 +128,428 @@
 
 <p>DiscoveryClient 是一个发现客户端，它主要用于发现 K8S API Server 支持的资源组，资源版本和资源信息。所以开发者可以通过使用 DiscoveryClient 客户端查看所支持的资源组，资源版本和资源信息。</p>
 
-<h1 id="clientset基本使用和原理分析">ClientSet基本使用和原理分析</h1>
+<p>下面对各种客户端的基本使用和原理做一个详细的讲解。</p>
+
+<h1 id="客户端">客户端</h1>
+
+<h2 id="restclient">RESTClient</h2>
+
+<h3 id="基本使用和原理分析">基本使用和原理分析</h3>
+
+<p>RESTful Client 是最基础的客户端，其实很好理解，就是restful http client，所有的客户端都是基于这个客户端之上封装的，我们先重一个实例看起。</p>
+
+<pre><code>package main
+
+import (
+    &quot;context&quot;
+    &quot;flag&quot;
+    &quot;fmt&quot;
+    &quot;k8s.io/client-go/kubernetes/scheme&quot;
+    &quot;k8s.io/client-go/rest&quot;
+    &quot;k8s.io/client-go/tools/clientcmd&quot;
+    &quot;k8s.io/client-go/util/homedir&quot;
+    corev1 &quot;k8s.io/api/core/v1&quot;
+    metav1 &quot;k8s.io/apimachinery/pkg/apis/meta/v1&quot;
+    &quot;path/filepath&quot;
+)
+
+func main() {
+    var kubeconfig *string
+
+    // home是家目录，如果能取得家目录的值，就可以用来做默认值
+    if home:=homedir.HomeDir(); home != &quot;&quot; {
+        // 如果输入了kubeconfig参数，该参数的值就是kubeconfig文件的绝对路径，
+        // 如果没有输入kubeconfig参数，就用默认路径~/.kube/config
+        kubeconfig = flag.String(&quot;kubeconfig&quot;, filepath.Join(home, &quot;.kube&quot;, &quot;config&quot;), &quot;(optional) absolute path to the kubeconfig file&quot;)
+    } else {
+        // 如果取不到当前用户的家目录，就没办法设置kubeconfig的默认目录了，只能从入参中取
+        kubeconfig = flag.String(&quot;kubeconfig&quot;, &quot;&quot;, &quot;absolute path to the kubeconfig file&quot;)
+    }
+
+    flag.Parse()
+
+    // 从本机加载kubeconfig配置文件，因此第一个参数为空字符串
+    config, err := clientcmd.BuildConfigFromFlags(&quot;&quot;, *kubeconfig)
+
+    // kubeconfig加载失败就直接退出了
+    if err != nil {
+        panic(err.Error())
+    }
+
+    // 参考path : /api/v1/namespaces/{namespace}/pods
+    config.APIPath = &quot;api&quot;
+    // pod的group是空字符串
+    config.GroupVersion = &amp;corev1.SchemeGroupVersion
+    // 指定序列化工具
+    config.NegotiatedSerializer = scheme.Codecs
+
+    // 根据配置信息构建restClient实例
+    restClient, err := rest.RESTClientFor(config)
+
+    if err!=nil {
+        panic(err.Error())
+    }
+
+    // 保存pod结果的数据结构实例
+    result := &amp;corev1.PodList{}
+
+    //  指定namespace
+    namespace := &quot;kube-system&quot;
+    // 设置请求参数，然后发起请求
+    // GET请求
+    err = restClient.Get().
+        //  指定namespace，参考path : /api/v1/namespaces/{namespace}/pods
+        Namespace(namespace).
+        // 查找多个pod，参考path : /api/v1/namespaces/{namespace}/pods
+        Resource(&quot;pods&quot;).
+        // 指定大小限制和序列化工具
+        VersionedParams(&amp;metav1.ListOptions{Limit:100}, scheme.ParameterCodec).
+        // 请求
+        Do(context.TODO()).
+        // 结果存入result
+        Into(result)
+
+    if err != nil {
+        panic(err.Error())
+    }
+
+    // 表头
+    fmt.Printf(&quot;namespace\t status\t\t name\n&quot;)
+
+    // 每个pod都打印namespace、status.Phase、name三个字段
+    for _, d := range result.Items {
+        fmt.Printf(&quot;%v\t %v\t %v\n&quot;,
+            d.Namespace,
+            d.Status.Phase,
+            d.Name)
+    }
+}
+</code></pre>
+
+<p>运行结果</p>
+
+<pre><code>$ go run main.go
+namespace    status      name
+kube-system  Running     coredns-546565776c-p754f
+kube-system  Running     coredns-546565776c-ssxlk
+kube-system  Running     etcd-minikube
+kube-system  Running     kube-apiserver-minikube
+kube-system  Running     kube-controller-manager-minikube
+kube-system  Running     kube-proxy-z4vhb
+kube-system  Running     kube-scheduler-minikube
+kube-system  Running     storage-provisioner
+</code></pre>
+
+<p>说明</p>
+
+<p>1、获取kubeconfig</p>
+
+<p>获取kubernetes配置文件kubeconfig的绝对路径。一般路径为<code>$HOME/.kube/config</code>。该文件主要用来配置本地连接的kubernetes集群。</p>
+
+<pre><code>kubeconfig = flag.String(&quot;kubeconfig&quot;, filepath.Join(home,&quot;.kube&quot;,&quot;config&quot;),&quot;(optional) absolute path to the kubeconfig file&quot;)
+</code></pre>
+
+<p>2、通过参数（master的url或者kubeconfig路径）和<code>BuildConfigFromFlags</code>方法来获取<code>restclient.Config</code>对象</p>
+
+<pre><code>config, err := clientcmd.BuildConfigFromFlags(&quot;&quot;,*kubeconfig)
+</code></pre>
+
+<p>我们来看看restclient.Config结构：</p>
+
+<pre><code>type Config struct {
+    // Host must be a host string, a host:port pair, or a URL to the base of the apiserver.
+    // If a URL is given then the (optional) Path of that URL represents a prefix that must
+    // be appended to all request URIs used to access the apiserver. This allows a frontend
+    // proxy to easily relocate all of the apiserver endpoints.
+    Host string
+    // APIPath is a sub-path that points to an API root.
+    APIPath string
+
+    // ContentConfig contains settings that affect how objects are transformed when
+    // sent to the server.
+    ContentConfig
+
+    // Server requires Basic authentication
+    Username string
+    Password string `datapolicy:&quot;password&quot;`
+
+    // Server requires Bearer authentication. This client will not attempt to use
+    // refresh tokens for an OAuth2 flow.
+    // TODO: demonstrate an OAuth2 compatible client.
+    BearerToken string `datapolicy:&quot;token&quot;`
+
+    // Path to a file containing a BearerToken.
+    // If set, the contents are periodically read.
+    // The last successfully read value takes precedence over BearerToken.
+    BearerTokenFile string
+
+    // Impersonate is the configuration that RESTClient will use for impersonation.
+    Impersonate ImpersonationConfig
+
+    // Server requires plugin-specified authentication.
+    AuthProvider *clientcmdapi.AuthProviderConfig
+
+    // Callback to persist config for AuthProvider.
+    AuthConfigPersister AuthProviderConfigPersister
+
+    // Exec-based authentication provider.
+    ExecProvider *clientcmdapi.ExecConfig
+
+    // TLSClientConfig contains settings to enable transport layer security
+    TLSClientConfig
+
+    // UserAgent is an optional field that specifies the caller of this request.
+    UserAgent string
+
+    // DisableCompression bypasses automatic GZip compression requests to the
+    // server.
+    DisableCompression bool
+
+    // Transport may be used for custom HTTP behavior. This attribute may not
+    // be specified with the TLS client certificate options. Use WrapTransport
+    // to provide additional per-server middleware behavior.
+    Transport http.RoundTripper
+    // WrapTransport will be invoked for custom HTTP behavior after the underlying
+    // transport is initialized (either the transport created from TLSClientConfig,
+    // Transport, or http.DefaultTransport). The config may layer other RoundTrippers
+    // on top of the returned RoundTripper.
+    //
+    // A future release will change this field to an array. Use config.Wrap()
+    // instead of setting this value directly.
+    WrapTransport transport.WrapperFunc
+
+    // QPS indicates the maximum QPS to the master from this client.
+    // If it's zero, the created RESTClient will use DefaultQPS: 5
+    QPS float32
+
+    // Maximum burst for throttle.
+    // If it's zero, the created RESTClient will use DefaultBurst: 10.
+    Burst int
+
+    // Rate limiter for limiting connections to the master from this client. If present overwrites QPS/Burst
+    RateLimiter flowcontrol.RateLimiter
+
+    // WarningHandler handles warnings in server responses.
+    // If not set, the default warning handler is used.
+    // See documentation for SetDefaultWarningHandler() for details.
+    WarningHandler WarningHandler
+
+    // The maximum length of time to wait before giving up on a server request. A value of zero means no timeout.
+    Timeout time.Duration
+
+    // Dial specifies the dial function for creating unencrypted TCP connections.
+    Dial func(ctx context.Context, network, address string) (net.Conn, error)
+
+    // Proxy is the proxy func to be used for all requests made by this
+    // transport. If Proxy is nil, http.ProxyFromEnvironment is used. If Proxy
+    // returns a nil *URL, no proxy is used.
+    //
+    // socks5 proxying does not currently support spdy streaming endpoints.
+    Proxy func(*http.Request) (*url.URL, error)
+
+    // Version forces a specific version to be used (if registered)
+    // Do we need this?
+    // Version string
+}
+</code></pre>
+
+<p>可以看出来，这个config主要是对k8s的api的各种参数配置进行的封装。</p>
+
+<p>3、对接config进行关键配置</p>
+
+<p>对config的核心字段进行配置，比如path，group，序列化工具等。</p>
+
+<p>4、通过config构建rest客户端</p>
+
+<p>先看restclient结构体</p>
+
+<pre><code>type RESTClient struct {
+    // base is the root URL for all invocations of the client
+    base *url.URL
+    // versionedAPIPath is a path segment connecting the base URL to the resource root
+    versionedAPIPath string
+
+    // content describes how a RESTClient encodes and decodes responses.
+    content ClientContentConfig
+
+    // creates BackoffManager that is passed to requests.
+    createBackoffMgr func() BackoffManager
+
+    // rateLimiter is shared among all requests created by this client unless specifically
+    // overridden.
+    rateLimiter flowcontrol.RateLimiter
+
+    // warningHandler is shared among all requests created by this client.
+    // If not set, defaultWarningHandler is used.
+    warningHandler WarningHandler
+
+    // Set specific behavior of the client.  If not set http.DefaultClient will be used.
+    Client *http.Client
+}
+</code></pre>
+
+<p>可以看出来就是对http的封装，我们再来看看创建函数</p>
+
+<pre><code>func RESTClientFor(config *Config) (*RESTClient, error) {
+    if config.GroupVersion == nil {
+        return nil, fmt.Errorf(&quot;GroupVersion is required when initializing a RESTClient&quot;)
+    }
+    if config.NegotiatedSerializer == nil {
+        return nil, fmt.Errorf(&quot;NegotiatedSerializer is required when initializing a RESTClient&quot;)
+    }
+
+    //重config中解析出url相关的参数
+    baseURL, versionedAPIPath, err := defaultServerUrlFor(config)
+    if err != nil {
+        return nil, err
+    }
+
+    //通过config构建transport
+    transport, err := TransportFor(config)
+    if err != nil {
+        return nil, err
+    }
+
+    //通过transport构建httpclient
+    var httpClient *http.Client
+    if transport != http.DefaultTransport {
+        httpClient = &amp;http.Client{Transport: transport}
+        if config.Timeout &gt; 0 {
+            httpClient.Timeout = config.Timeout
+        }
+    }
+
+    rateLimiter := config.RateLimiter
+    if rateLimiter == nil {
+        qps := config.QPS
+        if config.QPS == 0.0 {
+            qps = DefaultQPS
+        }
+        burst := config.Burst
+        if config.Burst == 0 {
+            burst = DefaultBurst
+        }
+        if qps &gt; 0 {
+            rateLimiter = flowcontrol.NewTokenBucketRateLimiter(qps, burst)
+        }
+    }
+
+    var gv schema.GroupVersion
+    if config.GroupVersion != nil {
+        gv = *config.GroupVersion
+    }
+    clientContent := ClientContentConfig{
+        AcceptContentTypes: config.AcceptContentTypes,
+        ContentType:        config.ContentType,
+        GroupVersion:       gv,
+        Negotiator:         runtime.NewClientNegotiator(config.NegotiatedSerializer, gv),
+    }
+
+    //通过上面的参数构建restClient
+    restClient, err := NewRESTClient(baseURL, versionedAPIPath, clientContent, rateLimiter, httpClient)
+    if err == nil &amp;&amp; config.WarningHandler != nil {
+        restClient.warningHandler = config.WarningHandler
+    }
+    return restClient, err
+}
+</code></pre>
+
+<p>这个函数其实很简单，就是通过config构建restClient所需要的各种参数，然后构建restClient结构体。</p>
+
+<p>5、下面就是调用restClient的成员函数获取对应的集群数据，比如实例中的GET。</p>
+
+<pre><code>// Get begins a GET request. Short for c.Verb(&quot;GET&quot;).
+func (c *RESTClient) Get() *Request {
+    return c.Verb(&quot;GET&quot;)
+}
+
+func (c *RESTClient) Verb(verb string) *Request {
+    return NewRequest(c).Verb(verb)
+}
+</code></pre>
+
+<p>先是调用get函数获取一个request，然后调用request的Namespace，Resource，VersionedParams函数，给request赋值。</p>
+
+<pre><code>// Namespace applies the namespace scope to a request (&lt;resource&gt;/[ns/&lt;namespace&gt;/]&lt;name&gt;)
+func (r *Request) Namespace(namespace string) *Request {
+    if r.err != nil {
+        return r
+    }
+    if r.namespaceSet {
+        r.err = fmt.Errorf(&quot;namespace already set to %q, cannot change to %q&quot;, r.namespace, namespace)
+        return r
+    }
+    if msgs := IsValidPathSegmentName(namespace); len(msgs) != 0 {
+        r.err = fmt.Errorf(&quot;invalid namespace %q: %v&quot;, namespace, msgs)
+        return r
+    }
+    r.namespaceSet = true
+    r.namespace = namespace
+    return r
+}
+
+
+// Resource sets the resource to access (&lt;resource&gt;/[ns/&lt;namespace&gt;/]&lt;name&gt;)
+func (r *Request) Resource(resource string) *Request {
+    if r.err != nil {
+        return r
+    }
+    if len(r.resource) != 0 {
+        r.err = fmt.Errorf(&quot;resource already set to %q, cannot change to %q&quot;, r.resource, resource)
+        return r
+    }
+    if msgs := IsValidPathSegmentName(resource); len(msgs) != 0 {
+        r.err = fmt.Errorf(&quot;invalid resource %q: %v&quot;, resource, msgs)
+        return r
+    }
+    r.resource = resource
+    return r
+}
+
+func (r *Request) VersionedParams(obj runtime.Object, codec runtime.ParameterCodec) *Request {
+    return r.SpecificallyVersionedParams(obj, codec, r.c.content.GroupVersion)
+}
+
+func (r *Request) SpecificallyVersionedParams(obj runtime.Object, codec runtime.ParameterCodec, version schema.GroupVersion) *Request {
+    if r.err != nil {
+        return r
+    }
+    params, err := codec.EncodeParameters(obj, version)
+    if err != nil {
+        r.err = err
+        return r
+    }
+    for k, v := range params {
+        if r.params == nil {
+            r.params = make(url.Values)
+        }
+        r.params[k] = append(r.params[k], v...)
+    }
+    return r
+}
+</code></pre>
+
+<p>继续调用request的DO函数发生请求。</p>
+
+<pre><code>func (r *Request) Do(ctx context.Context) Result {
+    var result Result
+    err := r.request(ctx, func(req *http.Request, resp *http.Response) {
+        result = r.transformResponse(resp, req)
+    })
+    if err != nil {
+        return Result{err: err}
+    }
+    return result
+}
+</code></pre>
+
+<p>其实就是调用http的Do函数进行请求，最后对Response进行解析，打印。</p>
+
+<p>总体来说，restClient其实就是一个httpclient与k8s进行交互，处理相关信息。</p>
+
+<h2 id="clientset">ClientSet</h2>
+
+<h3 id="基本使用和原理分析-1">基本使用和原理分析</h3>
 
 <p>client-go中除了基本的rest http客户端，最先使用的就是ClientSet，这个客户端和我们常见的客户端使用差不多，我们先看一个实例。</p>
 
@@ -187,28 +608,18 @@ func homeDir()string{
 
 <p>运行结果</p>
 
-<pre><code>There are 9 pods in the cluster
-There are 7 pods in the cluster
-There are 7 pods in the cluster
+<pre><code>There are 8 pods in the cluster
+There are 10 pods in the cluster
+There are 10 pods in the cluster
 There are 7 pods in the cluster
 There are 7 pods in the cluster
 </code></pre>
 
 <p>分析</p>
 
-<p>1、获取kubeconfig</p>
+<p>构建config在restclient中已经说过了，我们直接来看客户端的构建。</p>
 
-<p>获取kubernetes配置文件kubeconfig的绝对路径。一般路径为<code>$HOME/.kube/config</code>。该文件主要用来配置本地连接的kubernetes集群。</p>
-
-<pre><code>kubeconfig = flag.String(&quot;kubeconfig&quot;, filepath.Join(home,&quot;.kube&quot;,&quot;config&quot;),&quot;(optional) absolute path to the kubeconfig file&quot;)
-</code></pre>
-
-<p>2、通过参数（master的url或者kubeconfig路径）和<code>BuildConfigFromFlags</code>方法来获取<code>restclient.Config</code>对象</p>
-
-<pre><code>config, err := clientcmd.BuildConfigFromFlags(&quot;&quot;,*kubeconfig)
-</code></pre>
-
-<p>3、通过<code>restclient.Config</code>参数和<code>NewForConfig</code>方法来获取<code>clientset</code>对象，<code>clientset</code>是多个<code>client</code>的集合，每个<code>client</code>可能包含不同版本的方法调用。</p>
+<p>1、通过<code>restclient.Config</code>参数和<code>NewForConfig</code>方法来获取<code>clientset</code>对象，<code>clientset</code>是多个<code>client</code>的集合，每个<code>client</code>可能包含不同版本的方法调用。</p>
 
 <pre><code>clientset, err := kubernetes.NewForConfig(config)
 </code></pre>
@@ -463,7 +874,7 @@ func NewForConfig(c *rest.Config) (*Clientset, error) {
 
 <p>可见通过config创建了结构体中所有的client，我们常用的client有<code>CoreV1Client</code>、<code>AppsV1beta1Client</code>、<code>ExtensionsV1beta1Client</code>等，我们就以实例中的CoreV1Client来继续分析</p>
 
-<p>4、CoreV1Client</p>
+<p>2、CoreV1Client</p>
 
 <p><code>corev1.NewForConfig</code>方法本质是调用了<code>rest.RESTClientFor(&amp;config)</code>方法创建<code>RESTClient</code>对象，即<code>CoreV1Client</code>的本质就是一个<code>RESTClient</code>对象，赋值到对应的CoreV1Client结构体。</p>
 
@@ -483,7 +894,7 @@ func NewForConfig(c *rest.Config) (*CoreV1Client, error) {
 }
 </code></pre>
 
-<p>5、CoreV1Interface</p>
+<p>3、CoreV1Interface</p>
 
 <p><code>CoreV1Client</code>实现了<code>CoreV1Interface</code>的接口，<code>CoreV1Interface</code>中包含了各种<code>kubernetes</code>对象的调用接口，对kubernetes的资源对象进行增删改查的操作，例如<code>PodsGetter</code>是对kubernetes中<code>pod</code>对象增删改查操作的接口。<code>ServicesGetter</code>是对<code>service</code>对象的操作的接口。</p>
 
@@ -581,7 +992,7 @@ func (c *CoreV1Client) ServiceAccounts(namespace string) ServiceAccountInterface
 
 </code></pre>
 
-<p>6、PodsGetter</p>
+<p>4、PodsGetter</p>
 
 <p>我们以实例中的操作为例</p>
 
@@ -590,7 +1001,7 @@ func (c *CoreV1Client) ServiceAccounts(namespace string) ServiceAccountInterface
 
 <p>可以看到CoreV1Client的Pods函数就是调用<strong>newPods</strong>函数，创建了一个<code>pods</code>对象。</p>
 
-<p>7、pods对象</p>
+<p>5、pods对象</p>
 
 <pre><code>// pods implements PodInterface
 type pods struct{
@@ -601,7 +1012,7 @@ type pods struct{
 
 <p><code>pods</code>对象实现了<code>PodInterface</code>接口。</p>
 
-<p>8、PodInterface</p>
+<p>6、PodInterface</p>
 
 <pre><code>// PodInterface has methods to work with Pod resources.
 type PodInterface interface {
@@ -858,7 +1269,7 @@ func (c *pods) UpdateEphemeralContainers(ctx context.Context, podName string, ep
 
 <p>可以看出最后对pods对象进行的操作都是通过corev1client调用来操作的，corev1client本质是创建了RESTClient，即最终的实现本质是<code>RESTClient</code>的HTTP调用。</p>
 
-<p>9、list</p>
+<p>7、list</p>
 
 <p>pods.List()方法通过<code>RESTClient</code>的HTTP调用来实现对kubernetes的pod资源的获取。</p>
 
@@ -880,7 +1291,7 @@ func (c *pods) List(ctx context.Context, opts metav1.ListOptions) (result *v1.Po
 }
 </code></pre>
 
-<p>10、RESTClient</p>
+<p>8、RESTClient</p>
 
 <p>在来看RESTClient，restclient是在corev1client创建的函数中创建的，<code>RESTClient</code>对象的创建同样是依赖传入的config信息。</p>
 
@@ -939,7 +1350,11 @@ type Interface interface {
 
 <p>总结成图（todo）</p>
 
-<h1 id="常用操作实现">常用操作实现</h1>
+<h3 id="常用操作实现">常用操作实现</h3>
+
+<blockquote>
+<p>clientset</p>
+</blockquote>
 
 <p><strong>创建clientset</strong>，原生所有的资源操作都要先创建clientset。</p>
 
@@ -952,7 +1367,9 @@ clientset, err := kubernetes.NewForConfig(config)
 //具体的资源调用见以下例子
 </code></pre>
 
-<h2 id="deployment">deployment</h2>
+<blockquote>
+<p>deployment</p>
+</blockquote>
 
 <pre><code>//声明deployment对象
 var deployment *v1beta1.Deployment
@@ -971,7 +1388,9 @@ deploymentList, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Li
 watchInterface, err := clientset.AppsV1beta1().Deployments(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
 </code></pre>
 
-<h2 id="service">service</h2>
+<blockquote>
+<p>service</p>
+</blockquote>
 
 <pre><code>//声明service对象
 var service *v1.Service
@@ -990,7 +1409,9 @@ serviceList, err := clientset.CoreV1().Services(&lt;namespace&gt;).List(&amp;met
 watchInterface, err := clientset.CoreV1().Services(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
 </code></pre>
 
-<h2 id="ingress">ingress</h2>
+<blockquote>
+<p>ingress</p>
+</blockquote>
 
 <pre><code>//声明ingress对象
 var ingress *v1beta1.Ingress
@@ -1009,7 +1430,9 @@ ingressList, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).L
 watchInterface, err := clientset.ExtensionsV1beta1().Ingresses(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
 </code></pre>
 
-<h2 id="replicaset">replicaSet</h2>
+<blockquote>
+<p>replicaSet</p>
+</blockquote>
 
 <pre><code>//声明replicaSet对象
 var replicaSet *v1beta1.ReplicaSet
@@ -1030,7 +1453,9 @@ watchInterface, err := clientset.ExtensionsV1beta1().ReplicaSets(&lt;namespace&g
 
 <p>新版的kubernetes中一般通过deployment来创建replicaSet，再通过replicaSet来控制pod。</p>
 
-<h2 id="pod">pod</h2>
+<blockquote>
+<p>pod</p>
+</blockquote>
 
 <pre><code>//声明pod对象
 var pod *v1.Pod
@@ -1048,7 +1473,9 @@ podList, err := clientset.CoreV1().Pods(&lt;namespace&gt;).List(&amp;meta_v1.Lis
 watchInterface, err := clientset.CoreV1().Pods(&lt;namespace&gt;).Watch(&amp;meta_v1.ListOptions{})
 </code></pre>
 
-<h2 id="statefulset">statefulset</h2>
+<blockquote>
+<p>statefulset</p>
+</blockquote>
 
 <pre><code>//声明statefulset对象
 var statefulset *v1.StatefulSet
@@ -1067,6 +1494,14 @@ watchInterface, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Watch(
 </code></pre>
 
 <p>通过以上对kubernetes的资源对象的操作函数可以看出，每个资源对象都有增删改查等方法，基本调用逻辑类似。一般二次开发只需要创建deployment、service、ingress三个资源对象即可，pod对象由deployment包含的replicaSet来控制创建和删除。函数调用的入参一般只有<code>NAMESPACE</code>和<code>kubernetesObject</code>两个参数，部分操作有<code>Options</code>的参数。在创建前，需要对资源对象构造数据，可以理解为编辑一个资源对象的yaml文件，然后通过<code>kubectl create -f xxx.yaml</code>来创建对象。</p>
+
+<h2 id="dynamicclient">dynamicClient</h2>
+
+<h3 id="基本使用和原理分析-2">基本使用和原理分析</h3>
+
+<h2 id="discoveryclient">discoveryClient</h2>
+
+<h3 id="基本使用和原理分析-3">基本使用和原理分析</h3>
             </div>
             
             <div style="border: 1px dashed #e0e0e0; margin-bottom: 15px; padding: 10px 10px 10px 10px; background-color: #fffeee; background-repeat: no-repeat; background-attachment: scroll; background-position: 1% 50%; -moz-background-size: auto auto; -moz-background-clip: -moz-initial; -moz-background-origin: -moz-initial; -moz-background-inline-policy: -moz-initial;">
@@ -1122,7 +1557,7 @@ watchInterface, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Watch(
                 
                 
                 <h4 id="real-rels">相关文章</h4>
-                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-store-csi/">云计算K8s组件系列—- 存储CSI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年08月12日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-store/">云计算K8s组件系列（八）---- 存储</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年08月03日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-image/">云计算容器系列---- Docker image 优化</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年07月31日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kubelet/">云计算K8s组件系列（四）---- K8s kubelet 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-network/">云计算容器系列---- Docker network</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月14日)</span></li></ul>
+                <ul class="post-rels" id="real-rels"><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-store-csi/">云计算K8s组件系列—- 存储CSI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年08月12日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-store/">云计算K8s组件系列（八）---- 存储</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年08月03日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/docker/docker-image/">云计算容器系列---- Docker image 优化</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年07月31日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-informer-principle/">云计算K8s系列---- K8s informer principle</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年07月30日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-informer/">云计算K8s系列---- K8s informer</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年07月20日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-autoscaler/">云计算K8s系列---- K8s autoscaler</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年02月04日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-kruise/">云计算K8s系列---- kruise</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-network-cni/">云计算K8s系列---- 网络CNI</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2021年01月17日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-controller/">云计算K8s系列---- K8s controller</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年11月24日)</span></li><li id="li-rels"><a href="/post/cloud/paas/base/kubernetes/k8s-apiserver/">云计算K8s组件系列（一）---- K8s apiserver 详解</a>&nbsp;&nbsp;<span class="post-date" style="font-size:14px">&nbsp;(2020年10月24日)</span></li></ul>
             </aside>
                 
             
@@ -1131,7 +1566,7 @@ watchInterface, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Watch(
                     <ul class="pager">
 
                         
-                        <li class="previous"><a href="/post/cloud/paas/base/docker/docker-image/"><span aria-hidden="true">&larr;</span> Prev</a></li>
+                        <li class="previous"><a href="/post/cloud/paas/base/kubernetes/k8s-informer/"><span aria-hidden="true">&larr;</span> Prev</a></li>
                         
 
                         <li><a href="/post/">All Posts</a></li>
@@ -1156,16 +1591,26 @@ watchInterface, err := clientset.AppsV1().StatefulSets(&lt;namespace&gt;).Watch(
 
             <nav id="TableOfContents">
 <ul>
-<li><a href="#client-go客户端">client-go客户端</a></li>
-<li><a href="#clientset基本使用和原理分析">ClientSet基本使用和原理分析</a></li>
-<li><a href="#常用操作实现">常用操作实现</a>
+<li><a href="#client-go">client-go</a></li>
+<li><a href="#客户端">客户端</a>
 <ul>
-<li><a href="#deployment">deployment</a></li>
-<li><a href="#service">service</a></li>
-<li><a href="#ingress">ingress</a></li>
-<li><a href="#replicaset">replicaSet</a></li>
-<li><a href="#pod">pod</a></li>
-<li><a href="#statefulset">statefulset</a></li>
+<li><a href="#restclient">RESTClient</a>
+<ul>
+<li><a href="#基本使用和原理分析">基本使用和原理分析</a></li>
+</ul></li>
+<li><a href="#clientset">ClientSet</a>
+<ul>
+<li><a href="#基本使用和原理分析-1">基本使用和原理分析</a></li>
+<li><a href="#常用操作实现">常用操作实现</a></li>
+</ul></li>
+<li><a href="#dynamicclient">dynamicClient</a>
+<ul>
+<li><a href="#基本使用和原理分析-2">基本使用和原理分析</a></li>
+</ul></li>
+<li><a href="#discoveryclient">discoveryClient</a>
+<ul>
+<li><a href="#基本使用和原理分析-3">基本使用和原理分析</a></li>
+</ul></li>
 </ul></li>
 </ul>
 </nav>
