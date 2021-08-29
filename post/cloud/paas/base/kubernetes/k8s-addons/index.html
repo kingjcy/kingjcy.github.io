@@ -84,7 +84,50 @@
 
 <h2 id="部署coredns">部署CoreDNS</h2>
 
-<p>部署 CoreDNS 需要使用到官方提供的两个文件 <a href="https://github.com/coredns/deployment/blob/master/kubernetes/deploy.sh">deploy.sh</a>和<a href="https://github.com/coredns/deployment/blob/master/kubernetes/coredns.yaml.sed">coredns.yaml.sed</a>（这两个文件已经放入manifest的coredns目录中）</p>
+<p>部署 CoreDNS 需要使用到官方提供的部署文件<a href="https://github.com/coredns/deployment/blob/master/kubernetes/coredns.yaml.sed">coredns.yaml.sed</a>。需要修改部署文件service的clusterIP指定coredns的ip，也是我们在kubelet的时候指定的dns的ip：&ndash;cluster-dns=10.254.0.2当然对应的配置文件也需要修改为自己需要的配置</p>
+
+<pre><code>Corefile: |
+    .:53 {
+        errors
+        health {
+          lameduck 5s
+        }
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+          pods insecure
+          fallthrough in-addr.arpa ip6.arpa
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf {
+          max_concurrent 1000
+        }
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+
+</code></pre>
+
+<p>配置文件会在下面详细说明，先部署</p>
+
+<pre><code>[root@dev1 bin]# kubectl apply -f coredns.yaml
+serviceaccount/coredns created
+clusterrole.rbac.authorization.k8s.io/system:coredns created
+clusterrolebinding.rbac.authorization.k8s.io/system:coredns created
+configmap/coredns created
+deployment.apps/coredns created
+service/kube-dns created
+[root@dev1 bin]# kubectl get pod -n kube-system
+NAME                      READY   STATUS    RESTARTS   AGE
+coredns-cfc5dfc45-n4c7z   1/1     Running   0          40m
+</code></pre>
+
+<blockquote>
+<p>基于kube-dns</p>
+</blockquote>
+
+<p>已经安装kube-dns，官方提供了一套安装升级的方法， 需要使用到官方提供的两个文件 <a href="https://github.com/coredns/deployment/blob/master/kubernetes/deploy.sh">deploy.sh</a>和<a href="https://github.com/coredns/deployment/blob/master/kubernetes/coredns.yaml.sed">coredns.yaml.sed</a>（这两个文件已经放入manifest的coredns目录中）。</p>
 
 <p><code>deploy.sh</code> 是一个用于在已经运行kube-dns的集群中生成运行CoreDNS部署文件（manifest）的工具脚本。它使用 <code>coredns.yaml.sed</code>文件作为模板，创建一个ConfigMap和CoreDNS的deployment，然后更新集群中已有的kube-dns 服务的selector使用CoreDNS的deployment。重用已有的服务并不会在服务的请求中发生冲突。</p>
 
@@ -98,10 +141,11 @@ $ kubectl delete --namespace=kube-system deployment kube-dns
 
 <p>建议在部署CoreDNS后删除kube-dns。否则如果CoreDNS和kube-dns同时运行，服务查询可能会随机的在CoreDNS和kube-dns之间产生。这是一段来自官方的部署方案，</p>
 
+<blockquote>
 <p>实战部署</p>
+</blockquote>
 
-<pre><code>[root@taas-mpi-prd-10-193-28-21.v-bj-4.vivo.lan:/data/log/kubernetes/kube-apiserver]
-# kubectl get deployments.apps coredns-autoscaling-v2 -n kube-system -oyaml
+<pre><code># kubectl get deployments.apps coredns -n kube-system -oyaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -110,7 +154,7 @@ metadata:
     k8s-app-vivodns: coredns
     kubernetes.io/cluster-service: &quot;true&quot;
     kubernetes.io/name: CoreDNS
-  name: coredns-autoscaling-v2
+  name: coredns
   namespace: kube-system
 spec:
   progressDeadlineSeconds: 600
@@ -194,7 +238,7 @@ status:
   conditions:
   - lastTransitionTime: 2020-09-23T08:36:24Z
     lastUpdateTime: 2020-09-23T08:38:59Z
-    message: ReplicaSet &quot;coredns-autoscaling-v2-86dc8bf5c7&quot; has successfully progressed.
+    message: ReplicaSet &quot;coredns-86dc8bf5c7&quot; has successfully progressed.
     reason: NewReplicaSetAvailable
     status: &quot;True&quot;
     type: Progressing
@@ -209,18 +253,18 @@ status:
   replicas: 10
   updatedReplicas: 10
 
-[root@taas-mpi-prd-10-193-28-21.v-bj-4.vivo.lan:/data/log/kubernetes/kube-apiserver]
-# kubectl get horizontalpodautoscalers.autoscaling --all-namespaces -o wide| grep coredns
-kube-system     coredns-autoscaling-hpa-v2                    Deployment/coredns-autoscaling-v2                        1%/25%                         10        20        10         249d
 
-[root@taas-mpi-prd-10-193-28-21.v-bj-4.vivo.lan:/data/log/kubernetes/kube-apiserver]
-# kubectl get horizontalpodautoscalers.autoscaling coredns-autoscaling-hpa-v2 -n kube-system -oyaml
+# kubectl get horizontalpodautoscalers.autoscaling --all-namespaces -o wide| grep coredns
+kube-system     coredns-hpa                    Deployment/coredns                        1%/25%                         10        20        10         249d
+
+
+# kubectl get horizontalpodautoscalers.autoscaling coredns-hpa -n kube-system -oyaml
 apiVersion: autoscaling/v1
 kind: HorizontalPodAutoscaler
 metadata:
   labels:
     k8s-app: kube-dns
-  name: coredns-autoscaling-hpa-v2
+  name: coredns-hpa
   namespace: kube-system
 spec:
   maxReplicas: 20
@@ -228,32 +272,33 @@ spec:
   scaleTargetRef:
     apiVersion: extensions/v1beta1
     kind: Deployment
-    name: coredns-autoscaling-v2
+    name: coredns
   targetCPUUtilizationPercentage: 25
 status:
   currentCPUUtilizationPercentage: 1
   currentReplicas: 10
   desiredReplicas: 10
   lastScaleTime: 2021-01-08T01:39:38Z
-[root@taas-mpi-prd-10-193-28-21.v-bj-4.vivo.lan:/data/log/kubernetes/kube-apiserver]
+
+
+
 # kubectl get pod -n kube-system -o wide | grep coredns
-coredns-autoscaling-v2-86dc8bf5c7-4zb9f          1/1     Running             0          100d   10.225.18.149    10.193.28.169
-coredns-autoscaling-v2-86dc8bf5c7-695nb          1/1     Running             0          100d   10.225.17.2      10.193.28.156
-coredns-autoscaling-v2-86dc8bf5c7-79pf2          1/1     Running             0          100d   10.225.12.29     10.193.28.22
-coredns-autoscaling-v2-86dc8bf5c7-87tsb          1/1     Running             0          100d   10.225.18.225    10.193.28.141
-coredns-autoscaling-v2-86dc8bf5c7-9pb87          1/1     Running             0          100d   10.225.18.229    10.193.28.141
-coredns-autoscaling-v2-86dc8bf5c7-bhhjz          1/1     Running             0          100d   10.225.18.147    10.193.28.169
-coredns-autoscaling-v2-86dc8bf5c7-lsztk          1/1     Running             0          100d   10.225.13.131    10.193.28.35
-coredns-autoscaling-v2-86dc8bf5c7-vdn82          1/1     Running             0          100d   10.225.62.31     10.194.36.14
-coredns-autoscaling-v2-86dc8bf5c7-wn94q          1/1     Running             0          100d   10.225.18.241    10.193.28.168
-coredns-autoscaling-v2-86dc8bf5c7-xgswf          1/1     Running             0          100d   10.225.18.240    10.193.28.168
+coredns-86dc8bf5c7-4zb9f          1/1     Running             0          100d   10.225.18.19    10.193.28.16
+coredns-86dc8bf5c7-695nb          1/1     Running             0          100d   10.225.17.2      10.193.28.15
+coredns-86dc8bf5c7-79pf2          1/1     Running             0          100d   10.225.12.29     10.193.28.22
+coredns-86dc8bf5c7-87tsb          1/1     Running             0          100d   10.225.18.22    10.193.28.14
+coredns-86dc8bf5c7-9pb87          1/1     Running             0          100d   10.225.18.29    10.193.28.14
+coredns-86dc8bf5c7-bhhjz          1/1     Running             0          100d   10.225.18.17    10.193.28.16
+coredns-86dc8bf5c7-lsztk          1/1     Running             0          100d   10.225.13.11    10.193.28.35
+coredns-86dc8bf5c7-vdn82          1/1     Running             0          100d   10.225.62.31     10.194.36.14
+coredns-86dc8bf5c7-wn94q          1/1     Running             0          100d   10.225.18.21    10.193.28.16
+coredns-86dc8bf5c7-xgswf          1/1     Running             0          100d   10.225.18.20    10.193.28.16
 coredns-hostnetwork-7f7fdd47cb-8z6nn             1/1     Running             2          100d   10.193.28.35     10.193.28.35
 coredns-hostnetwork-7f7fdd47cb-gp5zh             1/1     Running             0          100d   10.193.28.22     10.193.28.22
-coredns-hostnetwork-7f7fdd47cb-sjvxf             1/1     Running             0          100d   10.193.28.169    10.193.28.169
+coredns-hostnetwork-7f7fdd47cb-sjvxf             1/1     Running             0          100d   10.193.28.19    10.193.28.169
 
 
 正在使用的就是hpa的coredns
-
 </code></pre>
 
 <h2 id="配置文件">配置文件</h2>
